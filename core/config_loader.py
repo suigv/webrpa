@@ -13,41 +13,20 @@ def _project_root() -> Path:
 
 CONFIG_FILE = _project_root() / "config" / "devices.json"
 
-
-class ConfigLoader:
-    _config: Optional[Dict[str, Any]] = None
-
-    @classmethod
-    def load(cls) -> Dict[str, Any]:
-        if cls._config is None:
-            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                cls._config = json.load(f)
-        return cls._config or {}
-
-    @classmethod
-    def reload(cls) -> Dict[str, Any]:
-        cls._config = None
-        return cls.load()
-
-    @classmethod
-    def get(cls, key: str, default: Any = None) -> Any:
-        return cls.load().get(key, default)
-
-    @classmethod
-    def update(cls, **kwargs: Any) -> None:
-        config = cls.load()
-        config.update(kwargs)
-        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-            json.dump(config, f, indent=2, ensure_ascii=False)
-        cls._config = config
+DEFAULT_SCHEMA_VERSION = 2
+DEFAULT_ALLOCATION_VERSION = 1
+DEFAULT_CLOUD_MACHINES_PER_DEVICE = 10
+DEFAULT_SDK_PORT = 8000
 
 
-def get_host_ip() -> str:
-    return str(ConfigLoader.get("host_ip", "127.0.0.1"))
+def _to_int(value: Any, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
 
 
-def get_device_ips() -> dict[str, str]:
-    raw = ConfigLoader.get("device_ips", {})
+def _normalize_device_ips(raw: Any) -> dict[str, str]:
     if isinstance(raw, dict):
         result: dict[str, str] = {}
         for key, value in raw.items():
@@ -68,6 +47,84 @@ def get_device_ips() -> dict[str, str]:
     return {}
 
 
+def normalize_config(config: Dict[str, Any]) -> Dict[str, Any]:
+    normalized: Dict[str, Any] = dict(config)
+    normalized["host_ip"] = str(config.get("host_ip", "127.0.0.1"))
+    normalized["device_ips"] = _normalize_device_ips(config.get("device_ips", {}))
+
+    total_devices = _to_int(config.get("total_devices", 1), 1)
+    normalized["total_devices"] = max(1, total_devices)
+
+    cloud_machines = _to_int(
+        config.get("cloud_machines_per_device", DEFAULT_CLOUD_MACHINES_PER_DEVICE),
+        DEFAULT_CLOUD_MACHINES_PER_DEVICE,
+    )
+    normalized["cloud_machines_per_device"] = max(1, cloud_machines)
+
+    schema_version = _to_int(config.get("schema_version", DEFAULT_SCHEMA_VERSION), DEFAULT_SCHEMA_VERSION)
+    normalized["schema_version"] = max(1, schema_version)
+
+    allocation_version = _to_int(
+        config.get("allocation_version", DEFAULT_ALLOCATION_VERSION),
+        DEFAULT_ALLOCATION_VERSION,
+    )
+    normalized["allocation_version"] = max(1, allocation_version)
+
+    sdk_port = _to_int(config.get("sdk_port", DEFAULT_SDK_PORT), DEFAULT_SDK_PORT)
+    normalized["sdk_port"] = sdk_port if 1 <= sdk_port <= 65535 else DEFAULT_SDK_PORT
+
+    return normalized
+
+
+class ConfigLoader:
+    _config: Optional[Dict[str, Any]] = None
+
+    @classmethod
+    def load(cls) -> Dict[str, Any]:
+        if cls._config is None:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                raw = json.load(f)
+            cls._config = normalize_config(raw)
+        return cls._config or {}
+
+    @classmethod
+    def reload(cls) -> Dict[str, Any]:
+        cls._config = None
+        return cls.load()
+
+    @classmethod
+    def get(cls, key: str, default: Any = None) -> Any:
+        return cls.load().get(key, default)
+
+    @classmethod
+    def update(cls, **kwargs: Any) -> None:
+        config = normalize_config({**cls.load(), **kwargs})
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(config, f, indent=2, ensure_ascii=False)
+        cls._config = config
+
+    @classmethod
+    def migrate(cls) -> bool:
+        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+            raw = json.load(f)
+        normalized = normalize_config(raw)
+        if raw == normalized:
+            cls._config = normalized
+            return False
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(normalized, f, indent=2, ensure_ascii=False)
+        cls._config = normalized
+        return True
+
+
+def get_host_ip() -> str:
+    return str(ConfigLoader.get("host_ip", "127.0.0.1"))
+
+
+def get_device_ips() -> dict[str, str]:
+    return _normalize_device_ips(ConfigLoader.get("device_ips", {}))
+
+
 def get_device_ip(device_index: int) -> str:
     device_ips = get_device_ips()
     if str(device_index) in device_ips:
@@ -80,6 +137,38 @@ def get_total_devices() -> int:
         return max(1, int(ConfigLoader.get("total_devices", 1)))
     except (TypeError, ValueError):
         return 1
+
+
+def get_cloud_machines_per_device() -> int:
+    try:
+        value = int(ConfigLoader.get("cloud_machines_per_device", DEFAULT_CLOUD_MACHINES_PER_DEVICE))
+    except (TypeError, ValueError):
+        return DEFAULT_CLOUD_MACHINES_PER_DEVICE
+    return value if value >= 1 else DEFAULT_CLOUD_MACHINES_PER_DEVICE
+
+
+def get_schema_version() -> int:
+    try:
+        value = int(ConfigLoader.get("schema_version", DEFAULT_SCHEMA_VERSION))
+    except (TypeError, ValueError):
+        return DEFAULT_SCHEMA_VERSION
+    return value if value >= 1 else DEFAULT_SCHEMA_VERSION
+
+
+def get_allocation_version() -> int:
+    try:
+        value = int(ConfigLoader.get("allocation_version", DEFAULT_ALLOCATION_VERSION))
+    except (TypeError, ValueError):
+        return DEFAULT_ALLOCATION_VERSION
+    return value if value >= 1 else DEFAULT_ALLOCATION_VERSION
+
+
+def get_sdk_port() -> int:
+    try:
+        value = int(ConfigLoader.get("sdk_port", DEFAULT_SDK_PORT))
+    except (TypeError, ValueError):
+        return DEFAULT_SDK_PORT
+    return value if 1 <= value <= 65535 else DEFAULT_SDK_PORT
 
 
 def get_default_ai() -> str:

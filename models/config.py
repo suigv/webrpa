@@ -3,9 +3,13 @@ from typing import Optional
 
 
 class Config(BaseModel):
+    schema_version: int
+    allocation_version: int
     host_ip: str
     device_ips: dict[str, str] = Field(default_factory=dict)
     total_devices: int
+    cloud_machines_per_device: int
+    sdk_port: int
     default_ai: str
     stop_hour: int
     cycle_interval: int
@@ -28,9 +32,13 @@ class Config(BaseModel):
 
 
 class ConfigUpdate(BaseModel):
+    schema_version: Optional[int] = None
+    allocation_version: Optional[int] = None
     host_ip: Optional[str] = None
     device_ips: Optional[dict[str, str]] = None
     total_devices: Optional[int] = None
+    cloud_machines_per_device: Optional[int] = None
+    sdk_port: Optional[int] = None
     default_ai: Optional[str] = None
     stop_hour: Optional[int] = None
     cycle_interval: Optional[int] = None

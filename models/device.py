@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class AIType(str, Enum):
@@ -16,17 +16,26 @@ class DeviceStatus(str, Enum):
     ERROR = "error"
 
 
-class DeviceInfo(BaseModel):
-    index: int
-    ip: str
-    rpa_port: int
+class CloudMachineInfo(BaseModel):
+    cloud_id: int
     api_port: int
-    ai_type: AIType
+    rpa_port: int
     status: DeviceStatus = DeviceStatus.IDLE
 
 
+class DeviceInfo(BaseModel):
+    schema_version: int
+    allocation_version: int
+    device_id: int
+    ip: str
+    sdk_port: int = 8000
+    ai_type: AIType
+    status: DeviceStatus = DeviceStatus.IDLE
+    cloud_machines: list[CloudMachineInfo] = Field(default_factory=list)
+
+
 class DeviceStatusResponse(BaseModel):
-    index: int
+    device_id: int
     status: DeviceStatus
     current_task: Optional[str] = None
     message: Optional[str] = None

@@ -4,6 +4,8 @@ from fastapi import APIRouter, HTTPException
 
 from new.core.config_loader import (
     ConfigLoader,
+    get_allocation_version,
+    get_cloud_machines_per_device,
     get_cycle_interval,
     get_default_ai,
     get_device_ips,
@@ -17,6 +19,8 @@ from new.core.config_loader import (
     get_step_parallel,
     get_stop_hour,
     get_total_devices,
+    get_schema_version,
+    get_sdk_port,
     get_vision_cooldown_ms,
     get_vision_dedupe_window_ms,
     get_vision_device_type,
@@ -44,9 +48,13 @@ def _validate_ipv4(host_ip: str) -> str:
 @router.get("/", response_model=Config)
 def get_config():
     return Config(
+        schema_version=get_schema_version(),
+        allocation_version=get_allocation_version(),
         host_ip=get_host_ip(),
         device_ips=get_device_ips(),
         total_devices=get_total_devices(),
+        cloud_machines_per_device=get_cloud_machines_per_device(),
+        sdk_port=get_sdk_port(),
         default_ai=get_default_ai(),
         stop_hour=get_stop_hour(),
         cycle_interval=get_cycle_interval(),

@@ -42,12 +42,16 @@ function renderDevices(items) {
   }
 
   items.forEach((d) => {
+    const clouds = Array.isArray(d.cloud_machines) ? d.cloud_machines : [];
+    const firstCloud = clouds[0] || null;
     const node = document.createElement("div");
     node.className = "device-item";
     node.innerHTML = `
-      <strong>#${d.index} • ${d.status}</strong>
+      <strong>#${d.device_id} • ${d.status}</strong>
       <div class="device-meta">IP: ${d.ip}</div>
-      <div class="device-meta">API: ${d.api_port} | RPA: ${d.rpa_port}</div>
+      <div class="device-meta">SDK: ${d.sdk_port}</div>
+      <div class="device-meta">Clouds: ${clouds.length}</div>
+      <div class="device-meta">Cloud-1 API/RPA: ${firstCloud ? `${firstCloud.api_port}/${firstCloud.rpa_port}` : "n/a"}</div>
       <div class="device-meta">AI: ${d.ai_type}</div>
     `;
     devicesList.appendChild(node);

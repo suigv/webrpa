@@ -11,6 +11,7 @@ from new.api.routes import config as config_route
 from new.api.routes import data as data_route
 from new.api.routes import devices as devices_route
 from new.api.routes import websocket as websocket_route
+from new.core.device_manager import DeviceManager
 from new.engine.runner import Runner
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -31,6 +32,11 @@ app.include_router(config_route.router, prefix="/api/config", tags=["config"])
 app.include_router(data_route.router, prefix="/api/data", tags=["data"])
 app.include_router(websocket_route.router)
 app.mount("/web", StaticFiles(directory=str(WEB_DIR), html=True), name="web")
+
+
+@app.on_event("startup")
+def startup_topology_validation() -> None:
+    DeviceManager().validate_topology_or_raise()
 
 
 @app.get("/")

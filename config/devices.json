@@ -1,7 +1,11 @@
 {
+  "schema_version": 2,
+  "allocation_version": 1,
   "host_ip": "127.0.0.1",
   "device_ips": {},
   "total_devices": 1,
+  "cloud_machines_per_device": 10,
+  "sdk_port": 8000,
   "default_ai": "volc",
   "stop_hour": 18,
   "cycle_interval": 15,
