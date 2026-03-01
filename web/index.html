@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>MYT Control Console</title>
+  <link rel="stylesheet" href="/web/styles.css">
+</head>
+<body>
+  <div class="bg-shape bg-shape-a"></div>
+  <div class="bg-shape bg-shape-b"></div>
+
+  <header class="topbar">
+    <div class="brand">
+      <h1>MYT Control Console</h1>
+      <p>Standalone Runtime + Device Control</p>
+    </div>
+    <div class="status-wrap">
+      <span id="apiStatus" class="badge badge-warn">API: Checking</span>
+      <button id="refreshAll" class="btn btn-ghost">Refresh</button>
+    </div>
+  </header>
+
+  <main class="grid">
+    <section class="card card-devices">
+      <div class="card-head">
+        <h2>Devices</h2>
+        <button id="refreshDevices" class="btn">Reload</button>
+      </div>
+      <div id="devicesList" class="device-list"></div>
+    </section>
+
+    <section class="card card-config">
+      <div class="card-head">
+        <h2>Config</h2>
+        <button id="saveConfig" class="btn">Save</button>
+      </div>
+      <div class="form-grid">
+        <label>Host IP<input id="hostIp" type="text" placeholder="127.0.0.1"></label>
+        <label>Total Devices<input id="totalDevices" type="number" min="1" step="1"></label>
+      </div>
+      <label class="block-label">Device IPs (JSON: {"1":"10.0.0.11"})
+        <textarea id="deviceIps" rows="6" spellcheck="false"></textarea>
+      </label>
+      <div id="configMsg" class="msg"></div>
+    </section>
+
+    <section class="card card-runtime">
+      <div class="card-head">
+        <h2>Runtime Execute</h2>
+        <button id="runTask" class="btn btn-accent">Run</button>
+      </div>
+      <textarea id="runtimePayload" rows="10" spellcheck="false">{
+  "task": "smoke",
+  "steps": [
+    {
+      "action": "browser_open",
+      "params": {
+        "url": "https://example.com",
+        "headless": true
+      }
+    }
+  ]
+}</textarea>
+      <pre id="runtimeResult" class="code"></pre>
+    </section>
+
+    <section class="card card-logs">
+      <div class="card-head">
+        <h2>Live Logs</h2>
+        <button id="clearLogs" class="btn btn-ghost">Clear</button>
+      </div>
+      <pre id="logBox" class="log-box"></pre>
+    </section>
+  </main>
+
+  <script src="/web/app.js"></script>
+</body>
+</html>
