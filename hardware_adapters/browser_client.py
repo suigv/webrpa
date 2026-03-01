@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -70,6 +71,70 @@ class BrowserClient:
             return str(getattr(self._page, "html", ""))
         except Exception:
             return ""
+
+    def _get_element(self, selector: str):
+        if self._page is None:
+            return None
+        try:
+            if hasattr(self._page, "ele"):
+                return self._page.ele(selector)
+        except Exception:
+            return None
+        return None
+
+    def exists(self, selector: str) -> bool:
+        return self._get_element(selector) is not None
+
+    def input(self, selector: str, text: str) -> bool:
+        element = self._get_element(selector)
+        if element is None:
+            return False
+        try:
+            if hasattr(element, "clear"):
+                element.clear()
+            if hasattr(element, "input"):
+                element.input(text)
+                return True
+            if hasattr(element, "type"):
+                element.type(text)
+                return True
+            if hasattr(element, "send_keys"):
+                element.send_keys(text)
+                return True
+        except Exception as exc:
+            self._error = str(exc)
+            return False
+        return False
+
+    def click(self, selector: str) -> bool:
+        element = self._get_element(selector)
+        if element is None:
+            return False
+        try:
+            if hasattr(element, "click"):
+                element.click()
+                return True
+        except Exception as exc:
+            self._error = str(exc)
+            return False
+        return False
+
+    def current_url(self) -> str:
+        if self._page is None:
+            return ""
+        try:
+            return str(getattr(self._page, "url", ""))
+        except Exception:
+            return ""
+
+    def wait_url_contains(self, fragment: str, timeout_seconds: int) -> bool:
+        timeout = max(1, int(timeout_seconds))
+        start = time.time()
+        while time.time() - start <= timeout:
+            if fragment in self.current_url():
+                return True
+            time.sleep(0.2)
+        return False
 
     def close(self) -> None:
         if self._page is None:
