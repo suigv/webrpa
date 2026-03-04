@@ -30,6 +30,11 @@ def test_config_migration_idempotent(tmp_path):
         assert migrated["cloud_machines_per_device"] == 10
         assert migrated["sdk_port"] == 8000
         assert migrated["device_ips"] == {"1": "127.0.0.2", "2": "127.0.0.3"}
+        assert "humanized" in migrated
+        assert isinstance(migrated["humanized"], dict)
+        assert "enabled" in migrated["humanized"]
+        assert "typing_delay_min" in migrated["humanized"]
+        assert "move_steps_max" in migrated["humanized"]
     finally:
         config_loader.CONFIG_FILE = backup_file
         config_loader.ConfigLoader._config = backup_cache

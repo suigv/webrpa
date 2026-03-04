@@ -54,8 +54,8 @@ def test_device_manager_returns_nested_cloud_topology():
         clouds = info["cloud_machines"]
         assert len(clouds) == 10
         assert clouds[0]["cloud_id"] == 1
-        assert clouds[0]["api_port"] == 30101
-        assert clouds[0]["rpa_port"] == 30102
+        assert clouds[0]["api_port"] == 30001
+        assert clouds[0]["rpa_port"] == 30002
     finally:
         ConfigLoader._config = backup
 

@@ -17,19 +17,48 @@ def test_allocator_deterministic_repeatability():
 
 
 def test_topology_unique_ports():
+    """With new formula, ports are unique per cloud_index, not per device.
+    
+    Port = 30000 + (cloud_index - 1) * 100 + offset
+    So cloud 1 → 30001/30002, cloud 2 → 30101/30102, etc.
+    """
     backup = ConfigLoader._config
     try:
         ConfigLoader._config = {"sdk_port": 8000}
         total_devices = 5
         clouds = 7
         mapping = build_task_port_map(total_devices=total_devices, cloud_machines_per_device=clouds)
-        unique_ports: set[int] = set()
+        
+        # Verify ports don't conflict with SDK port
         for api_port, rpa_port in mapping.values():
-            unique_ports.add(api_port)
-            unique_ports.add(rpa_port)
             assert api_port != 8000
             assert rpa_port != 8000
-        assert len(unique_ports) == total_devices * clouds * 2
+        
+        # With new formula, ports are determined by cloud_index only
+        # So we expect exactly `clouds` unique port pairs, not `total_devices * clouds`
+        port_pairs: set[tuple[int, int]] = set()
+        for (device_id, cloud_id), (api_port, rpa_port) in mapping.items():
+            port_pairs.add((api_port, rpa_port))
+        
+        # Each cloud should have its own unique port pair
+        assert len(port_pairs) == clouds, f"Expected {clouds} unique port pairs, got {len(port_pairs)}"
+        
+        # Verify expected port pairs for each cloud
+        expected = {
+            1: (30001, 30002),
+            2: (30101, 30102),
+            3: (30201, 30202),
+            4: (30301, 30302),
+            5: (30401, 30402),
+            6: (30501, 30502),
+            7: (30601, 30602),
+        }
+        for cloud_id, (expected_api, expected_rpa) in expected.items():
+            # All devices should have same ports for a given cloud
+            for device_id in range(1, total_devices + 1):
+                api_port, rpa_port = mapping[(device_id, cloud_id)]
+                assert api_port == expected_api, f"cloud {cloud_id}: expected {expected_api}, got {api_port}"
+                assert rpa_port == expected_rpa, f"cloud {cloud_id}: expected {expected_rpa}, got {rpa_port}"
     finally:
         ConfigLoader._config = backup
 

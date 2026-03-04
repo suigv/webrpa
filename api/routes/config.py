@@ -15,6 +15,7 @@ from new.core.config_loader import (
     get_humanization_intensity,
     get_humanization_jitter_ms,
     get_humanization_seed,
+    get_humanized_config,
     get_judge_mode,
     get_step_parallel,
     get_stop_hour,
@@ -74,6 +75,7 @@ def get_config():
         humanization_seed=get_humanization_seed(),
         humanization_delay_ms=get_humanization_delay_ms(),
         humanization_jitter_ms=get_humanization_jitter_ms(),
+        humanized=get_humanized_config(),
     )
 
 

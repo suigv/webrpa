@@ -1,0 +1,210 @@
+version: v1
+workflow: x_auto_login
+
+vars:
+  login_url: "${payload.login_url:-https://x.com/i/flow/login}"
+  headless: "${payload.headless:-true}"
+  timeout_s: "${payload.timeout_seconds:-25}"
+
+steps:
+  # Step 0: Load credentials
+  - label: load_credentials
+    kind: action
+    action: credentials.load
+    params:
+      credentials_ref: "${payload.credentials_ref}"
+      save_as: creds
+    on_fail:
+      strategy: abort
+
+  # Step 1: Open login page
+  - label: open_login
+    kind: action
+    action: browser.open
+    params:
+      url: "${vars.login_url}"
+      headless: "${vars.headless}"
+    on_fail:
+      strategy: abort
+
+  # Step 2: Enter username/email
+  - label: input_identifier
+    kind: action
+    action: browser.input
+    params:
+      selectors:
+        - "input[autocomplete='username']"
+        - "input[name='text']"
+      text: "${vars.creds.username_or_email}"
+    on_fail:
+      strategy: abort
+
+  # Step 3: Click next
+  - label: click_next
+    kind: action
+    action: browser.click
+    params:
+      selectors:
+        - "button[data-testid='LoginForm_Login_Button']"
+        - "div[role='button'][data-testid='ocfEnterTextNextButton']"
+        - "div[role='button']:has(span)"
+    on_fail:
+      strategy: skip
+
+  # Step 4: Enter password
+  - label: input_password
+    kind: action
+    action: browser.input
+    params:
+      selectors:
+        - "input[name='password']"
+        - "input[autocomplete='current-password']"
+      text: "${vars.creds.password}"
+    on_fail:
+      strategy: abort
+
+  # Step 5: Submit login
+  - label: submit_login
+    kind: action
+    action: browser.click
+    params:
+      selectors:
+        - "button[data-testid='LoginForm_Login_Button']"
+        - "div[role='button'][data-testid='ocfEnterTextNextButton']"
+        - "div[role='button']:has(span)"
+    on_fail:
+      strategy: skip
+
+  # Step 6: Check for captcha
+  - label: check_captcha
+    kind: if
+    when:
+      any:
+        - type: text_contains
+          text: captcha
+        - type: text_contains
+          text: arkose
+        - type: text_contains
+          text: "prove you are human"
+        - type: text_contains
+          text: "verify you are human"
+    then: captcha_detected
+
+  # Step 7: Check for bad credentials
+  - label: check_bad_creds
+    kind: if
+    when:
+      any:
+        - type: text_contains
+          text: "wrong password"
+        - type: text_contains
+          text: "incorrect"
+        - type: text_contains
+          text: "could not verify"
+        - type: text_contains
+          text: "try again"
+    then: bad_credentials
+
+  # Step 8: Check for 2FA requirement
+  - label: check_2fa
+    kind: if
+    when:
+      any:
+        - type: text_contains
+          text: "two-factor"
+        - type: text_contains
+          text: "2fa"
+        - type: text_contains
+          text: "verification code"
+        - type: text_contains
+          text: "enter your code"
+        - type: text_contains
+          text: "check your phone"
+        - type: text_contains
+          text: "confirmation code"
+    then: handle_2fa
+
+  # Step 9: Wait for successful login
+  - label: wait_for_home
+    kind: wait_until
+    check:
+      any:
+        - type: url_contains
+          text: "/home"
+    interval_ms: 500
+    timeout_ms: 25000
+    on_timeout:
+      strategy: goto
+      goto: login_timeout
+
+  # Step 10: Verify success element
+  - label: check_success
+    kind: action
+    action: browser.exists
+    params:
+      selectors:
+        - "a[data-testid='SideNav_AccountSwitcher_Button']"
+        - "button[data-testid='SideNav_AccountSwitcher_Button']"
+        - "div[data-testid='SideNav_AccountSwitcher_Button']"
+    on_fail:
+      strategy: skip
+
+  # Step 11: Login completed
+  - label: login_success
+    kind: stop
+    status: success
+    message: "login completed"
+
+  # ---- Error handling labels ----
+
+  # Step 12: Handle 2FA
+  - label: handle_2fa
+    kind: action
+    action: browser.input
+    params:
+      selectors:
+        - "input[name='text']"
+        - "input[inputmode='numeric']"
+      text: "${payload.two_factor_code}"
+    on_fail:
+      strategy: goto
+      goto: 2fa_failed
+
+  # Step 13: Submit 2FA
+  - label: submit_2fa
+    kind: action
+    action: browser.click
+    params:
+      selectors:
+        - "div[role='button'][data-testid='ocfEnterTextNextButton']"
+        - "button[data-testid='LoginForm_Login_Button']"
+    on_fail:
+      strategy: skip
+
+  # Step 14: Go back to wait for home
+  - kind: goto
+    target: wait_for_home
+
+  # Step 15: 2FA failed
+  - label: 2fa_failed
+    kind: stop
+    status: failed
+    message: "2FA input failed or code not accepted"
+
+  # Step 16: Captcha detected
+  - label: captcha_detected
+    kind: stop
+    status: failed
+    message: "captcha challenge detected"
+
+  # Step 17: Bad credentials
+  - label: bad_credentials
+    kind: stop
+    status: failed
+    message: "bad credentials"
+
+  # Step 18: Login timeout
+  - label: login_timeout
+    kind: stop
+    status: failed
+    message: "login verification timed out"

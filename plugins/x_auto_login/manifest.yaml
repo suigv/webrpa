@@ -1,0 +1,26 @@
+api_version: v1
+kind: plugin
+name: x_auto_login
+version: "1.0.0"
+display_name: "X (Twitter) Auto Login"
+description: >
+  Automates browser-based login to X.com (formerly Twitter).
+  Handles username/password entry, 2FA detection, captcha detection,
+  and login verification.
+entry_script: script.yaml
+inputs:
+  - name: credentials_ref
+    type: string
+    required: true
+  - name: headless
+    type: boolean
+    required: false
+    default: true
+  - name: two_factor_code
+    type: string
+    required: false
+    default: ""
+  - name: timeout_seconds
+    type: integer
+    required: false
+    default: 25

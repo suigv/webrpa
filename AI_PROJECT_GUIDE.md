@@ -35,14 +35,14 @@ Request flow:
 - `new/web/app.js`: frontend logic for devices/config/runtime/logs.
 - `new/api/routes/__init__.py`: package marker.
 - `new/api/routes/config.py`: config read/update endpoints (`/api/config`).
-- `new/api/routes/data.py`: data read/update endpoints (`/api/data/accounts|location|website`) and opt-in migration endpoint.
+- `new/api/routes/data.py`: data read/update endpoints (`/api/data/accounts|location|website`).
 - `new/api/routes/devices.py`: device list/status/start/stop (baseline stub behavior for start/stop).
 - `new/api/routes/websocket.py`: websocket log channel (`/ws/logs`) with ping/pong and broadcast bridge.
 
 ### Core layer
 - `new/core/__init__.py`: package marker.
 - `new/core/config_loader.py`: config file loading/updating from `new/config/devices.json` with typed getters.
-- `new/core/data_store.py`: JSON storage for accounts/location/website under `new/config/data`; legacy TXT migration is disabled unless `ENABLE_LEGACY_MIGRATION=1`.
+- `new/core/data_store.py`: JSON storage for accounts/location/website under `new/config/data`.
 - `new/core/device_manager.py`: in-memory device state manager and helper parsers.
 - `new/core/port_calc.py`: deterministic per-device port calculation.
 

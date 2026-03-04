@@ -81,7 +81,9 @@ class DeviceManager:
                 {
                     "cloud_id": cloud_id,
                     "api_port": api_port,
+                    "api_port_role": "cloud_api",
                     "rpa_port": rpa_port,
+                    "rpa_port_role": "mytrpc_control",
                     "status": device.status.value,
                 }
             )
@@ -92,6 +94,7 @@ class DeviceManager:
             "device_id": device_id,
             "ip": get_device_ip(device_id),
             "sdk_port": get_sdk_port(),
+            "sdk_port_role": "device_control_api",
             "ai_type": device.ai_type.value,
             "status": device.status.value,
             "current_task": device.current_task,

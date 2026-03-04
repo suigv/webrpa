@@ -1,159 +1,199 @@
-# Plugin Contract (`new/plugins/`)
+# Plugin Contract v2 (`new/plugins/`)
 
 ## Goal
-Define a stable contract for task plugins so runtime can execute business flows without coupling to API or legacy task code.
+Define a stable contract for **YAML-only declarative plugins** so the runtime can execute business workflows without coupling to API routes or legacy task code.
 
 ## Version
-- Current contract: `plugin_contract_version = "1.0"`
-- Breaking changes require version bump.
+- Current contract: `v2` (YAML-only)
+- Previous: `v1` (JSON + handler.py) — **deprecated**
 
 ## File Layout
-Recommended plugin structure:
 
-- `new/plugins/<plugin_name>/manifest.json`
-- `new/plugins/<plugin_name>/script.json` (optional, if using declarative script)
-- `new/plugins/<plugin_name>/handler.py` (optional, if using code handler)
+Each plugin lives in its own directory under `new/plugins/`:
 
-At least one of `script.json` or `handler.py` must exist.
-
-## Manifest Schema
-`manifest.json` fields:
-
-- `name` (string, required): unique plugin name
-- `version` (string, required): plugin version
-- `plugin_contract_version` (string, required): must match runtime-supported contract
-- `entry_type` (string, required): `"script" | "handler"`
-- `entry` (string, required): path to `script.json` or `handler.py:callable`
-- `description` (string, optional)
-- `capabilities` (array[string], optional): e.g. `"ui"`, `"ai"`, `"rpc"`, `"data"`
-  - browser workflows should include `"browser"`
-- `timeout_seconds` (int, optional, default 60)
-- `retry` (object, optional)
-  - `max_attempts` (int, default 1)
-  - `backoff_ms` (int, default 0)
-- `on_fail` (string, optional, default `"abort"`): `"abort" | "skip" | "retry"`
-
-Example:
-
-```json
-{
-  "name": "account_warmup_v1",
-  "version": "0.1.0",
-  "plugin_contract_version": "1.0",
-  "entry_type": "script",
-  "entry": "script.json",
-  "description": "Warmup flow for new accounts",
-  "capabilities": ["ui", "data"],
-  "timeout_seconds": 120,
-  "retry": {
-    "max_attempts": 2,
-    "backoff_ms": 1000
-  },
-  "on_fail": "abort"
-}
+```
+new/plugins/<plugin_name>/
+├── manifest.yaml    # Plugin metadata and input schema
+└── script.yaml      # Declarative workflow steps
 ```
 
-## Script Schema (`entry_type = script`)
-Top-level fields:
-- `task` (string, required)
-- `steps` (array, required)
+Both files are required. There are no Python handler entry points — all logic is expressed declaratively via the 5 step primitives.
 
-Step fields:
-- `id` (string, required)
-- `action` (string, required): maps to `new/engine/actions/*`
-- `params` (object, optional)
-- `timeout_ms` (int, optional)
-- `retry` (object, optional)
-  - `max_attempts` (int)
-  - `backoff_ms` (int)
-- `on_fail` (string, optional): `"abort" | "skip" | "retry" | "handoff"`
-- `expect` (object, optional): expected output shape/conditions
+## Manifest Schema (`manifest.yaml`)
 
-Example:
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `api_version` | `"v1"` | yes | Schema version (always `v1`) |
+| `kind` | `"plugin"` | yes | Resource kind (always `plugin`) |
+| `name` | string | yes | Unique plugin identifier (matches directory name) |
+| `version` | string | yes | Plugin version (semver) |
+| `display_name` | string | yes | Human-readable name |
+| `description` | string | no | Plugin description |
+| `entry_script` | string | no | Script filename (default: `script.yaml`) |
+| `inputs` | list[PluginInput] | no | Declared input parameters |
 
-```json
-{
-  "task": "warmup_login",
-  "steps": [
-    {
-      "id": "open_app",
-      "action": "click",
-      "params": {"target": "app_icon"},
-      "timeout_ms": 5000,
-      "on_fail": "abort"
-    },
-    {
-      "id": "input_username",
-      "action": "input_text",
-      "params": {"target": "username", "text": "${vars.username}"},
-      "retry": {"max_attempts": 2, "backoff_ms": 500},
-      "on_fail": "retry"
-    }
-  ]
-}
+### PluginInput Schema
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `name` | string | yes | Input parameter name |
+| `type` | `"string" \| "integer" \| "number" \| "boolean"` | yes | Input type |
+| `required` | bool | no | Whether input is required (default: `true`) |
+| `default` | any | no | Default value if not provided |
+
+### Example
+
+```yaml
+api_version: v1
+kind: plugin
+name: x_auto_login
+version: "1.0.0"
+display_name: "X (Twitter) Auto Login"
+description: "Automates browser-based login to X.com"
+entry_script: script.yaml
+inputs:
+  - name: credentials_ref
+    type: string
+    required: true
+  - name: headless
+    type: boolean
+    required: false
+    default: true
 ```
 
-Browser action example:
+## Workflow Script Schema (`script.yaml`)
 
-```json
-{
-  "id": "open_landing_page",
-  "action": "browser_open",
-  "params": {"url": "https://example.com", "headless": true},
-  "timeout_ms": 20000,
-  "on_fail": "abort"
-}
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `version` | `"v1"` | yes | Schema version |
+| `workflow` | string | yes | Workflow name (should match plugin name) |
+| `vars` | dict | no | Script-level variables (support interpolation) |
+| `steps` | list[Step] | yes | Ordered list of steps |
+
+### Variable Interpolation
+
+Templates use `${namespace.path}` syntax:
+- `${payload.key}` — value from runtime payload
+- `${vars.key}` — value from script vars or saved action results
+- `${vars.creds.field}` — nested dot-path lookup
+- `${payload.url:-https://default.com}` — default value after `:-`
+
+### Step Primitives (5 kinds)
+
+#### `action` — Execute a registered action
+
+```yaml
+- label: open_login
+  kind: action
+  action: browser.open
+  params:
+    url: "${vars.login_url}"
+  save_as: open_result    # optional: save result to vars
+  on_fail:
+    strategy: abort       # abort | skip | retry | goto
 ```
 
-## Handler Contract (`entry_type = handler`)
-Entry format: `handler.py:run`
+#### `if` — Conditional branching
 
-Callable signature:
-
-```python
-def run(context: dict[str, object]) -> dict[str, object]:
-    ...
+```yaml
+- label: check_captcha
+  kind: if
+  when:
+    any:                  # any | all
+      - type: text_contains
+        text: "captcha"
+  then: captcha_detected  # label to jump to if true
+  otherwise: continue     # optional: label if false
 ```
 
-`context` includes:
-- `task_id` (str)
-- `plugin_name` (str)
-- `input` (dict)
-- `devices` (list[int])
-- `ai_type` (str)
-- `config` (dict)
-- `logger` (callable)
+#### `wait_until` — Polling loop
 
-Return payload:
-- `ok` (bool, required)
-- `status` (str, required): `"completed" | "failed" | "partial"`
-- `result` (object, optional)
-- `error` (str, optional)
-- `metrics` (object, optional)
+```yaml
+- label: wait_home
+  kind: wait_until
+  check:
+    any:
+      - type: url_contains
+        text: "/home"
+  interval_ms: 500
+  timeout_ms: 25000       # hard limit: 120000ms
+  on_timeout:
+    strategy: goto
+    goto: timeout_handler
+```
 
-## Runtime Execution Rules
-1. Runtime validates `manifest.json` first.
-2. Runtime checks contract version compatibility.
-3. Runtime dispatches by `entry_type`:
-   - `script` -> `new/engine/parser.py` + `new/engine/runner.py`
-   - `handler` -> import callable and execute with context
-4. Runtime enforces timeout/retry/on_fail.
-5. Runtime returns structured result and updates task status.
+#### `goto` — Unconditional jump
+
+```yaml
+- kind: goto
+  target: wait_home
+```
+
+#### `stop` — Terminate workflow
+
+```yaml
+- label: success
+  kind: stop
+  status: success         # success | failed
+  message: "login completed"
+```
+
+### Condition Types
+
+| Type | Fields | Description |
+|---|---|---|
+| `text_contains` | `text` | Page HTML contains text (case-insensitive) |
+| `url_contains` | `text` | Current URL contains text (case-insensitive) |
+| `exists` | `selector` | DOM element exists matching selector |
+| `var_equals` | `var`, `equals` | Variable equals expected value |
+| `result_ok` | — | Last action result was ok |
+
+### Failure Strategies (`on_fail`)
+
+| Strategy | Fields | Behavior |
+|---|---|---|
+| `abort` | — | Stop workflow with error (default) |
+| `skip` | — | Ignore failure, continue to next step |
+| `retry` | `retries`, `delay_ms` | Retry N times with delay |
+| `goto` | `goto` | Jump to label on failure |
+
+## Built-in Actions
+
+### Browser Actions
+- `browser.open` — Open URL (`url`, `headless`)
+- `browser.input` — Type text into element (`selectors[]`, `text`)
+- `browser.click` — Click element (`selectors[]`)
+- `browser.exists` — Check element exists (`selectors[]`)
+- `browser.check_html` — Check page HTML for keywords (`contains[]`)
+- `browser.wait_url` — Wait for URL fragment (`fragment`, `timeout_s`)
+- `browser.close` — Close browser session
+
+### Credential Actions
+- `credentials.load` — Load credentials from file (`credentials_ref`, `save_as`)
+
+## Runtime Execution
+
+1. `PluginLoader.scan()` discovers `plugins/*/manifest.yaml`
+2. `Runner.run()` matches task name → plugin manifest
+3. `parse_script()` loads and validates `script.yaml` via Pydantic
+4. `Interpreter.execute()` runs the workflow with PC-based loop
+5. Browser session opens lazily on first browser action
+6. Browser session closes in interpreter `finally` block
+7. `max_transitions = 500` guards against goto loops
+8. `wait_until` enforces `timeout_ms` with engine hard limit of 120s
 
 ## Security and Isolation Rules
-- Plugin must not import old `tasks` or `app.*` modules.
-- Plugin must not perform destructive file operations outside `new/`.
-- Secrets must be read from env/config, never hardcoded.
+- Plugins must not import old `tasks` or `app.*` modules
+- Plugins must not contain Python code — YAML only
+- Credentials must be loaded via `credentials.load` action from allowlisted paths
+- No destructive file operations outside `new/`
 
 ## Validation Checklist
 For each new plugin:
-- Manifest schema valid.
-- Entry resolvable.
-- Dry-run passes.
-- Error path tested (`on_fail` behavior).
-- Output payload includes required fields.
-
-## Future Extension Points
-- Add `requires` for dependency declarations.
-- Add `permissions` for capability gating.
-- Add `schema_ref` for strict JSON Schema validation.
+- [ ] `manifest.yaml` validates against `PluginManifest` model
+- [ ] `script.yaml` validates against `WorkflowScript` model
+- [ ] All referenced labels exist in the step list
+- [ ] No duplicate labels
+- [ ] All referenced actions are registered
+- [ ] Error paths tested (`on_fail` behavior)
+- [ ] `check_no_legacy_imports.py` passes

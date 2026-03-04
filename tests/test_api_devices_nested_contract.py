@@ -27,9 +27,12 @@ def test_api_devices_nested_contract():
         assert first["allocation_version"] == 1
         assert first["device_id"] == 1
         assert first["sdk_port"] == 8000
+        assert first["sdk_port_role"] == "device_control_api"
         assert len(first["cloud_machines"]) == 3
         assert "api_port" in first["cloud_machines"][0]
+        assert first["cloud_machines"][0]["api_port_role"] == "cloud_api"
         assert "rpa_port" in first["cloud_machines"][0]
+        assert first["cloud_machines"][0]["rpa_port_role"] == "mytrpc_control"
     finally:
         ConfigLoader._config = backup
 

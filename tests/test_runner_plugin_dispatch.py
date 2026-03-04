@@ -1,24 +1,14 @@
 from new.engine.runner import Runner
-import new.plugins.x_auto_login as x_auto_login
 
 
-def test_runner_plugin_dispatch(monkeypatch):
-    def fake_run(context):
-        payload = context["payload"]
-        return {
-            "ok": True,
-            "task": payload.get("task"),
-            "status": "completed",
-            "checkpoint": "verify_success",
-            "message": "ok",
-            "evidence_ref": "",
-        }
-
-    monkeypatch.setattr(x_auto_login, "run", fake_run)
-    result = Runner().run({"task": "x_auto_login", "credentials_ref": "/etc/myt/x_credentials.json"})
-    assert result["ok"] is True
-    assert result["status"] == "completed"
-    assert result["checkpoint"] == "verify_success"
+def test_runner_yaml_plugin_dispatch_fails_without_credentials():
+    """Runner dispatches x_auto_login to YAML interpreter.
+    Without valid credentials_ref, the workflow should fail at credentials.load step.
+    """
+    result = Runner().run({"task": "x_auto_login"})
+    assert result["ok"] is False
+    assert result["task"] == "x_auto_login"
+    assert "credentials_ref" in result.get("message", "").lower() or "missing" in result.get("message", "").lower()
 
 
 def test_runner_unknown_plugin_error_is_controlled():

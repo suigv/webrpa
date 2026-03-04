@@ -2,7 +2,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class TaskType(str, Enum):
@@ -19,8 +19,12 @@ class TaskStatus(str, Enum):
 
 class TaskRequest(BaseModel):
     script: Dict[str, Any]
-    devices: List[int] = []
+    devices: List[int] = Field(default_factory=list)
     ai_type: str = "volc"
+    max_retries: int = Field(default=0, ge=0, le=20)
+    retry_backoff_seconds: int = Field(default=2, ge=0, le=3600)
+    priority: int = Field(default=50, ge=0, le=100)
+    run_at: Optional[datetime] = None
 
 
 class TaskResponse(BaseModel):
@@ -30,6 +34,12 @@ class TaskResponse(BaseModel):
     ai_type: str
     status: TaskStatus
     created_at: datetime
+    retry_count: int = 0
+    max_retries: int = 0
+    retry_backoff_seconds: int = 2
+    next_retry_at: Optional[datetime] = None
+    priority: int = 50
+    run_at: Optional[datetime] = None
 
 
 class TaskDetailResponse(TaskResponse):

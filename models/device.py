@@ -17,9 +17,13 @@ class DeviceStatus(str, Enum):
 
 
 class CloudMachineInfo(BaseModel):
+    """Port info for a single cloud machine instance."""
+
     cloud_id: int
-    api_port: int
-    rpa_port: int
+    api_port: int = Field(description="Cloud machine HTTP API interface")
+    api_port_role: str = Field(default="cloud_api", description="Role of api_port")
+    rpa_port: int = Field(description="MytRpc control channel (touch/app/key operations)")
+    rpa_port_role: str = Field(default="mytrpc_control", description="Role of rpa_port")
     status: DeviceStatus = DeviceStatus.IDLE
 
 
@@ -28,7 +32,8 @@ class DeviceInfo(BaseModel):
     allocation_version: int
     device_id: int
     ip: str
-    sdk_port: int = 8000
+    sdk_port: int = Field(default=8000, description="Device-level control API port, shared across all clouds")
+    sdk_port_role: str = Field(default="device_control_api", description="Role of sdk_port")
     ai_type: AIType
     status: DeviceStatus = DeviceStatus.IDLE
     cloud_machines: list[CloudMachineInfo] = Field(default_factory=list)

@@ -1,10 +1,30 @@
 from new.core.config_loader import get_sdk_port
 
 BASE_PORT = 30000
-PORT_STEP = 10
+PORT_STEP = 100
 
 
 def calculate_ports(device_index: int, cloud_index: int, cloud_machines_per_device: int) -> tuple[int, int]:
+    """Calculate API and RPA ports for a given cloud machine.
+
+    Port roles:
+        api_port  — Cloud machine HTTP API interface (e.g. 30001)
+        rpa_port  — MytRpc control channel for touch/app/key operations (e.g. 30002)
+        sdk_port  — Device-level control API, shared across all clouds (default 8000)
+
+    Port is determined ONLY by cloud_index, not device_index.
+    Each device has a different IP, so identical ports on different devices don't conflict.
+
+    Formula:
+        base_port = 30000 + (cloud_index - 1) * 100
+        api_port  = base_port + 1   (cloud API)
+        rpa_port  = base_port + 2   (MytRpc control)
+
+    Example (cloud_machines_per_device=10):
+        cloud 1  → api 30001, rpa 30002
+        cloud 2  → api 30101, rpa 30102
+        cloud 10 → api 30901, rpa 30902
+    """
     if device_index < 1:
         raise ValueError("device_index must be >= 1")
     if cloud_index < 1:
@@ -12,8 +32,8 @@ def calculate_ports(device_index: int, cloud_index: int, cloud_machines_per_devi
     if cloud_machines_per_device < 1:
         raise ValueError("cloud_machines_per_device must be >= 1")
 
-    global_index = (device_index - 1) * cloud_machines_per_device + (cloud_index - 1)
-    base_port = BASE_PORT + global_index * PORT_STEP
+    # Port determined by cloud_index only, not device_index
+    base_port = BASE_PORT + (cloud_index - 1) * PORT_STEP
     api_port = base_port + 1
     rpa_port = base_port + 2
     sdk_port = get_sdk_port()

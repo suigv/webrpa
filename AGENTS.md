@@ -70,6 +70,24 @@ curl http://127.0.0.1:8001/health
 - `new/hardware_adapters/browser_client.py` is optional browser capability based on vendored DrissionPage.
 - Browser adapter must fail gracefully when DrissionPage or browser runtime is unavailable.
 
+### Port Architecture
+Each cloud machine has two ports; each device has one SDK port.
+Ports are determined by `cloud_index` only — device IP provides isolation.
+
+| Port | Formula | Role |
+|---|---|---|
+| `api_port` | `30000 + (cloud-1)*100 + 1` | Cloud machine HTTP API interface |
+| `rpa_port` | `30000 + (cloud-1)*100 + 2` | MytRpc control channel (touch/app/key) |
+| `sdk_port` | `8000` (configurable) | Device-level control API, shared across all clouds |
+
+Example (device IP `192.168.1.214`, 10 clouds):
+```
+cloud 1  → api 30001, rpa 30002
+cloud 2  → api 30101, rpa 30102
+cloud 10 → api 30901, rpa 30902
+```
+Different devices use the same port numbers but different IPs — `(ip, port)` is unique.
+
 ### Data and Config Layer
 - `new/core/config_loader.py` controls runtime config access.
 - `new/core/data_store.py` controls JSON data I/O.

@@ -1,5 +1,43 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from typing import Optional
+
+
+class HumanizedConfig(BaseModel):
+    enabled: bool = True
+    typing_delay_min: float = Field(default=0.04, ge=0)
+    typing_delay_max: float = Field(default=0.18, ge=0)
+    typo_probability: float = Field(default=0.03, ge=0, le=1)
+    typo_delay_min: float = Field(default=0.04, ge=0)
+    typo_delay_max: float = Field(default=0.12, ge=0)
+    backspace_delay_min: float = Field(default=0.02, ge=0)
+    backspace_delay_max: float = Field(default=0.08, ge=0)
+    click_offset_x_min: int = -4
+    click_offset_x_max: int = 4
+    click_offset_y_min: int = -4
+    click_offset_y_max: int = 4
+    move_duration_min: float = Field(default=0.20, ge=0)
+    move_duration_max: float = Field(default=0.70, ge=0)
+    move_steps_min: int = Field(default=8, ge=1)
+    move_steps_max: int = Field(default=24, ge=1)
+    random_seed: Optional[int] = None
+
+    @model_validator(mode="after")
+    def validate_ranges(self):
+        if self.typing_delay_min > self.typing_delay_max:
+            raise ValueError("typing_delay_min must be <= typing_delay_max")
+        if self.typo_delay_min > self.typo_delay_max:
+            raise ValueError("typo_delay_min must be <= typo_delay_max")
+        if self.backspace_delay_min > self.backspace_delay_max:
+            raise ValueError("backspace_delay_min must be <= backspace_delay_max")
+        if self.click_offset_x_min > self.click_offset_x_max:
+            raise ValueError("click_offset_x_min must be <= click_offset_x_max")
+        if self.click_offset_y_min > self.click_offset_y_max:
+            raise ValueError("click_offset_y_min must be <= click_offset_y_max")
+        if self.move_duration_min > self.move_duration_max:
+            raise ValueError("move_duration_min must be <= move_duration_max")
+        if self.move_steps_min > self.move_steps_max:
+            raise ValueError("move_steps_min must be <= move_steps_max")
+        return self
 
 
 class Config(BaseModel):
@@ -29,6 +67,7 @@ class Config(BaseModel):
     humanization_seed: int
     humanization_delay_ms: int
     humanization_jitter_ms: int
+    humanized: HumanizedConfig
 
 
 class ConfigUpdate(BaseModel):
@@ -58,3 +97,4 @@ class ConfigUpdate(BaseModel):
     humanization_seed: Optional[int] = None
     humanization_delay_ms: Optional[int] = None
     humanization_jitter_ms: Optional[int] = None
+    humanized: Optional[HumanizedConfig] = None
