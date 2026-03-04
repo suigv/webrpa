@@ -110,6 +110,7 @@ def task_events(task_id: str, after_event_id: int = Query(default=0, ge=0)):
 
     def _stream():
         last = int(after_event_id)
+        final_wait_rounds = 0
         while True:
             events = event_store.list_events(task_id=task_id, after_event_id=last, limit=200)
             if events:
@@ -133,16 +134,23 @@ def task_events(task_id: str, after_event_id: int = Query(default=0, ge=0)):
                 TaskStatus.CANCELLED.value,
             }:
                 final_events = event_store.list_events(task_id=task_id, after_event_id=last, limit=200)
-                for ev in final_events:
-                    last = ev.event_id
-                    payload = {
-                        "event_id": ev.event_id,
-                        "task_id": ev.task_id,
-                        "event_type": ev.event_type,
-                        "payload": ev.payload,
-                        "created_at": ev.created_at,
-                    }
-                    yield f"id: {ev.event_id}\nevent: {ev.event_type}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                if final_events:
+                    for ev in final_events:
+                        last = ev.event_id
+                        payload = {
+                            "event_id": ev.event_id,
+                            "task_id": ev.task_id,
+                            "event_type": ev.event_type,
+                            "payload": ev.payload,
+                            "created_at": ev.created_at,
+                        }
+                        yield f"id: {ev.event_id}\nevent: {ev.event_type}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                    final_wait_rounds = 0
+                else:
+                    final_wait_rounds += 1
+                    if final_wait_rounds < 10:
+                        time.sleep(0.05)
+                        continue
                 yield ": close\n\n"
                 break
             time.sleep(0.5)

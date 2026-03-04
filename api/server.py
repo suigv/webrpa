@@ -1,5 +1,6 @@
 import logging
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -18,7 +19,19 @@ from new.engine.runner import Runner
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
-app = FastAPI(title="MYT New Standalone API", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    DeviceManager().validate_topology_or_raise()
+    controller = get_task_controller()
+    controller.start()
+    try:
+        yield
+    finally:
+        controller.stop()
+
+
+app = FastAPI(title="MYT New Standalone API", version="0.1.0", lifespan=lifespan)
 WEB_DIR = Path(__file__).resolve().parents[1] / "web"
 
 app.add_middleware(
@@ -35,18 +48,6 @@ app.include_router(config_route.router, prefix="/api/config", tags=["config"])
 app.include_router(data_route.router, prefix="/api/data", tags=["data"])
 app.include_router(websocket_route.router)
 app.mount("/web", StaticFiles(directory=str(WEB_DIR), html=True), name="web")
-
-
-@app.on_event("startup")
-def startup_topology_validation() -> None:
-    DeviceManager().validate_topology_or_raise()
-    get_task_controller().start()
-
-
-@app.on_event("shutdown")
-def shutdown_task_controller() -> None:
-    get_task_controller().stop()
-
 
 @app.get("/")
 def root():
