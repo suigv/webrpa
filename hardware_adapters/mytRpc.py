@@ -270,3 +270,145 @@ class MytRpc:
 
     def setRpaWorkMode(self, mode: int) -> bool:
         return self.set_rpa_work_mode(mode)
+
+    def screentshot(self, mode: int = 0, quality: int = 80, save_path: str = "") -> str | None:
+        if self._rpc is None or self._handle <= 0:
+            return None
+        try:
+            fn = getattr(self._rpc, "screentshot", None)
+            if fn is None:
+                return None
+            fn.restype = ctypes.c_char_p
+            result = fn(
+                self._handle,
+                ctypes.c_int(mode),
+                ctypes.c_int(quality),
+                ctypes.c_char_p(save_path.encode("utf-8")),
+            )
+            if result is None:
+                return None
+            if isinstance(result, (bytes, bytearray)):
+                return bytes(result).decode("utf-8", errors="ignore")
+            return str(result)
+        except Exception:
+            return None
+
+    def create_selector(self):
+        if self._rpc is None or self._handle <= 0:
+            return None
+        try:
+            fn = getattr(self._rpc, "createSelector", None)
+            if fn is None:
+                return None
+            return fn(self._handle)
+        except Exception:
+            return None
+
+    def execQueryOne(self, selector: int):
+        if self._rpc is None or self._handle <= 0:
+            return None
+        try:
+            fn = getattr(self._rpc, "execQueryOne", None)
+            if fn is None:
+                return None
+            return fn(self._handle, selector)
+        except Exception:
+            return None
+
+    def execQueryAll(self, selector: int):
+        if self._rpc is None or self._handle <= 0:
+            return None
+        try:
+            fn = getattr(self._rpc, "execQueryAll", None)
+            if fn is None:
+                return None
+            return fn(self._handle, selector)
+        except Exception:
+            return None
+
+    def clear_selector(self, selector: int) -> bool:
+        if self._rpc is None or self._handle <= 0:
+            return False
+        try:
+            fn = getattr(self._rpc, "clearSelector", None)
+            if fn is None:
+                return False
+            return bool(fn(self._handle, selector))
+        except Exception:
+            return False
+
+    def addQuery_TextContainWith(self, selector: int, value: str) -> bool:
+        if self._rpc is None or self._handle <= 0:
+            return False
+        try:
+            fn = getattr(self._rpc, "addQuery_TextContainWith", None)
+            if fn is None:
+                return False
+            return bool(fn(self._handle, selector, ctypes.c_char_p(value.encode("utf-8"))))
+        except Exception:
+            return False
+
+    def addQuery_Clickable(self, selector: int, clickable: int) -> bool:
+        if self._rpc is None or self._handle <= 0:
+            return False
+        try:
+            fn = getattr(self._rpc, "addQuery_Clickable", None)
+            if fn is None:
+                return False
+            return bool(fn(self._handle, selector, int(clickable)))
+        except Exception:
+            return False
+
+    def get_nodes_size(self, nodes: int) -> int:
+        if self._rpc is None or self._handle <= 0:
+            return 0
+        try:
+            fn = getattr(self._rpc, "get_nodes_size", None)
+            if fn is None:
+                return 0
+            return int(fn(self._handle, nodes))
+        except Exception:
+            return 0
+
+    def get_node_by_index(self, nodes: int, index: int):
+        if self._rpc is None or self._handle <= 0:
+            return None
+        try:
+            fn = getattr(self._rpc, "get_node_by_index", None)
+            if fn is None:
+                return None
+            return fn(self._handle, nodes, index)
+        except Exception:
+            return None
+
+    def free_nodes(self, nodes: int) -> bool:
+        if self._rpc is None or self._handle <= 0:
+            return False
+        try:
+            fn = getattr(self._rpc, "free_nodes", None)
+            if fn is None:
+                return False
+            fn(self._handle, nodes)
+            return True
+        except Exception:
+            return False
+
+    def get_node_json(self, node: int) -> str | None:
+        if self._rpc is None or self._handle <= 0:
+            return None
+        try:
+            fn = getattr(self._rpc, "getNodeJson", None)
+            if fn is None:
+                return None
+            fn.restype = ctypes.c_char_p
+            out = fn(self._handle, node)
+            if out is None:
+                return None
+            if isinstance(out, (bytes, bytearray)):
+                return bytes(out).decode("utf-8", errors="ignore")
+            return str(out)
+        except Exception:
+            return None
+
+    def getNodeJson(self, node: int) -> str | None:
+        return self.get_node_json(node)
