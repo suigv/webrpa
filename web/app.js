@@ -6,6 +6,8 @@ const hostIp = $("hostIp");
 const totalDevices = $("totalDevices");
 const deviceIps = $("deviceIps");
 const humanizedConfig = $("humanizedConfig");
+const hzPreset = $("hzPreset");
+const applyHzPreset = $("applyHzPreset");
 const hzEnabled = $("hzEnabled");
 const hzTypoProbability = $("hzTypoProbability");
 const hzTypingDelayMin = $("hzTypingDelayMin");
@@ -42,6 +44,123 @@ const accountsPreview = $("accountsPreview");
 
 let taskEventSource = null;
 
+const HZ_PRESETS = {
+  low: {
+    typo_probability: 0.01,
+    typing_delay_min: 0.02,
+    typing_delay_max: 0.08,
+    typo_delay_min: 0.02,
+    typo_delay_max: 0.06,
+    backspace_delay_min: 0.01,
+    backspace_delay_max: 0.03,
+    click_offset_x_min: -2,
+    click_offset_x_max: 2,
+    click_offset_y_min: -2,
+    click_offset_y_max: 2,
+    move_duration_min: 0.10,
+    move_duration_max: 0.30,
+    move_steps_min: 4,
+    move_steps_max: 12,
+  },
+  medium: {
+    typo_probability: 0.03,
+    typing_delay_min: 0.04,
+    typing_delay_max: 0.18,
+    typo_delay_min: 0.04,
+    typo_delay_max: 0.12,
+    backspace_delay_min: 0.02,
+    backspace_delay_max: 0.08,
+    click_offset_x_min: -4,
+    click_offset_x_max: 4,
+    click_offset_y_min: -4,
+    click_offset_y_max: 4,
+    move_duration_min: 0.20,
+    move_duration_max: 0.70,
+    move_steps_min: 8,
+    move_steps_max: 24,
+  },
+  high: {
+    typo_probability: 0.08,
+    typing_delay_min: 0.06,
+    typing_delay_max: 0.28,
+    typo_delay_min: 0.06,
+    typo_delay_max: 0.20,
+    backspace_delay_min: 0.03,
+    backspace_delay_max: 0.12,
+    click_offset_x_min: -8,
+    click_offset_x_max: 8,
+    click_offset_y_min: -8,
+    click_offset_y_max: 8,
+    move_duration_min: 0.30,
+    move_duration_max: 1.00,
+    move_steps_min: 12,
+    move_steps_max: 36,
+  },
+};
+
+const HZ_PRESET_KEYS = [
+  "typo_probability",
+  "typing_delay_min",
+  "typing_delay_max",
+  "typo_delay_min",
+  "typo_delay_max",
+  "backspace_delay_min",
+  "backspace_delay_max",
+  "click_offset_x_min",
+  "click_offset_x_max",
+  "click_offset_y_min",
+  "click_offset_y_max",
+  "move_duration_min",
+  "move_duration_max",
+  "move_steps_min",
+  "move_steps_max",
+];
+
+function numbersClose(a, b) {
+  return Math.abs(Number(a) - Number(b)) < 1e-6;
+}
+
+function detectHumanizedPreset(cfg) {
+  for (const presetName of ["low", "medium", "high"]) {
+    const preset = HZ_PRESETS[presetName];
+    const matches = HZ_PRESET_KEYS.every((key) => numbersClose(cfg[key], preset[key]));
+    if (matches) {
+      return presetName;
+    }
+  }
+  return "custom";
+}
+
+function refreshHumanizedPreview() {
+  const cfg = buildHumanizedFromForm();
+  humanizedConfig.value = JSON.stringify(cfg, null, 2);
+  hzPreset.value = detectHumanizedPreset(cfg);
+}
+
+function applyHumanizedPreset(presetName) {
+  const preset = HZ_PRESETS[presetName];
+  if (!preset) {
+    return;
+  }
+  hzTypoProbability.value = preset.typo_probability;
+  hzTypingDelayMin.value = preset.typing_delay_min;
+  hzTypingDelayMax.value = preset.typing_delay_max;
+  hzTypoDelayMin.value = preset.typo_delay_min;
+  hzTypoDelayMax.value = preset.typo_delay_max;
+  hzBackspaceDelayMin.value = preset.backspace_delay_min;
+  hzBackspaceDelayMax.value = preset.backspace_delay_max;
+  hzClickOffsetXMin.value = preset.click_offset_x_min;
+  hzClickOffsetXMax.value = preset.click_offset_x_max;
+  hzClickOffsetYMin.value = preset.click_offset_y_min;
+  hzClickOffsetYMax.value = preset.click_offset_y_max;
+  hzMoveDurationMin.value = preset.move_duration_min;
+  hzMoveDurationMax.value = preset.move_duration_max;
+  hzMoveStepsMin.value = preset.move_steps_min;
+  hzMoveStepsMax.value = preset.move_steps_max;
+  hzPreset.value = presetName;
+  refreshHumanizedPreview();
+}
+
 function setHumanizedForm(cfg) {
   const data = cfg || {};
   hzEnabled.checked = Boolean(data.enabled);
@@ -61,7 +180,7 @@ function setHumanizedForm(cfg) {
   hzMoveStepsMin.value = Number(data.move_steps_min ?? 8);
   hzMoveStepsMax.value = Number(data.move_steps_max ?? 24);
   hzRandomSeed.value = data.random_seed === null || data.random_seed === undefined ? "" : String(data.random_seed);
-  humanizedConfig.value = JSON.stringify(buildHumanizedFromForm(), null, 2);
+  refreshHumanizedPreview();
 }
 
 function buildHumanizedFromForm() {
@@ -426,6 +545,40 @@ $("importAccountsAppend").addEventListener("click", async () => {
 });
 $("clearLogs").addEventListener("click", () => {
   logBox.textContent = "";
+});
+applyHzPreset.addEventListener("click", () => {
+  if (hzPreset.value === "custom") {
+    refreshHumanizedPreview();
+    return;
+  }
+  applyHumanizedPreset(hzPreset.value);
+});
+hzPreset.addEventListener("change", () => {
+  if (hzPreset.value !== "custom") {
+    applyHumanizedPreset(hzPreset.value);
+  }
+});
+[
+  hzEnabled,
+  hzTypoProbability,
+  hzTypingDelayMin,
+  hzTypingDelayMax,
+  hzTypoDelayMin,
+  hzTypoDelayMax,
+  hzBackspaceDelayMin,
+  hzBackspaceDelayMax,
+  hzClickOffsetXMin,
+  hzClickOffsetXMax,
+  hzClickOffsetYMin,
+  hzClickOffsetYMax,
+  hzMoveDurationMin,
+  hzMoveDurationMax,
+  hzMoveStepsMin,
+  hzMoveStepsMax,
+  hzRandomSeed,
+].forEach((input) => {
+  input.addEventListener("input", refreshHumanizedPreview);
+  input.addEventListener("change", refreshHumanizedPreview);
 });
 
 (async function init() {

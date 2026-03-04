@@ -161,6 +161,19 @@ bob@example.com,password456,OTP-SECRET"></textarea>
             <div class="block-label humanized-box">
               <strong>拟人化控制</strong>
               <div class="form-grid">
+                <label>快捷档位
+                  <select id="hzPreset">
+                    <option value="low">低</option>
+                    <option value="medium">中</option>
+                    <option value="high">高</option>
+                    <option value="custom">自定义</option>
+                  </select>
+                </label>
+                <label>
+                  <button id="applyHzPreset" class="btn btn-ghost" type="button">应用档位</button>
+                </label>
+              </div>
+              <div class="form-grid">
                 <label>启用 <input id="hzEnabled" type="checkbox"></label>
                 <label>错误概率 (0..1) <input id="hzTypoProbability" type="number" min="0" max="1" step="0.01"></label>
                 <label>最小输入延迟 <input id="hzTypingDelayMin" type="number" min="0" step="0.01"></label>

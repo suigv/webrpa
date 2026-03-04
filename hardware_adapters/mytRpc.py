@@ -1,5 +1,7 @@
 import ctypes
 import logging
+import os
+import platform
 import sys
 import time
 from pathlib import Path
@@ -10,26 +12,94 @@ logger = logging.getLogger(__name__)
 class MytRpc:
     def __init__(self) -> None:
         root = Path(__file__).resolve().parents[1]
-        if sys.platform == "linux":
-            self._lib_path = root / "lib" / "libmytrpc.so"
-        elif sys.platform == "darwin":
-            self._lib_path = root / "lib" / "libmytrpc.dylib"
-        else:
-            self._lib_path = root / "lib" / "libmytrpc.dll"
+        self._detected_system: str = str(platform.system()).strip().lower()
+        self._detected_machine: str = self._normalized_machine()
+        self._lib_candidates: list[Path] = self._resolve_library_candidates(root)
+        self._lib_path: Path = self._lib_candidates[0] if self._lib_candidates else root / "lib" / "libmytrpc.so"
         self._rpc: ctypes.CDLL | None = None
         self._handle: int = 0
+        logger.info(
+            "MytRpc library probe: system=%s machine=%s candidates=%s",
+            self._detected_system,
+            self._detected_machine,
+            [str(p) for p in self._lib_candidates],
+        )
+
+    @staticmethod
+    def _normalized_machine() -> str:
+        return str(platform.machine()).strip().lower()
+
+    @classmethod
+    def _default_library_names(cls) -> list[str]:
+        system_name = str(platform.system()).strip().lower()
+        machine = cls._normalized_machine()
+        is_arm64 = machine in {"aarch64", "arm64"}
+
+        if system_name == "linux":
+            if is_arm64:
+                return ["libmytrpc_arm.so", "libmytrpc.so"]
+            return ["libmytrpc.so", "libmytrpc_arm.so"]
+        if system_name == "darwin":
+            return ["libmytrpc.dylib"]
+        if system_name == "windows":
+            return ["libmytrpc.dll"]
+
+        if sys.platform == "linux":
+            return ["libmytrpc.so", "libmytrpc_arm.so"]
+        if sys.platform == "darwin":
+            return ["libmytrpc.dylib"]
+        return ["libmytrpc.dll"]
+
+    @classmethod
+    def _resolve_library_candidates(cls, root: Path) -> list[Path]:
+        lib_root = root / "lib"
+        candidates: list[Path] = []
+
+        env_override = str(os.environ.get("MYT_RPC_LIB_PATH", "")).strip()
+        if env_override:
+            candidates.append(Path(env_override).expanduser().resolve())
+
+        for name in cls._default_library_names():
+            candidates.append(lib_root / name)
+
+        unique: list[Path] = []
+        seen: set[Path] = set()
+        for path in candidates:
+            if path in seen:
+                continue
+            seen.add(path)
+            unique.append(path)
+        return unique
 
     def _load_library(self) -> ctypes.CDLL | None:
         if self._rpc is not None:
             return self._rpc
-        if not self._lib_path.exists():
-            logger.warning("mytrpc library not found: %s", self._lib_path)
-            return None
-        if sys.platform == "win32":
-            self._rpc = ctypes.WinDLL(str(self._lib_path))
+
+        load_errors: list[str] = []
+        for candidate in self._lib_candidates:
+            if not candidate.exists():
+                continue
+            try:
+                if sys.platform == "win32":
+                    self._rpc = ctypes.WinDLL(str(candidate))
+                else:
+                    self._rpc = ctypes.CDLL(str(candidate))
+                self._lib_path = candidate
+                logger.info(
+                    "Loaded mytrpc library: %s (system=%s machine=%s)",
+                    candidate,
+                    self._detected_system,
+                    self._detected_machine,
+                )
+                return self._rpc
+            except Exception as exc:
+                load_errors.append(f"{candidate}: {exc}")
+
+        if load_errors:
+            logger.warning("Failed to load mytrpc library candidates: %s", "; ".join(load_errors))
         else:
-            self._rpc = ctypes.CDLL(str(self._lib_path))
-        return self._rpc
+            logger.warning("mytrpc library not found in candidates: %s", [str(p) for p in self._lib_candidates])
+        return None
 
     def get_sdk_version(self):
         lib = self._load_library()
