@@ -1,199 +1,137 @@
-# Plugin Contract v2 (`new/plugins/`)
+# 插件契约 v2（`new/plugins/`）
 
-## Goal
-Define a stable contract for **YAML-only declarative plugins** so the runtime can execute business workflows without coupling to API routes or legacy task code.
+## 目标
+定义稳定的 **YAML 声明式插件契约**，让运行时可以执行业务工作流，而不耦合 API 路由或历史任务代码。
 
-## Version
-- Current contract: `v2` (YAML-only)
-- Previous: `v1` (JSON + handler.py) — **deprecated**
+## 版本
+- 当前契约：`v2`（仅 YAML）
+- 历史版本：`v1`（JSON + handler.py）——**已弃用**
 
-## File Layout
+## 目录结构
 
-Each plugin lives in its own directory under `new/plugins/`:
+每个插件位于 `new/plugins/` 下独立目录：
 
-```
+```text
 new/plugins/<plugin_name>/
-├── manifest.yaml    # Plugin metadata and input schema
-└── script.yaml      # Declarative workflow steps
+├── manifest.yaml    # 插件元信息与输入声明
+└── script.yaml      # 声明式工作流步骤
 ```
 
-Both files are required. There are no Python handler entry points — all logic is expressed declaratively via the 5 step primitives.
+两文件均为必需。插件不再使用 Python handler 入口。
 
-## Manifest Schema (`manifest.yaml`)
+## Manifest 模式（`manifest.yaml`）
 
-| Field | Type | Required | Description |
+| 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
-| `api_version` | `"v1"` | yes | Schema version (always `v1`) |
-| `kind` | `"plugin"` | yes | Resource kind (always `plugin`) |
-| `name` | string | yes | Unique plugin identifier (matches directory name) |
-| `version` | string | yes | Plugin version (semver) |
-| `display_name` | string | yes | Human-readable name |
-| `description` | string | no | Plugin description |
-| `entry_script` | string | no | Script filename (default: `script.yaml`) |
-| `inputs` | list[PluginInput] | no | Declared input parameters |
+| `api_version` | `"v1"` | 是 | 模式版本（固定 `v1`） |
+| `kind` | `"plugin"` | 是 | 资源类型（固定 `plugin`） |
+| `name` | string | 是 | 插件唯一标识（应与目录名一致） |
+| `version` | string | 是 | 插件版本（建议 semver） |
+| `display_name` | string | 是 | 展示名称 |
+| `description` | string | 否 | 描述 |
+| `entry_script` | string | 否 | 入口脚本名（默认 `script.yaml`） |
+| `inputs` | list[PluginInput] | 否 | 输入参数声明 |
 
-### PluginInput Schema
+### PluginInput 模式
 
-| Field | Type | Required | Description |
+| 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
-| `name` | string | yes | Input parameter name |
-| `type` | `"string" \| "integer" \| "number" \| "boolean"` | yes | Input type |
-| `required` | bool | no | Whether input is required (default: `true`) |
-| `default` | any | no | Default value if not provided |
+| `name` | string | 是 | 参数名 |
+| `type` | `"string" \| "integer" \| "number" \| "boolean"` | 是 | 参数类型 |
+| `required` | bool | 否 | 是否必填（默认 `true`） |
+| `default` | any | 否 | 默认值 |
 
-### Example
+## Workflow 模式（`script.yaml`）
 
-```yaml
-api_version: v1
-kind: plugin
-name: x_auto_login
-version: "1.0.0"
-display_name: "X (Twitter) Auto Login"
-description: "Automates browser-based login to X.com"
-entry_script: script.yaml
-inputs:
-  - name: credentials_ref
-    type: string
-    required: true
-  - name: headless
-    type: boolean
-    required: false
-    default: true
-```
-
-## Workflow Script Schema (`script.yaml`)
-
-| Field | Type | Required | Description |
+| 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
-| `version` | `"v1"` | yes | Schema version |
-| `workflow` | string | yes | Workflow name (should match plugin name) |
-| `vars` | dict | no | Script-level variables (support interpolation) |
-| `steps` | list[Step] | yes | Ordered list of steps |
+| `version` | `"v1"` | 是 | 脚本模式版本 |
+| `workflow` | string | 是 | 工作流名称（建议与插件名一致） |
+| `vars` | dict | 否 | 脚本级变量（支持插值） |
+| `steps` | list[Step] | 是 | 有序步骤列表 |
 
-### Variable Interpolation
+### 变量插值
 
-Templates use `${namespace.path}` syntax:
-- `${payload.key}` — value from runtime payload
-- `${vars.key}` — value from script vars or saved action results
-- `${vars.creds.field}` — nested dot-path lookup
-- `${payload.url:-https://default.com}` — default value after `:-`
+使用 `${namespace.path}` 语法：
+- `${payload.key}`：来自运行时 payload
+- `${vars.key}`：来自脚本变量或前置步骤结果
+- `${vars.creds.field}`：点路径访问
+- `${payload.url:-https://default.com}`：`:-` 后跟默认值
 
-### Step Primitives (5 kinds)
+## 步骤原语（5 类）
 
-#### `action` — Execute a registered action
+### 1) `action`：执行已注册动作
+关键字段：`action`、`params`、`save_as`、`on_fail`
 
-```yaml
-- label: open_login
-  kind: action
-  action: browser.open
-  params:
-    url: "${vars.login_url}"
-  save_as: open_result    # optional: save result to vars
-  on_fail:
-    strategy: abort       # abort | skip | retry | goto
-```
+### 2) `if`：条件分支
+关键字段：`when`、`then`、`otherwise`
 
-#### `if` — Conditional branching
+### 3) `wait_until`：轮询等待
+关键字段：`check`、`interval_ms`、`timeout_ms`、`on_timeout`
 
-```yaml
-- label: check_captcha
-  kind: if
-  when:
-    any:                  # any | all
-      - type: text_contains
-        text: "captcha"
-  then: captcha_detected  # label to jump to if true
-  otherwise: continue     # optional: label if false
-```
+### 4) `goto`：无条件跳转
+关键字段：`target`
 
-#### `wait_until` — Polling loop
+### 5) `stop`：结束工作流
+关键字段：`status`（`success|failed`）、`message`
 
-```yaml
-- label: wait_home
-  kind: wait_until
-  check:
-    any:
-      - type: url_contains
-        text: "/home"
-  interval_ms: 500
-  timeout_ms: 25000       # hard limit: 120000ms
-  on_timeout:
-    strategy: goto
-    goto: timeout_handler
-```
+## 条件类型
 
-#### `goto` — Unconditional jump
-
-```yaml
-- kind: goto
-  target: wait_home
-```
-
-#### `stop` — Terminate workflow
-
-```yaml
-- label: success
-  kind: stop
-  status: success         # success | failed
-  message: "login completed"
-```
-
-### Condition Types
-
-| Type | Fields | Description |
+| 类型 | 字段 | 说明 |
 |---|---|---|
-| `text_contains` | `text` | Page HTML contains text (case-insensitive) |
-| `url_contains` | `text` | Current URL contains text (case-insensitive) |
-| `exists` | `selector` | DOM element exists matching selector |
-| `var_equals` | `var`, `equals` | Variable equals expected value |
-| `result_ok` | — | Last action result was ok |
+| `text_contains` | `text` | 页面 HTML 包含文本（忽略大小写） |
+| `url_contains` | `text` | 当前 URL 包含文本 |
+| `exists` | `selector` | DOM 中存在匹配元素 |
+| `var_equals` | `var`, `equals` | 变量等值判断 |
+| `result_ok` | — | 上一步动作结果为成功 |
 
-### Failure Strategies (`on_fail`)
+## 失败策略（`on_fail`）
 
-| Strategy | Fields | Behavior |
+| 策略 | 字段 | 行为 |
 |---|---|---|
-| `abort` | — | Stop workflow with error (default) |
-| `skip` | — | Ignore failure, continue to next step |
-| `retry` | `retries`, `delay_ms` | Retry N times with delay |
-| `goto` | `goto` | Jump to label on failure |
+| `abort` | — | 终止并返回错误（默认） |
+| `skip` | — | 忽略失败，继续后续步骤 |
+| `retry` | `retries`, `delay_ms` | 重试 N 次 |
+| `goto` | `goto` | 失败后跳转到指定标签 |
 
-## Built-in Actions
+## 内置动作（示例）
 
-### Browser Actions
-- `browser.open` — Open URL (`url`, `headless`)
-- `browser.input` — Type text into element (`selectors[]`, `text`)
-- `browser.click` — Click element (`selectors[]`)
-- `browser.exists` — Check element exists (`selectors[]`)
-- `browser.check_html` — Check page HTML for keywords (`contains[]`)
-- `browser.wait_url` — Wait for URL fragment (`fragment`, `timeout_s`)
-- `browser.close` — Close browser session
+### 浏览器动作
+- `browser.open`
+- `browser.input`
+- `browser.click`
+- `browser.exists`
+- `browser.check_html`
+- `browser.wait_url`
+- `browser.close`
 
-### Credential Actions
-- `credentials.load` — Load credentials from file (`credentials_ref`, `save_as`)
+### 凭据动作
+- `credentials.load`
 
-## Runtime Execution
+## 运行时执行流程
 
-1. `PluginLoader.scan()` discovers `plugins/*/manifest.yaml`
-2. `Runner.run()` matches task name → plugin manifest
-3. `parse_script()` loads and validates `script.yaml` via Pydantic
-4. `Interpreter.execute()` runs the workflow with PC-based loop
-5. Browser session opens lazily on first browser action
-6. Browser session closes in interpreter `finally` block
-7. `max_transitions = 500` guards against goto loops
-8. `wait_until` enforces `timeout_ms` with engine hard limit of 120s
+1. `PluginLoader.scan()` 发现 `plugins/*/manifest.yaml`
+2. `Runner.run()` 按任务名匹配插件
+3. `parse_script()` 解析并校验 `script.yaml`
+4. `Interpreter.execute()` 执行工作流
+5. 浏览器会话按需惰性创建
+6. 解释器在 `finally` 中负责关闭浏览器会话
+7. `max_transitions = 500` 防止跳转死循环
+8. `wait_until` 强制受 `timeout_ms` 和引擎硬上限（120s）限制
 
-## Security and Isolation Rules
-- Plugins must not import old `tasks` or `app.*` modules
-- Plugins must not contain Python code — YAML only
-- Credentials must be loaded via `credentials.load` action from allowlisted paths
-- No destructive file operations outside `new/`
+## 安全与隔离规则
 
-## Validation Checklist
-For each new plugin:
-- [ ] `manifest.yaml` validates against `PluginManifest` model
-- [ ] `script.yaml` validates against `WorkflowScript` model
-- [ ] All referenced labels exist in the step list
-- [ ] No duplicate labels
-- [ ] All referenced actions are registered
-- [ ] Error paths tested (`on_fail` behavior)
-- [ ] `check_no_legacy_imports.py` passes
+- 插件不得依赖旧命名空间（`tasks` / `app.*`）
+- 插件不得包含 Python 逻辑（仅 YAML）
+- 凭据必须通过 `credentials.load` 且路径受白名单约束
+- 不允许执行 `new/` 范围外的破坏性文件操作
+
+## 插件验收检查单
+
+- [ ] `manifest.yaml` 可通过 `PluginManifest` 校验
+- [ ] `script.yaml` 可通过 `WorkflowScript` 校验
+- [ ] 引用标签全部存在
+- [ ] 无重复标签
+- [ ] 引用动作均已注册
+- [ ] 失败分支（`on_fail`）有测试覆盖
+- [ ] `check_no_legacy_imports.py` 通过

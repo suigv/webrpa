@@ -1,16 +1,16 @@
-# Web as GUI Embed Guide
+# Web 前端嵌入桌面 GUI 指南
 
-This project supports using the web frontend as a desktop GUI by embedding `/web` in a webview.
+本项目支持将 Web 控制台作为桌面 GUI 使用：通过 webview 嵌入 `/web` 页面即可。
 
-## Target URL
+## 目标地址
 - `http://127.0.0.1:8000/web`
 
-## Recommended Flow
-1. Start backend service.
-2. Open desktop shell window with embedded webview.
-3. Load `/web` URL inside embedded view.
+## 推荐流程
+1. 启动后端服务。
+2. 打开桌面壳窗口（内嵌 webview）。
+3. 在 webview 中加载 `/web` 地址。
 
-## Option A: pywebview (lightweight)
+## 方案 A：pywebview（轻量）
 
 ```python
 import threading
@@ -27,16 +27,16 @@ webview.create_window("MYT Console", "http://127.0.0.1:8000/web", width=1280, he
 webview.start()
 ```
 
-## Option B: Flet/Flutter shell
-- Start API in background process.
-- Create desktop window with webview widget.
-- Point widget URL to `/web`.
+## 方案 B：Flet / Flutter 壳
+- 在后台进程启动 API。
+- 创建带 webview 组件的桌面窗口。
+- 将组件 URL 指向 `/web`。
 
-## Option C: Electron shell
-- Keep FastAPI as backend.
-- BrowserWindow loads `http://127.0.0.1:8000/web`.
+## 方案 C：Electron 壳
+- 后端仍使用 FastAPI。
+- `BrowserWindow` 加载 `http://127.0.0.1:8000/web`。
 
-## Stability Notes
-- Health endpoint must return 200 before creating webview.
-- Reconnect websocket logs automatically in frontend (`/ws/logs`).
-- Keep API and webview in same host to avoid CORS complexity.
+## 稳定性建议
+- 创建 webview 前，先确认健康检查接口返回 200。
+- 前端需对日志 websocket（`/ws/logs`）做自动重连。
+- API 与 webview 尽量同 host，减少 CORS 复杂度。
