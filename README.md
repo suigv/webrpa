@@ -107,6 +107,21 @@ curl http://127.0.0.1:8001/health
 
 ---
 
+## 项目进度文档
+
+- 进度与功能清单：`new/docs/project_progress.md`
+- 自动刷新快照（建议每次有意义变更后执行）：
+
+```bash
+./new/.venv/bin/python new/tools/update_project_progress.py
+```
+
+- CI 自动校验：`.github/workflows/project-progress-sync.yml`
+  - 在 PR / push(main/master) 时自动运行快照刷新
+  - 若 `docs/project_progress.md` 未同步更新则检查失败
+
+---
+
 ## 约束与设计原则
 
 - 不引入 legacy 命名空间依赖（`tasks` / `app.*`）

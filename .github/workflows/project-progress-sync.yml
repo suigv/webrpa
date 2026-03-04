@@ -1,0 +1,26 @@
+name: Project Progress Sync Check
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  progress-sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Refresh project progress snapshot
+        run: python tools/update_project_progress.py
+
+      - name: Verify progress doc is up-to-date
+        run: git diff --exit-code -- docs/project_progress.md

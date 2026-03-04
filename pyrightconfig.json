@@ -1,0 +1,22 @@
+{
+  "include": [
+    "api",
+    "core",
+    "engine",
+    "models",
+    "hardware_adapters",
+    "common",
+    "ai_services",
+    "plugins",
+    "tests",
+    "tools"
+  ],
+  "executionEnvironments": [
+    {
+      "root": ".",
+      "extraPaths": [
+        ".."
+      ]
+    }
+  ]
+}
