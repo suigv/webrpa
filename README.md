@@ -14,7 +14,7 @@
 
 ### 1) API 服务
 
-- `GET /health`：健康检查
+- `GET /health`：健康检查（含 `task_policy` 运行策略快照）
 - `POST /api/runtime/execute`：直接执行 runtime payload
 - `GET /web`：控制台页面
 
@@ -30,6 +30,14 @@
 - 查询任务列表/详情
 - 取消任务
 - 任务事件流（SSE）：`GET /api/tasks/{task_id}/events`
+- 任务指标：`GET /api/tasks/metrics`（JSON）与 `GET /api/tasks/metrics/prometheus`（Prometheus 抓取格式）
+
+### 3.1) 外部监控接线资产
+
+- Prometheus 抓取模板：`config/monitoring/prometheus/task_metrics_scrape.example.yml`
+- 告警规则模板：`config/monitoring/prometheus/task_metrics_alerts.yml`（含 `NewTaskStaleRunningRecovered`）
+- Alertmanager 路由模板：`config/monitoring/alertmanager/task_metrics_route.example.yml`
+- 参数化渲染工具：`tools/render_task_metrics_monitoring.py`
 
 ### 4) 插件化执行引擎
 
@@ -110,6 +118,8 @@ curl http://127.0.0.1:8001/health
 ## 项目进度文档
 
 - 进度与功能清单：`new/docs/project_progress.md`
+- 跨对话交接模板：`new/docs/HANDOFF.md`
+- 插件输入契约与灰度策略：`new/docs/plugin_input_contract.md`
 - 自动刷新快照（建议每次有意义变更后执行）：
 
 ```bash
