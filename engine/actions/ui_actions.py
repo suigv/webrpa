@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import time
 from dataclasses import dataclass
 from typing import Any, Dict
 
@@ -165,6 +166,82 @@ def app_stop(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
             return ActionResult(ok=False, code="invalid_params", message="package is required")
         ok = rpc.stopApp(package) if rpc is not None else False
         return ActionResult(ok=ok, code="ok" if ok else "app_stop_failed", data={"package": package})
+    finally:
+        _close_rpc(rpc)
+
+
+def app_ensure_running(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
+    rpc, err = _get_rpc(params, context)
+    if err:
+        return err
+    try:
+        package = str(params.get("package") or "")
+        if not package:
+            return ActionResult(ok=False, code="invalid_params", message="package is required")
+
+        verify_timeout = float(params.get("verify_timeout", 3.0))
+        verify_interval = float(params.get("verify_interval", 0.5))
+        ok = rpc.openApp(package) if rpc is not None else False
+        if not ok:
+            return ActionResult(ok=False, code="timeout", message=f"failed to launch app: {package}")
+
+        deadline = time.monotonic() + max(verify_timeout, 0.0)
+        while time.monotonic() <= deadline:
+            if rpc is None:
+                break
+            output, cmd_ok = rpc.exec_cmd(f"pidof {package}")
+            if cmd_ok and str(output).strip():
+                return ActionResult(ok=True, code="ok", data={"package": package, "pid": str(output).strip()})
+            time.sleep(max(verify_interval, 0.1))
+        return ActionResult(ok=False, code="timeout", message=f"app not running within timeout: {package}")
+    finally:
+        _close_rpc(rpc)
+
+
+def app_grant_permissions(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
+    rpc, err = _get_rpc(params, context)
+    if err:
+        return err
+    try:
+        package = str(params.get("package") or "")
+        permissions = params.get("permissions")
+        if not package:
+            return ActionResult(ok=False, code="invalid_params", message="package is required")
+        if not isinstance(permissions, list) or not permissions:
+            return ActionResult(ok=False, code="invalid_params", message="permissions is required")
+
+        failed: list[str] = []
+        for perm in permissions:
+            value = str(perm).strip()
+            if not value:
+                continue
+            output, cmd_ok = rpc.exec_cmd(f"pm grant {package} {value}") if rpc is not None else ("", False)
+            if not cmd_ok:
+                failed.append(value)
+
+        if failed:
+            return ActionResult(ok=False, code="grant_failed", message=f"failed permissions: {','.join(failed)}")
+        return ActionResult(ok=True, code="ok", data={"package": package, "granted": len(permissions)})
+    finally:
+        _close_rpc(rpc)
+
+
+def app_dismiss_popups(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
+    rpc, err = _get_rpc(params, context)
+    if err:
+        return err
+    try:
+        back_presses = int(params.get("back_presses", 2))
+        delay_ms = int(params.get("delay_ms", 200))
+        if back_presses < 1:
+            return ActionResult(ok=False, code="invalid_params", message="back_presses must be >= 1")
+
+        for _ in range(back_presses):
+            ok = rpc.keyPress(4) if rpc is not None else False
+            if not ok:
+                return ActionResult(ok=False, code="dismiss_failed", message="failed to send back key")
+            time.sleep(max(delay_ms, 0) / 1000)
+        return ActionResult(ok=True, code="ok", data={"back_presses": back_presses})
     finally:
         _close_rpc(rpc)
 
@@ -390,6 +467,25 @@ class RpcNode:
         return str(value)
 
 
+def _selector_from_context(context: ExecutionContext) -> MytSelector | None:
+    value = context.vars.get("selector")
+    if isinstance(value, MytSelector):
+        return value
+    return None
+
+
+def _serialize_node(node: Any) -> Dict[str, Any]:
+    wrapped = RpcNode(node)
+    return {
+        "text": wrapped.get_node_text(),
+        "id": wrapped.get_node_id(),
+        "class_name": wrapped.get_node_class(),
+        "package": wrapped.get_node_package(),
+        "desc": wrapped.get_node_desc(),
+        "bound": wrapped.get_node_bound(),
+    }
+
+
 def create_selector(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
     rpc, err = _get_rpc(params, context)
     if err:
@@ -407,3 +503,54 @@ def create_selector(params: Dict[str, Any], context: ExecutionContext) -> Action
         return ActionResult(ok=selector.selector is not None, code="ok" if selector.selector is not None else "selector_failed")
     finally:
         _close_rpc(rpc)
+
+
+def selector_add_query(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
+    selector = _selector_from_context(context)
+    if selector is None:
+        return ActionResult(ok=False, code="selector_missing", message="selector not initialized")
+
+    query_type = str(params.get("type") or "").strip().lower()
+    value = str(params.get("value") or "")
+    if query_type == "text":
+        ok = selector.addQuery_Text(value)
+    elif query_type == "id":
+        ok = selector.addQuery_Id(value)
+    elif query_type == "desc":
+        ok = selector.addQuery_Desc(value)
+    elif query_type == "text_contains":
+        ok = selector.addQuery_TextContain(value)
+    else:
+        return ActionResult(ok=False, code="invalid_query_type", message=f"unsupported selector query type: {query_type}")
+    return ActionResult(ok=ok, code="ok" if ok else "query_add_failed", data={"type": query_type, "value": value})
+
+
+def selector_exec_one(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
+    selector = _selector_from_context(context)
+    if selector is None:
+        return ActionResult(ok=False, code="selector_missing", message="selector not initialized")
+    result = selector.execQueryOne()
+    node = result.data.get("node") if isinstance(result.data, dict) else None
+    if not result.ok or node is None:
+        return ActionResult(ok=False, code="not_found", message="selector query returned no node")
+    return ActionResult(ok=True, code="ok", data={"node": _serialize_node(node)})
+
+
+def selector_exec_all(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
+    selector = _selector_from_context(context)
+    if selector is None:
+        return ActionResult(ok=False, code="selector_missing", message="selector not initialized")
+    result = selector.execQueryAll()
+    nodes = result.data.get("nodes") if isinstance(result.data, dict) else None
+    if not result.ok or not nodes:
+        return ActionResult(ok=False, code="not_found", message="selector query returned no nodes")
+    serialized = [_serialize_node(node) for node in nodes]
+    return ActionResult(ok=True, code="ok", data={"nodes": serialized, "count": len(serialized)})
+
+
+def selector_clear(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
+    selector = _selector_from_context(context)
+    if selector is None:
+        return ActionResult(ok=False, code="selector_missing", message="selector not initialized")
+    ok = selector.clear_selector()
+    return ActionResult(ok=ok, code="ok" if ok else "selector_clear_failed")

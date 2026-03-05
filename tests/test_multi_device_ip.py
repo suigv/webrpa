@@ -1,4 +1,5 @@
 import pytest
+from typing import Any, cast
 
 from new.core.config_loader import ConfigLoader, get_device_ip, get_device_ips
 from new.core.device_manager import DeviceManager
@@ -51,8 +52,9 @@ def test_device_manager_returns_nested_cloud_topology():
         assert info["schema_version"] == 2
         assert info["allocation_version"] == 1
         assert info["sdk_port"] == 8000
-        clouds = info["cloud_machines"]
-        assert len(clouds) == 10
+        assert info["cloud_slots_total"] == 12
+        clouds = cast(list[dict[str, Any]], info["cloud_machines"])
+        assert len(clouds) == 12
         assert clouds[0]["cloud_id"] == 1
         assert clouds[0]["api_port"] == 30001
         assert clouds[0]["rpa_port"] == 30002
@@ -71,6 +73,6 @@ def test_device_manager_rejects_unknown_device_id():
         }
         manager = DeviceManager()
         with pytest.raises(KeyError):
-            manager.get_device(3)
+            _ = manager.get_device(3)
     finally:
         ConfigLoader._config = backup

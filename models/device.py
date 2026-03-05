@@ -25,6 +25,13 @@ class CloudMachineInfo(BaseModel):
     rpa_port: int = Field(description="MytRpc control channel (touch/app/key operations)")
     rpa_port_role: str = Field(default="mytrpc_control", description="Role of rpa_port")
     status: DeviceStatus = DeviceStatus.IDLE
+    availability_state: str = Field(default="unknown")
+    availability_reason: Optional[str] = None
+    last_checked_at: Optional[str] = None
+    latency_ms: Optional[int] = None
+    stale: bool = False
+    machine_model_name: Optional[str] = None
+    machine_model_id: Optional[str] = None
 
 
 class DeviceInfo(BaseModel):
@@ -36,6 +43,10 @@ class DeviceInfo(BaseModel):
     sdk_port_role: str = Field(default="device_control_api", description="Role of sdk_port")
     ai_type: AIType
     status: DeviceStatus = DeviceStatus.IDLE
+    cloud_slots_total: int = 12
+    available_cloud_count: int = 0
+    probe_stale: bool = False
+    probe_partial: bool = False
     cloud_machines: list[CloudMachineInfo] = Field(default_factory=list)
 
 

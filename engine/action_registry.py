@@ -58,6 +58,9 @@ def register_defaults() -> None:
     )
     from .actions.credential_actions import credentials_load
     from .actions.ui_actions import (
+        app_dismiss_popups,
+        app_ensure_running,
+        app_grant_permissions,
         app_open,
         app_stop,
         click,
@@ -68,10 +71,14 @@ def register_defaults() -> None:
         input_text,
         key_press,
         long_click,
+        selector_add_query,
+        selector_clear,
+        selector_exec_all,
+        selector_exec_one,
         screenshot,
         swipe,
     )
-    from .actions.sdk_actions import get_sdk_action_bindings
+    from .actions.sdk_actions import get_sdk_action_bindings, load_shared_required, save_shared
 
     _registry.register("browser.open", browser_open)
     _registry.register("browser.input", browser_input)
@@ -81,6 +88,8 @@ def register_defaults() -> None:
     _registry.register("browser.wait_url", browser_wait_url)
     _registry.register("browser.close", browser_close)
     _registry.register("credentials.load", credentials_load)
+    _registry.register("core.save_shared", save_shared)
+    _registry.register("core.load_shared_required", load_shared_required)
     _registry.register("ui.click", click)
     _registry.register("ui.swipe", swipe)
     _registry.register("ui.long_click", long_click)
@@ -88,9 +97,16 @@ def register_defaults() -> None:
     _registry.register("ui.key_press", key_press)
     _registry.register("app.open", app_open)
     _registry.register("app.stop", app_stop)
+    _registry.register("app.ensure_running", app_ensure_running)
+    _registry.register("app.grant_permissions", app_grant_permissions)
+    _registry.register("app.dismiss_popups", app_dismiss_popups)
     _registry.register("device.screenshot", screenshot)
     _registry.register("device.exec", exec_command)
     _registry.register("ui.create_selector", create_selector)
+    _registry.register("ui.selector_add_query", selector_add_query)
+    _registry.register("ui.selector_exec_one", selector_exec_one)
+    _registry.register("ui.selector_exec_all", selector_exec_all)
+    _registry.register("ui.selector_clear", selector_clear)
     _registry.register("ui.dump_node_xml", dumpNodeXml)
     _registry.register("ui.dump_node_xml_ex", dump_node_xml_ex)
     for action_name, handler in get_sdk_action_bindings().items():

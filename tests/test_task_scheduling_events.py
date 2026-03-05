@@ -68,9 +68,9 @@ def test_run_at_delays_execution():
         assert _wait_status(client, task_id, "completed", timeout_s=5.0)
 
 
-def test_priority_prefers_higher_first_when_same_run_at():
+def test_priority_prefers_higher_first_when_same_run_at(tmp_path: Path):
     reset_task_controller_for_tests()
-    db_path = Path("/home/suigv/文档/new/config/data/tasks_priority_test.db")
+    db_path = tmp_path / "tasks_priority_test.db"
     if db_path.exists():
         db_path.unlink()
     runner = OrderRunner()
@@ -150,4 +150,6 @@ def test_task_events_sse_stream_contains_lifecycle_events():
 
         assert "event: task.created" in text
         assert "event: task.started" in text
+        assert "event: task.dispatching" in text
+        assert "event: task.dispatch_result" in text
         assert "event: task.completed" in text

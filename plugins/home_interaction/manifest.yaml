@@ -1,0 +1,19 @@
+api_version: v1
+kind: plugin
+name: home_interaction
+version: "1.0.0"
+display_name: "Home Interaction"
+description: "Home feed interaction workflow contract"
+entry_script: script.yaml
+inputs:
+  - name: device_ip
+    type: string
+    required: true
+  - name: status_hint
+    type: string
+    required: false
+    default: "success"
+  - name: package
+    type: string
+    required: false
+    default: "com.twitter.android"

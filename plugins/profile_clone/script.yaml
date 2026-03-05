@@ -1,0 +1,23 @@
+version: v1
+workflow: profile_clone
+
+steps:
+  - label: load_scrape_output
+    kind: action
+    action: core.load_shared_required
+    params:
+      key: "${payload.source_key:-scrape_profile}"
+    save_as: scrape_payload
+    on_fail:
+      strategy: goto
+      goto: missing_source
+
+  - label: clone_success
+    kind: stop
+    status: success
+    message: "clone completed from scrape payload"
+
+  - label: missing_source
+    kind: stop
+    status: failed
+    message: "missing_source_data"

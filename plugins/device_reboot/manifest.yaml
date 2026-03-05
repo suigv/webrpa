@@ -1,0 +1,15 @@
+api_version: v1
+kind: plugin
+name: device_reboot
+version: "1.0.0"
+display_name: "Device Reboot"
+description: >
+  Reboot a target cloud machine by name using SDK restart endpoint.
+entry_script: script.yaml
+inputs:
+  - name: device_ip
+    type: string
+    required: true
+  - name: name
+    type: string
+    required: true

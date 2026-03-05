@@ -26,6 +26,7 @@
   - 新增对外契约文档：`docs/plugin_input_contract.md`（校验规则、灰度开关基线与发布策略）
   - 补齐 Alertmanager 接线资产：新增模板 `config/monitoring/alertmanager/task_metrics_route.example.yml`，并扩展 `tools/render_task_metrics_monitoring.py` 可渲染 `task_metrics_alertmanager.yml`
   - 增加 stale-running 恢复告警规则：`task_metrics_alerts` 新增 `NewTaskStaleRunningRecovered`，用于提示已发生启动恢复行为
+  - 修复执行上下文与测试稳定性问题：新增 `sitecustomize.py`、`pytest.ini(testpaths=tests)`，并修复 `check_plugin_manifest_inputs.py` 直跑导入路径；任务控制面相关 SQLite 测试切换为 `tmp_path` 隔离，消除共享 `config/data` 导致的偶发 `no such table` / `disk I/O error`
   - 稳定幂等去重回归测试隔离性：duplicate-submit 用例改为独立临时 DB，避免共享历史导致的分页/顺序耦合波动
   - 收紧插件分发安全边界：动作命名空间白名单 + manifest 输入参数必填/类型前置校验（失败码显式化）
   - 强化任务可靠性/幂等：支持 `idempotency_key` 防重复提交（原子化去重），补齐 body/header 冲突校验，并修复取消请求在异常路径下的状态一致性
@@ -71,7 +72,7 @@
 ## 3. 自动统计快照
 
 <!-- AUTO_PROGRESS_SNAPSHOT:START -->
-- Last generated (UTC): `2026-03-05T10:14:36.433247+00:00`
+- Last generated (UTC): `2026-03-05T11:21:49.649439+00:00`
 - Source: `tools/update_project_progress.py`
 
 | Metric | Value |

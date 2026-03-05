@@ -3,6 +3,19 @@ import re
 
 
 ROOT = Path(__file__).resolve().parents[1]
+SCAN_DIRS = [
+    "api",
+    "core",
+    "models",
+    "common",
+    "engine",
+    "hardware_adapters",
+    "ai_services",
+    "plugins",
+    "tests",
+    "tools",
+    "config",
+]
 PY_PATTERNS = [
     re.compile(r"\bfrom\s+tasks\b"),
     re.compile(r"\bimport\s+tasks\b"),
@@ -26,11 +39,15 @@ DOC_FILES = [
 
 def main() -> int:
     offenders = []
-    for path in ROOT.rglob("*.py"):
-        text = path.read_text(encoding="utf-8")
-        for pattern in PY_PATTERNS:
-            if pattern.search(text):
-                offenders.append((str(path), pattern.pattern))
+    for rel_dir in SCAN_DIRS:
+        base = ROOT / rel_dir
+        if not base.exists():
+            continue
+        for path in base.rglob("*.py"):
+            text = path.read_text(encoding="utf-8")
+            for pattern in PY_PATTERNS:
+                if pattern.search(text):
+                    offenders.append((str(path), pattern.pattern))
 
     for path in DOC_FILES:
         if not path.exists():

@@ -10,6 +10,24 @@
 - 本矩阵基于 `pdftotext` 逐页扫描，并结合计划 `3-pdf-hardware-apis-complete.md` 的接口清单整理。
 - 页码与参数字段通过 `pdftotext -layout` 逐页收敛。
 
+## 覆盖摘要（基于当前仓库证据）
+
+- SDK API：**26** 条接口条目
+- Android RPA：**18** 条方法条目
+- MYTOS API：**20** 条接口条目
+- 合计：**64** 条规范化条目（按文档条目计，不等同于全部底层别名/回退分支）
+
+证据优先级：
+1. `hardware_adapters/myt_client.py`、`hardware_adapters/mytRpc.py` 代码接口
+2. `tests/test_sdk_complete.py`、`tests/test_rpa_complete.py`、`tests/test_mytos_complete.py` 映射断言
+3. `docs/pdf_feature_usability_checklist.md` 的落地对照
+
+## 已知限制与待确认项
+
+- 当前仓库未保留原始 PDF 二进制文件（`**/*.pdf` 未检索到），因此本矩阵基于仓库内已提取结果与测试证据进行核对。
+- 个别接口存在“主路径 + 回退路径”双映射（例如 `/lm/local` ↔ `/models`、`/proxy/*` 兼容形式），实际运行时行为需以后续实现任务的集成测试为准。
+- RPA selector/node 能力在矩阵中按“能力族”归类；若后续需要逐方法 1:1 清单，应在 Wave 7 任务中继续细化。
+
 ## SDK API（盒子内 SDK）
 
 | 方法 | 路径 | 关键参数 | 返回摘要 | PDF 页码 |
