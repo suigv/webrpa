@@ -76,20 +76,20 @@ tools/              # 校验脚本与工具
 
 ## 快速开始
 
-> 当前代码以包名 `new.*` 组织；以下命令按现有仓库布局验证可用。
+> 当前代码以包名 `new.*` 组织；默认在仓库根目录（本目录）执行，亦支持在父目录按 `new/...` 路径执行。
 
-### 1) 创建环境并安装依赖（在项目父目录执行）
+### 1) 创建环境并安装依赖（在仓库根目录执行）
 
 ```bash
-python3 -m venv new/.venv
-./new/.venv/bin/python -m pip install --upgrade pip
-./new/.venv/bin/pip install -r new/requirements.txt
+python3 -m venv .venv
+./.venv/bin/python -m pip install --upgrade pip
+./.venv/bin/pip install -r requirements.txt
 ```
 
-### 2) 启动服务（禁用 RPC，在项目父目录执行）
+### 2) 启动服务（禁用 RPC，在仓库根目录执行）
 
 ```bash
-MYT_NEW_ROOT=$(pwd)/new MYT_ENABLE_RPC=0 ./new/.venv/bin/python -m uvicorn new.api.server:app --host 127.0.0.1 --port 8001
+MYT_NEW_ROOT=$(pwd) MYT_ENABLE_RPC=0 ./.venv/bin/python -m uvicorn new.api.server:app --host 127.0.0.1 --port 8001
 ```
 
 ### 3) 健康检查
@@ -106,7 +106,14 @@ curl http://127.0.0.1:8001/health
 
 ## 质量与验证
 
-常用验证命令（在项目父目录执行）：
+常用验证命令（在仓库根目录执行）：
+
+```bash
+./.venv/bin/python tools/check_no_legacy_imports.py
+./.venv/bin/python -m pytest tests -q
+```
+
+若在项目父目录执行，可使用等效命令：
 
 ```bash
 ./new/.venv/bin/python new/tools/check_no_legacy_imports.py
@@ -121,6 +128,12 @@ curl http://127.0.0.1:8001/health
 - 跨对话交接模板：`new/docs/HANDOFF.md`
 - 插件输入契约与灰度策略：`new/docs/plugin_input_contract.md`
 - 自动刷新快照（建议每次有意义变更后执行）：
+
+```bash
+./.venv/bin/python tools/update_project_progress.py
+```
+
+若在项目父目录执行：
 
 ```bash
 ./new/.venv/bin/python new/tools/update_project_progress.py
