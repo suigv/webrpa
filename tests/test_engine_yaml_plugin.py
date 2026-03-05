@@ -13,13 +13,13 @@ from unittest.mock import MagicMock
 import pytest
 from pydantic import ValidationError
 
-from new.engine.action_registry import ActionRegistry, get_registry, register_defaults
-from new.engine.actions.credential_actions import credentials_load
-from new.engine.conditions import evaluate as eval_condition
-from new.engine.interpreter import Interpreter, InterpreterError
-from new.engine.models.manifest import PluginManifest
-from new.engine.models.runtime import ActionResult, ExecutionContext
-from new.engine.models.workflow import (
+from engine.action_registry import ActionRegistry, get_registry, register_defaults
+from engine.actions.credential_actions import credentials_load
+from engine.conditions import evaluate as eval_condition
+from engine.interpreter import Interpreter, InterpreterError
+from engine.models.manifest import PluginManifest
+from engine.models.runtime import ActionResult, ExecutionContext
+from engine.models.workflow import (
     ActionStep,
     Condition,
     ConditionExpr,
@@ -30,8 +30,8 @@ from new.engine.models.workflow import (
     WaitUntilStep,
     WorkflowScript,
 )
-from new.engine.parser import interpolate, interpolate_params, parse_manifest, parse_script
-from new.engine.plugin_loader import PluginLoader
+from engine.parser import interpolate, interpolate_params, parse_manifest, parse_script
+from engine.plugin_loader import PluginLoader
 
 
 # ============================================================

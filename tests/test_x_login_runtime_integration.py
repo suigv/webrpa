@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 
-from new.api.server import app
+from api.server import app
 
 
 def test_x_login_runtime_integration_missing_creds():

@@ -3,7 +3,7 @@ import json
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
 
-from new.common.logger import log_manager
+from common.logger import log_manager
 
 router = APIRouter()
 _clients = []

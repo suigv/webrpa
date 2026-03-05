@@ -76,7 +76,7 @@ tools/              # 校验脚本与工具
 
 ## 快速开始
 
-> 当前代码以包名 `new.*` 组织；默认在仓库根目录（本目录）执行，亦支持在父目录按 `new/...` 路径执行。
+> 当前代码以包名 `*` 组织；默认在仓库根目录（本目录）执行，亦支持在父目录按 `...` 路径执行。
 
 ### 1) 创建环境并安装依赖（在仓库根目录执行）
 
@@ -89,7 +89,7 @@ python3 -m venv .venv
 ### 2) 启动服务（禁用 RPC，在仓库根目录执行）
 
 ```bash
-MYT_NEW_ROOT=$(pwd) MYT_ENABLE_RPC=0 ./.venv/bin/python -m uvicorn new.api.server:app --host 127.0.0.1 --port 8001
+ MYT_ENABLE_RPC=0 ./.venv/bin/python -m uvicorn api.server:app --host 127.0.0.1 --port 8001
 ```
 
 ### 3) 健康检查
@@ -116,17 +116,17 @@ curl http://127.0.0.1:8001/health
 若在项目父目录执行，可使用等效命令：
 
 ```bash
-./new/.venv/bin/python new/tools/check_no_legacy_imports.py
-./new/.venv/bin/python -m pytest new/tests -q
+./.venv/bin/python tools/check_no_legacy_imports.py
+./.venv/bin/python -m pytest tests -q
 ```
 
 ---
 
 ## 项目进度文档
 
-- 进度与功能清单：`new/docs/project_progress.md`
-- 跨对话交接模板：`new/docs/HANDOFF.md`
-- 插件输入契约与灰度策略：`new/docs/plugin_input_contract.md`
+- 进度与功能清单：`docs/project_progress.md`
+- 跨对话交接模板：`docs/HANDOFF.md`
+- 插件输入契约与灰度策略：`docs/plugin_input_contract.md`
 - 自动刷新快照（建议每次有意义变更后执行）：
 
 ```bash
@@ -136,7 +136,7 @@ curl http://127.0.0.1:8001/health
 若在项目父目录执行：
 
 ```bash
-./new/.venv/bin/python new/tools/update_project_progress.py
+./.venv/bin/python tools/update_project_progress.py
 ```
 
 - CI 自动校验：`.github/workflows/project-progress-sync.yml`

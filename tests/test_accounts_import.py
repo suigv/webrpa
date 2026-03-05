@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 
-from new.api.server import app
-from new.core.account_parser import parse_accounts_text
+from api.server import app
+from core.account_parser import parse_accounts_text
 
 
 def test_parse_accounts_text_supports_space_comma_tab_and_header():

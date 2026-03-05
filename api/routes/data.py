@@ -1,8 +1,8 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from new.core.account_parser import parse_accounts_lines, parse_accounts_text
-from new.core.data_store import read_lines, read_text, write_lines, write_text
+from core.account_parser import parse_accounts_lines, parse_accounts_text
+from core.data_store import read_lines, read_text, write_lines, write_text
 
 router = APIRouter()
 

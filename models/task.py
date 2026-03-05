@@ -2,7 +2,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class TaskType(str, Enum):
@@ -18,7 +18,10 @@ class TaskStatus(str, Enum):
 
 
 class TaskRequest(BaseModel):
-    script: Dict[str, Any]
+    script: Optional[Dict[str, Any]] = None
+    task: Optional[str] = Field(default=None, min_length=1)
+    payload: Dict[str, Any] = Field(default_factory=dict)
+    targets: List["TaskTarget"] = Field(default_factory=list)
     devices: List[int] = Field(default_factory=list)
     ai_type: str = "volc"
     idempotency_key: Optional[str] = Field(default=None, min_length=1, max_length=128)
@@ -27,11 +30,26 @@ class TaskRequest(BaseModel):
     priority: int = Field(default=50, ge=0, le=100)
     run_at: Optional[datetime] = None
 
+    @model_validator(mode="after")
+    def validate_submission_mode(self):
+        if self.script is not None:
+            return self
+        if self.task is None or not str(self.task).strip():
+            raise ValueError("either script or task must be provided")
+        return self
+
+
+class TaskTarget(BaseModel):
+    device_id: int = Field(ge=1)
+    cloud_id: int = Field(default=1, ge=1)
+
 
 class TaskResponse(BaseModel):
     task_id: str
     task_type: TaskType
+    task_name: str = "anonymous"
     devices: List[int]
+    targets: List[TaskTarget] = Field(default_factory=list)
     ai_type: str
     idempotency_key: Optional[str] = None
     status: TaskStatus

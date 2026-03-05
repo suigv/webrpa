@@ -1,4 +1,4 @@
-from new.engine.runner import Runner
+from engine.runner import Runner
 
 
 def test_x_login_missing_credentials_returns_error():

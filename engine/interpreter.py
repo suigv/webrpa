@@ -5,10 +5,10 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from new.engine.action_registry import get_registry, register_defaults
-from new.engine.conditions import evaluate as eval_condition
-from new.engine.models.runtime import ActionResult, ExecutionContext
-from new.engine.models.workflow import (
+from engine.action_registry import get_registry, register_defaults
+from engine.conditions import evaluate as eval_condition
+from engine.models.runtime import ActionResult, ExecutionContext
+from engine.models.workflow import (
     ActionStep,
     FailStrategy,
     GotoStep,
@@ -19,7 +19,7 @@ from new.engine.models.workflow import (
     WaitUntilStep,
     WorkflowScript,
 )
-from new.engine.parser import interpolate_params
+from engine.parser import interpolate_params
 
 logger = logging.getLogger(__name__)
 

@@ -3,8 +3,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from new.engine.models.runtime import ExecutionContext
-from new.engine.models.workflow import Condition, ConditionExpr, ConditionType
+from engine.models.runtime import ExecutionContext
+from engine.models.workflow import Condition, ConditionExpr, ConditionType
 
 logger = logging.getLogger(__name__)
 

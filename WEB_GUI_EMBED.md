@@ -19,7 +19,7 @@ import uvicorn
 
 
 def run_api():
-    uvicorn.run("new.api.server:app", host="127.0.0.1", port=8000)
+    uvicorn.run("api.server:app", host="127.0.0.1", port=8000)
 
 
 threading.Thread(target=run_api, daemon=True).start()

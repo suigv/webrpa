@@ -5,7 +5,7 @@
 
 ## 1) Project Identity
 
-- Project: `webrpa` (standalone package namespace: `new.*`)
+- Project: `webrpa` (standalone package namespace: `*`)
 - Goal: 可独立运行的 Web/RPA 自动化平台（插件化执行 + 控制平面）
 - Canonical progress doc: `docs/project_progress.md`
 
@@ -116,7 +116,7 @@
     - `config/monitoring/prometheus/task_metrics_alerts.yml` now includes `NewTaskStaleRunningRecovered`
     - rendering tool emits the same rule for deployment parity
 24. Fixed bootstrap/test-context instability and DB test flakiness:
-    - added `sitecustomize.py` to ensure parent import path for `new.*` package bootstrap in root-context execution
+    - added `sitecustomize.py` to ensure parent import path for `*` package bootstrap in root-context execution
     - hardened `tools/check_plugin_manifest_inputs.py` direct-script execution path bootstrap
     - added `pytest.ini` (`testpaths = tests`) to avoid unintended `tmp/tests` collection
     - added `httpx` to `requirements.txt` as explicit dependency declaration
@@ -134,21 +134,21 @@
 Start prompt template:
 
 ```text
-请先阅读 new/docs/HANDOFF.md、new/docs/project_progress.md 和 .sisyphus/plans/legacy-feature-extraction.md；
+请先阅读 docs/HANDOFF.md、docs/project_progress.md 和 .sisyphus/plans/legacy-feature-extraction.md；
 优先执行 Open Items 第 2 项（提交打包），随后推进第 3 项（迁移后加固）；
 每完成一个子项即更新 docs/project_progress.md，并执行 ./tools/run_migration_gates.sh。
 ```
 
 ## 6) Required Validation Commands
 
-Run from parent directory of `new/`:
+Run from parent directory of ``:
 
 ```bash
-./new/.venv/bin/python new/tools/update_project_progress.py
-./new/.venv/bin/python new/tools/check_no_legacy_imports.py
-./new/.venv/bin/python new/tools/check_plugin_manifest_inputs.py
-./new/.venv/bin/python -m pytest new/tests -q
-MYT_NEW_ROOT=$(pwd)/new MYT_ENABLE_RPC=0 ./new/.venv/bin/python -m uvicorn new.api.server:app --host 127.0.0.1 --port 8001
+./.venv/bin/python tools/update_project_progress.py
+./.venv/bin/python tools/check_no_legacy_imports.py
+./.venv/bin/python tools/check_plugin_manifest_inputs.py
+./.venv/bin/python -m pytest tests -q
+MYT_ENABLE_RPC=0 ./.venv/bin/python -m uvicorn api.server:app --host 127.0.0.1 --port 8001
 curl http://127.0.0.1:8001/health
 ```
 
@@ -160,5 +160,5 @@ Alternative one-shot gate (preferred for migration closure):
 
 ## 7) Risks / Notes
 
-- Runtime DB file `new/config/data/tasks.db` is environment artifact; do not include in commits.
+- Runtime DB file `config/data/tasks.db` is environment artifact; do not include in commits.
 - Keep standalone constraints: no `tasks.*` and no `app.*` imports.

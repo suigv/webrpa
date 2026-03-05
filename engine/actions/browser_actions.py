@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict
 
-from new.engine.models.runtime import ActionResult, ExecutionContext
+from engine.models.runtime import ActionResult, ExecutionContext
 
 logger = logging.getLogger(__name__)
 
@@ -12,7 +12,7 @@ def _get_browser(context: ExecutionContext) -> Any:
     """Lazily open browser session, store in context."""
     if context.browser is None:
         try:
-            from new.hardware_adapters.browser_client import BrowserClient
+            from hardware_adapters.browser_client import BrowserClient
             context.browser = BrowserClient()
         except Exception as exc:
             raise RuntimeError(f"browser adapter unavailable: {exc}") from exc

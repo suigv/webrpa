@@ -18,8 +18,8 @@ from .config_loader import (
 )
 from .lan_discovery import LanDeviceDiscovery
 from .port_calc import calculate_ports
-from ..hardware_adapters.myt_client import BaseHTTPClient
-from ..models.device import AIType, DeviceStatus
+from hardware_adapters.myt_client import BaseHTTPClient
+from models.device import AIType, DeviceStatus
 
 logger = logging.getLogger(__name__)
 
@@ -409,6 +409,20 @@ class DeviceManager:
                 continue
             clouds.append(cloud_info)
 
+        if device.status == DeviceStatus.ERROR:
+            effective_status = DeviceStatus.ERROR
+        elif device.status == DeviceStatus.OFFLINE:
+            effective_status = DeviceStatus.OFFLINE
+        elif available_count > 0:
+            effective_status = DeviceStatus.RUNNING
+        elif probe_partial:
+            effective_status = DeviceStatus.IDLE
+        else:
+            effective_status = DeviceStatus.OFFLINE
+
+        for cloud in clouds:
+            cloud["status"] = effective_status.value
+
         return {
             "schema_version": get_schema_version(),
             "allocation_version": get_allocation_version(),
@@ -417,7 +431,7 @@ class DeviceManager:
             "sdk_port": get_sdk_port(),
             "sdk_port_role": "device_control_api",
             "ai_type": device.ai_type.value,
-            "status": device.status.value,
+            "status": effective_status.value,
             "current_task": device.current_task,
             "message": device.message,
             "cloud_slots_total": cloud_machines_per_device,

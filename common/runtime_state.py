@@ -1,7 +1,7 @@
 import os
 from typing import Dict, List
 
-from new.common.config_manager import cfg
+from common.config_manager import cfg
 
 
 def _safe_remove(path: str) -> bool:

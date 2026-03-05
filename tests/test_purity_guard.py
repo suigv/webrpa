@@ -1,7 +1,7 @@
-import new.core.data_store as data_store
+import core.data_store as data_store
 from fastapi.testclient import TestClient
 
-from new.api.server import app
+from api.server import app
 
 
 def test_removed_migrate_route_stays_unavailable():

@@ -1,4 +1,4 @@
-from new.engine.runner import Runner
+from engine.runner import Runner
 
 
 def test_failure_isolation_and_recovery_for_migrated_plugins():

@@ -4,8 +4,8 @@ import logging
 from pathlib import Path
 from typing import Dict, Optional
 
-from new.engine.models.manifest import PluginManifest
-from new.engine.parser import parse_manifest
+from engine.models.manifest import PluginManifest
+from engine.parser import parse_manifest
 
 logger = logging.getLogger(__name__)
 

@@ -1,27 +1,27 @@
-# AGENTS.md for `new/` Standalone Project
+# AGENTS.md for `` Standalone Project
 
 ## Mission
-Build and evolve `new/` as an independent project.
+Build and evolve `` as an independent project.
 
 Hard goals:
-- Keep `new/` copy-ready and runnable by itself.
+- Keep `` copy-ready and runnable by itself.
 - Do not reintroduce legacy task code from old repo.
 - Evolve runtime via pluginized architecture.
 
 ## Scope Rules
 
 ### In Scope
-- `new/api/**`
-- `new/core/**`
-- `new/models/**`
-- `new/common/**`
-- `new/engine/**`
-- `new/hardware_adapters/**`
-- `new/ai_services/**`
-- `new/plugins/**`
-- `new/tests/**`
-- `new/tools/**`
-- `new/config/**`
+- `api/**`
+- `core/**`
+- `models/**`
+- `common/**`
+- `engine/**`
+- `hardware_adapters/**`
+- `ai_services/**`
+- `plugins/**`
+- `tests/**`
+- `tools/**`
+- `config/**`
 
 ### Out of Scope
 - Any direct dependency on old `tasks/*.py`
@@ -35,15 +35,15 @@ Hard goals:
 2. Baseline startup must work with RPC disabled:
    - `MYT_ENABLE_RPC=0`
 3. Data path must stay inside:
-   - `new/config/data`
+   - `config/data`
 
 ## Required Validation
 Run all before finishing any meaningful change:
 
 ```bash
-./.venv/bin/python new/tools/check_no_legacy_imports.py
-./.venv/bin/python -m pytest new/tests -q
-MYT_NEW_ROOT=$(pwd)/new MYT_ENABLE_RPC=0 ./.venv/bin/python -m uvicorn new.api.server:app --host 127.0.0.1 --port 8001
+./.venv/bin/python tools/check_no_legacy_imports.py
+./.venv/bin/python -m pytest tests -q
+MYT_ENABLE_RPC=0 ./.venv/bin/python -m uvicorn api.server:app --host 127.0.0.1 --port 8001
 ```
 
 Health check:
@@ -55,19 +55,19 @@ curl http://127.0.0.1:8001/health
 ## Architecture Contracts
 
 ### API Layer
-- `new/api/server.py` is the single app entrypoint.
+- `api/server.py` is the single app entrypoint.
 - Keep routes thin; business logic belongs in core/engine.
 - `/web` is the default operator console endpoint and should remain available.
 
 ### Runtime Layer
-- `new/engine/parser.py` normalizes script payload.
-- `new/engine/runner.py` owns execution orchestration.
-- `new/engine/actions/*` contains atomic action functions.
+- `engine/parser.py` normalizes script payload.
+- `engine/runner.py` owns execution orchestration.
+- `engine/actions/*` contains atomic action functions.
 
 ### Adapter Layer
-- `new/hardware_adapters/myt_client.py` is optional capability.
+- `hardware_adapters/myt_client.py` is optional capability.
 - Native lib loading must be lazy and failure-safe.
-- `new/hardware_adapters/browser_client.py` is optional browser capability based on vendored DrissionPage.
+- `hardware_adapters/browser_client.py` is optional browser capability based on vendored DrissionPage.
 - Browser adapter must fail gracefully when DrissionPage or browser runtime is unavailable.
 
 ### Port Architecture
@@ -89,12 +89,12 @@ cloud 10 → api 30901, rpa 30902
 Different devices use the same port numbers but different IPs — `(ip, port)` is unique.
 
 ### Data and Config Layer
-- `new/core/config_loader.py` controls runtime config access.
-- `new/core/data_store.py` controls JSON data I/O.
+- `core/config_loader.py` controls runtime config access.
+- `core/data_store.py` controls JSON data I/O.
 - Legacy TXT migration remains opt-in only.
 
 ## Pluginization Direction
-- New business workflows go to `new/plugins/`.
+- New business workflows go to `plugins/`.
 - Avoid embedding business task logic inside API routes.
 - Keep plugin interface stable and versioned once defined.
 

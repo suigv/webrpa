@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-  <title>MYT Control Console</title>
+  <title>MYT 控制台</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
   <div class="bg-shape bg-shape-a"></div>
@@ -43,7 +43,7 @@
           <p>独立运行环境与设备控制</p>
         </div>
         <div class="status-wrap">
-          <span id="apiStatus" class="badge badge-warn">API: 检查中</span>
+          <span id="apiStatus" class="badge badge-warn">服务状态：检查中</span>
           <button id="refreshAll" class="btn btn-ghost">刷新全局</button>
         </div>
       </header>
@@ -80,7 +80,7 @@
               <label>优先级 (0-100)
                 <input id="taskPriority" type="number" min="0" max="100" step="1" value="50">
               </label>
-              <label>运行时间 (ISO可选)
+              <label>运行时间（可选）
                 <input id="taskRunAt" type="text" placeholder="2026-03-03T17:30:00+08:00">
               </label>
             </div>
@@ -92,36 +92,29 @@
                 <input id="taskBackoff" type="number" min="0" max="3600" step="1" value="2">
               </label>
             </div>
-            <textarea id="taskPayload" rows="6" spellcheck="false">{
-  "task": "anonymous",
-  "steps": []
-}</textarea>
+            <div id="taskPluginHost" class="form-grid"></div>
+            <div id="taskPayloadFields" class="form-grid"></div>
+            <div class="form-grid">
+              <label>目标设备编号
+                <input id="targetDeviceId" type="number" min="1" step="1" value="1">
+              </label>
+              <label>目标云机编号
+                <input id="targetCloudId" type="number" min="1" step="1" value="1">
+              </label>
+            </div>
             <div class="task-actions-row">
               <button id="submitTask" class="btn btn-accent">提交任务</button>
             </div>
             <div id="taskMsg" class="msg"></div>
             <div id="tasksList" class="device-list"></div>
-            <pre id="taskDetail" class="code"></pre>
+            <div id="taskDetail" class="msg"></div>
           </section>
 
           <section class="card card-runtime">
             <div class="card-head">
-              <h2>运行时执行</h2>
-              <button id="runTask" class="btn btn-accent">运行</button>
+              <h2>执行说明</h2>
             </div>
-            <textarea id="runtimePayload" rows="10" spellcheck="false">{
-  "task": "smoke",
-  "steps": [
-    {
-      "action": "browser_open",
-      "params": {
-        "url": "https://example.com",
-        "headless": true
-      }
-    }
-  ]
-}</textarea>
-            <pre id="runtimeResult" class="code"></pre>
+            <div class="msg">在上方选择插件、填写参数和目标设备后，直接提交任务即可。</div>
           </section>
         </div>
 
@@ -129,10 +122,10 @@
         <div id="tab-accounts" class="tab-pane grid">
           <section class="card card-accounts card-full">
             <div class="card-head">
-              <h2>账号导入 (账号,密码,2FA)</h2>
+              <h2>账号导入（账号、密码、二步验证码）</h2>
               <button id="loadAccounts" class="btn">加载已保存</button>
             </div>
-            <textarea id="accountsInput" rows="8" spellcheck="false" placeholder="账号 密码 2fa(可选)
+            <textarea id="accountsInput" rows="8" spellcheck="false" placeholder="账号 密码 二步验证码(可选)
 alice@example.com password123 123456
 bob@example.com,password456,OTP-SECRET"></textarea>
             <div class="task-actions-row">
@@ -155,7 +148,7 @@ bob@example.com,password456,OTP-SECRET"></textarea>
               <label>主机 IP<input id="hostIp" type="text" placeholder="127.0.0.1"></label>
               <label>设备总数<input id="totalDevices" type="number" min="1" step="1"></label>
             </div>
-            <label class="block-label">设备 IP 映射 (JSON)
+            <label class="block-label">设备 IP 映射（每行: 设备ID 空格 IP）
               <textarea id="deviceIps" rows="4" spellcheck="false"></textarea>
             </label>
             <div class="block-label humanized-box">
@@ -193,9 +186,6 @@ bob@example.com,password456,OTP-SECRET"></textarea>
                 <label>随机种子 (可选) <input id="hzRandomSeed" type="text" placeholder="留空则随机"></label>
               </div>
             </div>
-            <label class="block-label">拟人化配置预览 (JSON)
-              <textarea id="humanizedConfig" rows="6" spellcheck="false" readonly></textarea>
-            </label>
             <div id="configMsg" class="msg"></div>
           </section>
         </div>
@@ -204,6 +194,6 @@ bob@example.com,password456,OTP-SECRET"></textarea>
     </div> <!-- app-main -->
   </div> <!-- app-layout -->
 
-  <script src="app.js"></script>
+  <script type="module" src="/static/js/main.js"></script>
 </body>
 </html>

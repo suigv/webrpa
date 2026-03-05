@@ -2,7 +2,7 @@ import importlib
 
 
 def _load_action_registry_module():
-    for name in ("new.engine.action_registry", "engine.action_registry"):
+    for name in ("engine.action_registry", "engine.action_registry"):
         try:
             return importlib.import_module(name)
         except ModuleNotFoundError:
@@ -11,7 +11,7 @@ def _load_action_registry_module():
 
 
 def _load_execution_context():
-    for name in ("new.engine.models.runtime", "engine.models.runtime"):
+    for name in ("engine.models.runtime", "engine.models.runtime"):
         try:
             return importlib.import_module(name).ExecutionContext
         except ModuleNotFoundError:
@@ -52,7 +52,7 @@ def test_sdk_action_invocation_maps_to_client(monkeypatch):
         def ip_geolocation(self, ip: str, language: str = ""):
             return {"ok": True, "data": {"ip": ip, "language": language}}
 
-    sdk_mod = importlib.import_module("new.engine.actions.sdk_actions")
+    sdk_mod = importlib.import_module("engine.actions.sdk_actions")
     monkeypatch.setattr(sdk_mod, "MytSdkClient", FakeClient)
 
     reg = ActionRegistry()

@@ -1,8 +1,8 @@
 from fastapi.testclient import TestClient
 
-from new.api.server import app
-from new.core.config_loader import ConfigLoader
-from new.core.lan_discovery import LanDeviceDiscovery
+from api.server import app
+from core.config_loader import ConfigLoader
+from core.lan_discovery import LanDeviceDiscovery
 
 
 def test_api_devices_discover_endpoint(monkeypatch):

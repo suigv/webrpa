@@ -9,8 +9,8 @@ import time
 from pathlib import Path
 from typing import Any
 
-from new.core.config_loader import get_humanized_wrapper_config
-from new.models.humanized import HumanizedWrapperConfig
+from core.config_loader import get_humanized_wrapper_config
+from models.humanized import HumanizedWrapperConfig
 
 
 def _vendor_root() -> Path:

@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 
-from new.api.server import app
-from new.core.config_loader import ConfigLoader
+from api.server import app
+from core.config_loader import ConfigLoader
 
 
 def test_api_devices_nested_contract():

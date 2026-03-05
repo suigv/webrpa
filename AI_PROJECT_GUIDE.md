@@ -1,25 +1,25 @@
-# AI 项目指南（独立版 `new/`）
+# AI 项目指南（独立版 ``）
 
 ## 1）项目定位
 
-`new/` 是可独立复制与运行的基线工程。
+`` 是可独立复制与运行的基线工程。
 
 设计目标：
 - 保留可复用基础能力（API / core / models / adapters）
 - 移除历史任务实现耦合
 - 运行时保持插件化架构
-- 支持仅复制 `new/` 即可独立开发
+- 支持仅复制 `` 即可独立开发
 
 ## 2）运行时总览
 
 请求链路：
-1. `new/api/server.py` 启动 FastAPI 并挂载基础路由。
-2. `new/api/server.py` 在 `/web` 提供控制台页面。
-3. 配置/数据/设备路由调用 `new/core/*`。
-4. `/api/runtime/execute` 调用 `new/engine/runner.py`。
-5. `Runner` 结合 `new/engine/parser.py` 处理脚本并返回结构化结果。
-6. 可选 RPC 能力由 `new/hardware_adapters/myt_client.py` 提供。
-7. 可选浏览器能力由 `new/hardware_adapters/browser_client.py`（vendored DrissionPage）提供。
+1. `api/server.py` 启动 FastAPI 并挂载基础路由。
+2. `api/server.py` 在 `/web` 提供控制台页面。
+3. 配置/数据/设备路由调用 `core/*`。
+4. `/api/runtime/execute` 调用 `engine/runner.py`。
+5. `Runner` 结合 `engine/parser.py` 处理脚本并返回结构化结果。
+6. 可选 RPC 能力由 `hardware_adapters/myt_client.py` 提供。
+7. 可选浏览器能力由 `hardware_adapters/browser_client.py`（vendored DrissionPage）提供。
 
 ## 3）模块职责（按目录）
 
@@ -38,7 +38,7 @@
 
 ### Core 层
 - `core/config_loader.py`：配置加载与更新
-- `core/data_store.py`：`new/config/data` 下 JSON 存储
+- `core/data_store.py`：`config/data` 下 JSON 存储
 - `core/device_manager.py`：设备状态管理
 - `core/port_calc.py`：端口计算逻辑
 
@@ -78,9 +78,9 @@
 建议命令（项目父目录执行）：
 
 ```bash
-./new/.venv/bin/python new/tools/check_no_legacy_imports.py
-./new/.venv/bin/python -m pytest new/tests -q
-MYT_NEW_ROOT=$(pwd)/new MYT_ENABLE_RPC=0 ./new/.venv/bin/python -m uvicorn new.api.server:app --host 127.0.0.1 --port 8001
+./.venv/bin/python tools/check_no_legacy_imports.py
+./.venv/bin/python -m pytest tests -q
+MYT_ENABLE_RPC=0 ./.venv/bin/python -m uvicorn api.server:app --host 127.0.0.1 --port 8001
 curl http://127.0.0.1:8001/health
 ```
 
@@ -94,5 +94,5 @@ curl http://127.0.0.1:8001/health
 ## 6）硬约束（请持续遵守）
 
 - 禁止重新引入 `tasks` / `app.*` 历史依赖。
-- 数据文件必须落在 `new/config/data`。
+- 数据文件必须落在 `config/data`。
 - 路由保持薄层，核心逻辑下沉到 `core/` 与 `engine/`。

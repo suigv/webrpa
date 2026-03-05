@@ -3,8 +3,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict
 
-from new.core.credentials_loader import load_credentials_from_ref
-from new.engine.models.runtime import ActionResult, ExecutionContext
+from core.credentials_loader import load_credentials_from_ref
+from engine.models.runtime import ActionResult, ExecutionContext
 
 logger = logging.getLogger(__name__)
 

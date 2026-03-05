@@ -2,7 +2,7 @@ import importlib
 
 
 def _load_myt_client_module():
-    for name in ("new.hardware_adapters.myt_client", "hardware_adapters.myt_client"):
+    for name in ("hardware_adapters.myt_client", "hardware_adapters.myt_client"):
         try:
             return importlib.import_module(name)
         except ModuleNotFoundError:

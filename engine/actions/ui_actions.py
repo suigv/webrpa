@@ -5,9 +5,9 @@ import time
 from dataclasses import dataclass
 from typing import Any, Dict
 
-from ...core.port_calc import calculate_ports
-from ..models.runtime import ActionResult, ExecutionContext
-from ...hardware_adapters.mytRpc import MytRpc
+from core.port_calc import calculate_ports
+from engine.models.runtime import ActionResult, ExecutionContext
+from hardware_adapters.mytRpc import MytRpc
 
 
 def _is_rpc_enabled() -> bool:

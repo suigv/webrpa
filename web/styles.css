@@ -347,3 +347,71 @@ input[type="checkbox"]:checked::after { content: "X"; position: absolute; top: 5
   .grid { padding: 0 12px 12px; gap: 16px; }
   .form-grid { grid-template-columns: 1fr; }
 }
+
+/* ==================== TOAST NOTIFICATIONS ==================== */
+.toast-container {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.toast {
+  background: rgba(12, 12, 16, 0.95);
+  color: var(--text);
+  padding: 12px 20px;
+  border-left: 4px solid var(--cyan);
+  border-radius: 2px;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 14px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  opacity: 0;
+  transform: translateX(100%);
+  transition: all 0.3s ease;
+  pointer-events: auto;
+  min-width: 250px;
+  max-width: 400px;
+  backdrop-filter: blur(5px);
+}
+
+.toast.show {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.toast.hide {
+  opacity: 0;
+  transform: translateX(100%);
+}
+
+.toast-success { border-color: var(--ok); box-shadow: 0 0 10px rgba(0, 255, 102, 0.2); }
+.toast-error { border-color: var(--magenta); box-shadow: 0 0 10px rgba(255, 0, 60, 0.2); }
+.toast-warn { border-color: var(--warn); box-shadow: 0 0 10px rgba(255, 176, 0, 0.2); }
+.toast-info { border-color: var(--cyan); box-shadow: 0 0 10px rgba(0, 243, 255, 0.2); }
+
+/* ==================== UTILITY CLASSES ==================== */
+.btn:disabled, .btn.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.loading-spinner {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-radius: 50%;
+  border-top-color: currentColor;
+  animation: spin 1s ease-in-out infinite;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}

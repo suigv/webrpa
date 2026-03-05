@@ -2,10 +2,10 @@
 from fastapi.testclient import TestClient
 from typing import Any, ClassVar
 
-from new.api.server import app
-from new.hardware_adapters.browser_client import BrowserClient
-from new.models.humanized import HumanizedWrapperConfig
-import new.core.config_loader as config_loader
+from api.server import app
+from hardware_adapters.browser_client import BrowserClient
+from models.humanized import HumanizedWrapperConfig
+import core.config_loader as config_loader
 
 
 class _FakeRect:

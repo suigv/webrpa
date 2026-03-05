@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 
-from new.api.server import app
+from api.server import app
 
 
 def test_task_catalog_endpoint_returns_migrated_tasks():

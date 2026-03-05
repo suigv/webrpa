@@ -8,10 +8,10 @@ from datetime import datetime, timedelta, timezone
 import math
 from typing import Any, Protocol
 
-from new.core.task_events import TaskEventStore
-from new.core.task_queue import QueueBackend, create_task_queue
-from new.core.task_store import TaskRecord, TaskStore
-from new.engine.runner import Runner
+from core.task_events import TaskEventStore
+from core.task_queue import QueueBackend, create_task_queue
+from core.task_store import TaskRecord, TaskStore
+from engine.runner import Runner
 
 
 class RunnerLike(Protocol):
@@ -332,11 +332,64 @@ class TaskController:
                 },
             )
 
+            payload_for_run = dict(record.payload)
+            raw_targets = payload_for_run.pop("_dispatch_targets", None)
+            dispatch_targets: list[dict[str, int]] = []
+            if isinstance(raw_targets, list):
+                for item in raw_targets:
+                    if not isinstance(item, dict):
+                        continue
+                    device_id_raw = item.get("device_id")
+                    cloud_id_raw = item.get("cloud_id", 1)
+                    try:
+                        device_id = int(device_id_raw)
+                        cloud_id = int(cloud_id_raw)
+                    except Exception:
+                        continue
+                    if device_id < 1 or cloud_id < 1:
+                        continue
+                    dispatch_targets.append({"device_id": device_id, "cloud_id": cloud_id})
+            if not dispatch_targets:
+                if record.devices:
+                    dispatch_targets = [{"device_id": int(device_id), "cloud_id": 1} for device_id in record.devices]
+                else:
+                    dispatch_targets = [{"device_id": 1, "cloud_id": 1}]
+
             try:
-                result = self._runner.run(
-                    record.payload,
-                    should_cancel=lambda task_id=task_id: self._store.is_cancel_requested(task_id),
-                )
+                target_results: list[dict[str, Any]] = []
+                first_failure: dict[str, Any] | None = None
+
+                for target in dispatch_targets:
+                    result = self._runner.run(
+                        payload_for_run,
+                        should_cancel=lambda task_id=task_id: self._store.is_cancel_requested(task_id),
+                    )
+                    target_result = {
+                        "target": target,
+                        "result": result,
+                    }
+                    target_results.append(target_result)
+                    if not bool(result.get("ok")) and first_failure is None:
+                        first_failure = result
+
+                if first_failure is None:
+                    result = {
+                        "ok": True,
+                        "task": task_name,
+                        "status": "completed",
+                        "target_count": len(target_results),
+                        "targets": target_results,
+                    }
+                else:
+                    result = {
+                        "ok": False,
+                        "task": task_name,
+                        "status": str(first_failure.get("status") or "failed"),
+                        "message": str(first_failure.get("message") or "task failed"),
+                        "target_count": len(target_results),
+                        "targets": target_results,
+                    }
+
                 self._events.append_event(
                     task_id,
                     "task.dispatch_result",

@@ -1,4 +1,4 @@
-# 插件契约 v2（`new/plugins/`）
+# 插件契约 v2（`plugins/`）
 
 ## 目标
 定义稳定的 **YAML 声明式插件契约**，让运行时可以执行业务工作流，而不耦合 API 路由或历史任务代码。
@@ -9,10 +9,10 @@
 
 ## 目录结构
 
-每个插件位于 `new/plugins/` 下独立目录：
+每个插件位于 `plugins/` 下独立目录：
 
 ```text
-new/plugins/<plugin_name>/
+plugins/<plugin_name>/
 ├── manifest.yaml    # 插件元信息与输入声明
 └── script.yaml      # 声明式工作流步骤
 ```
@@ -124,7 +124,7 @@ new/plugins/<plugin_name>/
 - 插件不得依赖旧命名空间（`tasks` / `app.*`）
 - 插件不得包含 Python 逻辑（仅 YAML）
 - 凭据必须通过 `credentials.load` 且路径受白名单约束
-- 不允许执行 `new/` 范围外的破坏性文件操作
+- 不允许执行仓库范围外的破坏性文件操作
 
 ## 插件验收检查单
 

@@ -1,4 +1,4 @@
-from new.engine.runner import Runner
+from engine.runner import Runner
 
 
 def test_follow_and_home_plugin_success():

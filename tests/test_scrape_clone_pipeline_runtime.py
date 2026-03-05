@@ -1,4 +1,4 @@
-from new.engine.runner import Runner
+from engine.runner import Runner
 
 
 def test_scrape_clone_chain_success():

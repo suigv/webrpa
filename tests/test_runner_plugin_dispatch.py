@@ -1,11 +1,11 @@
 from pathlib import Path
 from typing import Any
 
-from new.engine.action_registry import get_registry
-from new.engine.models.manifest import PluginManifest
-from new.engine.models.runtime import ActionResult
-from new.engine.plugin_loader import PluginEntry
-from new.engine.runner import Runner
+from engine.action_registry import get_registry
+from engine.models.manifest import PluginManifest
+from engine.models.runtime import ActionResult
+from engine.plugin_loader import PluginEntry
+from engine.runner import Runner
 
 
 def test_runner_yaml_plugin_dispatch_fails_without_credentials():

@@ -2,14 +2,15 @@ from __future__ import annotations
 
 import json
 import time
+from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException, Query
 from fastapi import Response
 from fastapi.responses import StreamingResponse
 
-from new.core.task_control import get_task_controller
-from new.engine.plugin_loader import PluginLoader
-from new.models.task import TaskDetailResponse, TaskMetricsResponse, TaskRequest, TaskResponse, TaskStatus, TaskType
+from core.task_control import get_task_controller
+from engine.plugin_loader import PluginLoader
+from models.task import TaskDetailResponse, TaskMetricsResponse, TaskRequest, TaskResponse, TaskStatus, TaskTarget, TaskType
 
 router = APIRouter()
 
@@ -42,10 +43,23 @@ def task_catalog():
 
 
 def _to_task_response(record) -> TaskResponse:
+    raw_targets = record.payload.get("_dispatch_targets") if isinstance(record.payload, dict) else []
+    targets: list[TaskTarget] = []
+    if isinstance(raw_targets, list):
+        for item in raw_targets:
+            if not isinstance(item, dict):
+                continue
+            try:
+                targets.append(TaskTarget.model_validate(item))
+            except Exception:
+                continue
+
     return TaskResponse(
         task_id=record.task_id,
         task_type=TaskType.SCRIPT,
+        task_name=str(record.payload.get("task") or "anonymous"),
         devices=record.devices,
+        targets=targets,
         ai_type=record.ai_type,
         idempotency_key=record.idempotency_key,
         status=TaskStatus(record.status),
@@ -60,10 +74,23 @@ def _to_task_response(record) -> TaskResponse:
 
 
 def _to_task_detail(record) -> TaskDetailResponse:
+    raw_targets = record.payload.get("_dispatch_targets") if isinstance(record.payload, dict) else []
+    targets: list[TaskTarget] = []
+    if isinstance(raw_targets, list):
+        for item in raw_targets:
+            if not isinstance(item, dict):
+                continue
+            try:
+                targets.append(TaskTarget.model_validate(item))
+            except Exception:
+                continue
+
     return TaskDetailResponse(
         task_id=record.task_id,
         task_type=TaskType.SCRIPT,
+        task_name=str(record.payload.get("task") or "anonymous"),
         devices=record.devices,
+        targets=targets,
         ai_type=record.ai_type,
         idempotency_key=record.idempotency_key,
         status=TaskStatus(record.status),
@@ -85,9 +112,31 @@ def create_task(request: TaskRequest, x_idempotency_key: str | None = Header(def
     if request.idempotency_key and x_idempotency_key and request.idempotency_key != x_idempotency_key:
         raise HTTPException(status_code=400, detail="idempotency key mismatch between body and header")
     idempotency_key = request.idempotency_key or x_idempotency_key
+
+    script_payload: dict[str, Any]
+    if request.script is not None:
+        script_payload = dict(request.script)
+    else:
+        script_payload = {"task": str(request.task or "anonymous")}
+        if isinstance(request.payload, dict):
+            script_payload.update(request.payload)
+
+    targets: list[dict[str, int]] = []
+    if request.targets:
+        for target in request.targets:
+            targets.append({"device_id": int(target.device_id), "cloud_id": int(target.cloud_id)})
+    elif request.devices:
+        for device_id in request.devices:
+            targets.append({"device_id": int(device_id), "cloud_id": 1})
+
+    if targets:
+        script_payload["_dispatch_targets"] = targets
+
+    device_ids = sorted({int(item["device_id"]) for item in targets}) if targets else list(request.devices)
+
     record = controller.submit_with_retry(
-        payload=request.script,
-        devices=list(request.devices),
+        payload=script_payload,
+        devices=device_ids,
         ai_type=request.ai_type,
         max_retries=request.max_retries,
         retry_backoff_seconds=request.retry_backoff_seconds,

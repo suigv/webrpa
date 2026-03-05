@@ -30,6 +30,8 @@
   - 稳定幂等去重回归测试隔离性：duplicate-submit 用例改为独立临时 DB，避免共享历史导致的分页/顺序耦合波动
   - 收紧插件分发安全边界：动作命名空间白名单 + manifest 输入参数必填/类型前置校验（失败码显式化）
   - 强化任务可靠性/幂等：支持 `idempotency_key` 防重复提交（原子化去重），补齐 body/header 冲突校验，并修复取消请求在异常路径下的状态一致性
+  - 完成前端重构与组件化：拆分 `app.js` 为 ES Modules，引入 Toast 状态反馈与 Loading 交互，解决长连接日志渲染性能瓶颈
+  - 增强设备与任务控制面：新增设备启停/扫描快捷操作，任务编辑器集成常用动作模板，降低 JSON 编写错误率
 
 ## 2. 已实现功能清单
 
@@ -60,9 +62,10 @@
 
 ### 2.4 前端控制台
 
-- 多 Tab 控制台（监控、任务、账号、配置）
-- 配置页支持拟人化参数编辑 + 高/中/低档位快捷设置（`web/index.html`, `web/app.js`）
-- 实时日志、任务详情、事件监听
+- **架构重构**：移除单体 `app.js`，采用 ES Modules 模块化设计 (`web/js/features/*`, `web/js/state/*`, `web/js/utils/*`)
+- **交互增强**：引入全局 Toast 通知系统，替代原生 Alert/Console 日志；增加设备列表快捷控制（启动/停止/扫描）
+- **效率工具**：任务提交页新增“动作模板”选择器，降低 JSON 手写成本；日志视窗增加行数限制与性能优化
+- **功能完备**：多 Tab 控制台（监控、任务、账号、配置）、拟人化参数可视化编辑、实时状态流监听
 
 ### 2.5 质量保障
 
@@ -72,7 +75,7 @@
 ## 3. 自动统计快照
 
 <!-- AUTO_PROGRESS_SNAPSHOT:START -->
-- Last generated (UTC): `2026-03-05T14:35:31.862690+00:00`
+- Last generated (UTC): `2026-03-05T17:15:05.699533+00:00`
 - Source: `tools/update_project_progress.py`
 
 | Metric | Value |
@@ -90,7 +93,7 @@
 每次“有意义变更”后执行：
 
 ```bash
-./new/.venv/bin/python new/tools/update_project_progress.py
+./.venv/bin/python tools/update_project_progress.py
 ```
 
 推荐在以下时机执行：

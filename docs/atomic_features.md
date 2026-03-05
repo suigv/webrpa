@@ -74,15 +74,15 @@
 
 ## 9. Quality Gates
 
-- 无 legacy 导入：`new/tools/check_no_legacy_imports.py`
-- 全量测试通过：`pytest new/tests -q`
+- 无 legacy 导入：`tools/check_no_legacy_imports.py`
+- 全量测试通过：`pytest tests -q`
 - RPC 关闭可启动 + `/health` 通过
 
 ## Quick Verify Commands
 
 ```bash
-./new/.venv/bin/python new/tools/check_no_legacy_imports.py
-./new/.venv/bin/python -m pytest new/tests -q
-MYT_NEW_ROOT=$(pwd)/new MYT_ENABLE_RPC=0 ./new/.venv/bin/python -m uvicorn new.api.server:app --host 127.0.0.1 --port 8001
+./.venv/bin/python tools/check_no_legacy_imports.py
+./.venv/bin/python -m pytest tests -q
+MYT_ENABLE_RPC=0 ./.venv/bin/python -m uvicorn api.server:app --host 127.0.0.1 --port 8001
 curl http://127.0.0.1:8001/health
 ```

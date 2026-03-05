@@ -1,4 +1,4 @@
-from new.engine.runner import Runner
+from engine.runner import Runner
 
 
 def test_runner_unsupported_task_returns_controlled_error():

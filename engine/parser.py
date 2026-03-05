@@ -6,8 +6,8 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
-from new.engine.models.manifest import PluginManifest
-from new.engine.models.workflow import WorkflowScript
+from engine.models.manifest import PluginManifest
+from engine.models.workflow import WorkflowScript
 
 
 # ---- Variable interpolation ----

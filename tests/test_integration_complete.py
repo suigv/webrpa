@@ -2,7 +2,7 @@ import importlib
 
 
 def _load_action_registry_module():
-    for name in ("new.engine.action_registry", "engine.action_registry"):
+    for name in ("engine.action_registry", "engine.action_registry"):
         try:
             return importlib.import_module(name)
         except ModuleNotFoundError:

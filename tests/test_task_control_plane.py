@@ -5,11 +5,11 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from new.api.server import app
-from new.core.task_control import TaskController, override_task_controller_for_tests, reset_task_controller_for_tests
-from new.core.task_events import TaskEventStore
-from new.core.task_queue import InMemoryTaskQueue
-from new.core.task_store import TaskStore
+from api.server import app
+from core.task_control import TaskController, override_task_controller_for_tests, reset_task_controller_for_tests
+from core.task_events import TaskEventStore
+from core.task_queue import InMemoryTaskQueue
+from core.task_store import TaskStore
 
 
 def _wait_status(client: TestClient, task_id: str, timeout_s: float = 3.0) -> str:

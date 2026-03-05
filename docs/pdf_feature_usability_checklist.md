@@ -4,7 +4,7 @@
 
 - **客户端方法**：`hardware_adapters/myt_client.py` / `engine/actions/ui_actions.py`
 - **运行时动作**：`engine/actions/sdk_actions.py` / `engine/action_registry.py`
-- **测试证据**：`new/tests/*`
+- **测试证据**：`tests/*`
 
 ## 1）SDK（盒子内 SDK API）
 
@@ -51,6 +51,6 @@
 
 ## 5）当前验证状态
 
-- 旧依赖静态检查：`new/tools/check_no_legacy_imports.py` ✅
-- 全量测试：`pytest new/tests -q` ✅
+- 旧依赖静态检查：`tools/check_no_legacy_imports.py` ✅
+- 全量测试：`pytest tests -q` ✅
 - RPC 禁用启动 + `/health` ✅

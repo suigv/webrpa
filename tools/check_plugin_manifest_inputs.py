@@ -6,12 +6,11 @@ from pathlib import Path
 
 if __package__ is None or __package__ == "":
     project_root = Path(__file__).resolve().parents[1]
-    project_parent = project_root.parent
-    parent_text = str(project_parent)
-    if parent_text not in sys.path:
-        sys.path.insert(0, parent_text)
+    root_text = str(project_root)
+    if root_text not in sys.path:
+        sys.path.insert(0, root_text)
 
-from new.engine.parser import parse_manifest
+from engine.parser import parse_manifest
 
 
 ROOT = Path(__file__).resolve().parents[1]
