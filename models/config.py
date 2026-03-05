@@ -46,6 +46,10 @@ class Config(BaseModel):
     host_ip: str
     device_ips: dict[str, str] = Field(default_factory=dict)
     total_devices: int
+    discovery_enabled: bool = False
+    discovery_subnet: str = ""
+    discovered_device_ips: dict[str, str] = Field(default_factory=dict)
+    discovered_total_devices: int = 0
     cloud_machines_per_device: int
     sdk_port: int
     default_ai: str
@@ -76,6 +80,8 @@ class ConfigUpdate(BaseModel):
     host_ip: Optional[str] = None
     device_ips: Optional[dict[str, str]] = None
     total_devices: Optional[int] = None
+    discovery_enabled: Optional[bool] = None
+    discovery_subnet: Optional[str] = None
     cloud_machines_per_device: Optional[int] = None
     sdk_port: Optional[int] = None
     default_ai: Optional[str] = None

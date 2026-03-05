@@ -1,0 +1,64 @@
+version: v1
+workflow: x_mobile_login
+
+vars:
+  package: "${payload.package:-com.twitter.android}"
+  status_hint: "${payload.status_hint:-success}"
+
+steps:
+  - label: ensure_running
+    kind: action
+    action: app.ensure_running
+    params:
+      device_ip: "${payload.device_ip}"
+      package: "${vars.package}"
+      verify_timeout: 2.0
+    on_fail:
+      strategy: skip
+
+  - label: check_bad_credentials
+    kind: if
+    when:
+      all:
+        - type: var_equals
+          var: status_hint
+          equals: bad_credentials
+    then: bad_credentials
+
+  - label: check_2fa_failed
+    kind: if
+    when:
+      all:
+        - type: var_equals
+          var: status_hint
+          equals: 2fa_failed
+    then: two_factor_failed
+
+  - label: check_captcha
+    kind: if
+    when:
+      all:
+        - type: var_equals
+          var: status_hint
+          equals: captcha
+    then: captcha_detected
+
+  - label: login_success
+    kind: stop
+    status: success
+    message: "login completed"
+
+  - label: bad_credentials
+    kind: stop
+    status: failed
+    message: "bad credentials"
+
+  - label: two_factor_failed
+    kind: stop
+    status: failed
+    message: "2fa_failed"
+
+  - label: captcha_detected
+    kind: stop
+    status: failed
+    message: "captcha"

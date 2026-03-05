@@ -27,7 +27,7 @@ def test_config_migration_idempotent(tmp_path):
         migrated = json.loads(config_path.read_text(encoding="utf-8"))
         assert migrated["schema_version"] == 2
         assert migrated["allocation_version"] == 1
-        assert migrated["cloud_machines_per_device"] == 10
+        assert migrated["cloud_machines_per_device"] == 12
         assert migrated["sdk_port"] == 8000
         assert migrated["device_ips"] == {"1": "127.0.0.2", "2": "127.0.0.3"}
         assert "humanized" in migrated

@@ -14,21 +14,29 @@ from new.api.routes import devices as devices_route
 from new.api.routes import task_routes as tasks_route
 from new.api.routes import websocket as websocket_route
 from new.core.device_manager import DeviceManager
+from new.core.lan_discovery import LanDeviceDiscovery
 from new.core.task_control import get_task_controller
-from new.engine.runner import Runner
+from new.engine.runner import Runner, strict_plugin_unknown_inputs_enabled
+from new.hardware_adapters.browser_client import BrowserClient
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    DeviceManager().validate_topology_or_raise()
+    device_manager = DeviceManager()
+    discovery = LanDeviceDiscovery()
+    discovery.start()
+    device_manager.validate_topology_or_raise()
     controller = get_task_controller()
     controller.start()
+    device_manager.start_cloud_probe_worker()
     try:
         yield
     finally:
+        device_manager.stop_cloud_probe_worker()
         controller.stop()
+        discovery.stop()
 
 
 app = FastAPI(title="MYT New Standalone API", version="0.1.0", lifespan=lifespan)
@@ -66,10 +74,28 @@ def health():
         "status": "ok",
         "runtime": "skeleton",
         "rpc_enabled": rpc_enabled,
+        "task_policy": {
+            "strict_plugin_unknown_inputs": strict_plugin_unknown_inputs_enabled(),
+            "stale_running_seconds": _stale_running_seconds(),
+        },
     }
+
+
+def _stale_running_seconds() -> int:
+    raw = os.environ.get("MYT_TASK_STALE_RUNNING_SECONDS", "300").strip()
+    try:
+        parsed = int(raw)
+    except ValueError:
+        return 300
+    return max(0, parsed)
 
 
 @app.post("/api/runtime/execute")
 def execute_runtime(payload: dict[str, object]):
     runner = Runner()
     return runner.run(payload)
+
+
+@app.get("/api/diagnostics/browser")
+def browser_diagnostics():
+    return BrowserClient.startup_diagnostics()

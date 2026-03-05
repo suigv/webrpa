@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+import json
+from pathlib import Path
 from typing import Any
 
 from ..models.runtime import ActionResult, ExecutionContext
 from ...hardware_adapters.myt_client import MytSdkClient
+from ...core.data_store import _resolve_root_path
 
 
 def _from_payload_or_params(params: dict[str, Any], context: ExecutionContext, key: str, default: Any = None) -> Any:
@@ -206,3 +209,45 @@ ACTION_BUILDERS: dict[str, tuple[str, Callable[[dict[str, Any]], tuple[list[Any]
 
 def get_sdk_action_bindings() -> dict[str, Callable[[dict[str, Any], ExecutionContext], ActionResult]]:
     return {action_name: _invoke(method_name, arg_builder) for action_name, (method_name, arg_builder) in ACTION_BUILDERS.items()}
+
+
+def _shared_path() -> Path:
+    root = Path(_resolve_root_path())
+    path = root / "config" / "data" / "migration_shared.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _read_store() -> dict[str, Any]:
+    path = _shared_path()
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _write_store(payload: dict[str, Any]) -> None:
+    _shared_path().write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def save_shared(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
+    key = str(params.get("key") or "").strip()
+    value = params.get("value")
+    if not key:
+        return ActionResult(ok=False, code="invalid_params", message="key is required")
+    store = _read_store()
+    store[key] = value
+    _write_store(store)
+    return ActionResult(ok=True, code="ok", data={"key": key})
+
+
+def load_shared_required(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
+    key = str(params.get("key") or "").strip()
+    if not key:
+        return ActionResult(ok=False, code="invalid_params", message="key is required")
+    store = _read_store()
+    if key not in store:
+        return ActionResult(ok=False, code="missing_source_data", message=f"missing key: {key}")
+    return ActionResult(ok=True, code="ok", data={"key": key, "value": store[key]})

@@ -4,6 +4,7 @@ import json
 import os
 import sqlite3
 import threading
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -38,6 +39,7 @@ class TaskRecord:
     payload: dict[str, Any]
     devices: list[int]
     ai_type: str
+    idempotency_key: str | None
     status: str
     created_at: str
     updated_at: str
@@ -73,6 +75,7 @@ class TaskStore:
                         payload_json TEXT NOT NULL,
                         devices_json TEXT NOT NULL,
                         ai_type TEXT NOT NULL,
+                        idempotency_key TEXT,
                         status TEXT NOT NULL,
                         created_at TEXT NOT NULL,
                         updated_at TEXT NOT NULL,
@@ -110,6 +113,11 @@ class TaskStore:
                     _ = conn.execute("ALTER TABLE tasks ADD COLUMN priority INTEGER NOT NULL DEFAULT 50")
                 if "run_at" not in columns:
                     _ = conn.execute("ALTER TABLE tasks ADD COLUMN run_at TEXT")
+                if "idempotency_key" not in columns:
+                    _ = conn.execute("ALTER TABLE tasks ADD COLUMN idempotency_key TEXT")
+                _ = conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_tasks_idempotency_status_created ON tasks(idempotency_key, status, created_at)"
+                )
                 conn.commit()
 
     def create_task(
@@ -118,6 +126,7 @@ class TaskStore:
         payload: dict[str, Any],
         devices: list[int],
         ai_type: str,
+        idempotency_key: str | None,
         max_retries: int,
         retry_backoff_seconds: int,
         priority: int,
@@ -126,33 +135,118 @@ class TaskStore:
         now = _now_iso()
         with self._lock:
             with self._connect() as conn:
-                _ = conn.execute(
-                    """
-                    INSERT INTO tasks (
-                        task_id, payload_json, devices_json, ai_type,
-                        status, created_at, updated_at,
-                        retry_count, max_retries, retry_backoff_seconds, next_retry_at
-                        , cancel_requested, priority, run_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        task_id,
-                        json.dumps(payload, ensure_ascii=False),
-                        json.dumps(devices, ensure_ascii=False),
-                        ai_type,
-                        "pending",
-                        now,
-                        now,
-                        0,
-                        int(max_retries),
-                        int(retry_backoff_seconds),
-                        None,
-                        0,
-                        int(priority),
-                        run_at,
-                    ),
+                self._insert_task(
+                    conn=conn,
+                    task_id=task_id,
+                    payload=payload,
+                    devices=devices,
+                    ai_type=ai_type,
+                    idempotency_key=idempotency_key,
+                    max_retries=max_retries,
+                    retry_backoff_seconds=retry_backoff_seconds,
+                    priority=priority,
+                    run_at=run_at,
+                    now=now,
                 )
                 conn.commit()
+
+    def create_or_get_active_task(
+        self,
+        payload: dict[str, Any],
+        devices: list[int],
+        ai_type: str,
+        idempotency_key: str | None,
+        max_retries: int,
+        retry_backoff_seconds: int,
+        priority: int,
+        run_at: str | None,
+    ) -> tuple[TaskRecord, bool]:
+        task_id = str(uuid.uuid4())
+        now = _now_iso()
+        with self._lock:
+            with self._connect() as conn:
+                _ = conn.execute("BEGIN IMMEDIATE")
+                if idempotency_key:
+                    existing = conn.execute(
+                        """
+                        SELECT task_id, payload_json, devices_json, ai_type, idempotency_key, status,
+                               created_at, updated_at, started_at, finished_at,
+                               result_json, error, retry_count, max_retries,
+                               retry_backoff_seconds, next_retry_at, cancel_requested,
+                               priority, run_at
+                        FROM tasks
+                        WHERE idempotency_key = ?
+                          AND status IN ('pending', 'running')
+                        ORDER BY created_at DESC
+                        LIMIT 1
+                        """,
+                        (idempotency_key,),
+                    ).fetchone()
+                    if existing is not None:
+                        conn.commit()
+                        return self._row_to_record(existing), False
+                self._insert_task(
+                    conn=conn,
+                    task_id=task_id,
+                    payload=payload,
+                    devices=devices,
+                    ai_type=ai_type,
+                    idempotency_key=idempotency_key,
+                    max_retries=max_retries,
+                    retry_backoff_seconds=retry_backoff_seconds,
+                    priority=priority,
+                    run_at=run_at,
+                    now=now,
+                )
+                conn.commit()
+
+        created = self.get_task(task_id)
+        if created is None:
+            raise RuntimeError("failed to create task")
+        return created, True
+
+    def _insert_task(
+        self,
+        conn: sqlite3.Connection,
+        task_id: str,
+        payload: dict[str, Any],
+        devices: list[int],
+        ai_type: str,
+        idempotency_key: str | None,
+        max_retries: int,
+        retry_backoff_seconds: int,
+        priority: int,
+        run_at: str | None,
+        now: str,
+    ) -> None:
+        _ = conn.execute(
+            """
+            INSERT INTO tasks (
+                task_id, payload_json, devices_json, ai_type,
+                idempotency_key,
+                status, created_at, updated_at,
+                retry_count, max_retries, retry_backoff_seconds, next_retry_at
+                , cancel_requested, priority, run_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                task_id,
+                json.dumps(payload, ensure_ascii=False),
+                json.dumps(devices, ensure_ascii=False),
+                ai_type,
+                idempotency_key,
+                "pending",
+                now,
+                now,
+                0,
+                int(max_retries),
+                int(retry_backoff_seconds),
+                None,
+                0,
+                int(priority),
+                run_at,
+            ),
+        )
 
     def _row_to_record(self, row: tuple[Any, ...]) -> TaskRecord:
         return TaskRecord(
@@ -160,20 +254,21 @@ class TaskStore:
             payload=json.loads(str(row[1])),
             devices=json.loads(str(row[2])),
             ai_type=str(row[3]),
-            status=str(row[4]),
-            created_at=str(row[5]),
-            updated_at=str(row[6]),
-            started_at=str(row[7]) if row[7] is not None else None,
-            finished_at=str(row[8]) if row[8] is not None else None,
-            result=json.loads(str(row[9])) if row[9] else None,
-            error=str(row[10]) if row[10] is not None else None,
-            retry_count=int(row[11]),
-            max_retries=int(row[12]),
-            retry_backoff_seconds=int(row[13]),
-            next_retry_at=str(row[14]) if row[14] is not None else None,
-            cancel_requested=bool(int(row[15])),
-            priority=int(row[16]),
-            run_at=str(row[17]) if row[17] is not None else None,
+            idempotency_key=str(row[4]) if row[4] is not None else None,
+            status=str(row[5]),
+            created_at=str(row[6]),
+            updated_at=str(row[7]),
+            started_at=str(row[8]) if row[8] is not None else None,
+            finished_at=str(row[9]) if row[9] is not None else None,
+            result=json.loads(str(row[10])) if row[10] else None,
+            error=str(row[11]) if row[11] is not None else None,
+            retry_count=int(row[12]),
+            max_retries=int(row[13]),
+            retry_backoff_seconds=int(row[14]),
+            next_retry_at=str(row[15]) if row[15] is not None else None,
+            cancel_requested=bool(int(row[16])),
+            priority=int(row[17]),
+            run_at=str(row[18]) if row[18] is not None else None,
         )
 
     def get_task(self, task_id: str) -> TaskRecord | None:
@@ -181,7 +276,7 @@ class TaskStore:
             with self._connect() as conn:
                 row = conn.execute(
                     """
-                    SELECT task_id, payload_json, devices_json, ai_type, status,
+                    SELECT task_id, payload_json, devices_json, ai_type, idempotency_key, status,
                            created_at, updated_at, started_at, finished_at,
                            result_json, error, retry_count, max_retries,
                            retry_backoff_seconds, next_retry_at, cancel_requested,
@@ -199,7 +294,7 @@ class TaskStore:
             with self._connect() as conn:
                 rows = conn.execute(
                     """
-                    SELECT task_id, payload_json, devices_json, ai_type, status,
+                    SELECT task_id, payload_json, devices_json, ai_type, idempotency_key, status,
                            created_at, updated_at, started_at, finished_at,
                            result_json, error, retry_count, max_retries,
                            retry_backoff_seconds, next_retry_at, cancel_requested,
@@ -211,6 +306,61 @@ class TaskStore:
                     (int(limit),),
                 ).fetchall()
         return [self._row_to_record(row) for row in rows]
+
+    def status_counts(self) -> dict[str, int]:
+        with self._lock:
+            with self._connect() as conn:
+                rows = conn.execute(
+                    """
+                    SELECT status, COUNT(*)
+                    FROM tasks
+                    GROUP BY status
+                    """
+                ).fetchall()
+        counts: dict[str, int] = {}
+        for row in rows:
+            counts[str(row[0])] = int(row[1])
+        return counts
+
+    def recover_stale_running_tasks(self, stale_before: str, message: str = "recovered stale running after controller restart") -> list[TaskRecord]:
+        now = _now_iso()
+        recovered_ids: list[str] = []
+        with self._lock:
+            with self._connect() as conn:
+                rows = conn.execute(
+                    """
+                    SELECT task_id
+                    FROM tasks
+                    WHERE status = 'running' AND updated_at <= ?
+                    ORDER BY updated_at ASC
+                    """,
+                    (stale_before,),
+                ).fetchall()
+                for row in rows:
+                    task_id = str(row[0])
+                    cur = conn.execute(
+                        """
+                        UPDATE tasks
+                        SET status = 'pending',
+                            updated_at = ?,
+                            started_at = NULL,
+                            finished_at = NULL,
+                            error = ?,
+                            cancel_requested = 0
+                        WHERE task_id = ? AND status = 'running'
+                        """,
+                        (now, message, task_id),
+                    )
+                    if cur.rowcount == 1:
+                        recovered_ids.append(task_id)
+                conn.commit()
+
+        recovered: list[TaskRecord] = []
+        for task_id in recovered_ids:
+            record = self.get_task(task_id)
+            if record is not None:
+                recovered.append(record)
+        return recovered
 
     def mark_running(self, task_id: str) -> bool:
         now = _now_iso()
@@ -302,6 +452,28 @@ class TaskStore:
                 )
                 conn.commit()
         return self.get_task(task_id)
+
+    def find_active_by_idempotency_key(self, idempotency_key: str) -> TaskRecord | None:
+        with self._lock:
+            with self._connect() as conn:
+                row = conn.execute(
+                    """
+                    SELECT task_id, payload_json, devices_json, ai_type, idempotency_key, status,
+                           created_at, updated_at, started_at, finished_at,
+                           result_json, error, retry_count, max_retries,
+                           retry_backoff_seconds, next_retry_at, cancel_requested,
+                           priority, run_at
+                    FROM tasks
+                    WHERE idempotency_key = ?
+                      AND status IN ('pending', 'running')
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                    """,
+                    (idempotency_key,),
+                ).fetchone()
+        if row is None:
+            return None
+        return self._row_to_record(row)
 
     def cancel_pending(self, task_id: str) -> bool:
         now = _now_iso()

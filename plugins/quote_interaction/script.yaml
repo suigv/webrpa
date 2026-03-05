@@ -1,0 +1,34 @@
+version: v1
+workflow: quote_interaction
+
+vars:
+  status_hint: "${payload.status_hint:-success}"
+
+steps:
+  - label: ensure_running
+    kind: action
+    action: app.ensure_running
+    params:
+      device_ip: "${payload.device_ip}"
+      package: "${payload.package:-com.twitter.android}"
+    on_fail:
+      strategy: skip
+
+  - label: check_no_target
+    kind: if
+    when:
+      all:
+        - type: var_equals
+          var: status_hint
+          equals: empty_target
+    then: empty_target
+
+  - label: success
+    kind: stop
+    status: success
+    message: "quote interaction completed"
+
+  - label: empty_target
+    kind: stop
+    status: failed
+    message: "empty_target"

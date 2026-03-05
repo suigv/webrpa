@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import random
+import shutil
 import string
 import sys
 import time
@@ -23,10 +24,26 @@ def _ensure_vendor_path() -> None:
         sys.path.insert(0, root_str)
 
 
+def _detect_browser_binary() -> str | None:
+    candidates = [
+        "chromium",
+        "chromium-browser",
+        "google-chrome",
+        "google-chrome-stable",
+    ]
+    for name in candidates:
+        path = shutil.which(name)
+        if path:
+            return path
+    return None
+
+
 class BrowserClient:
     def __init__(self, humanized_config: HumanizedWrapperConfig | None = None) -> None:
         self._available = False
         self._error = ""
+        self._error_code = ""
+        self._browser_binary = ""
         self._page: Any = None
         self._humanized_page: Any = None
         self._web_page_cls: Any = None
@@ -42,15 +59,37 @@ class BrowserClient:
 
     def _load(self) -> None:
         _ensure_vendor_path()
+        self._error = ""
+        self._error_code = ""
+        self._browser_binary = ""
+        try:
+            importlib.import_module("DrissionGet")
+        except Exception as exc:
+            self._available = False
+            self._error_code = "missing_dependency"
+            self._error = f"missing DrissionGet: {exc}"
+            return
+
         try:
             dp = importlib.import_module("DrissionPage")
             self._web_page_cls = getattr(dp, "WebPage", None)
             self._chromium_options_cls = getattr(dp, "ChromiumOptions", None)
-            self._available = self._web_page_cls is not None
-            if not self._available:
+            if self._web_page_cls is None:
+                self._available = False
+                self._error_code = "invalid_runtime"
                 self._error = "DrissionPage classes not found"
+                return
+            browser_binary = _detect_browser_binary()
+            if browser_binary is None:
+                self._available = False
+                self._error_code = "browser_not_found"
+                self._error = "no chromium/chrome binary found"
+                return
+            self._browser_binary = browser_binary
+            self._available = True
         except Exception as exc:
             self._available = False
+            self._error_code = "missing_dependency"
             self._error = str(exc)
 
     @property
@@ -60,6 +99,42 @@ class BrowserClient:
     @property
     def error(self) -> str:
         return self._error
+
+    @property
+    def error_code(self) -> str:
+        return self._error_code
+
+    @property
+    def browser_binary(self) -> str:
+        return self._browser_binary
+
+    @classmethod
+    def startup_diagnostics(cls) -> dict[str, object]:
+        _ensure_vendor_path()
+        drissionget_ok = False
+        drissionpage_ok = False
+        try:
+            importlib.import_module("DrissionGet")
+            drissionget_ok = True
+        except Exception:
+            drissionget_ok = False
+        try:
+            importlib.import_module("DrissionPage")
+            drissionpage_ok = True
+        except Exception:
+            drissionpage_ok = False
+
+        browser_binary = _detect_browser_binary()
+        client = cls()
+        return {
+            "ready": client.available,
+            "error": client.error,
+            "error_code": client.error_code,
+            "drissionget_importable": drissionget_ok,
+            "drissionpage_importable": drissionpage_ok,
+            "chromium_binary_found": browser_binary is not None,
+            "chromium_binary_path": browser_binary,
+        }
 
     def open(self, url: str, headless: bool = True) -> bool:
         if not self._available:

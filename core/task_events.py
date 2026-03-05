@@ -104,3 +104,29 @@ class TaskEventStore:
                 )
             )
         return output
+
+    def count_by_type(self, since: str | None = None) -> dict[str, int]:
+        with self._lock:
+            with self._connect() as conn:
+                if since is None:
+                    rows = conn.execute(
+                        """
+                        SELECT event_type, COUNT(*)
+                        FROM task_events
+                        GROUP BY event_type
+                        """
+                    ).fetchall()
+                else:
+                    rows = conn.execute(
+                        """
+                        SELECT event_type, COUNT(*)
+                        FROM task_events
+                        WHERE created_at >= ?
+                        GROUP BY event_type
+                        """,
+                        (since,),
+                    ).fetchall()
+        counts: dict[str, int] = {}
+        for row in rows:
+            counts[str(row[0])] = int(row[1])
+        return counts

@@ -1,5 +1,6 @@
 import json
 import os
+import ipaddress
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -18,7 +19,7 @@ CONFIG_FILE = _project_root() / "config" / "devices.json"
 
 DEFAULT_SCHEMA_VERSION = 2
 DEFAULT_ALLOCATION_VERSION = 1
-DEFAULT_CLOUD_MACHINES_PER_DEVICE = 10
+DEFAULT_CLOUD_MACHINES_PER_DEVICE = 12
 DEFAULT_SDK_PORT = 8000  # Device-level control API port
 
 
@@ -212,14 +213,24 @@ def normalize_config(config: Dict[str, Any]) -> Dict[str, Any]:
     normalized["host_ip"] = str(config.get("host_ip", "127.0.0.1"))
     normalized["device_ips"] = _normalize_device_ips(config.get("device_ips", {}))
 
+    discovery_enabled_raw = config.get("discovery_enabled", False)
+    normalized["discovery_enabled"] = _to_bool(discovery_enabled_raw, False)
+
+    discovery_subnet_raw = str(config.get("discovery_subnet", "")).strip()
+    if not discovery_subnet_raw:
+        discovery_subnet_raw = f"{normalized['host_ip']}/24"
+    try:
+        subnet = ipaddress.ip_network(discovery_subnet_raw, strict=False)
+        if subnet.version != 4:
+            raise ValueError("Only IPv4 subnet is supported")
+        normalized["discovery_subnet"] = str(subnet)
+    except Exception:
+        normalized["discovery_subnet"] = f"{normalized['host_ip']}/24"
+
     total_devices = _to_int(config.get("total_devices", 1), 1)
     normalized["total_devices"] = max(1, total_devices)
 
-    cloud_machines = _to_int(
-        config.get("cloud_machines_per_device", DEFAULT_CLOUD_MACHINES_PER_DEVICE),
-        DEFAULT_CLOUD_MACHINES_PER_DEVICE,
-    )
-    normalized["cloud_machines_per_device"] = max(1, cloud_machines)
+    normalized["cloud_machines_per_device"] = DEFAULT_CLOUD_MACHINES_PER_DEVICE
 
     schema_version = _to_int(config.get("schema_version", DEFAULT_SCHEMA_VERSION), DEFAULT_SCHEMA_VERSION)
     normalized["schema_version"] = max(1, schema_version)
@@ -308,12 +319,19 @@ def get_total_devices() -> int:
         return 1
 
 
+def get_discovery_enabled() -> bool:
+    return _to_bool(ConfigLoader.get("discovery_enabled", False), False)
+
+
+def get_discovery_subnet() -> str:
+    value = str(ConfigLoader.get("discovery_subnet", "")).strip()
+    if value:
+        return value
+    return f"{get_host_ip()}/24"
+
+
 def get_cloud_machines_per_device() -> int:
-    try:
-        value = int(ConfigLoader.get("cloud_machines_per_device", DEFAULT_CLOUD_MACHINES_PER_DEVICE))
-    except (TypeError, ValueError):
-        return DEFAULT_CLOUD_MACHINES_PER_DEVICE
-    return value if value >= 1 else DEFAULT_CLOUD_MACHINES_PER_DEVICE
+    return DEFAULT_CLOUD_MACHINES_PER_DEVICE
 
 
 def get_schema_version() -> int:

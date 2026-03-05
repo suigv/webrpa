@@ -24,3 +24,7 @@ inputs:
     type: integer
     required: false
     default: 25
+  - name: login_url
+    type: string
+    required: false
+    default: "https://x.com/i/flow/login"

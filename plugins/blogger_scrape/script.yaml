@@ -1,0 +1,19 @@
+version: v1
+workflow: blogger_scrape
+
+steps:
+  - label: save_scrape_output
+    kind: action
+    action: core.save_shared
+    params:
+      key: "${payload.source_key:-scrape_profile}"
+      value:
+        username: "${payload.username:-demo_blogger}"
+        display_name: "${payload.display_name:-Demo Blogger}"
+    on_fail:
+      strategy: abort
+
+  - label: done
+    kind: stop
+    status: success
+    message: "scrape output saved"

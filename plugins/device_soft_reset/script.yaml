@@ -1,0 +1,36 @@
+version: v1
+workflow: device_soft_reset
+
+steps:
+  - label: stop_app
+    kind: action
+    action: app.stop
+    params:
+      device_ip: "${payload.device_ip}"
+      package: "${payload.package:-com.twitter.android}"
+    on_fail:
+      strategy: skip
+
+  - label: dismiss_popups
+    kind: action
+    action: app.dismiss_popups
+    params:
+      device_ip: "${payload.device_ip}"
+      back_presses: 2
+      delay_ms: 150
+    on_fail:
+      strategy: skip
+
+  - label: restart_cloud
+    kind: action
+    action: sdk.restart_android
+    params:
+      device_ip: "${payload.device_ip}"
+      name: "${payload.name}"
+    on_fail:
+      strategy: abort
+
+  - label: done
+    kind: stop
+    status: success
+    message: "device soft reset dispatched"

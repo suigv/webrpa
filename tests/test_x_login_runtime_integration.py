@@ -11,7 +11,9 @@ def test_x_login_runtime_integration_missing_creds():
     payload = response.json()
     assert payload["ok"] is False
     assert payload["task"] == "x_auto_login"
-    assert payload["status"] == "failed"
+    assert payload["status"] == "failed_config_error"
+    assert payload["checkpoint"] == "dispatch"
+    assert payload["code"] == "missing_required_param"
 
 
 def test_x_login_runtime_integration_unknown_task():
