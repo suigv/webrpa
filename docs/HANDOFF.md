@@ -115,6 +115,12 @@
 23. Added stale-running recovery observability alert rule:
     - `config/monitoring/prometheus/task_metrics_alerts.yml` now includes `NewTaskStaleRunningRecovered`
     - rendering tool emits the same rule for deployment parity
+24. Fixed bootstrap/test-context instability and DB test flakiness:
+    - added `sitecustomize.py` to ensure parent import path for `new.*` package bootstrap in root-context execution
+    - hardened `tools/check_plugin_manifest_inputs.py` direct-script execution path bootstrap
+    - added `pytest.ini` (`testpaths = tests`) to avoid unintended `tmp/tests` collection
+    - added `httpx` to `requirements.txt` as explicit dependency declaration
+    - switched task-control DB tests to per-test `tmp_path` SQLite files to prevent shared `config/data` contention and intermittent schema/I/O failures
 
 ## 4) Open Items (Next work queue)
 
