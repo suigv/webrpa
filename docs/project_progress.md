@@ -75,17 +75,17 @@
 ## 3. 自动统计快照
 
 <!-- AUTO_PROGRESS_SNAPSHOT:START -->
-- Last generated (UTC): `2026-03-06T10:56:41.968659+00:00`
+- Last generated (UTC): `2026-03-07T12:51:21.315550+00:00`
 - Source: `tools/update_project_progress.py`
 
 | Metric | Value |
 |---|---:|
-| API route decorators (`api/routes`) | 27 |
+| API route decorators (`api/routes`) | 28 |
 | App-level route decorators (`api/server.py`) | 5 |
-| Plugin count (`plugins/*/manifest.yaml`) | 11 |
-| SDK action bindings (`engine/actions/sdk_actions.py`) | 122 |
-| Test files (`tests/test_*.py`) | 50 |
-| Test functions (`def test_*`) | 160 |
+| Plugin count (`plugins/*/manifest.yaml`) | 12 |
+| SDK action bindings (`engine/actions/sdk_actions.py`) | 131 |
+| Test files (`tests/test_*.py`) | 52 |
+| Test functions (`def test_*`) | 184 |
 <!-- AUTO_PROGRESS_SNAPSHOT:END -->
 
 ## 4. 维护方式（实时更新建议）
