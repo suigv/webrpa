@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -56,11 +55,8 @@ def _render_snapshot(root: Path) -> str:
     test_file_count, test_fn_count = _count_tests(root)
     sdk_action_count = _count_sdk_actions(root)
 
-    generated_at = datetime.now(timezone.utc).isoformat()
-
     lines = [
         SNAPSHOT_START,
-        f"- Last generated (UTC): `{generated_at}`",
         "- Source: `tools/update_project_progress.py`",
         "",
         "| Metric | Value |",

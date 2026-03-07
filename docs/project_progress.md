@@ -75,7 +75,6 @@
 ## 3. 自动统计快照
 
 <!-- AUTO_PROGRESS_SNAPSHOT:START -->
-- Last generated (UTC): `2026-03-07T12:51:21.315550+00:00`
 - Source: `tools/update_project_progress.py`
 
 | Metric | Value |
