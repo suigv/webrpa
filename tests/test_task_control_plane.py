@@ -1,3 +1,5 @@
+# pyright: reportMissingImports=false
+import json
 import os
 import time
 from datetime import datetime, timedelta, timezone
@@ -75,6 +77,64 @@ def test_task_control_plane_failed_flow():
         assert payload["status"] == "failed"
         assert payload["retry_count"] == 0
         assert "unsupported task" in (payload.get("error") or "")
+
+
+class _WrongPasswordRunner:
+    def run(self, script_payload, should_cancel=None):
+        return {"ok": False, "status": "failed", "message": "wrong password provided"}
+
+
+class _RecordingAccountFeedback:
+    def __init__(self):
+        self.calls = []
+
+    def handle_terminal_failure(self, payload, error):
+        self.calls.append({"payload": payload, "error": error})
+
+
+def test_task_controller_routes_terminal_failure_through_account_feedback_hook(tmp_path: Path):
+    reset_task_controller_for_tests()
+    db_path = tmp_path / "tasks_account_feedback_hook_test.db"
+    if db_path.exists():
+        db_path.unlink()
+
+    account_feedback = _RecordingAccountFeedback()
+    controller = TaskController(
+        store=TaskStore(db_path=db_path),
+        queue_backend=InMemoryTaskQueue(),
+        runner=_WrongPasswordRunner(),
+        event_store=TaskEventStore(db_path=db_path),
+        account_feedback=account_feedback,
+    )
+    override_task_controller_for_tests(controller)
+
+    try:
+        with TestClient(app) as client:
+            create = client.post(
+                "/api/tasks/",
+                json={
+                    "script": {
+                        "task": "anonymous",
+                        "steps": [],
+                        "credentials_ref": json.dumps({"account": "alice@example.com"}),
+                    },
+                    "devices": [1],
+                    "ai_type": "volc",
+                    "max_retries": 0,
+                    "retry_backoff_seconds": 0,
+                },
+            )
+            assert create.status_code == 200
+            task_id = create.json()["task_id"]
+
+            assert _wait_status(client, task_id, timeout_s=3.0) == "failed"
+            assert len(account_feedback.calls) == 1
+            assert account_feedback.calls[0]["payload"]["credentials_ref"] == json.dumps({"account": "alice@example.com"})
+            assert account_feedback.calls[0]["error"] == "wrong password provided"
+    finally:
+        reset_task_controller_for_tests()
+        if db_path.exists():
+            db_path.unlink()
 
 
 def test_task_control_plane_retries_then_fails():

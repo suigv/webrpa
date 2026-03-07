@@ -1,9 +1,12 @@
+# pyright: reportMissingImports=false
+import json
 import time
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 from api.server import app
+from core.account_feedback import AccountFeedbackService
 from core.task_control import (
     TaskController,
     override_task_controller_for_tests,
@@ -139,3 +142,15 @@ def test_cancel_requested_with_runner_exception_marks_cancelled_not_failed(tmp_p
         reset_task_controller_for_tests()
         if db_path.exists():
             db_path.unlink()
+
+
+def test_account_feedback_service_does_not_mutate_on_cancellation_adjacent_path():
+    writes = []
+    service = AccountFeedbackService(
+        read_account_lines=lambda data_type: [json.dumps({"account": "alice@example.com", "status": "active"})],
+        write_account_lines=lambda data_type, lines: writes.append((data_type, lines)),
+    )
+
+    service.handle_terminal_failure({"credentials_ref": json.dumps({"account": "alice@example.com"})}, "task cancelled by user")
+
+    assert writes == []

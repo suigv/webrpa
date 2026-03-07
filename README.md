@@ -50,6 +50,14 @@
 - `models/humanized.py` 提供强类型配置（移动、点击、输入、fallback 策略）
 - BrowserClient 集成几何感知目标点、节奏控制与降级回退
 
+### 5) RPA/RPC 控制层（已完成 remediation）
+
+- `engine/actions/ui_actions.py` 与 `engine/actions/state_actions.py` 保持稳定 facade，对外动作名与常见错误码契约不变
+- 共享 RPC 启动/关闭逻辑已收敛到 `engine/actions/_rpc_bootstrap.py`
+- selector/node 子系统与状态提取逻辑已拆到内部 helper，避免动作模块继续膨胀
+- `core/task_control.py` 中的账号反馈策略已下沉到 `core/account_feedback.py`
+- `hardware_adapters/mytRpc.py` 已补齐 pointer ownership / timeout / failure-safe 处理，且 `MYT_ENABLE_RPC=0` 启动路径已验证
+
 ### 6) 已内置插件示例
 
 - `plugins/x_mobile_login`
@@ -115,6 +123,8 @@ curl http://127.0.0.1:8001/health
 ```bash
 ./.venv/bin/python tools/check_no_legacy_imports.py
 ./.venv/bin/python -m pytest tests -q
+MYT_ENABLE_RPC=0 ./.venv/bin/python -m uvicorn api.server:app --host 127.0.0.1 --port 8001
+curl http://127.0.0.1:8001/health
 ```
 
 若在项目父目录执行，可使用等效命令：

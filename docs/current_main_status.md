@@ -1,20 +1,21 @@
 # Current Main Status
 
-更新时间：2026-03-07
+更新时间：2026-03-08
 
 ## 已完成
 
-- atomicity remediation 已合入 `main`
-- selector 生命周期清理已补齐，解释器退出时会释放 selector-backed RPC 资源
-- shared JSON store 已具备原子写入、同进程锁与跨进程文件锁保护
-- `ui_actions` / `sdk_actions` 已做热点收敛，避免继续无边界膨胀
+- RPA/RPC remediation 已在当前工作树完成并通过全量验证
+- selector 生命周期清理已补齐，解释器退出时会释放 selector-backed RPC 与 tracked node 资源
+- shared RPC bootstrap 已统一抽取到 `engine/actions/_rpc_bootstrap.py`
+- `ui_actions` / `state_actions` 已收敛为稳定 facade，selector/state internals 已拆到 helper 子模块
+- `core/task_control.py` 中的账号反馈策略已抽到 `core/account_feedback.py`
+- `hardware_adapters/mytRpc.py` 已补齐 pointer ownership、timeout 透传与 failure-safe 保护
 - 原子化相关中文说明文档、参考审查文档、README 入口均已同步
-- `progress-sync` CI 已修复为确定性输出，不再因时间戳造成假失败
+- `MYT_ENABLE_RPC=0` 启动与 `/health` 契约已验证通过
 
 ## 部分完成
 
-- `重复实现`：shared store 与 selector 生命周期已收敛，但共享 RPC helper 仍未统一抽取
-- `边界混乱`：`ui_actions` / `sdk_actions` 已处理主要热点，但 `core/task_control.py` 仍是后续重点
+- `sdk_actions` 体量与职责边界仍值得继续观察，但已不属于本次 RPA/RPC remediation 的关键阻塞项
 
 ## 当前分支不适用
 
@@ -25,9 +26,9 @@
 
 ## 下一步优先级
 
-1. 提取共享 RPC helper，降低 `ui_actions` / `state_actions` 的重复接入逻辑
-2. 继续收敛 `core/task_control.py` 的职责边界
-3. 如果登录/引导类 workflow 再次膨胀，再补 composite action 而不是继续复制 YAML
+1. 按提交边界整理 remediation 变更，补齐 commit / PR 证据链
+2. 继续观察 `sdk_actions` 与长 workflow 的复杂度增长，必要时沿相同思路拆 helper 或 composite action
+3. 若后续再扩展控制面策略，继续保持 `TaskController` 只承载 orchestration 边界
 
 ## 参考文档
 

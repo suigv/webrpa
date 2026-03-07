@@ -1,6 +1,10 @@
+# pyright: reportUnknownMemberType=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportUnknownVariableType=false, reportUnknownArgumentType=false, reportUnknownLambdaType=false, reportPrivateUsage=false
 from types import SimpleNamespace
 
+import ctypes
 import importlib
+
+from hardware_adapters.mytRpc import MytRpc
 
 
 def _load_ui_actions_module():
@@ -187,3 +191,47 @@ def test_rpc_node_helpers():
     assert node.click_events() is True
     assert node.long_click_events() is True
     assert node.get_node_json() == "{}"
+
+
+def test_myt_rpc_owned_text_calls_free_rpc_ptr(monkeypatch):
+    rpc = MytRpc()
+    rpc._handle = 1
+    allocations: list[ctypes.Array[ctypes.c_char]] = []
+    freed: list[int] = []
+
+    def make_ptr(payload: bytes) -> int:
+        buf = ctypes.create_string_buffer(payload)
+        allocations.append(buf)
+        return ctypes.addressof(buf)
+
+    class FakeLib:
+        def __init__(self):
+            self.execCmd = lambda handle, mode, cmd: make_ptr(b"exec-result")
+            self.dumpNodeXml = lambda handle, dump_all: make_ptr(b"<xml/>")
+            self.dumpNodeXmlEx = lambda handle, work_mode, timeout_ms: make_ptr(b"<xml-ex/>")
+            self.getNodeText = lambda node: make_ptr(b"node-text")
+            self.freeRpcPtr = lambda ptr: freed.append(ctypes.cast(ptr, ctypes.c_void_p).value or 0)
+
+    monkeypatch.setattr(rpc, "_rpc", FakeLib())
+
+    assert rpc.exec_cmd("ls") == ("exec-result", True)
+    assert rpc.dump_node_xml(True) == "<xml/>"
+    assert rpc.dump_node_xml_ex(False, 123) == "<xml-ex/>"
+    assert rpc.get_node_text(99) == "node-text"
+    assert len(freed) == 4
+    assert all(value > 0 for value in freed)
+
+
+def test_myt_rpc_init_uses_passed_timeout(monkeypatch):
+    rpc = MytRpc()
+    attempts: list[tuple[bytes, int, int]] = []
+
+    class FakeLib:
+        def openDevice(self, ip, port, timeout):
+            attempts.append((ip, port, timeout))
+            return 1
+
+    monkeypatch.setattr(rpc, "_load_library", lambda: FakeLib())
+
+    assert rpc.init("192.168.1.2", 30002, 37) is True
+    assert attempts == [(b"192.168.1.2", 30002, 37)]

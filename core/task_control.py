@@ -6,10 +6,9 @@ import time
 import uuid
 from datetime import datetime, timedelta, timezone
 import math
-import json
 from typing import Any, Protocol
-from core.data_store import read_lines, write_lines
 
+from core.account_feedback import AccountFeedbackService
 from core.task_events import TaskEventStore
 from core.task_queue import QueueBackend, create_task_queue
 from core.task_store import TaskRecord, TaskStore
@@ -22,6 +21,10 @@ class RunnerLike(Protocol):
     def run(self, script_payload: dict[str, Any], should_cancel: Any = None) -> dict[str, Any]: ...
 
 
+class AccountFeedbackLike(Protocol):
+    def handle_terminal_failure(self, payload: dict[str, Any], error: str) -> None: ...
+
+
 class TaskController:
     def __init__(
         self,
@@ -29,11 +32,13 @@ class TaskController:
         queue_backend: QueueBackend | None = None,
         runner: RunnerLike | None = None,
         event_store: TaskEventStore | None = None,
+        account_feedback: AccountFeedbackLike | None = None,
     ) -> None:
         self._store = store or TaskStore()
         self._queue = queue_backend or create_task_queue()
         self._runner = runner or Runner()
         self._events = event_store or TaskEventStore()
+        self._account_feedback = account_feedback or AccountFeedbackService()
         self._device_manager = DeviceManager()
         self._plugin_loader = PluginLoader()
         self._plugin_loader.scan()
@@ -486,9 +491,7 @@ class TaskController:
                 self._events.append_event(task_id, "task.completed", self._metrics_payload(task_id, {"ok": True}))
             else:
                 error = str(result.get("message", "task failed"))
-                # --- NEW: Account Status Feedback ---
-                self._handle_account_error_feedback(record.payload, error)
-                # ------------------------------------
+                self._account_feedback.handle_terminal_failure(record.payload, error)
                 retry_record = self._store.schedule_retry(task_id, error=error)
                 if retry_record is not None and retry_record.next_retry_at is not None:
                     self._queue.enqueue(
@@ -672,59 +675,6 @@ class TaskController:
         }
         payload.update(extra)
         return payload
-
-    def _handle_account_error_feedback(self, payload: dict[str, Any], error: str) -> None:
-        """Internal helper to automatically flag account status based on task errors."""
-        ref = str(payload.get("credentials_ref") or "").strip()
-        if not ref:
-            return
-
-        account_name = None
-        # Try to extract account name from ref (if JSON)
-        if ref.startswith("{") and ref.endswith("}"):
-            try:
-                creds = json.loads(ref)
-                account_name = creds.get("account") or creds.get("username_or_email")
-            except Exception:
-                pass
-        
-        if not account_name:
-            return
-
-        # Determine target status
-        target_status = None
-        error_lower = error.lower()
-        if any(k in error_lower for k in ["wrong password", "incorrect", "bad credentials"]):
-            target_status = "bad_auth"
-        elif any(k in error_lower for k in ["suspended", "banned", "locked"]):
-            target_status = "banned"
-        elif "2fa" in error_lower:
-            target_status = "2fa_issue"
-            
-        if not target_status:
-            return
-
-        # Update accounts.json
-        try:
-            lines = read_lines("accounts")
-            updated = []
-            found = False
-            for line in lines:
-                try:
-                    item = json.loads(line)
-                    if item.get("account") == account_name:
-                        item["status"] = target_status
-                        item["error_msg"] = error
-                        updated.append(json.dumps(item))
-                        found = True
-                    else:
-                        updated.append(line)
-                except Exception:
-                    updated.append(line)
-            if found:
-                write_lines("accounts", updated)
-        except Exception:
-            pass
 
     def _recover_stale_running_tasks(self) -> None:
         stale_after_seconds = self._stale_running_seconds()

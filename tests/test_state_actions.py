@@ -406,3 +406,35 @@ def test_extract_and_open_first_unread_dm(monkeypatch):
     opened = mod.open_first_unread_dm({"package": "com.twitter.android"}, ctx)
     assert opened.ok is True
     assert opened.data["count"] == 1
+
+
+def test_state_actions_rpc_bootstrap_error_contracts(monkeypatch):
+    mod = _load_state_actions_module()
+    ExecutionContext = _load_execution_context()
+    ctx = ExecutionContext(payload={})
+
+    monkeypatch.setattr(mod, "_is_rpc_enabled", lambda: False)
+    disabled = mod.detect_x_login_stage({}, ctx)
+    assert disabled.ok is False
+    assert disabled.code == "rpc_disabled"
+    assert disabled.message == "MYT_ENABLE_RPC=0"
+
+    monkeypatch.setattr(mod, "_is_rpc_enabled", lambda: True)
+    invalid = mod.detect_x_login_stage({}, ctx)
+    assert invalid.ok is False
+    assert invalid.code == "invalid_params"
+    assert invalid.message == "device_ip is required"
+
+    class FailingRpc:
+        def init(self, ip, port, timeout):
+            _ = (ip, port, timeout)
+            return False
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(mod, "MytRpc", FailingRpc)
+    failed = mod.detect_x_login_stage({"device_ip": "192.168.1.214", "rpa_port": 30002}, ctx)
+    assert failed.ok is False
+    assert failed.code == "rpc_connect_failed"
+    assert failed.message == "connect failed: 192.168.1.214:30002"

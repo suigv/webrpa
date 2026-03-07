@@ -586,6 +586,8 @@ class TestInterpreter:
                 self.closed = False
                 self.clear_calls = 0
                 self.query_calls = 0
+                self.free_selector_calls = 0
+                self.free_nodes_calls: list[int] = []
                 FakeSelectorRpc.instances.append(self)
 
             def init(self, ip, port, timeout):
@@ -605,6 +607,22 @@ class TestInterpreter:
                 self.clear_calls += 1
                 return not self.closed
 
+            def free_selector(self, selector):
+                self.free_selector_calls += 1
+                return not self.closed
+
+            def find_nodes(self, selector, max_count, timeout_ms):
+                _ = (selector, max_count, timeout_ms)
+                return 101
+
+            def get_nodes_size(self, nodes):
+                _ = nodes
+                return 2
+
+            def free_nodes(self, nodes):
+                self.free_nodes_calls.append(int(nodes))
+                return not self.closed
+
         monkeypatch.setattr(ui_actions, "MytRpc", FakeSelectorRpc)
 
         reg = get_registry()
@@ -616,6 +634,7 @@ class TestInterpreter:
             "steps": [
                 {"kind": "action", "action": "ui.create_selector", "params": {}},
                 {"kind": "action", "action": "ui.selector_add_query", "params": {"type": "text", "value": "hello"}},
+                {"kind": "action", "action": "ui.selector_find_nodes", "params": {"save_as": "nodes_h"}},
                 {"kind": "action", "action": "test.fail_after_selector", "params": {}},
             ],
         })
@@ -630,7 +649,9 @@ class TestInterpreter:
         assert "forced failure" in result["message"]
         assert len(FakeSelectorRpc.instances) == 1
         assert FakeSelectorRpc.instances[0].query_calls == 1
+        assert FakeSelectorRpc.instances[0].free_nodes_calls == [101]
         assert FakeSelectorRpc.instances[0].clear_calls == 1
+        assert FakeSelectorRpc.instances[0].free_selector_calls == 1
         assert FakeSelectorRpc.instances[0].closed is True
 
 

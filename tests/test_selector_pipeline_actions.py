@@ -30,8 +30,10 @@ def _load_action_registry_module():
 
 
 class _RpcBase:
-    def init(self, ip, port, timeout):
-        return True
+    def init(self, ip, port, timeout) -> bool:
+        _ = (ip, port, timeout)
+        connected = True
+        return connected
 
     def close(self):
         return None
@@ -189,7 +191,7 @@ class _RpcBase:
 
     def click_node(self, node):
         _ = node
-        return True
+        return bool(True)
 
     def long_click_node(self, node):
         _ = node
@@ -321,7 +323,146 @@ def test_selector_node_collection_actions(monkeypatch):
     assert "nodes_h" not in ctx.vars
 
 
-def test_node_field_and_click_actions(monkeypatch):
+def test_selector_replace_frees_previous_before_close(monkeypatch):
+    ui_actions = _load_ui_actions_module()
+    ExecutionContext = _load_execution_context()
+    ctx = ExecutionContext(payload={"device_ip": "192.168.1.2", "cloud_index": 1, "cloud_machines_per_device": 2})
+    events = []
+
+    class RecordingRpc(_RpcBase):
+        def __init__(self):
+            self.name = f"rpc-{len([entry for entry in events if entry[0] == 'create_rpc'])}"
+            events.append(("create_rpc", self.name))
+
+        def close(self):
+            events.append(("close", self.name))
+            return None
+
+    original_selector_cls = ui_actions.MytSelector
+
+    class RecordingSelector(original_selector_cls):
+        def clear_selector(self):
+            events.append(("clear", self.rpc.name))
+            return True
+
+        def free_selector(self):
+            events.append(("free", self.rpc.name))
+            return True
+
+    monkeypatch.setattr(ui_actions, "MytRpc", RecordingRpc)
+    monkeypatch.setattr(ui_actions, "MytSelector", RecordingSelector)
+
+    first = ui_actions.create_selector({}, ctx)
+    second = ui_actions.create_selector({}, ctx)
+
+    assert first.ok is True
+    assert second.ok is True
+    assert [entry for entry in events if entry[1] == "rpc-0"] == [
+        ("create_rpc", "rpc-0"),
+        ("clear", "rpc-0"),
+        ("free", "rpc-0"),
+        ("close", "rpc-0"),
+    ]
+
+
+
+def test_selector_click_one_always_tears_down_before_close(monkeypatch):
+    ui_actions = _load_ui_actions_module()
+    ExecutionContext = _load_execution_context()
+    ctx = ExecutionContext(payload={"device_ip": "192.168.1.2", "cloud_index": 1, "cloud_machines_per_device": 2})
+
+    class RecordingRpc(_RpcBase):
+        def __init__(self, events, click_ok=True):
+            self.events = events
+            self.click_ok = click_ok
+
+        def execQueryOne(self, selector):
+            _ = selector
+            return 101
+
+        def click_node(self, node):
+            _ = node
+            self.events.append("click")
+            return self.click_ok
+
+        def close(self):
+            self.events.append("close")
+            return None
+
+    cases = [
+        ({"type": "text", "value": "hello"}, "ok", True),
+        ({}, "invalid_params", True),
+        ({"type": "text", "value": "hello"}, "click_failed", False),
+    ]
+
+    original_selector_cls = ui_actions.MytSelector
+
+    for params, expected_code, click_ok in cases:
+        events = []
+        rpc = RecordingRpc(events, click_ok=click_ok)
+
+        class RecordingSelector(original_selector_cls):
+            def clear_selector(self):
+                events.append("clear")
+                return True
+
+            def free_selector(self):
+                events.append("free")
+                return True
+
+        monkeypatch.setattr(ui_actions, "MytSelector", RecordingSelector)
+        monkeypatch.setattr(ui_actions, "_get_rpc", lambda params, context, rpc=rpc: (rpc, None))
+
+        result = ui_actions.selector_click_one(params, ctx)
+
+        assert result.code == expected_code
+        assert events[-3:] == ["clear", "free", "close"]
+
+
+
+def test_release_selector_context_frees_tracked_nodes_before_selector(monkeypatch):
+    ui_actions = _load_ui_actions_module()
+    ExecutionContext = _load_execution_context()
+    ctx = ExecutionContext(payload={"device_ip": "192.168.1.2", "cloud_index": 1, "cloud_machines_per_device": 2})
+    events = []
+
+    class RecordingRpc(_RpcBase):
+        def free_nodes(self, nodes):
+            events.append(("free_nodes", int(nodes)))
+            return True
+
+        def clear_selector(self, selector):
+            events.append(("clear", int(selector)))
+            return True
+
+        def free_selector(self, selector):
+            events.append(("free_selector", int(selector)))
+            return True
+
+        def close(self):
+            events.append(("close", None))
+            return None
+
+    monkeypatch.setattr(ui_actions, "MytRpc", RecordingRpc)
+
+    assert ui_actions.create_selector({}, ctx).ok is True
+    assert ui_actions.selector_find_nodes({"save_as": "nodes_h"}, ctx).ok is True
+
+    released = ui_actions.release_selector_context(ctx)
+
+    assert released is True
+    assert "selector" not in ctx.vars
+    assert "nodes_h" not in ctx.vars
+    assert "_selector_nodes_vars" not in ctx.vars
+    assert events == [
+        ("free_nodes", 101),
+        ("clear", 1),
+        ("free_selector", 1),
+        ("close", None),
+    ]
+
+
+def test_selector_node_runtime_accessors_work(monkeypatch):
     ui_actions = _load_ui_actions_module()
     ExecutionContext = _load_execution_context()
     monkeypatch.setattr(ui_actions, "MytRpc", FakeRpcHasNode)
@@ -341,3 +482,32 @@ def test_node_field_and_click_actions(monkeypatch):
     assert ui_actions.node_click({}, ctx).ok is True
     assert ui_actions.node_long_click({}, ctx).ok is True
     assert ui_actions.selector_free({}, ctx).ok is True
+
+
+def test_ui_actions_rpc_bootstrap_error_contracts(monkeypatch):
+    ui_actions = _load_ui_actions_module()
+    ExecutionContext = _load_execution_context()
+    ctx = ExecutionContext(payload={})
+
+    monkeypatch.setattr(ui_actions, "_is_rpc_enabled", lambda: False)
+    disabled = ui_actions.click({}, ctx)
+    assert disabled.ok is False
+    assert disabled.code == "rpc_disabled"
+    assert disabled.message == "MYT_ENABLE_RPC=0"
+
+    monkeypatch.setattr(ui_actions, "_is_rpc_enabled", lambda: True)
+    invalid = ui_actions.click({}, ctx)
+    assert invalid.ok is False
+    assert invalid.code == "invalid_params"
+    assert invalid.message == "device_ip is required"
+
+    class FailingRpc(_RpcBase):
+        def init(self, ip, port, timeout) -> bool:
+            _ = (ip, port, timeout)
+            return False
+
+    monkeypatch.setattr(ui_actions, "MytRpc", FailingRpc)
+    failed = ui_actions.click({"device_ip": "192.168.1.2", "rpa_port": 30002}, ctx)
+    assert failed.ok is False
+    assert failed.code == "rpc_connect_failed"
+    assert failed.message == "connect failed: 192.168.1.2:30002"
