@@ -18,7 +18,7 @@ def test_allocator_deterministic_repeatability():
 
 def test_topology_unique_ports():
     """With new formula, ports are unique per cloud_index, not per device.
-    
+
     Port = 30000 + (cloud_index - 1) * 100 + offset
     So cloud 1 → 30001/30002, cloud 2 → 30101/30102, etc.
     """
@@ -28,21 +28,21 @@ def test_topology_unique_ports():
         total_devices = 5
         clouds = 7
         mapping = build_task_port_map(total_devices=total_devices, cloud_machines_per_device=clouds)
-        
+
         # Verify ports don't conflict with SDK port
         for api_port, rpa_port in mapping.values():
             assert api_port != 8000
             assert rpa_port != 8000
-        
+
         # With new formula, ports are determined by cloud_index only
         # So we expect exactly `clouds` unique port pairs, not `total_devices * clouds`
         port_pairs: set[tuple[int, int]] = set()
-        for (device_id, cloud_id), (api_port, rpa_port) in mapping.items():
+        for (_device_id, _cloud_id), (api_port, rpa_port) in mapping.items():
             port_pairs.add((api_port, rpa_port))
-        
+
         # Each cloud should have its own unique port pair
         assert len(port_pairs) == clouds, f"Expected {clouds} unique port pairs, got {len(port_pairs)}"
-        
+
         # Verify expected port pairs for each cloud
         expected = {
             1: (30001, 30002),
