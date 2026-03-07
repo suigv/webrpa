@@ -10,8 +10,8 @@ from pathlib import Path
 from typing import Any, Dict
 from unittest.mock import MagicMock
 
-import pytest
-from pydantic import ValidationError
+import pytest  # pyright: ignore[reportMissingImports]
+from pydantic import ValidationError  # pyright: ignore[reportMissingImports]
 
 from engine.action_registry import ActionRegistry, get_registry, register_defaults
 from engine.actions.credential_actions import credentials_load
@@ -571,6 +571,63 @@ class TestInterpreter:
         assert result["ok"] is False
         mock_browser.close.assert_called_once()
 
+    def test_selector_cleanup_in_finally_on_action_failure(self, monkeypatch):
+        from engine.actions import ui_actions
+
+        class FakeSelectorRpc:
+            instances: list["FakeSelectorRpc"] = []
+
+            def __init__(self):
+                self.closed = False
+                self.clear_calls = 0
+                self.query_calls = 0
+                FakeSelectorRpc.instances.append(self)
+
+            def init(self, ip, port, timeout):
+                return True
+
+            def close(self):
+                self.closed = True
+
+            def create_selector(self):
+                return 7
+
+            def addQuery_Text(self, selector, value):
+                self.query_calls += 1
+                return not self.closed
+
+            def clear_selector(self, selector):
+                self.clear_calls += 1
+                return not self.closed
+
+        monkeypatch.setattr(ui_actions, "MytRpc", FakeSelectorRpc)
+
+        reg = get_registry()
+        reg.register("test.fail_after_selector", lambda p, c: ActionResult(ok=False, code="err", message="forced failure"))
+
+        script = WorkflowScript.model_validate({
+            "version": "v1",
+            "workflow": "selector_cleanup",
+            "steps": [
+                {"kind": "action", "action": "ui.create_selector", "params": {}},
+                {"kind": "action", "action": "ui.selector_add_query", "params": {"type": "text", "value": "hello"}},
+                {"kind": "action", "action": "test.fail_after_selector", "params": {}},
+            ],
+        })
+
+        interp = self._make_interpreter()
+        result = interp.execute(
+            script,
+            {"device_ip": "192.168.1.2", "cloud_index": 1, "cloud_machines_per_device": 1},
+        )
+
+        assert result["ok"] is False
+        assert "forced failure" in result["message"]
+        assert len(FakeSelectorRpc.instances) == 1
+        assert FakeSelectorRpc.instances[0].query_calls == 1
+        assert FakeSelectorRpc.instances[0].clear_calls == 1
+        assert FakeSelectorRpc.instances[0].closed is True
+
 
 # ============================================================
 # Plugin loader tests
@@ -639,41 +696,41 @@ class TestPluginLoader:
 
 
 # ============================================================
-# x_mobile_login YAML validation tests
+# x_auto_login YAML validation tests
 # ============================================================
 
 
-class TestXMobileLoginYAMLPlugin:
+class TestXAutoLoginYAMLPlugin:
     def test_manifest_validates(self):
-        manifest_path = Path(__file__).resolve().parents[1] / "plugins" / "x_mobile_login" / "manifest.yaml"
+        manifest_path = Path(__file__).resolve().parents[1] / "plugins" / "x_auto_login" / "manifest.yaml"
         if not manifest_path.exists():
-            pytest.skip("x_mobile_login manifest not found")
+            pytest.skip("x_auto_login manifest not found")
         m = parse_manifest(manifest_path)
-        assert m.name == "x_mobile_login"
+        assert m.name == "x_auto_login"
         assert m.version == "1.0.0"
         assert m.kind == "plugin"
         assert m.api_version == "v1"
 
     def test_script_validates(self):
-        script_path = Path(__file__).resolve().parents[1] / "plugins" / "x_mobile_login" / "script.yaml"
+        script_path = Path(__file__).resolve().parents[1] / "plugins" / "x_auto_login" / "script.yaml"
         if not script_path.exists():
-            pytest.skip("x_mobile_login script not found")
+            pytest.skip("x_auto_login script not found")
         s = parse_script(script_path)
-        assert s.workflow == "x_mobile_login"
+        assert s.workflow == "x_auto_login"
         assert len(s.steps) > 10  # Should have many steps
 
     def test_all_labels_are_unique(self):
-        script_path = Path(__file__).resolve().parents[1] / "plugins" / "x_mobile_login" / "script.yaml"
+        script_path = Path(__file__).resolve().parents[1] / "plugins" / "x_auto_login" / "script.yaml"
         if not script_path.exists():
-            pytest.skip("x_mobile_login script not found")
+            pytest.skip("x_auto_login script not found")
         s = parse_script(script_path)
         labels = [getattr(step, "label", None) for step in s.steps if getattr(step, "label", None)]
         assert len(labels) == len(set(labels)), f"duplicate labels: {labels}"
 
-    def test_plugin_loader_finds_x_mobile_login(self):
+    def test_plugin_loader_finds_x_auto_login(self):
         plugins_root = Path(__file__).resolve().parents[1] / "plugins"
-        if not (plugins_root / "x_mobile_login" / "manifest.yaml").exists():
-            pytest.skip("x_mobile_login plugin not found")
+        if not (plugins_root / "x_auto_login" / "manifest.yaml").exists():
+            pytest.skip("x_auto_login plugin not found")
         loader = PluginLoader(plugins_root=plugins_root)
         loader.scan()
-        assert loader.has("x_mobile_login")
+        assert loader.has("x_auto_login")

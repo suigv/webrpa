@@ -1320,6 +1320,19 @@ def node_long_click(params: Dict[str, Any], context: ExecutionContext) -> Action
     return ActionResult(ok=ok, code="ok" if ok else "long_click_failed", data={"node_handle": node_handle})
 
 
+def release_selector_context(context: ExecutionContext) -> bool:
+    selector = context.vars.pop("selector", None)
+    if not isinstance(selector, MytSelector):
+        return False
+    try:
+        _ = selector.clear_selector()
+        _ = selector.free_selector()
+    except Exception:
+        return False
+    _close_rpc(selector.rpc)
+    return True
+
+
 def selector_free(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
     selector = _selector_from_context(context)
     if selector is None:

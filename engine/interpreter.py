@@ -8,7 +8,6 @@ from typing import Any, Dict, List, Optional
 from engine.action_registry import get_registry, register_defaults
 from engine.conditions import evaluate as eval_condition
 from engine.models.runtime import ActionResult, ExecutionContext
-from common.logger import log_manager
 from engine.models.workflow import (
     ActionStep,
     FailStrategy,
@@ -67,34 +66,26 @@ class Interpreter:
         label_map = self._build_label_map(script.steps)
         registry = get_registry()
 
-        task_id = payload.get("_task_id", "")
-        target_name = payload.get("_cloud_target", "")
-        log_manager.log(f"开始执行工作流: {script.workflow}", task_id=task_id, target=target_name)
-
         try:
             while context.pc < len(script.steps):
                 self._check_cancelled(context)
                 step = script.steps[context.pc]
-                kind = step.kind  # type: ignore[union-attr]
                 context.jumped = False
-                if kind == "action":
-                    self._exec_action(step, context, registry, label_map)  # type: ignore[arg-type]
-                elif kind == "if":
-                    self._exec_if(step, context, label_map)  # type: ignore[arg-type]
-                elif kind == "wait_until":
-                    self._exec_wait_until(step, context, label_map)  # type: ignore[arg-type]
-                elif kind == "goto":
-                    self._exec_goto(step, context, label_map)  # type: ignore[arg-type]
-                elif kind == "stop":
-                    res = self._exec_stop(step, script.workflow)  # type: ignore[arg-type]
-                    log_manager.log(f"工作流主动停止: {script.workflow} (状态: {res.get('status')}, 消息: {res.get('message')})", task_id=task_id, target=target_name)
-                    return res
+                if isinstance(step, ActionStep):
+                    self._exec_action(step, context, registry, label_map)
+                elif isinstance(step, IfStep):
+                    self._exec_if(step, context, label_map)
+                elif isinstance(step, WaitUntilStep):
+                    self._exec_wait_until(step, context, label_map)
+                elif isinstance(step, GotoStep):
+                    self._exec_goto(step, context, label_map)
+                elif isinstance(step, StopStep):
+                    return self._exec_stop(step, script.workflow)
 
                 # Only auto-advance if no jump occurred
                 if not context.jumped:
                     context.pc += 1
             # Fell through all steps without explicit stop
-            log_manager.log(f"工作流执行完成: {script.workflow}", task_id=task_id, target=target_name)
             return {
                 "ok": True,
                 "workflow": script.workflow,
@@ -129,6 +120,12 @@ class Interpreter:
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
         finally:
+            try:
+                from engine.actions.ui_actions import release_selector_context
+
+                _ = release_selector_context(context)
+            except Exception:
+                logger.debug("failed to release selector context", exc_info=True)
             if context.browser is not None:
                 try:
                     context.browser.close()
@@ -145,10 +142,6 @@ class Interpreter:
         registry: Any,
         label_map: Dict[str, int],
     ) -> None:
-        task_id = context.payload.get("_task_id", "")
-        target_name = context.payload.get("_cloud_target", "")
-        log_manager.log(f"-> Step: {step.label or step.action}", task_id=task_id, target=target_name)
-
         interp_ctx = {"payload": context.payload, "vars": context.vars}
         params = interpolate_params(step.params, interp_ctx)
 
@@ -160,11 +153,6 @@ class Interpreter:
             label_map,
         )
         context.last_result = result
-        
-        if result.ok:
-            log_manager.log(f"   [OK] {result.message}", level="info", task_id=task_id, target=target_name)
-        else:
-            log_manager.log(f"   [FAIL] {result.message}", level="warning", task_id=task_id, target=target_name)
 
         if step.save_as:
             context.vars[step.save_as] = result.data if result.data else {
