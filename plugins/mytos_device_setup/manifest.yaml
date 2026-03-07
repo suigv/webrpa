@@ -1,0 +1,35 @@
+api_version: v1
+kind: plugin
+name: mytos_device_setup
+version: "1.0.0"
+display_name: "MYTOS 系统初始化"
+category: "账号与安全"
+description: "Bootstrap device-level MYTOS API settings with atomic actions"
+entry_script: script.yaml
+inputs:
+  - name: device_ip
+    type: string
+    required: true
+  - name: sdk_port
+    type: integer
+    required: false
+    default: 8000
+  - name: package
+    type: string
+    required: true
+  - name: language
+    type: string
+    required: false
+    default: "en"
+  - name: country
+    type: string
+    required: false
+    default: "US"
+  - name: enable_app_bootstart
+    type: boolean
+    required: false
+    default: true
+  - name: allow_root
+    type: boolean
+    required: false
+    default: true

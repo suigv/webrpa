@@ -1,6 +1,9 @@
-# 迁移矩阵（Legacy `tmp/` → Current ``）
+# 迁移矩阵（归档）
 
-本矩阵用于 Task 1：把 `tmp/tasks/*.py` 与 `tmp/app/core/workflow_engine.py` 的能力，映射到当前项目 `engine/actions/*`、`plugins/*`、`core/*`。
+> 历史归档文档。
+> 记录旧版 `tmp/` 任务体系向当前 `webrpa` 插件化架构迁移时的能力映射，不再作为当前开发主文档。
+
+本矩阵用于早期迁移阶段：把 `tmp/tasks/*.py` 与 `tmp/app/core/workflow_engine.py` 的能力，映射到当前项目 `engine/actions/*`、`plugins/*`、`core/*`。
 
 ## 拓扑复用结论（硬约束）
 

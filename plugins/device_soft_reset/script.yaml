@@ -21,6 +21,42 @@ steps:
     on_fail:
       strategy: skip
 
+  - label: force_stop_shell
+    kind: action
+    action: device.exec
+    params:
+      device_ip: "${payload.device_ip}"
+      command: "am force-stop ${payload.package:-com.twitter.android}"
+    on_fail:
+      strategy: skip
+
+  - label: clear_app_data
+    kind: action
+    action: device.exec
+    params:
+      device_ip: "${payload.device_ip}"
+      command: "pm clear ${payload.package:-com.twitter.android}"
+    on_fail:
+      strategy: skip
+
+  - label: cleanup_app_storage
+    kind: action
+    action: device.exec
+    params:
+      device_ip: "${payload.device_ip}"
+      command: "rm -rf /sdcard/Android/data/${payload.package:-com.twitter.android} /sdcard/Twitter /sdcard/.Twitter"
+    on_fail:
+      strategy: skip
+
+  - label: cleanup_media_storage
+    kind: action
+    action: device.exec
+    params:
+      device_ip: "${payload.device_ip}"
+      command: "rm -rf /sdcard/DCIM/* /sdcard/Pictures/* /sdcard/Download/* /sdcard/Movies/*"
+    on_fail:
+      strategy: skip
+
   - label: restart_cloud
     kind: action
     action: sdk.restart_android
@@ -30,7 +66,19 @@ steps:
     on_fail:
       strategy: abort
 
+  - label: wait_recovered
+    kind: action
+    action: sdk.wait_cloud_status
+    params:
+      device_ip: "${payload.device_ip}"
+      name: "${payload.name}"
+      target_status: "running"
+      timeout_ms: 180000
+      interval_ms: 5000
+    on_fail:
+      strategy: abort
+
   - label: done
     kind: stop
     status: success
-    message: "device soft reset dispatched"
+    message: "device soft reset completed"

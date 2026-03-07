@@ -7,4 +7,4 @@ def test_web_ui_page_is_served():
     client = TestClient(app)
     response = client.get("/web")
     assert response.status_code == 200
-    assert "MYT 控制台" in response.text
+    assert "WebRPA" in response.text

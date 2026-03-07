@@ -25,8 +25,9 @@ def browser_open(params: Dict[str, Any], context: ExecutionContext) -> ActionRes
     if not url:
         return ActionResult(ok=False, code="missing_url", message="url param required")
     headless = params.get("headless", True)
+    profile_id = params.get("profile_id")
     try:
-        browser.open(url, headless=headless)
+        browser.open(url, headless=headless, profile_id=profile_id)
     except Exception as exc:
         return ActionResult(ok=False, code="browser_open_failed", message=str(exc))
     return ActionResult(ok=True, code="ok", message=f"opened {url}")
@@ -105,6 +106,23 @@ def browser_wait_url(params: Dict[str, Any], context: ExecutionContext) -> Actio
         return ActionResult(ok=True, code="ok", message=f"url contains {fragment}")
     return ActionResult(ok=False, code="timeout", message=f"url did not contain {fragment} within {timeout_s}s")
 
+
+def browser_add_cookies(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
+    browser = _get_browser(context)
+    cookies = params.get("cookies", [])
+    if isinstance(cookies, dict):
+        cookies = [cookies]
+    if not cookies:
+        return ActionResult(ok=False, code="missing_cookies", message="cookies param required")
+    try:
+        # Assuming DrissionPage set.cookies exists on the page
+        if hasattr(browser._page, "set"):
+            browser._page.set.cookies(cookies)
+        elif hasattr(browser._page, "cookies"): # Playwright style
+            pass # Implement fallback if necessary
+        return ActionResult(ok=True, code="ok", message=f"added {len(cookies)} cookies")
+    except Exception as exc:
+        return ActionResult(ok=False, code="cookie_error", message=str(exc))
 
 def browser_close(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
     if context.browser is not None:

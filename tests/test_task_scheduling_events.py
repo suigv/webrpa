@@ -68,8 +68,9 @@ def test_run_at_delays_execution():
         assert _wait_status(client, task_id, "completed", timeout_s=5.0)
 
 
-def test_priority_prefers_higher_first_when_same_run_at(tmp_path: Path):
+def test_priority_prefers_higher_first_when_same_run_at(tmp_path: Path, monkeypatch):
     reset_task_controller_for_tests()
+    monkeypatch.setenv("MYT_MAX_CONCURRENT_TASKS", "1")
     db_path = tmp_path / "tasks_priority_test.db"
     if db_path.exists():
         db_path.unlink()

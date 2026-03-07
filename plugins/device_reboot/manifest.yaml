@@ -2,7 +2,8 @@ api_version: v1
 kind: plugin
 name: device_reboot
 version: "1.0.0"
-display_name: "Device Reboot"
+display_name: "设备硬件重启"
+category: "系统维护"
 description: >
   Reboot a target cloud machine by name using SDK restart endpoint.
 entry_script: script.yaml

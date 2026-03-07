@@ -1,6 +1,6 @@
 from typing import List, Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, BackgroundTasks
 
 from core.config_loader import ConfigLoader
 from core.device_manager import DeviceManager
@@ -62,17 +62,17 @@ def list_devices(availability: Literal["all", "available_only"] = "all"):
 
 @router.post("/discover")
 @router.post("/discover/")
-def discover_devices():
-    ips = discovery.scan_now(force=True)
-    if ips:
-        ConfigLoader.update(
-            total_devices=len(ips),
-            device_ips={str(index): ip for index, ip in enumerate(ips, start=1)},
-        )
-    return {
-        "count": len(ips),
-        "device_ips": {str(index): ip for index, ip in enumerate(ips, start=1)},
-    }
+def discover_devices(background_tasks: BackgroundTasks):
+    def run_scan():
+        ips = discovery.scan_now(force=True)
+        if ips:
+            ConfigLoader.update(
+                total_devices=len(ips),
+                device_ips={str(index): ip for index, ip in enumerate(ips, start=1)},
+            )
+    
+    background_tasks.add_task(run_scan)
+    return {"status": "started", "message": "Background scan initiated"}
 
 
 @router.get("/{device_id}", response_model=DeviceInfo)

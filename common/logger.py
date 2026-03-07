@@ -1,8 +1,9 @@
 import asyncio
 import logging
 import os
-import re
 import sys
+import json
+from datetime import datetime
 
 
 class Logger:
@@ -19,7 +20,7 @@ class Logger:
     def _init(self) -> None:
         if Logger._initialized:
             return
-        self.logger = logging.getLogger("NewStandaloneLogger")
+        self.logger = logging.getLogger("WebRPALogger")
         self.logger.setLevel(logging.INFO)
         self.logger.propagate = False
         self.logger.handlers.clear()
@@ -36,20 +37,37 @@ class Logger:
     def set_ws_broadcast(self, broadcast_func):
         self._ws_broadcast = broadcast_func
 
-    def log(self, device_index: int, message: str, level: str = "info") -> None:
-        full_msg = f"[Dev {device_index}] {message}"
+    def log(self, message: str, level: str = "info", task_id: str = "", target: str = "") -> None:
+        """
+        Log a message with structured context.
+        Sends a JSON object to WebSocket clients.
+        """
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        
+        # 1. Console Logging (Formatted String)
+        prefix = f"[{target or 'System'}] " if target else ""
+        console_msg = f"{prefix}{message}"
         if level == "error":
-            self.logger.error(full_msg)
+            self.logger.error(console_msg)
         elif level == "warning":
-            self.logger.warning(full_msg)
+            self.logger.warning(console_msg)
         else:
-            self.logger.info(full_msg)
+            self.logger.info(console_msg)
 
+        # 2. WebSocket Broadcasting (Structured JSON)
         if self._ws_broadcast:
+            log_entry = {
+                "timestamp": timestamp,
+                "level": level,
+                "message": message,
+                "task_id": task_id,
+                "target": target or "System"
+            }
             try:
+                # Use a fire-and-forget approach for broadcasting
                 loop = asyncio.get_event_loop()
                 if loop.is_running():
-                    asyncio.ensure_future(self._ws_broadcast(full_msg))
+                    asyncio.ensure_future(self._ws_broadcast(json.dumps(log_entry, ensure_ascii=False)))
             except Exception:
                 pass
 

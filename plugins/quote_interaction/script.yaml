@@ -2,17 +2,73 @@ version: v1
 workflow: quote_interaction
 
 vars:
-  status_hint: "${payload.status_hint:-success}"
+  status_hint: "${payload.status_hint:-runtime}"
+  package: "${payload.package:-com.twitter.android}"
+  ai_type: "${payload.ai_type:-default}"
+  target_post_url: "${payload.target_post_url:-}"
+  target_username: "${payload.target_username:-}"
+  source_text: "${payload.source_text:-}"
+  quote_text: "${payload.quote_text:-}"
+  processed_key: "${payload.processed_key:-quoted_targets}"
+  scope: "${payload.scope:-device}"
 
 steps:
+  - label: check_forced_success
+    kind: if
+    when:
+      all:
+        - type: var_equals
+          var: status_hint
+          equals: success
+    then: success
+
+  - label: load_quote_repost_desc_selector
+    kind: action
+    action: core.load_ui_selector
+    params:
+      key: "quote.repost_button_desc"
+    save_as: quote_repost_desc_selector
+
+  - label: load_quote_repost_text_selector
+    kind: action
+    action: core.load_ui_selector
+    params:
+      key: "quote.repost_button_text"
+    save_as: quote_repost_text_selector
+
+  - label: load_quote_menu_selector
+    kind: action
+    action: core.load_ui_selector
+    params:
+      key: "quote.quote_menu_item"
+    save_as: quote_menu_selector
+
+  - label: load_quote_post_selector
+    kind: action
+    action: core.load_ui_selector
+    params:
+      key: "quote.post_button"
+    save_as: quote_post_selector
+
+  - label: load_quote_search_scheme
+    kind: action
+    action: core.load_ui_scheme
+    params:
+      key: "search_query"
+      kwargs:
+        query: "to:${vars.target_username}"
+    save_as: quote_search_scheme
+    on_fail:
+      strategy: skip
+
   - label: ensure_running
     kind: action
     action: app.ensure_running
     params:
       device_ip: "${payload.device_ip}"
-      package: "${payload.package:-com.twitter.android}"
+      package: "${vars.package}"
     on_fail:
-      strategy: skip
+      strategy: abort
 
   - label: check_no_target
     kind: if
@@ -23,12 +79,265 @@ steps:
           equals: empty_target
     then: empty_target
 
+  - label: ensure_target_post_url
+    kind: if
+    when:
+      all:
+        - type: var_truthy
+          var: target_post_url
+    then: open_target_post
+    otherwise: ensure_target_username
+
+  - label: ensure_target_username
+    kind: if
+    when:
+      all:
+        - type: var_truthy
+          var: target_username
+    then: open_quote_search_results
+    otherwise: missing_target_post
+
+  - label: open_quote_search_results
+    kind: action
+    action: device.exec
+    params:
+      device_ip: "${payload.device_ip}"
+      command: "${vars.quote_search_scheme.command}"
+    on_fail:
+      strategy: abort
+
+  - label: extract_quote_candidates
+    kind: action
+    action: core.extract_search_candidates
+    params:
+      device_ip: "${payload.device_ip}"
+      package: "${vars.package}"
+      max_candidates: 8
+    save_as: quote_candidates
+    on_fail:
+      strategy: abort
+
+  - label: pick_quote_candidate
+    kind: action
+    action: core.pick_candidate
+    params:
+      candidates: "${vars.quote_candidates.candidates}"
+      ai_type: "${vars.ai_type}"
+    save_as: selected_quote_candidate
+    on_fail:
+      strategy: abort
+
+  - label: open_selected_quote_candidate
+    kind: action
+    action: core.open_candidate
+    params:
+      device_ip: "${payload.device_ip}"
+      candidate: "${vars.selected_quote_candidate.candidate}"
+    on_fail:
+      strategy: abort
+
+  - label: goto_resolve_quote_target_from_search
+    kind: goto
+    target: resolve_quote_target
+
+  - label: open_target_post
+    kind: action
+    action: device.exec
+    params:
+      device_ip: "${payload.device_ip}"
+      command: "am start -a android.intent.action.VIEW -d \"${vars.target_post_url}\" &"
+    on_fail:
+      strategy: abort
+
+  - label: goto_resolve_quote_target_from_direct
+    kind: goto
+    target: resolve_quote_target
+
+  - label: resolve_quote_target
+    kind: action
+    action: core.resolve_first_non_empty
+    params:
+      values:
+        - "${vars.target_post_url}"
+        - "${vars.selected_quote_candidate.candidate.identity}"
+        - "${vars.target_username}"
+    save_as: resolved_quote_target
+    on_fail:
+      strategy: goto
+      goto: ensure_quote_text
+
+  - label: check_quote_processed
+    kind: action
+    action: core.check_processed
+    params:
+      key: "${vars.processed_key}"
+      scope: "${vars.scope}"
+      item: "${vars.resolved_quote_target.value}"
+    save_as: processed_quote_target
+    on_fail:
+      strategy: goto
+      goto: ensure_quote_text
+
+  - label: stop_if_quote_processed
+    kind: if
+    when:
+      all:
+        - type: var_truthy
+          var: processed_quote_target.contains
+    then: already_processed
+    otherwise: ensure_quote_text
+
+  - label: ensure_quote_text
+    kind: if
+    when:
+      all:
+        - type: var_truthy
+          var: quote_text
+    then: click_repost_desc_en
+    otherwise: generate_quote_text
+
+  - label: generate_quote_text
+    kind: action
+    action: core.generate_quote_text
+    params:
+      ai_type: "${vars.ai_type}"
+      source_text: "${vars.source_text}"
+      candidate_text: "${vars.selected_quote_candidate.candidate.text}"
+      target_post_url: "${vars.target_post_url}"
+    save_as: generated_quote
+    on_fail:
+      strategy: goto
+      goto: missing_quote_text
+
+  - label: goto_click_repost_after_generated_text
+    kind: goto
+    target: click_repost_desc_en
+
+  - label: click_repost_desc_en
+    kind: action
+    action: ui.selector_click_one
+    params:
+      device_ip: "${payload.device_ip}"
+      type: "${vars.quote_repost_desc_selector.type}"
+      mode: "${vars.quote_repost_desc_selector.mode}"
+      value: "${vars.quote_repost_desc_selector.value}"
+    on_fail:
+      strategy: goto
+      goto: click_repost_text_zh
+
+  - label: click_repost_text_zh
+    kind: action
+    action: ui.selector_click_one
+    params:
+      device_ip: "${payload.device_ip}"
+      type: "${vars.quote_repost_text_selector.type}"
+      mode: "${vars.quote_repost_text_selector.mode}"
+      value: "${vars.quote_repost_text_selector.value}"
+    on_fail:
+      strategy: abort
+
+  - label: click_quote_en
+    kind: action
+    action: ui.selector_click_one
+    params:
+      device_ip: "${payload.device_ip}"
+      type: "${vars.quote_menu_selector.type}"
+      mode: "${vars.quote_menu_selector.mode}"
+      value: "${vars.quote_menu_selector.value}"
+    on_fail:
+      strategy: abort
+
+  - label: choose_quote_input_source
+    kind: if
+    when:
+      all:
+        - type: var_truthy
+          var: quote_text
+    then: input_quote
+    otherwise: input_generated_quote
+
+  - label: input_quote
+    kind: action
+    action: ui.input_text
+    params:
+      device_ip: "${payload.device_ip}"
+      text: "${vars.quote_text}"
+    on_fail:
+      strategy: abort
+
+  - label: goto_click_post_from_quote
+    kind: goto
+    target: click_post_en
+
+  - label: input_generated_quote
+    kind: action
+    action: ui.input_text
+    params:
+      device_ip: "${payload.device_ip}"
+      text: "${vars.generated_quote.quote_text}"
+    on_fail:
+      strategy: abort
+
+  - label: goto_click_post_from_generated_quote
+    kind: goto
+    target: click_post_en
+
+  - label: click_post_en
+    kind: action
+    action: ui.selector_click_one
+    params:
+      device_ip: "${payload.device_ip}"
+      type: "${vars.quote_post_selector.type}"
+      mode: "${vars.quote_post_selector.mode}"
+      value: "${vars.quote_post_selector.value}"
+    on_fail:
+      strategy: goto
+      goto: submit_with_enter
+
+  - label: after_post_button
+    kind: goto
+    target: mark_processed
+
+  - label: submit_with_enter
+    kind: action
+    action: mytos.keypress
+    params:
+      device_ip: "${payload.device_ip}"
+      code: "KEYCODE_ENTER"
+    on_fail:
+      strategy: abort
+
+  - label: mark_processed
+    kind: action
+    action: core.mark_processed
+    params:
+      key: "${vars.processed_key}"
+      scope: "${vars.scope}"
+      item: "${vars.resolved_quote_target.value}"
+    on_fail:
+      strategy: skip
+
   - label: success
     kind: stop
     status: success
     message: "quote interaction completed"
 
+  - label: missing_target_post
+    kind: stop
+    status: failed
+    message: "missing_target_post"
+
+  - label: missing_quote_text
+    kind: stop
+    status: failed
+    message: "missing_quote_text"
+
   - label: empty_target
     kind: stop
     status: failed
     message: "empty_target"
+
+  - label: already_processed
+    kind: stop
+    status: success
+    message: "already_processed"

@@ -38,22 +38,23 @@ class TaskRecord:
     task_id: str
     payload: dict[str, Any]
     devices: list[int]
-    ai_type: str
-    idempotency_key: str | None
-    status: str
-    created_at: str
-    updated_at: str
-    started_at: str | None
-    finished_at: str | None
-    result: dict[str, Any] | None
-    error: str | None
-    retry_count: int
-    max_retries: int
-    retry_backoff_seconds: int
-    next_retry_at: str | None
-    cancel_requested: bool
-    priority: int
-    run_at: str | None
+    targets: list[dict[str, int]] | None = None
+    ai_type: str = ""
+    idempotency_key: str | None = None
+    status: str = "pending"
+    created_at: str = ""
+    updated_at: str = ""
+    started_at: str | None = None
+    finished_at: str | None = None
+    result: dict[str, Any] | None = None
+    error: str | None = None
+    retry_count: int = 0
+    max_retries: int = 0
+    retry_backoff_seconds: int = 2
+    next_retry_at: str | None = None
+    cancel_requested: bool = False
+    priority: int = 50
+    run_at: str | None = None
 
 
 class TaskStore:
@@ -248,11 +249,21 @@ class TaskStore:
             ),
         )
 
-    def _row_to_record(self, row: tuple[Any, ...]) -> TaskRecord:
+    def _row_to_record(self, row: tuple[Any, ...], targets_json: str | None = None) -> TaskRecord:
+        payload = json.loads(str(row[1]))
+        targets: list[dict[str, int]] | None = None
+        if targets_json:
+            try:
+                targets = json.loads(targets_json)
+            except (ValueError, TypeError):
+                pass
+        if not targets:
+            targets = payload.get("_dispatch_targets") if isinstance(payload, dict) else None
         return TaskRecord(
             task_id=str(row[0]),
-            payload=json.loads(str(row[1])),
+            payload=payload,
             devices=json.loads(str(row[2])),
+            targets=targets,
             ai_type=str(row[3]),
             idempotency_key=str(row[4]) if row[4] is not None else None,
             status=str(row[5]),
@@ -550,4 +561,10 @@ class TaskStore:
                     """,
                     (now, now, message, task_id),
                 )
+                conn.commit()
+
+    def clear_all_tasks(self) -> None:
+        with self._lock:
+            with self._connect() as conn:
+                _ = conn.execute("DELETE FROM tasks")
                 conn.commit()

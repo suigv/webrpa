@@ -2,47 +2,31 @@ from __future__ import annotations
 
 import json
 import time
+from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, Header, HTTPException, Query
-from fastapi import Response
+from fastapi import APIRouter, Header, HTTPException, Query, Response
 from fastapi.responses import StreamingResponse
 
 from core.task_control import get_task_controller
-from engine.plugin_loader import PluginLoader
 from models.task import TaskDetailResponse, TaskMetricsResponse, TaskRequest, TaskResponse, TaskStatus, TaskTarget, TaskType
+
 
 router = APIRouter()
 
 
-@router.get("/catalog")
-def task_catalog():
-    loader = PluginLoader()
-    loader.scan()
-    catalog: list[dict[str, object]] = []
-    for name in loader.names:
-        entry = loader.get(name)
-        if entry is None:
-            continue
-        manifest = entry.manifest
-        required = [x.name for x in manifest.inputs if x.required]
-        defaults = {x.name: x.default for x in manifest.inputs if not x.required and x.default is not None}
-        example_payload = dict(defaults)
-        for field in required:
-            example_payload.setdefault(field, f"<{field}>")
-        catalog.append(
-            {
-                "task": manifest.name,
-                "display_name": manifest.display_name,
-                "required": required,
-                "defaults": defaults,
-                "example_payload": example_payload,
-            }
-        )
-    return {"tasks": catalog}
+def _parse_datetime(value: str | None) -> datetime | None:
+    if value is None:
+        return None
+    try:
+        if "+" in value or value.endswith("Z"):
+            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return datetime.fromisoformat(value)
+    except (TypeError, ValueError):
+        return None
 
 
-def _to_task_response(record) -> TaskResponse:
+def _extract_targets(record: Any) -> list[TaskTarget]:
     raw_targets = record.payload.get("_dispatch_targets") if isinstance(record.payload, dict) else []
     targets: list[TaskTarget] = []
     if isinstance(raw_targets, list):
@@ -53,54 +37,46 @@ def _to_task_response(record) -> TaskResponse:
                 targets.append(TaskTarget.model_validate(item))
             except Exception:
                 continue
+    return targets
 
+
+def _to_task_response(record: Any) -> TaskResponse:
     return TaskResponse(
         task_id=record.task_id,
         task_type=TaskType.SCRIPT,
-        task_name=str(record.payload.get("task") or "anonymous"),
+        task_name=str(record.payload.get("task") or "anonymous") if isinstance(record.payload, dict) else "anonymous",
         devices=record.devices,
-        targets=targets,
+        targets=_extract_targets(record),
         ai_type=record.ai_type,
         idempotency_key=record.idempotency_key,
         status=TaskStatus(record.status),
-        created_at=record.created_at,
+        created_at=_parse_datetime(record.created_at) or datetime.now(timezone.utc),
         retry_count=record.retry_count,
         max_retries=record.max_retries,
         retry_backoff_seconds=record.retry_backoff_seconds,
-        next_retry_at=record.next_retry_at,
+        next_retry_at=_parse_datetime(record.next_retry_at),
         priority=record.priority,
-        run_at=record.run_at,
+        run_at=_parse_datetime(record.run_at),
     )
 
 
-def _to_task_detail(record) -> TaskDetailResponse:
-    raw_targets = record.payload.get("_dispatch_targets") if isinstance(record.payload, dict) else []
-    targets: list[TaskTarget] = []
-    if isinstance(raw_targets, list):
-        for item in raw_targets:
-            if not isinstance(item, dict):
-                continue
-            try:
-                targets.append(TaskTarget.model_validate(item))
-            except Exception:
-                continue
-
+def _to_task_detail(record: Any) -> TaskDetailResponse:
     return TaskDetailResponse(
         task_id=record.task_id,
         task_type=TaskType.SCRIPT,
-        task_name=str(record.payload.get("task") or "anonymous"),
+        task_name=str(record.payload.get("task") or "anonymous") if isinstance(record.payload, dict) else "anonymous",
         devices=record.devices,
-        targets=targets,
+        targets=_extract_targets(record),
         ai_type=record.ai_type,
         idempotency_key=record.idempotency_key,
         status=TaskStatus(record.status),
-        created_at=record.created_at,
+        created_at=_parse_datetime(record.created_at) or datetime.now(timezone.utc),
         retry_count=record.retry_count,
         max_retries=record.max_retries,
         retry_backoff_seconds=record.retry_backoff_seconds,
-        next_retry_at=record.next_retry_at,
+        next_retry_at=_parse_datetime(record.next_retry_at),
         priority=record.priority,
-        run_at=record.run_at,
+        run_at=_parse_datetime(record.run_at),
         result=record.result,
         error=record.error,
     )
@@ -113,9 +89,8 @@ def create_task(request: TaskRequest, x_idempotency_key: str | None = Header(def
         raise HTTPException(status_code=400, detail="idempotency key mismatch between body and header")
     idempotency_key = request.idempotency_key or x_idempotency_key
 
-    script_payload: dict[str, Any]
     if request.script is not None:
-        script_payload = dict(request.script)
+        script_payload: dict[str, Any] = dict(request.script)
     else:
         script_payload = {"task": str(request.task or "anonymous")}
         if isinstance(request.payload, dict):
@@ -150,8 +125,44 @@ def create_task(request: TaskRequest, x_idempotency_key: str | None = Header(def
 @router.get("/", response_model=list[TaskResponse])
 def list_tasks(limit: int = Query(default=100, ge=1, le=500)):
     controller = get_task_controller()
-    records = controller.list(limit=limit)
-    return [_to_task_response(item) for item in records]
+    return [_to_task_response(item) for item in controller.list(limit=limit)]
+
+
+@router.delete("/")
+def clear_tasks():
+    controller = get_task_controller()
+    controller.clear_all()
+    return {"status": "ok", "message": "all tasks cleared"}
+
+
+@router.get("/catalog")
+def task_catalog():
+    from engine.plugin_loader import PluginLoader
+
+    loader = PluginLoader()
+    loader.scan()
+    catalog: list[dict[str, object]] = []
+    for name in loader.names:
+        entry = loader.get(name)
+        if entry is None:
+            continue
+        manifest = entry.manifest
+        required = [item.name for item in manifest.inputs if item.required]
+        defaults = {item.name: item.default for item in manifest.inputs if not item.required and item.default is not None}
+        example_payload = dict(defaults)
+        for field in required:
+            example_payload.setdefault(field, f"<{field}>")
+        catalog.append(
+            {
+                "task": manifest.name,
+                "display_name": manifest.display_name,
+                "category": manifest.category,
+                "required": required,
+                "defaults": defaults,
+                "example_payload": example_payload,
+            }
+        )
+    return {"tasks": catalog}
 
 
 @router.get("/metrics", response_model=TaskMetricsResponse)
@@ -202,18 +213,13 @@ def cancel_task(task_id: str):
     record = controller.get(task_id)
     if record is None:
         raise HTTPException(status_code=404, detail="task not found")
-
     if record.status in {TaskStatus.COMPLETED.value, TaskStatus.FAILED.value, TaskStatus.CANCELLED.value}:
         return {"task_id": task_id, "status": record.status, "cancelled": False}
 
     state = controller.cancel_state(task_id)
     if state is None:
         raise HTTPException(status_code=404, detail="task not found")
-
-    cancelled = state in {"cancelled", "cancelling"}
-    latest = controller.get(task_id)
-    status = latest.status if latest is not None else TaskStatus.CANCELLED.value
-    return {"task_id": task_id, "status": status, "cancelled": cancelled, "cancel_state": state}
+    return {"task_id": task_id, "status": state, "cancel_state": state, "cancelled": True}
 
 
 @router.get("/{task_id}/events")
@@ -224,48 +230,18 @@ def task_events(task_id: str, after_event_id: int = Query(default=0, ge=0)):
         raise HTTPException(status_code=404, detail="task not found")
 
     def _stream():
-        last = int(after_event_id)
-        final_wait_rounds = 0
+        cursor = after_event_id
         while True:
-            events = controller.list_events(task_id=task_id, after_event_id=last, limit=200)
-            if events:
-                for ev in events:
-                    last = ev.event_id
-                    payload = {
-                        "event_id": ev.event_id,
-                        "task_id": ev.task_id,
-                        "event_type": ev.event_type,
-                        "payload": ev.payload,
-                        "created_at": ev.created_at,
-                    }
-                    yield f"id: {ev.event_id}\nevent: {ev.event_type}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+            events = controller.list_events(task_id=task_id, after_event_id=cursor)
+            for event in events:
+                yield f"id: {event.event_id}\nevent: {event.event_type}\ndata: {json.dumps(event.payload, ensure_ascii=False)}\n\n"
+                cursor = event.event_id
 
             latest = controller.get(task_id)
-            if latest is None:
-                break
-            if latest.status in {
-                TaskStatus.COMPLETED.value,
-                TaskStatus.FAILED.value,
-                TaskStatus.CANCELLED.value,
-            }:
-                final_events = controller.list_events(task_id=task_id, after_event_id=last, limit=200)
-                if final_events:
-                    for ev in final_events:
-                        last = ev.event_id
-                        payload = {
-                            "event_id": ev.event_id,
-                            "task_id": ev.task_id,
-                            "event_type": ev.event_type,
-                            "payload": ev.payload,
-                            "created_at": ev.created_at,
-                        }
-                        yield f"id: {ev.event_id}\nevent: {ev.event_type}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
-                    final_wait_rounds = 0
-                else:
-                    final_wait_rounds += 1
-                    if final_wait_rounds < 10:
-                        time.sleep(0.05)
-                        continue
+            if latest and latest.status in ("completed", "failed", "cancelled"):
+                final_events = controller.list_events(task_id=task_id, after_event_id=cursor)
+                for event in final_events:
+                    yield f"id: {event.event_id}\nevent: {event.event_type}\ndata: {json.dumps(event.payload, ensure_ascii=False)}\n\n"
                 yield ": close\n\n"
                 break
             time.sleep(0.5)

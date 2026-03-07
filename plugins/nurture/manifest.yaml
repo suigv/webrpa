@@ -1,0 +1,40 @@
+api_version: v1
+kind: plugin
+name: nurture
+version: "1.0.0"
+display_name: "养号任务"
+category: "互动与增长"
+description: "Daily-limited nurture workflow with weighted keyword selection and basic search browsing"
+entry_script: script.yaml
+inputs:
+  - name: device_ip
+    type: string
+    required: true
+  - name: package
+    type: string
+    required: false
+    default: "com.twitter.android"
+  - name: status_hint
+    type: string
+    required: false
+    default: "runtime"
+  - name: ai_type
+    type: string
+    required: false
+    default: "volc"
+  - name: daily_limit
+    type: integer
+    required: false
+    default: 5
+  - name: assigned_blogger
+    type: string
+    required: false
+    default: ""
+  - name: keyword_override
+    type: string
+    required: false
+    default: ""
+  - name: interaction_key
+    type: string
+    required: false
+    default: "nurture_last_interaction"

@@ -639,41 +639,41 @@ class TestPluginLoader:
 
 
 # ============================================================
-# x_auto_login YAML validation tests
+# x_mobile_login YAML validation tests
 # ============================================================
 
 
-class TestXAutoLoginYAMLPlugin:
+class TestXMobileLoginYAMLPlugin:
     def test_manifest_validates(self):
-        manifest_path = Path(__file__).resolve().parents[1] / "plugins" / "x_auto_login" / "manifest.yaml"
+        manifest_path = Path(__file__).resolve().parents[1] / "plugins" / "x_mobile_login" / "manifest.yaml"
         if not manifest_path.exists():
-            pytest.skip("x_auto_login manifest not found")
+            pytest.skip("x_mobile_login manifest not found")
         m = parse_manifest(manifest_path)
-        assert m.name == "x_auto_login"
+        assert m.name == "x_mobile_login"
         assert m.version == "1.0.0"
         assert m.kind == "plugin"
         assert m.api_version == "v1"
 
     def test_script_validates(self):
-        script_path = Path(__file__).resolve().parents[1] / "plugins" / "x_auto_login" / "script.yaml"
+        script_path = Path(__file__).resolve().parents[1] / "plugins" / "x_mobile_login" / "script.yaml"
         if not script_path.exists():
-            pytest.skip("x_auto_login script not found")
+            pytest.skip("x_mobile_login script not found")
         s = parse_script(script_path)
-        assert s.workflow == "x_auto_login"
+        assert s.workflow == "x_mobile_login"
         assert len(s.steps) > 10  # Should have many steps
 
     def test_all_labels_are_unique(self):
-        script_path = Path(__file__).resolve().parents[1] / "plugins" / "x_auto_login" / "script.yaml"
+        script_path = Path(__file__).resolve().parents[1] / "plugins" / "x_mobile_login" / "script.yaml"
         if not script_path.exists():
-            pytest.skip("x_auto_login script not found")
+            pytest.skip("x_mobile_login script not found")
         s = parse_script(script_path)
         labels = [getattr(step, "label", None) for step in s.steps if getattr(step, "label", None)]
         assert len(labels) == len(set(labels)), f"duplicate labels: {labels}"
 
-    def test_plugin_loader_finds_x_auto_login(self):
+    def test_plugin_loader_finds_x_mobile_login(self):
         plugins_root = Path(__file__).resolve().parents[1] / "plugins"
-        if not (plugins_root / "x_auto_login" / "manifest.yaml").exists():
-            pytest.skip("x_auto_login plugin not found")
+        if not (plugins_root / "x_mobile_login" / "manifest.yaml").exists():
+            pytest.skip("x_mobile_login plugin not found")
         loader = PluginLoader(plugins_root=plugins_root)
         loader.scan()
-        assert loader.has("x_auto_login")
+        assert loader.has("x_mobile_login")

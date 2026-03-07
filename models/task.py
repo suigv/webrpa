@@ -17,11 +17,16 @@ class TaskStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
+class TaskTarget(BaseModel):
+    device_id: int = Field(ge=1)
+    cloud_id: int = Field(default=1, ge=1)
+
+
 class TaskRequest(BaseModel):
     script: Optional[Dict[str, Any]] = None
     task: Optional[str] = Field(default=None, min_length=1)
     payload: Dict[str, Any] = Field(default_factory=dict)
-    targets: List["TaskTarget"] = Field(default_factory=list)
+    targets: List[TaskTarget] = Field(default_factory=list)
     devices: List[int] = Field(default_factory=list)
     ai_type: str = "volc"
     idempotency_key: Optional[str] = Field(default=None, min_length=1, max_length=128)
@@ -37,11 +42,6 @@ class TaskRequest(BaseModel):
         if self.task is None or not str(self.task).strip():
             raise ValueError("either script or task must be provided")
         return self
-
-
-class TaskTarget(BaseModel):
-    device_id: int = Field(ge=1)
-    cloud_id: int = Field(default=1, ge=1)
 
 
 class TaskResponse(BaseModel):

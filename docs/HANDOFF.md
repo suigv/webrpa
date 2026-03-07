@@ -5,18 +5,19 @@
 
 ## 1) Project Identity
 
-- Project: `webrpa` (standalone package namespace: `*`)
+- Project: `webrpa`
 - Goal: 可独立运行的 Web/RPA 自动化平台（插件化执行 + 控制平面）
 - Canonical progress doc: `docs/project_progress.md`
 
 ## 2) Current Snapshot (Update this first)
 
-- Phase: **Legacy capability extraction closed (Tasks 1-12 + Final Verification F1/F2/F3/F4 complete)**
+- Phase: **Post-migration stabilization and documentation cleanup**
 - Migration plan source: `.sisyphus/plans/legacy-feature-extraction.md`
 - Core capabilities now covered:
-  - API + Web console (`/web`)
-  - Task control plane (`api/routes/task_routes.py`, `core/task_control.py`)
+  - API + Web console (`/web`)，当前公开云机大厅、账号池、设置与实时日志
+  - Task control plane (`api/routes/task_routes.py`, `core/task_control.py`) with catalog/metrics/prometheus export
   - Plugin runtime (`engine/*`, `plugins/*`) with migrated reboot/login/interaction/scrape-clone paths
+  - Account pool import/parse/status/pop flows (`api/routes/data.py`, `core/account_parser.py`)
   - Selector pipeline actions with stable not-found semantics (`code=not_found`)
   - Device cloud-model mapping with malformed adapter payload safety guard (`core/device_manager.py`)
 - Quality status (latest known baseline):
@@ -27,7 +28,7 @@
 
 ## 3) What Was Recently Done
 
-1. Closed Final Verification mismatches from migration audits:
+1. Closed final migration-audit mismatches:
    - Task 6 evidence/contract aligned to selector `not_found` behavior
    - Task 11 unsupported-task evidence chain hardened
 2. Added runtime safety hardening in `core/device_manager.py`:
@@ -54,7 +55,7 @@
    - active duplicate submits (`pending`/`running`) now return existing task instead of creating duplicate task records
    - cancellation request now consistently yields `cancelled` state even on runner exception path
    - regression tests added in `tests/test_task_control_plane.py` and `tests/test_task_cancellation.py`
-9. Applied post-implementation oracle hardening fixes:
+9. Applied post-implementation hardening fixes:
    - dedupe lookup+insert made atomic in `TaskStore.create_or_get_active_task(...)` to avoid TOCTOU duplicate-submit race
     - API rejects body/header idempotency key conflicts with `400` (`idempotency key mismatch between body and header`)
     - task SSE event stream now reads from controller-bound event store for consistent control-plane/event-plane source
@@ -95,7 +96,7 @@
     - added payload-reference guard tool: `tools/check_plugin_manifest_inputs.py`
     - integrated guard into one-shot migration gates (`tools/run_migration_gates.sh`)
     - added regression tests: `tests/test_plugin_manifest_input_guard.py`
-    - aligned plugin manifest input coverage for script payload references (`blogger_scrape`, `follow_interaction`, `home_interaction`, `quote_interaction`, `dm_reply`, `x_auto_login`)
+    - aligned plugin manifest input coverage for script payload references (`blogger_scrape`, `follow_interaction`, `home_interaction`, `quote_interaction`, `dm_reply`, `x_mobile_login`)
 19. Enforced strict unknown-parameter rejection for plugin runtime payloads:
     - `engine/runner.py::_validate_plugin_payload` now rejects undeclared payload keys (except reserved `task`) with `code=invalid_params`
     - preserves existing dispatch error envelope (`status=failed_config_error`, `checkpoint=dispatch`)
@@ -118,13 +119,18 @@
 24. Fixed bootstrap/test-context instability and DB test flakiness:
     - added `sitecustomize.py` to ensure parent import path for `*` package bootstrap in root-context execution
     - hardened `tools/check_plugin_manifest_inputs.py` direct-script execution path bootstrap
-    - added `pytest.ini` (`testpaths = tests`) to avoid unintended `tmp/tests` collection
+    - configured pytest `testpaths = tests` in `pyproject.toml` to avoid unintended `tmp/tests` collection
     - added `httpx` to `requirements.txt` as explicit dependency declaration
     - switched task-control DB tests to per-test `tmp_path` SQLite files to prevent shared `config/data` contention and intermittent schema/I/O failures
+25. Re-audited documentation against current implementation and corrected capability descriptions:
+    - aligned `README.md`, `docs/WEB_GUI_EMBED.md`, `docs/project_progress.md`, `docs/atomic_features.md`
+    - clarified public account-pool/data APIs and task metrics/catalog endpoints
+    - clarified that `web/js/features/tasks.js` exists but `web/index.html` does not yet expose an independent task page
+    - aligned desktop-embed examples with the current `127.0.0.1:8001` baseline
 
 ## 4) Open Items (Next work queue)
 
-- [x] Independent re-audit (oracle) on latest F1/F2/F4 evidence for external sign-off — PASS (2026-03-05, session `ses_3434d6326ffehaYo5gU4vpd7Gj`)
+- [x] Independent re-audit on latest F1/F2/F4 evidence for external sign-off - PASS (2026-03-05, session `ses_3434d6326ffehaYo5gU4vpd7Gj`)
 - [ ] Commit/PR packaging for migration-closure batch (if not yet submitted)
 - [ ] Post-migration hardening roadmap (next): complete external monitoring delivery chain (Prometheus/Alertmanager deployment-side integration), and tune/operationalize stale-running threshold policy
 - [ ] Rollout execution: align environment baselines (`MYT_STRICT_PLUGIN_UNKNOWN_INPUTS`, `MYT_TASK_STALE_RUNNING_SECONDS`) with deployment manifests and Alertmanager routing policy
@@ -141,7 +147,7 @@ Start prompt template:
 
 ## 6) Required Validation Commands
 
-Run from parent directory of ``:
+Run from repository root:
 
 ```bash
 ./.venv/bin/python tools/update_project_progress.py
@@ -152,7 +158,7 @@ MYT_ENABLE_RPC=0 ./.venv/bin/python -m uvicorn api.server:app --host 127.0.0.1 -
 curl http://127.0.0.1:8001/health
 ```
 
-Alternative one-shot gate (preferred for migration closure):
+Alternative one-shot gate:
 
 ```bash
 ./tools/run_migration_gates.sh

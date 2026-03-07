@@ -11,7 +11,19 @@ steps:
     on_fail:
       strategy: abort
 
+  - label: wait_recovered
+    kind: action
+    action: sdk.wait_cloud_status
+    params:
+      device_ip: "${payload.device_ip}"
+      name: "${payload.name}"
+      target_status: "running"
+      timeout_ms: 180000
+      interval_ms: 5000
+    on_fail:
+      strategy: abort
+
   - label: done
     kind: stop
     status: success
-    message: "device reboot dispatched"
+    message: "device reboot completed"

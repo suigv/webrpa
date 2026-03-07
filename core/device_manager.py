@@ -147,13 +147,16 @@ class DeviceManager:
         return models_by_api_port
 
     def _resolve_device_endpoints(self) -> list[tuple[int, str]]:
-        if get_discovery_enabled():
-            discovered = self._discovery.get_discovered_ips()
-            if discovered:
-                return [(index, ip) for index, ip in enumerate(discovered, start=1)]
+        endpoints: list[tuple[int, str]] = []
 
+        # Load static config as source-of-truth.
+        # LAN discovery updates config via /api/devices/discover.
         total = get_total_devices()
-        return [(device_id, get_device_ip(device_id)) for device_id in range(1, total + 1)]
+        for device_id in range(1, total + 1):
+            endpoints.append((device_id, get_device_ip(device_id)))
+
+        endpoints.sort(key=lambda item: item[0])
+        return endpoints
 
     def start_cloud_probe_worker(self) -> None:
         thread = self._probe_thread

@@ -2,11 +2,23 @@ api_version: v1
 kind: plugin
 name: profile_clone
 version: "1.0.0"
-display_name: "Profile Clone"
+display_name: "账号资料克隆"
+category: "账号与安全"
 description: "Consume scrape output contract and execute clone flow contract"
 entry_script: script.yaml
 inputs:
+  - name: device_ip
+    type: string
+    required: false
+  - name: package
+    type: string
+    required: false
+    default: "com.twitter.android"
   - name: source_key
     type: string
     required: false
     default: "scrape_profile"
+  - name: scope
+    type: string
+    required: false
+    default: "device"

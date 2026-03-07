@@ -1,0 +1,93 @@
+version: v1
+workflow: hezi_sdk_probe
+
+vars:
+  android_name: "${payload.android_name:-}"
+
+steps:
+  - label: get_api_version
+    kind: action
+    action: sdk.get_api_version
+    params:
+      device_ip: "${payload.device_ip}"
+      sdk_port: "${payload.sdk_port:-8000}"
+    on_fail:
+      strategy: abort
+
+  - label: get_device_info
+    kind: action
+    action: sdk.get_device_info
+    params:
+      device_ip: "${payload.device_ip}"
+      sdk_port: "${payload.sdk_port:-8000}"
+    on_fail:
+      strategy: abort
+
+  - label: get_server_network
+    kind: action
+    action: sdk.get_server_network
+    params:
+      device_ip: "${payload.device_ip}"
+      sdk_port: "${payload.sdk_port:-8000}"
+    on_fail:
+      strategy: skip
+
+  - label: list_androids
+    kind: action
+    action: sdk.list_androids
+    params:
+      device_ip: "${payload.device_ip}"
+      sdk_port: "${payload.sdk_port:-8000}"
+    on_fail:
+      strategy: skip
+
+  - label: list_backups
+    kind: action
+    action: sdk.list_backups
+    params:
+      device_ip: "${payload.device_ip}"
+      sdk_port: "${payload.sdk_port:-8000}"
+    on_fail:
+      strategy: skip
+
+  - label: list_vpc_groups
+    kind: action
+    action: sdk.list_vpc_groups
+    params:
+      device_ip: "${payload.device_ip}"
+      sdk_port: "${payload.sdk_port:-8000}"
+    on_fail:
+      strategy: skip
+
+  - label: list_local_phone_models
+    kind: action
+    action: sdk.list_local_phone_models
+    params:
+      device_ip: "${payload.device_ip}"
+      sdk_port: "${payload.sdk_port:-8000}"
+    on_fail:
+      strategy: skip
+
+  - label: maybe_get_cloud_status
+    kind: if
+    when:
+      all:
+        - type: var_truthy
+          var: android_name
+    then: get_cloud_status
+    otherwise: done
+
+  - label: get_cloud_status
+    kind: action
+    action: sdk.get_cloud_status
+    params:
+      device_ip: "${payload.device_ip}"
+      sdk_port: "${payload.sdk_port:-8000}"
+      name: "${payload.android_name}"
+    on_fail:
+      strategy: skip
+
+  - label: done
+    kind: stop
+    status: success
+    message: "hezi sdk probe completed"

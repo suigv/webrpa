@@ -8,18 +8,16 @@ from engine.plugin_loader import PluginEntry
 from engine.runner import Runner
 
 
-def test_runner_yaml_plugin_dispatch_fails_without_credentials():
-    """Runner dispatches x_auto_login to YAML interpreter.
-    Without valid credentials_ref, the workflow should fail at credentials.load step.
-    """
-    result = Runner().run({"task": "x_auto_login"})
+def test_runner_yaml_plugin_dispatch_to_mobile_plugin_requires_device_ip():
+    """Runner dispatches x_mobile_login to YAML interpreter and enforces manifest inputs."""
+    result = Runner().run({"task": "x_mobile_login"})
     assert result["ok"] is False
-    assert result["task"] == "x_auto_login"
-    assert "credentials_ref" in result.get("message", "").lower() or "missing" in result.get("message", "").lower()
+    assert result["task"] == "x_mobile_login"
+    assert "device_ip" in result.get("message", "").lower() or "missing" in result.get("message", "").lower()
 
 
 def test_runner_unknown_plugin_error_is_controlled():
-    result = Runner().run({"task": "x_auto_login_missing"})
+    result = Runner().run({"task": "removed_plugin_missing"})
     assert result["ok"] is False
     assert result["status"] == "failed_config_error"
     assert result["checkpoint"] == "dispatch"

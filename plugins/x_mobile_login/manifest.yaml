@@ -2,10 +2,12 @@ api_version: v1
 kind: plugin
 name: x_mobile_login
 version: "1.0.0"
-display_name: "X Mobile Login"
+display_name: "X 移动端自动登录"
+category: "账号与安全"
 description: >
-  Mobile-oriented login workflow contract with explicit failure status branches
-  (bad_credentials / 2fa_failed / captcha) and success path.
+  Mobile-oriented X/Twitter login workflow.
+  Includes login-entry click, account/password input, submit, and optional 2FA code submit,
+  while preserving explicit failure status branches (bad_credentials / 2fa_failed / captcha).
 entry_script: script.yaml
 inputs:
   - name: device_ip
@@ -18,4 +20,20 @@ inputs:
   - name: status_hint
     type: string
     required: false
-    default: "success"
+    default: "runtime"
+  - name: acc
+    type: string
+    required: false
+    default: ""
+  - name: pwd
+    type: string
+    required: false
+    default: ""
+  - name: two_factor_code
+    type: string
+    required: false
+    default: ""
+  - name: fa2_secret
+    type: string
+    required: false
+    default: ""

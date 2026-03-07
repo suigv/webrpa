@@ -1,10 +1,10 @@
-# AGENTS.md for `` Standalone Project
+# AGENTS.md for `webrpa`
 
 ## Mission
-Build and evolve `` as an independent project.
+Build and evolve `webrpa` as an independent project.
 
 Hard goals:
-- Keep `` copy-ready and runnable by itself.
+- Keep `webrpa` copy-ready and runnable by itself.
 - Do not reintroduce legacy task code from old repo.
 - Evolve runtime via pluginized architecture.
 
@@ -63,6 +63,18 @@ curl http://127.0.0.1:8001/health
 - `engine/parser.py` normalizes script payload.
 - `engine/runner.py` owns execution orchestration.
 - `engine/actions/*` contains atomic action functions.
+- Keep action modules capability-focused; when one file starts mixing connection lifecycle, parameter policy, fallback strategy, and a mini-subsystem, split it before adding more features.
+- Prefer shared helpers for RPC/session/bootstrap wiring; do not duplicate connection patterns across action modules.
+
+### Orchestration Boundary
+- `core/task_control.py` is orchestration glue, not a home for business policy.
+- Business feedback or compensation rules must live behind a dedicated hook/service, not inline inside task failure/scheduling paths.
+- Keep `core/task_store.py`, `core/task_queue.py`, and `core/task_events.py` as the persistence/queue/event boundaries; avoid moving those concerns back into routes or plugins.
+
+### Plugin Workflow Boundary
+- Plugins should express business workflows, not low-level transport or fallback boilerplate.
+- When a workflow repeats the same fallback sequence three or more times, add a composite action instead of copying more YAML.
+- Treat unusually long plugin scripts as an architecture smell that requires review, especially login/onboarding flows.
 
 ### Adapter Layer
 - `hardware_adapters/myt_client.py` is optional capability.
@@ -97,6 +109,8 @@ Different devices use the same port numbers but different IPs — `(ip, port)` i
 - New business workflows go to `plugins/`.
 - Avoid embedding business task logic inside API routes.
 - Keep plugin interface stable and versioned once defined.
+- Use plugins for workflow composition and state flow; move reusable low-level interaction patterns into actions or composite actions.
+- Before expanding an existing large workflow, check whether the repeated pattern belongs in a new action instead.
 
 ## Commit and Change Hygiene
 - Small, capability-based commits.
@@ -109,3 +123,93 @@ A change is done only if:
 - tests pass,
 - app starts and `/health` returns 200,
 - no legacy imports were introduced.
+
+## Merged Reference (from CLAUDE.md)
+
+This section keeps practical project guidance that used to live in `CLAUDE.md`.
+
+### Project Overview
+- Web/RPA automation platform: FastAPI + pluginized execution engine + browser automation.
+- Key capabilities: multi-device/cloud topology mapping, task scheduling with retry/SSE, YAML workflow engine, Web console (`/web`) and log stream (`/ws/logs`).
+
+### Tech Stack
+- Runtime: Python 3.11+, FastAPI 0.115, uvicorn 0.32, Pydantic 2.9.
+- Communication: WebSocket (`websockets` 13.1), SSE task events.
+- Data: SQLite (`config/data/tasks.db`) + JSON configs.
+- RPA/Parsing: DownloadKit, lxml, cssselect, browser automation stack.
+- AI clients: `ai_services/llm_client.py`, `ai_services/vlm_client.py`.
+
+### Common Commands (uv)
+Install dependencies:
+```bash
+uv pip install -r requirements.txt
+```
+
+Start service:
+```bash
+uv run python api/server.py
+uv run uvicorn api.server:app --reload
+uv run uvicorn api.server:app --host 0.0.0.0 --port 8000
+```
+
+Operational debugging:
+```bash
+curl http://localhost:8000/health | jq
+curl http://localhost:8000/api/tasks/metrics | jq
+curl -N http://localhost:8000/api/tasks/{task_id}/events
+websocat ws://localhost:8000/ws/logs
+```
+
+Code quality:
+```bash
+uv run ruff check api/ core/ engine/ ai_services/ common/
+uv run ruff check --fix .
+uv run ruff format .
+```
+
+### Development Conventions (Additions)
+- New API route:
+  - Add route module under `api/routes/`.
+  - Register route in `api/server.py`.
+  - Reuse standard response models where possible.
+- New engine action:
+  - Add implementation in `engine/actions/`.
+  - Register via `register_action("namespace.action")`.
+  - First argument must be execution context (`ctx`).
+  - Keep the action narrowly scoped; if the change needs selector frameworks, shared state policy, or complex connection management, extract helpers or submodules instead of growing a god-file.
+- Task system key classes:
+  - `TaskController` (`core/task_control.py`)
+  - `TaskQueue` (`core/task_queue.py`)
+  - `TaskStore` (`core/task_store.py`)
+  - `TaskEventEmitter` (`core/task_events.py`)
+  - `WorkflowInterpreter` (`engine/interpreter.py`)
+- Humanized behavior config:
+  - `models/humanized.HumanizedConfig` controls move/click/input rhythm and fallback strategy.
+- Config hot reload:
+  - `common/config_manager.py` watches `config/` and reloads using `watchdog`.
+
+### Additional Do-Not Rules
+- Do not directly mutate `config/data/tasks.db`; use task store/control APIs.
+- Do not block event loop in action handlers; keep `async/await` discipline.
+- Do not hardcode secrets; use `credentials_loader` or environment variables.
+- If plugin contract changes, keep implementation and docs synchronized.
+- Do not place account/business remediation logic directly in orchestration hot paths when a hook/service boundary can own it.
+- Do not solve repeated workflow boilerplate by copying more YAML when a composite action is the real abstraction.
+
+### Plugin Notes
+- Reference implementation path: `plugins/x_mobile_login/`.
+- Workflow supports template interpolation, e.g. `{{ credentials.username }}`.
+
+### Debug Tips
+Task execution flow quick check:
+```bash
+response=$(curl -s -X POST http://localhost:8000/api/tasks -H "Content-Type: application/json" -d '{"name":"test","priority":10}')
+task_id=$(echo "$response" | jq -r '.data.task_id')
+curl -N http://localhost:8000/api/tasks/$task_id/events
+curl http://localhost:8000/api/tasks/$task_id | jq
+```
+
+Action registry smoke check:
+```bash
+uv run python -c "from engine.action_registry import list_actions; print('\\n'.join(list_actions()))"
+```

@@ -10,86 +10,95 @@ import { initAccounts } from './features/accounts.js';
 
 const $ = (id) => document.getElementById(id);
 
-// --- Initialization ---
 async function init() {
-    console.log("MYT 控制台初始化中...");
+    console.log("WebRPA 控制中心启动...");
     
-    // Setup Navigation
     setupNavigation();
     
-    // Initialize Features
     initDevices();
     initLogs();
     initTasks();
     initConfig();
     initAccounts();
     
-    // Initial Data Load (some are loaded by their init functions, but global refresh can handle others)
     await loadHealth();
     
-    // Setup Global Refresh
     const refreshBtn = $("refreshAll");
     if(refreshBtn) {
-        refreshBtn.addEventListener("click", async () => {
-             const btn = refreshBtn;
-             btn.disabled = true;
-             btn.innerHTML = '<span class="loading-spinner"></span> 刷新中';
+        refreshBtn.onclick = async () => {
+             refreshBtn.disabled = true;
+             const oldInner = refreshBtn.innerHTML;
+             refreshBtn.innerHTML = '<span class="dot pulse"></span> 正在全局同步...';
              try {
                  await Promise.all([
-                     loadHealth(),
-                     loadDevices(),
-                     loadTasks(),
+                     loadHealth(), 
+                     loadDevices(), 
+                     loadTasks(), 
                      loadConfig(),
-                     // Accounts usually don't need frequent refresh
+                     import('./features/accounts.js').then(m => m.loadAccounts())
                  ]);
-                 toast.success("全局刷新完成");
+                 toast.success("全局数据与状态已同步");
              } catch(e) {
-                 toast.error("刷新失败");
+                 toast.error("同步过程中发生异常");
              } finally {
-                 btn.disabled = false;
-                 btn.textContent = "刷新全局";
+                 refreshBtn.disabled = false;
+                 refreshBtn.innerHTML = oldInner;
              }
-        });
+        };
     }
-
-    toast.info("系统初始化完成");
+    toast.info("系统就绪");
 }
 
 function setupNavigation() {
-    document.querySelectorAll('.nav-item').forEach(btn => {
+    const navItems = document.querySelectorAll('.nav-item');
+    const panes = document.querySelectorAll('.tab-pane');
+    const detailView = document.getElementById('unitDetailView');
+
+    navItems.forEach(btn => {
         btn.addEventListener('click', (e) => {
-            // UI Update
-            document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
-            document.querySelectorAll('.tab-pane').forEach(tab => tab.classList.remove('active'));
-            
-            const currentBtn = e.currentTarget;
-            currentBtn.classList.add('active');
-            
-            const targetId = currentBtn.getAttribute('data-tab');
+            const targetId = btn.getAttribute('data-tab');
+            if(!targetId) return;
+
+            // 1. 清除所有状态
+            navItems.forEach(b => b.classList.remove('active'));
+            panes.forEach(p => {
+                p.classList.remove('active');
+                p.style.display = ''; // 强行清除之前可能存在的内联样式
+            });
+
+            // 2. 激活当前
+            btn.classList.add('active');
             const targetPane = document.getElementById(targetId);
             if(targetPane) targetPane.classList.add('active');
 
-            // State Update
+            // 3. 切换标签时必须关闭详情页
+            if(detailView) detailView.style.display = 'none';
+
+            // 4. 更新标题
+            const titleMap = {
+                'tab-main': '仪表盘',
+                'tab-tasks': '任务中心',
+                'tab-accounts': '账号池',
+                'tab-config': '系统设置'
+            };
+            const viewTitle = document.getElementById('viewTitle');
+            if(viewTitle && titleMap[targetId]) {
+                viewTitle.textContent = titleMap[targetId];
+            }
+
             store.setState({ currentTab: targetId });
         });
     });
 }
 
-// --- Basic API Calls (will be moved to services) ---
 async function loadHealth() {
     const r = await fetchJson("/health");
-    const isOk = r.ok;
-    store.setState({ apiStatus: isOk });
-    updateApiStatusUI(isOk);
-}
-
-function updateApiStatusUI(ok) {
+    const ok = r.ok;
     const el = $("apiStatus");
     if(el) {
-        el.className = `badge ${ok ? "badge-ok" : "badge-warn"}`;
-        el.textContent = ok ? "服务状态：在线" : "服务状态：离线";
+        el.className = `badge ${ok ? "badge-ok" : "badge-error"}`;
+        el.textContent = ok ? "服务在线" : "连接中断";
     }
 }
 
-// Start
 document.addEventListener('DOMContentLoaded', init);

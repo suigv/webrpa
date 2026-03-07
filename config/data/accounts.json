@@ -1,5 +1,8 @@
 {
   "type": "accounts",
   "encoding": "utf-8",
-  "lines": []
+  "lines": [
+    "{\"account\": \"u1\", \"password\": \"p1\", \"twofa\": \"111111\", \"email\": \"\", \"email_password\": \"\", \"token\": \"\", \"email_token\": \"\", \"status\": \"ready\", \"last_used\": null, \"error_msg\": null}",
+    "{\"account\": \"u2\", \"password\": \"p2\", \"twofa\": \"\", \"email\": \"\", \"email_password\": \"\", \"token\": \"\", \"email_token\": \"\", \"status\": \"ready\", \"last_used\": null, \"error_msg\": null}"
+  ]
 }

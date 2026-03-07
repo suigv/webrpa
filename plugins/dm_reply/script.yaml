@@ -2,17 +2,67 @@ version: v1
 workflow: dm_reply
 
 vars:
-  status_hint: "${payload.status_hint:-success}"
+  status_hint: "${payload.status_hint:-runtime}"
+  package: "${payload.package:-com.twitter.android}"
+  ai_type: "${payload.ai_type:-default}"
+  reply_text: "${payload.reply_text:-}"
+  conversation_url: "${payload.conversation_url:-}"
+  last_message_key: "${payload.last_message_key:-dm_last_message}"
+  sent_message_key: "${payload.sent_message_key:-dm_last_sent_message}"
 
 steps:
+  - label: check_forced_success
+    kind: if
+    when:
+      all:
+        - type: var_equals
+          var: status_hint
+          equals: success
+    then: success
+
+  - label: load_messages_scheme
+    kind: action
+    action: core.load_ui_scheme
+    params:
+      key: "messages"
+    save_as: messages_scheme
+
+  - label: load_dm_nav_selector
+    kind: action
+    action: core.load_ui_selector
+    params:
+      key: "dm.nav_messages"
+    save_as: dm_nav_selector
+
+  - label: load_dm_reply_box_desc_selector
+    kind: action
+    action: core.load_ui_selector
+    params:
+      key: "dm.reply_box_desc"
+    save_as: dm_reply_box_desc_selector
+
+  - label: load_dm_reply_box_text_selector
+    kind: action
+    action: core.load_ui_selector
+    params:
+      key: "dm.reply_box_text"
+    save_as: dm_reply_box_text_selector
+
+  - label: load_dm_send_selector
+    kind: action
+    action: core.load_ui_selector
+    params:
+      key: "dm.send_button"
+    save_as: dm_send_selector
+
   - label: ensure_running
     kind: action
     action: app.ensure_running
     params:
       device_ip: "${payload.device_ip}"
-      package: "${payload.package:-com.twitter.android}"
+      package: "${vars.package}"
     on_fail:
-      strategy: skip
+      strategy: abort
 
   - label: check_no_message
     kind: if
@@ -23,10 +73,237 @@ steps:
           equals: empty_target
     then: empty_target
 
+  - label: maybe_open_conversation
+    kind: if
+    when:
+      all:
+        - type: var_truthy
+          var: conversation_url
+    then: open_conversation
+    otherwise: open_messages_tab_en
+
+  - label: open_conversation
+    kind: action
+    action: device.exec
+    params:
+      device_ip: "${payload.device_ip}"
+      command: "am start -a android.intent.action.VIEW -d \"${vars.conversation_url}\" &"
+    on_fail:
+      strategy: goto
+      goto: open_messages_tab_en
+
+  - label: open_messages_tab_en
+    kind: action
+    action: device.exec
+    params:
+      device_ip: "${payload.device_ip}"
+      command: "${vars.messages_scheme.command}"
+    on_fail:
+      strategy: goto
+      goto: open_messages_tab_fallback
+
+  - label: open_messages_tab_fallback
+    kind: action
+    action: ui.selector_click_one
+    params:
+      device_ip: "${payload.device_ip}"
+      type: "${vars.dm_nav_selector.type}"
+      mode: "${vars.dm_nav_selector.mode}"
+      value: "${vars.dm_nav_selector.value}"
+    on_fail:
+      strategy: abort
+
+  - label: open_first_unread_dm
+    kind: action
+    action: core.open_first_unread_dm
+    params:
+      device_ip: "${payload.device_ip}"
+      package: "${vars.package}"
+    save_as: unread_dm_target
+    on_fail:
+      strategy: skip
+
+  - label: extract_last_dm_message
+    kind: action
+    action: core.extract_dm_last_message
+    params:
+      device_ip: "${payload.device_ip}"
+      package: "${vars.package}"
+    save_as: last_dm_message
+    on_fail:
+      strategy: skip
+
+  - label: save_last_dm_message
+    kind: action
+    action: core.save_shared
+    params:
+      key: "${vars.last_message_key}"
+      scope: task
+      value:
+        message: "${vars.last_dm_message.message}"
+        raw: "${vars.last_dm_message.raw}"
+        bound: "${vars.last_dm_message.bound}"
+    on_fail:
+      strategy: skip
+
+  - label: ensure_reply_text
+    kind: if
+    when:
+      all:
+        - type: var_truthy
+          var: reply_text
+    then: focus_reply_box_desc
+    otherwise: generate_reply_text
+
+  - label: generate_reply_text
+    kind: action
+    action: core.generate_dm_reply
+    params:
+      ai_type: "${vars.ai_type}"
+      last_message: "${vars.last_dm_message.message:-}"
+    save_as: generated_reply
+    on_fail:
+      strategy: goto
+      goto: missing_reply_text
+
+  - label: goto_generated_reply_focus
+    kind: goto
+    target: focus_generated_reply_box_desc
+
+  - label: focus_reply_box_desc
+    kind: action
+    action: ui.selector_click_one
+    params:
+      device_ip: "${payload.device_ip}"
+      type: "${vars.dm_reply_box_desc_selector.type}"
+      mode: "${vars.dm_reply_box_desc_selector.mode}"
+      value: "${vars.dm_reply_box_desc_selector.value}"
+    on_fail:
+      strategy: goto
+      goto: focus_reply_box_text
+
+  - label: focus_reply_box_text
+    kind: action
+    action: ui.selector_click_one
+    params:
+      device_ip: "${payload.device_ip}"
+      type: "${vars.dm_reply_box_text_selector.type}"
+      mode: "${vars.dm_reply_box_text_selector.mode}"
+      value: "${vars.dm_reply_box_text_selector.value}"
+    on_fail:
+      strategy: abort
+
+  - label: input_reply
+    kind: action
+    action: ui.input_text
+    params:
+      device_ip: "${payload.device_ip}"
+      text: "${vars.reply_text}"
+    on_fail:
+      strategy: abort
+
+  - label: goto_click_send_from_reply
+    kind: goto
+    target: click_send_en
+
+  - label: focus_generated_reply_box_desc
+    kind: action
+    action: ui.selector_click_one
+    params:
+      device_ip: "${payload.device_ip}"
+      type: "${vars.dm_reply_box_desc_selector.type}"
+      mode: "${vars.dm_reply_box_desc_selector.mode}"
+      value: "${vars.dm_reply_box_desc_selector.value}"
+    on_fail:
+      strategy: goto
+      goto: focus_generated_reply_box_text
+
+  - label: focus_generated_reply_box_text
+    kind: action
+    action: ui.selector_click_one
+    params:
+      device_ip: "${payload.device_ip}"
+      type: "${vars.dm_reply_box_text_selector.type}"
+      mode: "${vars.dm_reply_box_text_selector.mode}"
+      value: "${vars.dm_reply_box_text_selector.value}"
+    on_fail:
+      strategy: abort
+
+  - label: input_generated_reply
+    kind: action
+    action: ui.input_text
+    params:
+      device_ip: "${payload.device_ip}"
+      text: "${vars.generated_reply.reply_text}"
+    on_fail:
+      strategy: abort
+
+  - label: goto_click_send_from_generated_reply
+    kind: goto
+    target: click_send_en
+
+  - label: click_send_en
+    kind: action
+    action: ui.selector_click_one
+    params:
+      device_ip: "${payload.device_ip}"
+      type: "${vars.dm_send_selector.type}"
+      mode: "${vars.dm_send_selector.mode}"
+      value: "${vars.dm_send_selector.value}"
+    on_fail:
+      strategy: goto
+      goto: send_with_enter
+
+  - label: after_send_button
+    kind: goto
+    target: extract_last_sent_dm_message
+
+  - label: send_with_enter
+    kind: action
+    action: mytos.keypress
+    params:
+      device_ip: "${payload.device_ip}"
+      code: "KEYCODE_ENTER"
+    on_fail:
+      strategy: abort
+
+  - label: goto_verify_after_enter
+    kind: goto
+    target: extract_last_sent_dm_message
+
+  - label: extract_last_sent_dm_message
+    kind: action
+    action: core.extract_dm_last_outbound_message
+    params:
+      device_ip: "${payload.device_ip}"
+      package: "${vars.package}"
+    save_as: last_sent_dm_message
+    on_fail:
+      strategy: goto
+      goto: success
+
+  - label: save_last_sent_dm_message
+    kind: action
+    action: core.save_shared
+    params:
+      key: "${vars.sent_message_key}"
+      scope: task
+      value:
+        message: "${vars.last_sent_dm_message.message}"
+        raw: "${vars.last_sent_dm_message.raw}"
+        bound: "${vars.last_sent_dm_message.bound}"
+    on_fail:
+      strategy: skip
+
   - label: success
     kind: stop
     status: success
     message: "dm reply completed"
+
+  - label: missing_reply_text
+    kind: stop
+    status: failed
+    message: "missing_reply_text"
 
   - label: empty_target
     kind: stop

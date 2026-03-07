@@ -17,6 +17,7 @@ dependencies = [
     "tldextract>=3.4.4",
     "psutil",
     "PyYAML>=6.0",
+    "pyotp>=2.9.0",
 ]
 
 [project.optional-dependencies]
@@ -59,7 +60,6 @@ python_files = ["test_*.py", "*_test.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "-ra -q --tb=short"
-asyncio_mode = "auto"
 
 [tool.uv]
 # uv 特定配置

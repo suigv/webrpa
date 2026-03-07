@@ -13,10 +13,9 @@
 | 设备信息与版本 | `get_device_info`, `get_api_version` | `sdk.get_device_info`, `sdk.get_api_version` | `test_sdk_complete.py::test_sdk_core_endpoint_mapping` |
 | 云机生命周期 | `start_android`, `stop_android`, `restart_android`, `rename_android`, `exec_android`, `get_cloud_status` | `sdk.start_android`, `sdk.stop_android`, `sdk.restart_android`, `sdk.rename_android`, `sdk.exec_android`, `sdk.get_cloud_status` | `test_sdk_complete.py`, `test_sdk_actions_runtime.py` |
 | 镜像相关 | `switch_image`, `switch_model`, `pull_image`, `list_images`, `prune_images` | `sdk.switch_image`, `sdk.switch_model`, `sdk.pull_image`, `sdk.list_images`, `sdk.prune_images` | `test_sdk_complete.py` |
-| 备份文件 | `create_backup`（GET `/backup`）, `download_backup` | `sdk.create_backup`, `sdk.download_backup` | `test_sdk_complete.py` |
+| 备份文件 | `list_backups`（GET `/backup`）, `download_backup` | `sdk.list_backups`, `sdk.download_backup` | `test_sdk_complete.py` |
 | 机型备份 | `backup_model`, `export_model`, `import_model` | `sdk.backup_model`, `sdk.export_model`, `sdk.import_model` | `test_sdk_complete.py::test_sdk_required_field_validation` |
-| 本地模型列表/状态 | `list_models`（`/lm/local` → `/models` 回退） | `sdk.list_models` | `test_sdk_complete.py::test_sdk_fallback_endpoint_calls` |
-| 本地模型导入导出 | `export_local_model`, `import_local_model` | `sdk.export_local_model`, `sdk.import_local_model` | `test_sdk_complete.py` |
+| 本地模型列表/状态 | `list_models`（`/lm/local`） | `sdk.list_models` | `test_sdk_complete.py::test_sdk_documented_endpoint_calls` |
 | 认证 | `set_auth_password`, `close_auth` | `sdk.set_auth_password`, `sdk.close_auth` | `test_sdk_complete.py::test_sdk_required_field_validation` |
 
 ## 2）MYTOS
@@ -27,9 +26,9 @@
 | 剪贴板 | `get_clipboard`, `set_clipboard` | `mytos.get_clipboard`, `mytos.set_clipboard` | `test_mytos_complete.py`, `test_sdk_actions_runtime.py` |
 | 文件传输 | `download_file`, `upload_file` | `mytos.download_file`, `mytos.upload_file` | `test_sdk_complete.py` |
 | 应用信息与安装 | `export_app_info`, `import_app_info`, `batch_install_apps` | `mytos.export_app_info`, `mytos.import_app_info`, `mytos.batch_install_apps` | `test_sdk_complete.py` |
-| 截图/版本/容器信息 | `mytos_screenshot`, `get_version`, `get_container_info` | `mytos.screenshot`, `mytos.get_version`, `mytos.get_container_info` | `test_sdk_complete.py::test_sdk_fallback_endpoint_calls` |
+| 截图/版本/容器信息 | `mytos_screenshot`, `get_version`, `get_container_info` | `mytos.screenshot`, `mytos.get_version`, `mytos.get_container_info` | `test_sdk_complete.py::test_sdk_documented_endpoint_calls` |
 | 短信/通话/定位 | `receive_sms`, `get_call_records`, `refresh_location`, `ip_geolocation` | `mytos.receive_sms`, `mytos.get_call_records`, `mytos.refresh_location`, `mytos.ip_geolocation` | `test_sdk_complete.py`, `test_sdk_actions_runtime.py` |
-| 系统能力（ADB/GoogleID/Magisk） | `switch_adb_permission`, `get_google_id`, `install_magisk` | `mytos.switch_adb_permission`, `mytos.get_google_id`, `mytos.install_magisk` | `test_sdk_complete.py::test_sdk_fallback_endpoint_calls` |
+| 系统能力（ADB/GoogleID/Magisk） | `switch_adb_permission`, `get_google_id`, `install_magisk` | `mytos.switch_adb_permission`, `mytos.get_google_id`, `mytos.install_magisk` | `test_sdk_complete.py::test_sdk_documented_endpoint_calls` |
 
 ## 3）RPA（Android RPA 文档）
 
