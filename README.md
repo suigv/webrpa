@@ -127,6 +127,7 @@ curl http://127.0.0.1:8001/health
 - 进度与功能清单：`docs/project_progress.md`
 - 跨对话交接模板：`docs/HANDOFF.md`
 - 插件输入契约与灰度策略：`docs/plugin_input_contract.md`
+- 原子化问题分类：`功能原子化问题分类说明.md`
 - 原子化修复结果：`功能原子化修复结果.md`
 - 自动刷新快照（建议每次有意义变更后执行）：
 

@@ -2,6 +2,25 @@
 
 更新时间：2026-03-07
 
+## 已合入主分支的进展说明
+
+以下建议已经以“收敛热点复杂度”的形式部分落地到 `main`：
+
+- `engine/actions/ui_actions.py` 已补齐 selector 生命周期清理，并将 selector/node 细节下沉，保留稳定 facade
+- `engine/actions/sdk_actions.py` 已收敛 shared-store 写入路径，补上原子写入、同进程锁与跨进程文件锁
+- `core/data_store.py` 已改为原子 JSON 写入
+
+以下建议在当前 `main` 上仍然成立，但尚未完整完成：
+
+- 共享 RPC helper 统一抽取
+- `core/task_control.py` 的职责进一步抽离
+- 插件层重复 fallback 的 composite action 收敛（当前主分支上的 `x_mobile_login` workflow 形态与最初审查时不同，因此未在本轮强行推进）
+
+如果只关心“现在已经修了什么”，请优先看根目录：
+
+- `功能原子化修复结果.md`
+- `功能原子化问题分类说明.md`
+
 ## 结论
 
 - 当前主干架构仍然成立：`Runner -> Interpreter -> ActionRegistry -> Plugin Workflow` 的分层没有失效。
