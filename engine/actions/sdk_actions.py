@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import contextmanager
 from datetime import datetime
+import fcntl
 import json
 import os
 from pathlib import Path
 import random
 import re
+import threading
 import time
 from typing import Any
 import urllib.parse
@@ -16,7 +19,10 @@ import yaml
 
 from engine.models.runtime import ActionResult, ExecutionContext
 from hardware_adapters.myt_client import MytSdkClient
-from core.data_store import _resolve_root_path
+from core.data_store import _resolve_root_path, write_json_atomic
+
+
+_SHARED_STORE_LOCK = threading.Lock()
 
 
 def _from_payload_or_params(params: dict[str, Any], context: ExecutionContext, key: str, default: Any = None) -> Any:
@@ -587,6 +593,23 @@ def _shared_path() -> Path:
     return path
 
 
+def _shared_lock_path(path: Path) -> Path:
+    return path.with_name(f".{path.name}.lock")
+
+
+@contextmanager
+def _exclusive_shared_lock(path: Path):
+    lock_file = _shared_lock_path(path)
+    lock_file.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(lock_file, os.O_CREAT | os.O_RDWR, 0o600)
+    with os.fdopen(fd, "r+", encoding="utf-8") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
 def _read_store() -> dict[str, Any]:
     path = _shared_path()
     if not path.exists():
@@ -598,7 +621,17 @@ def _read_store() -> dict[str, Any]:
 
 
 def _write_store(payload: dict[str, Any]) -> None:
-    _shared_path().write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_json_atomic(_shared_path(), payload)
+
+
+def _update_store(updater: Callable[[dict[str, Any]], None]) -> dict[str, Any]:
+    path = _shared_path()
+    with _SHARED_STORE_LOCK:
+        with _exclusive_shared_lock(path):
+            store = _read_store()
+            updater(store)
+            write_json_atomic(path, store)
+            return store
 
 
 def _resolve_shared_key(params: dict[str, Any], context: ExecutionContext) -> str:
@@ -631,9 +664,11 @@ def save_shared(params: dict[str, Any], context: ExecutionContext) -> ActionResu
     value = params.get("value")
     if not key:
         return ActionResult(ok=False, code="invalid_params", message="key is required")
-    store = _read_store()
-    store[key] = value
-    _write_store(store)
+
+    def _updater(store: dict[str, Any]) -> None:
+        store[key] = value
+
+    _update_store(_updater)
     return ActionResult(ok=True, code="ok", data={"key": key})
 
 
@@ -688,9 +723,26 @@ def append_shared_unique(params: dict[str, Any], context: ExecutionContext) -> A
             added = False
 
     if added:
-        items.append(item)
-        store[key] = items
-        _write_store(store)
+        def _updater(store: dict[str, Any]) -> None:
+            current_items = store.get(key)
+            if not isinstance(current_items, list):
+                current_items = []
+            if identity_field and isinstance(item, dict):
+                item_identity = item.get(identity_field)
+                for existing in current_items:
+                    if isinstance(existing, dict) and existing.get(identity_field) == item_identity:
+                        return
+            elif item in current_items:
+                return
+            current_items.append(item)
+            store[key] = current_items
+
+        store = _update_store(_updater)
+        stored_items = store.get(key)
+        if isinstance(stored_items, list):
+            items = stored_items
+        else:
+            items = items if isinstance(items, list) else []
 
     return ActionResult(
         ok=True,
@@ -707,16 +759,21 @@ def increment_shared_counter(params: dict[str, Any], context: ExecutionContext) 
     amount = int(params.get("amount", 1) or 1)
     start = int(params.get("start", 0) or 0)
 
-    store = _read_store()
-    current = store.get(key, start)
-    try:
-        current_value = int(current)
-    except Exception:
-        current_value = start
-    current_value += amount
-    store[key] = current_value
-    _write_store(store)
-    return ActionResult(ok=True, code="ok", data={"key": key, "value": current_value, "amount": amount})
+    result_value = start
+
+    def _updater(store: dict[str, Any]) -> None:
+        nonlocal result_value
+        current = store.get(key, start)
+        try:
+            current_value = int(current)
+        except Exception:
+            current_value = start
+        current_value += amount
+        store[key] = current_value
+        result_value = current_value
+
+    _update_store(_updater)
+    return ActionResult(ok=True, code="ok", data={"key": key, "value": result_value, "amount": amount})
 
 
 def resolve_first_non_empty(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
@@ -861,7 +918,7 @@ def _read_daily_counters() -> dict[str, Any]:
 def _write_daily_counters(payload: dict[str, Any]) -> None:
     path = _daily_counter_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_json_atomic(path, payload)
 
 
 def _resolve_daily_counter_key(params: dict[str, Any], context: ExecutionContext) -> str:
@@ -877,7 +934,8 @@ def check_daily_limit(params: dict[str, Any], context: ExecutionContext) -> Acti
     store = _read_daily_counters()
     if store.get("date") != today:
         store = {"date": today, "counts": {}}
-    counts = store.get("counts", {})
+    counts_obj = store.get("counts")
+    counts: dict[str, Any] = counts_obj if isinstance(counts_obj, dict) else {}
     try:
         current = int(counts.get(key, 0))
     except Exception:
@@ -903,7 +961,8 @@ def increment_daily_counter(params: dict[str, Any], context: ExecutionContext) -
     store = _read_daily_counters()
     if store.get("date") != today:
         store = {"date": today, "counts": {}}
-    counts = store.get("counts", {})
+    counts_obj = store.get("counts")
+    counts: dict[str, Any] = counts_obj if isinstance(counts_obj, dict) else {}
     try:
         current = int(counts.get(key, 0))
     except Exception:
