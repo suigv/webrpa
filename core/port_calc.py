@@ -9,7 +9,7 @@ def calculate_ports(device_index: int, cloud_index: int, cloud_machines_per_devi
 
     Port roles:
         api_port  — Cloud machine HTTP API interface (e.g. 30001)
-        rpa_port  — MytRpc control channel for touch/app/key operations (e.g. 30002)
+        rpa_port  — MytRPC control channel for touch/app/key operations (e.g. 30002)
         sdk_port  — Device-level control API, shared across all clouds (default 8000)
 
     Port is determined ONLY by cloud_index, not device_index.
@@ -18,7 +18,7 @@ def calculate_ports(device_index: int, cloud_index: int, cloud_machines_per_devi
     Formula:
         base_port = 30000 + (cloud_index - 1) * 100
         api_port  = base_port + 1   (cloud API)
-        rpa_port  = base_port + 2   (MytRpc control)
+        rpa_port  = base_port + 2   (MytRPC control)
 
     Example (cloud_machines_per_device=10):
         cloud 1  → api 30001, rpa 30002
@@ -31,7 +31,6 @@ def calculate_ports(device_index: int, cloud_index: int, cloud_machines_per_devi
         raise ValueError("cloud_index must be >= 1")
     if cloud_machines_per_device < 1:
         raise ValueError("cloud_machines_per_device must be >= 1")
-
     # Port determined by cloud_index only, not device_index
     base_port = BASE_PORT + (cloud_index - 1) * PORT_STEP
     api_port = base_port + 1

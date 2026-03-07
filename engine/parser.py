@@ -84,19 +84,19 @@ def interpolate(template: Any, context: Dict[str, Any]) -> Any:
     return _INTERP_RE.sub(_replace, template)
 
 
+def _interpolate_value(value: Any, context: Dict[str, Any]) -> Any:
+    if isinstance(value, str):
+        return interpolate(value, context)
+    if isinstance(value, list):
+        return [_interpolate_value(item, context) for item in value]
+    if isinstance(value, dict):
+        return {key: _interpolate_value(item, context) for key, item in value.items()}
+    return value
+
+
 def interpolate_params(params: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
-    """Interpolate all string values in a params dict."""
-    result: Dict[str, Any] = {}
-    for key, value in params.items():
-        if isinstance(value, str):
-            result[key] = interpolate(value, context)
-        elif isinstance(value, list):
-            result[key] = [interpolate(item, context) if isinstance(item, str) else item for item in value]
-        elif isinstance(value, dict):
-            result[key] = interpolate_params(value, context)
-        else:
-            result[key] = value
-    return result
+    """Interpolate all nested values in a params dict."""
+    return {key: _interpolate_value(value, context) for key, value in params.items()}
 
 
 # ---- YAML loading ----

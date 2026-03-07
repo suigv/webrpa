@@ -158,6 +158,11 @@ class TestInterpolateParams:
         result = interpolate_params({"items": ["${payload.x}", "static"]}, ctx)
         assert result == {"items": ["1", "static"]}
 
+    def test_list_interpolation_with_nested_dict(self):
+        ctx = {"payload": {"x": "1", "y": "2"}, "vars": {}}
+        result = interpolate_params({"items": [{"value": "${payload.x}"}, ["${payload.y}"]]}, ctx)
+        assert result == {"items": [{"value": "1"}, ["2"]]}
+
 
 class TestYAMLParsing:
     def test_parse_manifest_file(self, tmp_path: Path):

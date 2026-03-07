@@ -8,8 +8,8 @@ Checked on:
 
 ## Summary
 
-- Official Android RPA doc methods reviewed: 39
-- Exposed as engine atomic actions: 39
+- Official Android RPA doc methods reviewed: 49
+- Exposed as engine atomic actions: 49
 - Internal runtime-only methods intentionally not exposed as plugin actions: connection lifecycle and memory management helpers
 
 ## Atomic Coverage
