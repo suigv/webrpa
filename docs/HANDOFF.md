@@ -1,7 +1,7 @@
 # HANDOFF
 
 > 用于在“新对话 / 新会话”中快速接力项目进度。  
-> 每次有意义变更后，请更新本文件中的 **Current Snapshot** 与 **Open Items**。
+> 每次有意义变更后，请更新本文件中的 **Current Snapshot**、**Open Items**，以及本文的证据链记录。
 
 ## 1) Project Identity
 
@@ -164,7 +164,60 @@ Alternative one-shot gate:
 ./tools/run_migration_gates.sh
 ```
 
-## 7) Risks / Notes
+## 7) Evidence and Review Handoff Workflow
+
+### 7.1 When Evidence Is Required
+
+- 凡是“有意义变更”都要留证据，最少覆盖：改了什么、怎么验证、产物放在哪里。
+- 如果变更无法只靠 diff 说清楚，评审与交接必须能从本文和 `.sisyphus/evidence/` 直接追到验证过程。
+- docs-only 变更可以只留文档证据，不必为了补证据额外跑会产生工作区噪音的运行命令。
+
+### 7.2 Minimum Evidence by Change Type
+
+- 代码变更：至少包含目标范围说明、执行过的命令、命令结果摘要、相关测试或门禁结论。
+- 文档或配置变更：至少包含受影响文件、需要同步的约束或基线、人工校对结论；如果没有执行命令，要明确写 `docs-only, no runtime commands needed`。
+- 发布、回滚或运维变更：至少包含环境范围、渲染或部署命令、生成的配置产物、上线后检查点。
+
+### 7.3 Storage and Naming Rules
+
+- 所有交接证据统一放在 `.sisyphus/evidence/`。
+- 文件名统一用 `YYYYMMDD-<topic>-<kind>.<ext>`，其中：
+  - `topic` 用短横线小写短语，直接对应本次改动主题。
+  - `kind` 只用能说明用途的固定词，例如 `summary`、`commands`、`validation`、`handoff`、`rendered-config`。
+  - `ext` 按内容选最简单格式，优先 `md`、`txt`、`json`、`log`。
+- 一个完整证据链至少要能让评审看到 3 类东西：变更说明、命令或人工检查记录、最终交接结论。
+- 如果同一主题有多份证据，保持同一个日期与 `topic` 前缀，按 `kind` 区分，不要发散命名。
+
+### 7.4 Handoff Update Rules
+
+- `docs/HANDOFF.md` 是交接与证据流程的单一事实来源。
+- 每次完成有意义变更后，在本文 `Current Snapshot` 写结果，在 `What Was Recently Done` 记录事实，在 `Open Items` 更新后续动作。
+- 交接说明必须点名本次证据链的文件路径，至少引用一个 summary 文件和一个 validation 或 commands 文件。
+- 如果证据缺项，交接说明里要直接写缺什么、为什么缺、由谁在下一步补齐。
+
+### 7.5 Reproducible Review Path
+
+评审或发布接力时，按这个顺序检查：
+
+1. 先读 `docs/HANDOFF.md` 的 `Current Snapshot`、`What Was Recently Done`、`Open Items`。
+2. 记下对应主题名，然后到 `.sisyphus/evidence/` 查找同一 `YYYYMMDD-<topic>-*` 前缀的证据文件。
+3. 先看 `summary`，再看 `commands` 或 `validation`，最后看 `handoff`，确认变更、验证、结论能串成闭环。
+4. 如果交接提到代码门禁，就按本文 `Required Validation Commands` 复跑；如果交接写明 `docs-only, no runtime commands needed`，则只做文档比对与路径核对。
+
+### 7.6 Example Evidence Chain
+
+下面是一个完整但精简的例子，展示从变更到交接的最小闭环：
+
+- 变更主题：标准化 handoff 证据流程
+- 证据文件：
+  - `.sisyphus/evidence/20260308-handoff-evidence-summary.md`
+  - `.sisyphus/evidence/20260308-handoff-evidence-commands.txt`
+  - `.sisyphus/evidence/20260308-handoff-evidence-handoff.md`
+- `20260308-handoff-evidence-summary.md` 写明：修改了 `docs/HANDOFF.md`，新增证据命名规则、最低证据要求、评审复现路径。
+- `20260308-handoff-evidence-commands.txt` 写明：`docs-only, no runtime commands needed`，并记录人工检查项，例如“核对 `.sisyphus/evidence/` 命名规则与 `docs/project_progress.md` 的待办是否一致”。
+- `20260308-handoff-evidence-handoff.md` 写明：评审先读 `docs/HANDOFF.md`，再按同前缀查看 `summary` 与 `commands`，确认这是 docs-only 改动，无需额外运行服务门禁。
+
+## 8) Risks / Notes
 
 - Runtime DB file `config/data/tasks.db` is environment artifact; do not include in commits.
 - Keep standalone constraints: no `tasks.*` and no `app.*` imports.
