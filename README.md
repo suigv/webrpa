@@ -52,9 +52,13 @@
 
 ### 6) 已内置插件示例
 
-- `plugins/x_auto_login`
-  - X/Twitter 登录工作流
-  - 账号密码输入、2FA 处理、captcha 检测、结果判定
+- `plugins/x_mobile_login`
+  - 当前主分支内置的 X/Twitter 移动端登录工作流
+  - 负责登录阶段状态判定与运行时接线验证
+- `plugins/hezi_sdk_probe`
+  - SDK 能力探测与基础连通性验证
+- `plugins/mytos_device_setup`
+  - 设备准备与运行时初始化类流程
 
 ---
 
@@ -125,6 +129,7 @@ curl http://127.0.0.1:8001/health
 ## 项目进度文档
 
 - 进度与功能清单：`docs/project_progress.md`
+- 当前 main 已完成/未完成事项：`docs/current_main_status.md`
 - 跨对话交接模板：`docs/HANDOFF.md`
 - 插件输入契约与灰度策略：`docs/plugin_input_contract.md`
 - 原子化问题分类：`功能原子化问题分类说明.md`

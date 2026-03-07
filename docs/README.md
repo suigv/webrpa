@@ -3,6 +3,7 @@
 ## Active
 
 - `project_progress.md` - Current capability snapshot and rolling next steps
+- `current_main_status.md` - Current main branch completed vs pending status summary
 - `HANDOFF.md` - Cross-session handoff and execution checklist
 - `atomic_features.md` - Acceptance checklist for current external capabilities
 - `plugin_input_contract.md` - Runtime payload validation and rollout policy
