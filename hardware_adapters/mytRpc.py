@@ -1,3 +1,4 @@
+# pyright: reportGeneralTypeIssues=false, reportUnknownMemberType=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportUnknownVariableType=false, reportUnusedCallResult=false, reportUnnecessaryCast=false, reportUnknownArgumentType=false, reportUnknownLambdaType=false
 import ctypes
 import logging
 import os
@@ -5,7 +6,7 @@ import platform
 import sys
 import time
 from pathlib import Path
-from typing import Callable
+from typing import Callable, cast
 
 logger = logging.getLogger(__name__)
 
@@ -124,12 +125,41 @@ class MytRpc:
                 return fn
         return None
 
+    @staticmethod
+    def _ptr_to_void_p(ptr: int | ctypes.c_void_p) -> ctypes.c_void_p:
+        if isinstance(ptr, ctypes.c_void_p):
+            return ptr
+        return ctypes.c_void_p(int(ptr))
+
+    def _owned_ptr_bytes(self, ptr: int | ctypes.c_void_p | None) -> bytes | None:
+        if not ptr:
+            return None
+        raw_ptr = self._ptr_to_void_p(cast(int | ctypes.c_void_p, ptr))
+        try:
+            value = ctypes.cast(raw_ptr, ctypes.c_char_p).value
+            if not isinstance(value, (bytes, bytearray)):
+                return None
+            return bytes(value)
+        finally:
+            self.free_rpc_ptr(raw_ptr)
+
+    def _owned_ptr_text(self, ptr: int | ctypes.c_void_p | None) -> str | None:
+        data = self._owned_ptr_bytes(ptr)
+        if data is None:
+            return None
+        return data.decode("utf-8", errors="ignore")
+
     def get_sdk_version(self):
         lib = self._load_library()
-        if lib is None:
+        if lib is None or self._handle <= 0:
             return b""
         try:
-            return lib.getVersion()
+            fn = self._rpc_fn("getVersion")
+            if fn is None:
+                return b""
+            fn.argtypes = [ctypes.c_long]
+            fn.restype = ctypes.c_void_p
+            return self._owned_ptr_bytes(fn(self._handle)) or b""
         except Exception:
             return b""
 
@@ -138,10 +168,16 @@ class MytRpc:
         if lib is None:
             return False
 
+        try:
+            lib.openDevice.argtypes = [ctypes.c_char_p, ctypes.c_int, ctypes.c_int]
+            lib.openDevice.restype = ctypes.c_long
+        except Exception:
+            pass
+
         started = time.time()
         while True:
             try:
-                self._handle = lib.openDevice(bytes(ip, "utf-8"), int(port), 10)
+                self._handle = int(lib.openDevice(bytes(ip, "utf-8"), int(port), int(timeout)))
             except Exception:
                 self._handle = 0
             if self._handle > 0:
@@ -153,6 +189,8 @@ class MytRpc:
     def close(self) -> None:
         if self._rpc is not None and self._handle > 0:
             try:
+                self._rpc.closeDevice.argtypes = [ctypes.c_long]
+                self._rpc.closeDevice.restype = None
                 self._rpc.closeDevice(self._handle)
             except Exception:
                 pass
@@ -168,7 +206,7 @@ class MytRpc:
             if fn is None:
                 return
             fn.argtypes = [ctypes.c_void_p]
-            fn(ctypes.c_void_p(int(ptr)))
+            fn(self._ptr_to_void_p(ptr))
         except Exception:
             return
 
@@ -186,11 +224,15 @@ class MytRpc:
         if self._rpc is None or self._handle <= 0:
             return "", False
         try:
-            self._rpc.execCmd.restype = ctypes.c_char_p
+            self._rpc.execCmd.argtypes = [ctypes.c_long, ctypes.c_int, ctypes.c_char_p]
+            self._rpc.execCmd.restype = ctypes.c_void_p
             ptr = self._rpc.execCmd(self._handle, ctypes.c_int(1), ctypes.c_char_p(cmd.encode("utf-8")))
             if ptr is None:
                 return "", True
-            return ptr.decode("utf-8"), True
+            text = self._owned_ptr_text(ptr)
+            if text is None:
+                return "", True
+            return text, True
         except Exception:
             return "", False
 
@@ -201,13 +243,7 @@ class MytRpc:
             self._rpc.dumpNodeXml.argtypes = [ctypes.c_long, ctypes.c_int]
             self._rpc.dumpNodeXml.restype = ctypes.c_void_p
             ptr = self._rpc.dumpNodeXml(self._handle, 1 if dump_all else 0)
-            if not ptr:
-                return None
-            value = ctypes.cast(ptr, ctypes.c_char_p).value
-            self.free_rpc_ptr(ptr)
-            if not isinstance(value, (bytes, bytearray)):
-                return None
-            return bytes(value).decode("utf-8")
+            return self._owned_ptr_text(ptr)
         except Exception:
             return None
 
@@ -218,13 +254,7 @@ class MytRpc:
             self._rpc.dumpNodeXmlEx.argtypes = [ctypes.c_long, ctypes.c_int, ctypes.c_int]
             self._rpc.dumpNodeXmlEx.restype = ctypes.c_void_p
             ptr = self._rpc.dumpNodeXmlEx(self._handle, 1 if work_mode else 0, int(timeout_ms))
-            if not ptr:
-                return None
-            value = ctypes.cast(ptr, ctypes.c_char_p).value
-            self.free_rpc_ptr(ptr)
-            if not isinstance(value, (bytes, bytearray)):
-                return None
-            return bytes(value).decode("utf-8")
+            return self._owned_ptr_text(ptr)
         except Exception:
             return None
 
@@ -347,6 +377,8 @@ class MytRpc:
         if self._rpc is None or self._handle <= 0:
             return False
         try:
+            self._rpc.sendText.argtypes = [ctypes.c_long, ctypes.c_char_p]
+            self._rpc.sendText.restype = ctypes.c_int
             return self._rpc.sendText(self._handle, ctypes.c_char_p(text.encode("utf-8"))) == 1
         except Exception:
             return False
@@ -358,6 +390,8 @@ class MytRpc:
         if self._rpc is None or self._handle <= 0:
             return False
         try:
+            self._rpc.openApp.argtypes = [ctypes.c_long, ctypes.c_char_p]
+            self._rpc.openApp.restype = ctypes.c_int
             return self._rpc.openApp(self._handle, ctypes.c_char_p(pkg.encode("utf-8"))) == 0
         except Exception:
             return False
@@ -369,6 +403,8 @@ class MytRpc:
         if self._rpc is None or self._handle <= 0:
             return False
         try:
+            self._rpc.stopApp.argtypes = [ctypes.c_long, ctypes.c_char_p]
+            self._rpc.stopApp.restype = ctypes.c_int
             return self._rpc.stopApp(self._handle, ctypes.c_char_p(pkg.encode("utf-8"))) == 0
         except Exception:
             return False
@@ -380,6 +416,8 @@ class MytRpc:
         if self._rpc is None or self._handle <= 0:
             return False
         try:
+            self._rpc.touchDown.argtypes = [ctypes.c_long, ctypes.c_int, ctypes.c_int, ctypes.c_int]
+            self._rpc.touchDown.restype = ctypes.c_int
             return self._rpc.touchDown(self._handle, finger_id, x, y) == 1
         except Exception:
             return False
@@ -391,6 +429,8 @@ class MytRpc:
         if self._rpc is None or self._handle <= 0:
             return False
         try:
+            self._rpc.touchUp.argtypes = [ctypes.c_long, ctypes.c_int, ctypes.c_int, ctypes.c_int]
+            self._rpc.touchUp.restype = ctypes.c_int
             return self._rpc.touchUp(self._handle, finger_id, x, y) == 1
         except Exception:
             return False
@@ -402,6 +442,8 @@ class MytRpc:
         if self._rpc is None or self._handle <= 0:
             return False
         try:
+            self._rpc.touchMove.argtypes = [ctypes.c_long, ctypes.c_int, ctypes.c_int, ctypes.c_int]
+            self._rpc.touchMove.restype = ctypes.c_int
             return self._rpc.touchMove(self._handle, finger_id, x, y) == 1
         except Exception:
             return False
@@ -413,6 +455,8 @@ class MytRpc:
         if self._rpc is None or self._handle <= 0:
             return False
         try:
+            self._rpc.touchClick.argtypes = [ctypes.c_long, ctypes.c_int, ctypes.c_int, ctypes.c_int]
+            self._rpc.touchClick.restype = ctypes.c_int
             return self._rpc.touchClick(self._handle, finger_id, x, y) == 1
         except Exception:
             return False
@@ -433,6 +477,8 @@ class MytRpc:
         if self._rpc is None or self._handle <= 0:
             return False
         try:
+            self._rpc.keyPress.argtypes = [ctypes.c_long, ctypes.c_int]
+            self._rpc.keyPress.restype = ctypes.c_int
             return self._rpc.keyPress(self._handle, code) == 1
         except Exception:
             return False
@@ -468,6 +514,17 @@ class MytRpc:
         if self._rpc is None or self._handle <= 0:
             return False
         try:
+            self._rpc.swipe.argtypes = [
+                ctypes.c_long,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_bool,
+            ]
+            self._rpc.swipe.restype = ctypes.c_int
             return bool(self._rpc.swipe(self._handle, finger_id, x0, y0, x1, y1, elapse_ms, False))
         except Exception:
             return False
@@ -493,6 +550,7 @@ class MytRpc:
             try:
                 fn = self._rpc_fn("screentshot")
                 if fn is not None:
+                    fn.argtypes = [ctypes.c_long, ctypes.c_int, ctypes.c_int, ctypes.c_char_p]
                     fn.restype = ctypes.c_char_p
                     result = fn(
                         self._handle,
@@ -947,13 +1005,7 @@ class MytRpc:
             fn.argtypes = [ctypes.c_longlong]
             fn.restype = ctypes.c_void_p
             ptr = fn(int(node))
-            if not ptr:
-                return None
-            value = ctypes.cast(ptr, ctypes.c_char_p).value
-            self.free_rpc_ptr(ptr)
-            if not isinstance(value, (bytes, bytearray)):
-                return None
-            return bytes(value).decode("utf-8", errors="ignore")
+            return self._owned_ptr_text(ptr)
         except Exception:
             return None
 
