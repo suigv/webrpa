@@ -5,10 +5,10 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from new.engine.action_registry import get_registry, register_defaults
-from new.engine.conditions import evaluate as eval_condition
-from new.engine.models.runtime import ActionResult, ExecutionContext
-from new.engine.models.workflow import (
+from engine.action_registry import get_registry, register_defaults
+from engine.conditions import evaluate as eval_condition
+from engine.models.runtime import ActionResult, ExecutionContext
+from engine.models.workflow import (
     ActionStep,
     FailStrategy,
     GotoStep,
@@ -19,7 +19,7 @@ from new.engine.models.workflow import (
     WaitUntilStep,
     WorkflowScript,
 )
-from new.engine.parser import interpolate_params
+from engine.parser import interpolate_params
 
 logger = logging.getLogger(__name__)
 
@@ -70,18 +70,17 @@ class Interpreter:
             while context.pc < len(script.steps):
                 self._check_cancelled(context)
                 step = script.steps[context.pc]
-                kind = step.kind  # type: ignore[union-attr]
                 context.jumped = False
-                if kind == "action":
-                    self._exec_action(step, context, registry, label_map)  # type: ignore[arg-type]
-                elif kind == "if":
-                    self._exec_if(step, context, label_map)  # type: ignore[arg-type]
-                elif kind == "wait_until":
-                    self._exec_wait_until(step, context, label_map)  # type: ignore[arg-type]
-                elif kind == "goto":
-                    self._exec_goto(step, context, label_map)  # type: ignore[arg-type]
-                elif kind == "stop":
-                    return self._exec_stop(step, script.workflow)  # type: ignore[arg-type]
+                if isinstance(step, ActionStep):
+                    self._exec_action(step, context, registry, label_map)
+                elif isinstance(step, IfStep):
+                    self._exec_if(step, context, label_map)
+                elif isinstance(step, WaitUntilStep):
+                    self._exec_wait_until(step, context, label_map)
+                elif isinstance(step, GotoStep):
+                    self._exec_goto(step, context, label_map)
+                elif isinstance(step, StopStep):
+                    return self._exec_stop(step, script.workflow)
 
                 # Only auto-advance if no jump occurred
                 if not context.jumped:
@@ -121,6 +120,12 @@ class Interpreter:
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
         finally:
+            try:
+                from engine.actions.ui_actions import release_selector_context
+
+                _ = release_selector_context(context)
+            except Exception:
+                logger.debug("failed to release selector context", exc_info=True)
             if context.browser is not None:
                 try:
                     context.browser.close()

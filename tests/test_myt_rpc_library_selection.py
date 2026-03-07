@@ -1,7 +1,7 @@
 # pyright: reportMissingImports=false
 from pathlib import Path
 
-from new.hardware_adapters.mytRpc import MytRpc
+from hardware_adapters.mytRpc import MytRpc
 
 
 def _names(paths: list[Path]) -> list[str]:
@@ -9,8 +9,8 @@ def _names(paths: list[Path]) -> list[str]:
 
 
 def test_myt_rpc_prefers_arm_library_on_linux_aarch64(monkeypatch):
-    monkeypatch.setattr("new.hardware_adapters.mytRpc.platform.system", lambda: "Linux")
-    monkeypatch.setattr("new.hardware_adapters.mytRpc.platform.machine", lambda: "aarch64")
+    monkeypatch.setattr("hardware_adapters.mytRpc.platform.system", lambda: "Linux")
+    monkeypatch.setattr("hardware_adapters.mytRpc.platform.machine", lambda: "aarch64")
 
     client = MytRpc()
 
@@ -18,8 +18,8 @@ def test_myt_rpc_prefers_arm_library_on_linux_aarch64(monkeypatch):
 
 
 def test_myt_rpc_prefers_x86_library_on_linux_x86_64(monkeypatch):
-    monkeypatch.setattr("new.hardware_adapters.mytRpc.platform.system", lambda: "Linux")
-    monkeypatch.setattr("new.hardware_adapters.mytRpc.platform.machine", lambda: "x86_64")
+    monkeypatch.setattr("hardware_adapters.mytRpc.platform.system", lambda: "Linux")
+    monkeypatch.setattr("hardware_adapters.mytRpc.platform.machine", lambda: "x86_64")
 
     client = MytRpc()
 
@@ -27,8 +27,8 @@ def test_myt_rpc_prefers_x86_library_on_linux_x86_64(monkeypatch):
 
 
 def test_myt_rpc_uses_dll_on_windows(monkeypatch):
-    monkeypatch.setattr("new.hardware_adapters.mytRpc.platform.system", lambda: "Windows")
-    monkeypatch.setattr("new.hardware_adapters.mytRpc.platform.machine", lambda: "AMD64")
+    monkeypatch.setattr("hardware_adapters.mytRpc.platform.system", lambda: "Windows")
+    monkeypatch.setattr("hardware_adapters.mytRpc.platform.machine", lambda: "AMD64")
 
     client = MytRpc()
 
@@ -36,8 +36,8 @@ def test_myt_rpc_uses_dll_on_windows(monkeypatch):
 
 
 def test_myt_rpc_uses_dylib_on_macos(monkeypatch):
-    monkeypatch.setattr("new.hardware_adapters.mytRpc.platform.system", lambda: "Darwin")
-    monkeypatch.setattr("new.hardware_adapters.mytRpc.platform.machine", lambda: "arm64")
+    monkeypatch.setattr("hardware_adapters.mytRpc.platform.system", lambda: "Darwin")
+    monkeypatch.setattr("hardware_adapters.mytRpc.platform.machine", lambda: "arm64")
 
     client = MytRpc()
 
@@ -47,8 +47,8 @@ def test_myt_rpc_uses_dylib_on_macos(monkeypatch):
 def test_myt_rpc_env_override_has_highest_priority(monkeypatch, tmp_path):
     custom = tmp_path / "custom_rpc.so"
     custom.write_bytes(b"fake")
-    monkeypatch.setattr("new.hardware_adapters.mytRpc.platform.system", lambda: "Linux")
-    monkeypatch.setattr("new.hardware_adapters.mytRpc.platform.machine", lambda: "x86_64")
+    monkeypatch.setattr("hardware_adapters.mytRpc.platform.system", lambda: "Linux")
+    monkeypatch.setattr("hardware_adapters.mytRpc.platform.machine", lambda: "x86_64")
     monkeypatch.setenv("MYT_RPC_LIB_PATH", str(custom))
 
     client = MytRpc()
@@ -60,8 +60,8 @@ def test_myt_rpc_env_override_has_highest_priority(monkeypatch, tmp_path):
 def test_myt_rpc_env_override_deduplicates_default_candidate(monkeypatch, tmp_path):
     custom = tmp_path / "libmytrpc.so"
     custom.write_bytes(b"fake")
-    monkeypatch.setattr("new.hardware_adapters.mytRpc.platform.system", lambda: "Linux")
-    monkeypatch.setattr("new.hardware_adapters.mytRpc.platform.machine", lambda: "x86_64")
+    monkeypatch.setattr("hardware_adapters.mytRpc.platform.system", lambda: "Linux")
+    monkeypatch.setattr("hardware_adapters.mytRpc.platform.machine", lambda: "x86_64")
     monkeypatch.setenv("MYT_RPC_LIB_PATH", str(custom))
 
     client = MytRpc()

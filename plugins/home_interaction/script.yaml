@@ -2,18 +2,11 @@ version: v1
 workflow: home_interaction
 
 vars:
-  status_hint: "${payload.status_hint:-success}"
+  status_hint: "${payload.status_hint:-runtime}"
+  ai_type: "${payload.ai_type:-volc}"
+  interaction_counter_key: "${payload.interaction_counter_key:-home_interaction_count}"
 
 steps:
-  - label: ensure_running
-    kind: action
-    action: app.ensure_running
-    params:
-      device_ip: "${payload.device_ip}"
-      package: "${payload.package:-com.twitter.android}"
-    on_fail:
-      strategy: skip
-
   - label: check_rate_limit
     kind: if
     when:
@@ -31,6 +24,173 @@ steps:
           var: status_hint
           equals: empty_target
     then: empty_target
+
+  - label: load_home_scheme
+    kind: action
+    action: core.load_ui_scheme
+    params:
+      key: "home"
+    save_as: home_scheme
+
+  - label: load_home_nav_selector
+    kind: action
+    action: core.load_ui_selector
+    params:
+      key: "home.nav_home"
+    save_as: home_nav_selector
+
+  - label: load_post_like_desc_selector
+    kind: action
+    action: core.load_ui_selector
+    params:
+      key: "post.like_button_desc"
+    save_as: post_like_desc_selector
+
+  - label: load_post_like_text_selector
+    kind: action
+    action: core.load_ui_selector
+    params:
+      key: "post.like_button_text"
+    save_as: post_like_text_selector
+
+  - label: ensure_running
+    kind: action
+    action: app.ensure_running
+    params:
+      device_ip: "${payload.device_ip}"
+      package: "${payload.package:-com.twitter.android}"
+
+  - label: go_home_timeline
+    kind: action
+    action: device.exec
+    params:
+      device_ip: "${payload.device_ip}"
+      command: "${vars.home_scheme.command}"
+    on_fail:
+      strategy: goto
+      goto: open_app_home_fallback
+
+  - label: open_app_home_fallback
+    kind: action
+    action: app.open
+    params:
+      device_ip: "${payload.device_ip}"
+      package: "${payload.package:-com.twitter.android}"
+
+  - label: click_home_tab_en
+    kind: action
+    action: ui.selector_click_one
+    params:
+      device_ip: "${payload.device_ip}"
+      type: "${vars.home_nav_selector.type}"
+      mode: "${vars.home_nav_selector.mode}"
+      value: "${vars.home_nav_selector.value}"
+    on_fail:
+      strategy: skip
+
+  - label: extract_timeline_candidates
+    kind: action
+    action: core.extract_timeline_candidates
+    params:
+      device_ip: "${payload.device_ip}"
+      package: "${payload.package:-com.twitter.android}"
+      max_candidates: 8
+    save_as: timeline_candidates
+    on_fail:
+      strategy: skip
+
+  - label: pick_timeline_candidate
+    kind: action
+    action: core.pick_candidate
+    params:
+      candidates: "${vars.timeline_candidates.candidates}"
+      ai_type: "${vars.ai_type}"
+    save_as: selected_timeline_candidate
+    on_fail:
+      strategy: skip
+
+  - label: save_timeline_candidate
+    kind: action
+    action: core.save_shared
+    params:
+      key: "home_last_candidate"
+      scope: task
+      value: "${vars.selected_timeline_candidate.candidate}"
+    on_fail:
+      strategy: skip
+
+  - label: open_timeline_candidate
+    kind: action
+    action: core.open_candidate
+    params:
+      device_ip: "${payload.device_ip}"
+      candidate: "${vars.selected_timeline_candidate.candidate}"
+    on_fail:
+      strategy: skip
+
+  - label: click_like_desc
+    kind: action
+    action: ui.selector_click_one
+    params:
+      device_ip: "${payload.device_ip}"
+      type: "${vars.post_like_desc_selector.type}"
+      mode: "${vars.post_like_desc_selector.mode}"
+      value: "${vars.post_like_desc_selector.value}"
+    on_fail:
+      strategy: goto
+      goto: click_like_text
+
+  - label: goto_after_like_from_desc
+    kind: goto
+    target: save_home_interaction
+
+  - label: click_like_text
+    kind: action
+    action: ui.selector_click_one
+    params:
+      device_ip: "${payload.device_ip}"
+      type: "${vars.post_like_text_selector.type}"
+      mode: "${vars.post_like_text_selector.mode}"
+      value: "${vars.post_like_text_selector.value}"
+    on_fail:
+      strategy: skip
+
+  - label: save_home_interaction
+    kind: action
+    action: core.save_shared
+    params:
+      key: "home_last_interaction"
+      scope: task
+      value:
+        action: "like"
+        candidate: "${vars.selected_timeline_candidate.candidate}"
+    on_fail:
+      strategy: skip
+
+  - label: increment_home_interaction_count
+    kind: action
+    action: core.increment_shared_counter
+    params:
+      key: "${vars.interaction_counter_key}"
+      scope: device
+      amount: 1
+      start: 0
+    on_fail:
+      strategy: skip
+
+  - label: swipe_feed_1
+    kind: action
+    action: device.exec
+    params:
+      device_ip: "${payload.device_ip}"
+      command: "input swipe 540 1700 540 700 450"
+
+  - label: swipe_feed_2
+    kind: action
+    action: device.exec
+    params:
+      device_ip: "${payload.device_ip}"
+      command: "input swipe 540 1650 540 750 500"
 
   - label: success
     kind: stop

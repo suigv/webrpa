@@ -1,7 +1,7 @@
 import os
 
-from new.common.toolskit import ToolsKit
-from new.core.config_loader import ConfigLoader, get_default_ai
+from common.toolskit import ToolsKit
+from core.config_loader import ConfigLoader, get_default_ai
 
 
 class ConfigManager:

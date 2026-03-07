@@ -2,7 +2,7 @@ import ipaddress
 
 from fastapi import APIRouter, HTTPException
 
-from ...core.config_loader import (
+from core.config_loader import (
     ConfigLoader,
     get_allocation_version,
     get_cloud_machines_per_device,
@@ -34,8 +34,8 @@ from ...core.config_loader import (
     get_vision_thought_language,
     get_vision_timeout_seconds,
 )
-from ...core.lan_discovery import LanDeviceDiscovery
-from ...models.config import Config, ConfigUpdate, HumanizedConfig
+from core.lan_discovery import LanDeviceDiscovery
+from models.config import Config, ConfigUpdate, HumanizedConfig
 
 router = APIRouter()
 

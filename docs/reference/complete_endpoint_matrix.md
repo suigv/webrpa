@@ -14,18 +14,18 @@
 
 - SDK API：**26** 条接口条目
 - Android RPA：**18** 条方法条目
-- MYTOS API：**20** 条接口条目
-- 合计：**64** 条规范化条目（按文档条目计，不等同于全部底层别名/回退分支）
+- MYTOS API：**34** 条接口条目（v3，2026-01-30）
+- 合计：**78** 条规范化条目（按文档条目计，不等同于全部底层别名/回退分支）
 
 证据优先级：
 1. `hardware_adapters/myt_client.py`、`hardware_adapters/mytRpc.py` 代码接口
 2. `tests/test_sdk_complete.py`、`tests/test_rpa_complete.py`、`tests/test_mytos_complete.py` 映射断言
-3. `docs/pdf_feature_usability_checklist.md` 的落地对照
+3. `docs/reference/pdf_feature_usability_checklist.md` 的落地对照
 
 ## 已知限制与待确认项
 
 - 当前仓库未保留原始 PDF 二进制文件（`**/*.pdf` 未检索到），因此本矩阵基于仓库内已提取结果与测试证据进行核对。
-- 个别接口存在“主路径 + 回退路径”双映射（例如 `/lm/local` ↔ `/models`、`/proxy/*` 兼容形式），实际运行时行为需以后续实现任务的集成测试为准。
+- 当前实现仅保留官方文档路径。
 - RPA selector/node 能力在矩阵中按“能力族”归类；若后续需要逐方法 1:1 清单，应在 Wave 7 任务中继续细化。
 
 ## SDK API（盒子内 SDK）
@@ -83,6 +83,12 @@
 
 ## MYTOS API（MYTOS API 接口文档）
 
+v3 新增/扩展能力已在 `hardware_adapters/myt_client.py` 和 `engine/actions/sdk_actions.py` 对齐，按能力族覆盖到：
+- 文件传输：下载/上传/批量安装/证书上传
+- 代理与系统：S5、ADB 查询与切换、root 授权、module manager
+- 设备能力：截图、自动点击、摄像头热启动、后台保活、按键屏蔽、容器信息、版本
+- 业务数据：应用导入导出、短信、通话、联系人、定位、语言国家、开机启动、webrtc URL
+
 | 方法 | 路径 | 关键参数 | PDF 页码 |
 |---|---|---|---|
 | GET | `/proxy/status` | - | p17-p20 (proxy section) |
@@ -93,16 +99,16 @@
 | POST | `/clipboard` | `content` | p15-p16 |
 | GET | `/download` | `path` | p12-p13 |
 | POST | `/upload` | `path`,`file/content` | p24-p25 |
-| POST | `/installapks` | multipart `file`(ZIP with apks/xapk) | p35-p37 |
+| POST | `/app/batchInstall` | JSON body `files[]` | p35-p37 |
 | GET | `/snapshot` | `type`(optional),`quality`(optional) | p39 |
-| GET | `/queryversion` | - | p38 |
+| GET | `/device/version` | - | p38 |
 | GET | `/info` | - | p45 |
 | POST | `/sms/receive` | - | p22-p23 |
-| GET | `/callog` | `number`(required),`type`,`date`,`duration`,... | p45-p46 |
+| GET | `/call/records` | `number`,`type`,`date`,`duration`,... | p45-p46 |
 | GET | `/task` | - | p47 |
 | GET | `/modifydev?cmd=11` | `ip`(optional),`launage`(optional) — docs title “IP定位”，用于按IP刷新地理/区域设置 | p59-p60 |
 | POST | `/system/adb` | `enabled` | p25 (`/adb`) |
-| GET | `/adid` | `cmd`(required),`adid`(required when cmd=1) | p48 |
+| GET/POST | `/identity/googleId` | GET 查询；POST body `adid` | p48 |
 | GET | `/modulemgr` | `cmd=check|install|uninstall`,`module=magisk|gms` | p49-p50 |
 
 ## 核验说明

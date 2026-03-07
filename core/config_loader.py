@@ -5,7 +5,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from ..models.humanized import FALLBACK_POLICIES, TARGET_STRATEGIES, HumanizedConfig, HumanizedWrapperConfig
+from models.humanized import FALLBACK_POLICIES, TARGET_STRATEGIES, HumanizedConfig, HumanizedWrapperConfig
 
 
 def _project_root() -> Path:

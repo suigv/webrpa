@@ -1,9 +1,9 @@
 import time
 from typing import Any, cast
 
-from new.core.config_loader import ConfigLoader
-from new.core.device_manager import DeviceManager
-from new.hardware_adapters.myt_client import BaseHTTPClient
+from core.config_loader import ConfigLoader
+from core.device_manager import DeviceManager
+from hardware_adapters.myt_client import BaseHTTPClient
 
 
 def test_device_manager_loads_cloud_model_from_sdk_android_list(monkeypatch):

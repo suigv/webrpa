@@ -1,209 +1,279 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-  <title>MYT Control Console</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <title>WebRPA</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css">
 </head>
-<body>
-  <div class="bg-shape bg-shape-a"></div>
-  <div class="bg-shape bg-shape-b"></div>
-
-  <div class="app-layout">
-    <!-- 侧边栏 / 移动端底部导航 -->
-    <nav class="app-nav">
-      <div class="nav-brand">MYT.SYS</div>
-      <button class="nav-item active" data-tab="tab-monitor">
-        <span class="nav-icon">👁</span>
-        <span class="nav-label">监控</span>
-      </button>
-      <button class="nav-item" data-tab="tab-tasks">
-        <span class="nav-icon">⚡</span>
-        <span class="nav-label">任务</span>
-      </button>
-      <button class="nav-item" data-tab="tab-accounts">
-        <span class="nav-icon">👥</span>
-        <span class="nav-label">账号</span>
-      </button>
-      <button class="nav-item" data-tab="tab-config">
-        <span class="nav-icon">⚙️</span>
-        <span class="nav-label">配置</span>
-      </button>
-    </nav>
-
-    <!-- 主内容区 -->
-    <div class="app-main">
-      <header class="topbar">
-        <div class="brand">
-          <h1 data-text="MYT 控制台">MYT 控制台</h1>
-          <p>独立运行环境与设备控制</p>
+<body class="dark-theme">
+  <div class="app-wrapper">
+    <!-- 顶部极简导航 -->
+    <header class="navbar">
+      <div class="navbar-brand">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg>
+        <span>WebRPA</span>
+      </div>
+      <nav class="navbar-tabs">
+        <button class="nav-item active" data-tab="tab-main">设备集群</button>
+        <button class="nav-item" data-tab="tab-tasks">任务队列</button>
+        <button class="nav-item" data-tab="tab-accounts">资源仓库</button>
+        <button class="nav-item" data-tab="tab-config">系统偏好</button>
+      </nav>
+      <div class="navbar-actions">
+        <div id="apiStatus" class="status-badge status-ok">
+          <span class="dot"></span> 已连接
         </div>
-        <div class="status-wrap">
-          <span id="apiStatus" class="badge badge-warn">API: 检查中</span>
-          <button id="refreshAll" class="btn btn-ghost">刷新全局</button>
+        <button id="scanDevices" class="btn btn-secondary">发现设备</button>
+        <button id="refreshAll" class="btn btn-primary">同步</button>
+      </div>
+    </header>
+
+    <main class="main-content">
+      <h1 id="viewTitle" style="display:none;">WebRPA</h1>
+
+      <!-- 设备集群 -->
+      <div id="tab-main" class="tab-pane active">
+        <div class="section-header">
+          <h2>设备集群</h2>
+          <p class="text-muted">实时监控设备状态与下发基础指令</p>
+        </div>
+        <div id="devicesList" class="device-grid"></div>
+        
+        <div class="panel mt-8">
+          <div class="panel-header">
+            <h3>系统级输出</h3>
+            <button id="clearGlobalLogBtn" class="btn btn-text text-muted">清空缓冲区</button>
+          </div>
+          <div id="globalLogBox" class="terminal"></div>
+        </div>
+      </div>
+
+      <!-- 任务队列 -->
+      <div id="tab-tasks" class="tab-pane">
+        <div class="section-header">
+          <h2>任务编排</h2>
+          <p class="text-muted">构建自动化流程并管理执行队列</p>
+        </div>
+        <div class="two-col-layout">
+          <!-- 左侧：新建 -->
+          <div class="panel">
+            <div class="panel-header"><h3>新建作业</h3></div>
+            <div class="panel-body">
+              <div id="taskPluginHost" class="plugin-grid"></div>
+              <div id="taskPayloadFields" class="form-grid mt-6"></div>
+              <button id="showMoreFields" class="btn btn-text text-muted mt-2 px-0">显示高级参数</button>
+
+              <div class="divider mt-6 mb-4"></div>
+              <div class="flex justify-between items-center mb-4">
+                <span class="text-sm font-medium">执行策略</span>
+                <button id="toggleTasksAdvancedBtn" class="btn btn-text text-muted px-0">展开/收起</button>
+              </div>
+              <div id="tasksAdvanced" class="collapsible-section">
+                <div class="form-grid columns-2">
+                  <div class="form-group"><label>指定设备 ID</label><input type="number" id="targetDeviceId" value="1"></div>
+                  <div class="form-group"><label>指定云机 ID</label><input type="number" id="targetCloudId" value="1"></div>
+                  <div class="form-group"><label>优先级调度</label><input type="number" id="taskPriority" value="50"></div>
+                  <div class="form-group"><label>失败重试上限</label><input type="number" id="taskMaxRetries" value="0"></div>
+                  <div class="form-group col-span-2"><label>计划执行时间 (可选)</label><input type="datetime-local" id="taskRunAt"></div>
+                </div>
+              </div>
+              
+              <button id="submitTask" class="btn btn-primary w-full mt-6">提交执行</button>
+            </div>
+          </div>
+
+          <!-- 右侧：流水 -->
+          <div class="panel flex-col">
+            <div class="panel-header">
+              <h3>执行流水</h3>
+              <div class="flex gap-2">
+                <button id="clearTasks" class="btn btn-secondary text-error">清空</button>
+                <button id="refreshTasks" class="btn btn-secondary">刷新</button>
+              </div>
+            </div>
+            <div class="panel-body p-0 flex-1">
+              <div id="tasksList" class="list-group"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 资源仓库 -->
+      <div id="tab-accounts" class="tab-pane">
+        <div class="section-header">
+          <h2>资源仓库</h2>
+          <p class="text-muted">管理数据凭证与批量任务分发</p>
+        </div>
+        <div class="two-col-layout">
+          <div class="panel">
+            <div class="panel-header"><h3>凭证注入</h3></div>
+            <div class="panel-body flex-col">
+              <textarea id="accountsInput" class="textarea-large flex-1" placeholder="格式规范: username----password----2fa"></textarea>
+              <div id="accountsPreview"></div>
+              <div class="flex gap-3 mt-4">
+                <button id="importAccountsAppend" class="btn btn-secondary flex-1">安全追加</button>
+                <button id="importAccountsOverwrite" class="btn btn-secondary text-error flex-1">覆盖写入</button>
+              </div>
+            </div>
+          </div>
+          
+          <div class="panel flex-col">
+            <div class="panel-header">
+              <h3>库存与状态</h3>
+              <button id="loadAccounts" class="btn btn-secondary">刷新状态</button>
+            </div>
+            <div class="panel-body flex-col flex-1 p-0">
+              <div class="stats-group">
+                <div class="stat-item"><span class="dot bg-success"></span> 空闲 <span id="statReady" class="text-primary ml-2">0</span></div>
+                <div class="stat-item"><span class="dot bg-info"></span> 挂载中 <span id="statProgress" class="text-primary ml-2">0</span></div>
+                <div class="stat-item"><span class="dot bg-error"></span> 异常 <span id="statError" class="text-primary ml-2">0</span></div>
+              </div>
+              <div id="accountsInventoryList" class="list-group border-t flex-1"></div>
+              <div class="p-4 border-t">
+                <button id="bulkDispatchBtn" class="btn btn-primary w-full">启动全局指派策略</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 系统偏好 -->
+      <div id="tab-config" class="tab-pane">
+        <div class="section-header">
+          <h2>系统偏好</h2>
+          <p class="text-muted">底层运行逻辑与网络控制</p>
+        </div>
+        <div class="two-col-layout">
+          <div class="panel">
+            <div class="panel-header"><h3>网络层配置</h3></div>
+            <div class="panel-body">
+              <label class="custom-checkbox">
+                <input type="checkbox" id="discoveryEnabled">
+                <span class="checkmark"></span>
+                <div class="label-text">
+                  <strong>守护进程扫描</strong>
+                  <span class="text-muted display-block text-sm">每 20 秒在后台自动探寻新设备</span>
+                </div>
+              </label>
+              <div class="form-group mt-6">
+                <label>目标探测网段 (CIDR)</label>
+                <input type="text" id="discoverySubnet" placeholder="192.168.1.0/24">
+              </div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-header"><h3>行为拟真引擎</h3></div>
+            <div class="panel-body">
+              <div class="flex gap-3 mb-6">
+                <select id="hzPreset" class="flex-1">
+                  <option value="medium">标准环境 (推荐)</option>
+                  <option value="high">高危环境 (深压)</option>
+                  <option value="custom">专家自定义参数</option>
+                </select>
+                <button id="applyHzPreset" class="btn btn-secondary">载入</button>
+              </div>
+              
+              <label class="custom-checkbox">
+                <input type="checkbox" id="hzEnabled">
+                <span class="checkmark"></span>
+                <div class="label-text">
+                  <strong>全局行为混淆</strong>
+                  <span class="text-muted display-block text-sm">在所有输入与点击动作中注入随机噪点</span>
+                </div>
+              </label>
+              
+              <div id="expertConfig" class="mt-6 border-t pt-6" style="display: block;">
+                <h4 class="text-sm font-medium mb-4">底层时间轴 (秒/像素)</h4>
+                <div class="form-grid columns-2">
+                  <div class="form-group"><label>击键错误率</label><input type="number" id="hzTypoProbability" step="0.01"></div>
+                  <div class="form-group"></div>
+                  <div class="form-group"><label>输入流控 (最小值)</label><input type="number" id="hzTypingDelayMin"></div>
+                  <div class="form-group"><label>输入流控 (最大值)</label><input type="number" id="hzTypingDelayMax"></div>
+                </div>
+              </div>
+
+              <div class="mt-8 pt-4 border-t">
+                <button id="saveConfig" class="btn btn-primary w-full">持久化当前配置</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- 全局多选悬浮控制台 -->
+    <div id="selectionBar" class="selection-dock" style="display: none;">
+      <div class="dock-info">
+        <span class="dot pulse"></span>
+        <span>已锁定 <strong id="selectedCount" class="text-primary mx-1">0</strong> 节点</span>
+      </div>
+      <div class="dock-actions">
+        <select id="bulkPluginSelect" class="dock-select"></select>
+        <button id="bulkRunBtn" class="btn btn-primary">执行分发</button>
+        <button id="clearSelection" class="btn btn-text text-muted">舍弃</button>
+      </div>
+    </div>
+
+    <!-- 沉浸式任务报告 -->
+    <div id="taskModal" class="modal-overlay" style="display: none;">
+      <div class="modal">
+        <div class="modal-header">
+          <h3>诊断报告</h3>
+          <button class="btn btn-text text-muted px-2 close-task-modal-btn">Esc</button>
+        </div>
+        <div id="taskDetailBody" class="modal-body"></div>
+        <div class="p-4 border-t bg-panel">
+          <button class="btn btn-secondary w-full close-task-modal-btn">确认退出</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 节点深度接管层 -->
+    <div id="unitDetailView" class="page-layer" style="display: none;">
+      <header class="layer-header">
+        <div class="flex items-center gap-4">
+          <button class="btn btn-secondary px-3" id="closeDetail">
+             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+          </button>
+          <h2 id="detailUnitTitle">节点接管</h2>
         </div>
       </header>
-
-      <div class="content-area">
-        
-        <!-- ================= 监控 TAB ================= -->
-        <div id="tab-monitor" class="tab-pane active grid">
-          <section class="card card-devices">
-            <div class="card-head">
-              <h2>设备列表</h2>
-              <button id="refreshDevices" class="btn">重新加载</button>
-            </div>
-            <div id="devicesList" class="device-list"></div>
-          </section>
-
-          <section class="card card-logs">
-            <div class="card-head">
-              <h2>实时日志</h2>
-              <button id="clearLogs" class="btn btn-ghost">清空</button>
-            </div>
-            <pre id="logBox" class="log-box"></pre>
-          </section>
-        </div>
-
-        <!-- ================= 任务 TAB ================= -->
-        <div id="tab-tasks" class="tab-pane grid">
-          <section class="card card-tasks">
-            <div class="card-head">
-              <h2>任务队列</h2>
-              <button id="refreshTasks" class="btn">重新加载</button>
-            </div>
-            <div class="form-grid">
-              <label>优先级 (0-100)
-                <input id="taskPriority" type="number" min="0" max="100" step="1" value="50">
-              </label>
-              <label>运行时间 (ISO可选)
-                <input id="taskRunAt" type="text" placeholder="2026-03-03T17:30:00+08:00">
-              </label>
-            </div>
-            <div class="form-grid">
-              <label>最大重试次数
-                <input id="taskMaxRetries" type="number" min="0" max="20" step="1" value="0">
-              </label>
-              <label>重试退避 (秒)
-                <input id="taskBackoff" type="number" min="0" max="3600" step="1" value="2">
-              </label>
-            </div>
-            <textarea id="taskPayload" rows="6" spellcheck="false">{
-  "task": "anonymous",
-  "steps": []
-}</textarea>
-            <div class="task-actions-row">
-              <button id="submitTask" class="btn btn-accent">提交任务</button>
-            </div>
-            <div id="taskMsg" class="msg"></div>
-            <div id="tasksList" class="device-list"></div>
-            <pre id="taskDetail" class="code"></pre>
-          </section>
-
-          <section class="card card-runtime">
-            <div class="card-head">
-              <h2>运行时执行</h2>
-              <button id="runTask" class="btn btn-accent">运行</button>
-            </div>
-            <textarea id="runtimePayload" rows="10" spellcheck="false">{
-  "task": "smoke",
-  "steps": [
-    {
-      "action": "browser_open",
-      "params": {
-        "url": "https://example.com",
-        "headless": true
-      }
-    }
-  ]
-}</textarea>
-            <pre id="runtimeResult" class="code"></pre>
-          </section>
-        </div>
-
-        <!-- ================= 账号 TAB ================= -->
-        <div id="tab-accounts" class="tab-pane grid">
-          <section class="card card-accounts card-full">
-            <div class="card-head">
-              <h2>账号导入 (账号,密码,2FA)</h2>
-              <button id="loadAccounts" class="btn">加载已保存</button>
-            </div>
-            <textarea id="accountsInput" rows="8" spellcheck="false" placeholder="账号 密码 2fa(可选)
-alice@example.com password123 123456
-bob@example.com,password456,OTP-SECRET"></textarea>
-            <div class="task-actions-row">
-              <button id="importAccountsOverwrite" class="btn btn-accent">导入 (覆盖)</button>
-              <button id="importAccountsAppend" class="btn">导入 (追加)</button>
-            </div>
-            <div id="accountsMsg" class="msg"></div>
-            <pre id="accountsPreview" class="code"></pre>
-          </section>
-        </div>
-
-        <!-- ================= 配置 TAB ================= -->
-        <div id="tab-config" class="tab-pane grid">
-          <section class="card card-config card-full">
-            <div class="card-head">
-              <h2>系统配置</h2>
-              <button id="saveConfig" class="btn">保存</button>
-            </div>
-            <div class="form-grid">
-              <label>主机 IP<input id="hostIp" type="text" placeholder="127.0.0.1"></label>
-              <label>设备总数<input id="totalDevices" type="number" min="1" step="1"></label>
-            </div>
-            <label class="block-label">设备 IP 映射 (JSON)
-              <textarea id="deviceIps" rows="4" spellcheck="false"></textarea>
-            </label>
-            <div class="block-label humanized-box">
-              <strong>拟人化控制</strong>
-              <div class="form-grid">
-                <label>快捷档位
-                  <select id="hzPreset">
-                    <option value="low">低</option>
-                    <option value="medium">中</option>
-                    <option value="high">高</option>
-                    <option value="custom">自定义</option>
-                  </select>
-                </label>
-                <label>
-                  <button id="applyHzPreset" class="btn btn-ghost" type="button">应用档位</button>
-                </label>
+      
+      <div class="layer-content max-w-screen-lg mx-auto py-8 px-4">
+        <div class="two-col-layout">
+          <div class="panel">
+            <div class="panel-header"><h3>独立注入指令</h3></div>
+            <div class="panel-body">
+              <div class="form-group"><label>选择驱动</label><select id="unitPluginSelect"></select></div>
+              <div id="unitPluginFields" class="form-grid mt-6"></div>
+              <button id="showMoreUnitFields" class="btn btn-text text-muted mt-2 px-0">配置高级属性</button>
+              
+              <div class="divider mt-6 mb-4"></div>
+              <button id="toggleUnitAdvancedBtn" class="btn btn-text text-muted px-0">调度参数</button>
+              <div id="unitAdvanced" class="collapsible-section mt-4">
+                <div class="form-grid columns-2">
+                  <div class="form-group"><label>权重</label><input type="number" id="unitTaskPriority" value="50"></div>
+                  <div class="form-group"><label>重试</label><input type="number" id="unitTaskMaxRetries" value="0"></div>
+                  <div class="form-group col-span-2"><label>时间线</label><input type="datetime-local" id="unitTaskRunAt"></div>
+                </div>
               </div>
-              <div class="form-grid">
-                <label>启用 <input id="hzEnabled" type="checkbox"></label>
-                <label>错误概率 (0..1) <input id="hzTypoProbability" type="number" min="0" max="1" step="0.01"></label>
-                <label>最小输入延迟 <input id="hzTypingDelayMin" type="number" min="0" step="0.01"></label>
-                <label>最大输入延迟 <input id="hzTypingDelayMax" type="number" min="0" step="0.01"></label>
-                <label>最小错误延迟 <input id="hzTypoDelayMin" type="number" min="0" step="0.01"></label>
-                <label>最大错误延迟 <input id="hzTypoDelayMax" type="number" min="0" step="0.01"></label>
-                <label>最小退格延迟 <input id="hzBackspaceDelayMin" type="number" min="0" step="0.01"></label>
-                <label>最大退格延迟 <input id="hzBackspaceDelayMax" type="number" min="0" step="0.01"></label>
-                <label>最小点击 X偏移 <input id="hzClickOffsetXMin" type="number" step="1"></label>
-                <label>最大点击 X偏移 <input id="hzClickOffsetXMax" type="number" step="1"></label>
-                <label>最小点击 Y偏移 <input id="hzClickOffsetYMin" type="number" step="1"></label>
-                <label>最大点击 Y偏移 <input id="hzClickOffsetYMax" type="number" step="1"></label>
-                <label>最小移动时长 <input id="hzMoveDurationMin" type="number" min="0" step="0.01"></label>
-                <label>最大移动时长 <input id="hzMoveDurationMax" type="number" min="0" step="0.01"></label>
-                <label>最小移动步数 <input id="hzMoveStepsMin" type="number" min="1" step="1"></label>
-                <label>最大移动步数 <input id="hzMoveStepsMax" type="number" min="1" step="1"></label>
-                <label>随机种子 (可选) <input id="hzRandomSeed" type="text" placeholder="留空则随机"></label>
-              </div>
+              <button id="submitSingleTask" class="btn btn-primary w-full mt-8">授权并执行</button>
             </div>
-            <label class="block-label">拟人化配置预览 (JSON)
-              <textarea id="humanizedConfig" rows="6" spellcheck="false" readonly></textarea>
-            </label>
-            <div id="configMsg" class="msg"></div>
-          </section>
+          </div>
+          <div class="panel flex-col">
+            <div class="panel-header"><h3>运行态流</h3></div>
+            <div class="panel-body p-0 flex-1">
+              <div id="unitLogBox" class="terminal border-none h-full m-0 rounded-none"></div>
+            </div>
+          </div>
         </div>
+      </div>
+    </div>
+  </div>
 
-      </div> <!-- content-area -->
-    </div> <!-- app-main -->
-  </div> <!-- app-layout -->
-
-  <script src="app.js"></script>
+  <script type="module" src="/static/js/main.js"></script>
 </body>
 </html>

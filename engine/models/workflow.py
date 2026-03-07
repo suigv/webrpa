@@ -29,6 +29,7 @@ class ConditionType(str, Enum):
     text_contains = "text_contains"
     url_contains = "url_contains"
     var_equals = "var_equals"
+    var_truthy = "var_truthy"
     result_ok = "result_ok"
 
 

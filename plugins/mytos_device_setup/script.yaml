@@ -1,0 +1,87 @@
+version: v1
+workflow: mytos_device_setup
+
+steps:
+  - label: query_adb_state
+    kind: action
+    action: mytos.query_adb_permission
+    params:
+      device_ip: "${payload.device_ip}"
+      sdk_port: "${payload.sdk_port:-8000}"
+    on_fail:
+      strategy: skip
+
+  - label: enable_adb
+    kind: action
+    action: mytos.switch_adb_permission
+    params:
+      device_ip: "${payload.device_ip}"
+      sdk_port: "${payload.sdk_port:-8000}"
+      enabled: true
+    on_fail:
+      strategy: abort
+
+  - label: set_locale
+    kind: action
+    action: mytos.set_language_country
+    params:
+      device_ip: "${payload.device_ip}"
+      sdk_port: "${payload.sdk_port:-8000}"
+      language: "${payload.language:-en}"
+      country: "${payload.country:-US}"
+    on_fail:
+      strategy: abort
+
+  - label: list_bootstart
+    kind: action
+    action: mytos.get_app_bootstart_list
+    params:
+      device_ip: "${payload.device_ip}"
+      sdk_port: "${payload.sdk_port:-8000}"
+    on_fail:
+      strategy: skip
+
+  - label: set_bootstart
+    kind: action
+    action: mytos.set_app_bootstart
+    params:
+      device_ip: "${payload.device_ip}"
+      sdk_port: "${payload.sdk_port:-8000}"
+      package: "${payload.package}"
+      enabled: "${payload.enable_app_bootstart:-true}"
+    on_fail:
+      strategy: abort
+
+  - label: query_root_allowlist
+    kind: action
+    action: mytos.get_root_allowed_apps
+    params:
+      device_ip: "${payload.device_ip}"
+      sdk_port: "${payload.sdk_port:-8000}"
+    on_fail:
+      strategy: skip
+
+  - label: set_root_for_package
+    kind: action
+    action: mytos.set_root_allowed_app
+    params:
+      device_ip: "${payload.device_ip}"
+      sdk_port: "${payload.sdk_port:-8000}"
+      package: "${payload.package}"
+      allowed: "${payload.allow_root:-true}"
+    on_fail:
+      strategy: abort
+
+  - label: fetch_container_info
+    kind: action
+    action: mytos.get_container_info
+    params:
+      device_ip: "${payload.device_ip}"
+      sdk_port: "${payload.sdk_port:-8000}"
+    on_fail:
+      strategy: skip
+
+  - label: done
+    kind: stop
+    status: success
+    message: "mytos device setup completed"

@@ -1,11 +1,11 @@
 from typing import List, Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, BackgroundTasks
 
-from ...core.config_loader import ConfigLoader
-from ...core.device_manager import DeviceManager
-from ...core.lan_discovery import LanDeviceDiscovery
-from ...models.device import AIType, CloudMachineInfo, DeviceInfo, DeviceStatus, DeviceStatusResponse
+from core.config_loader import ConfigLoader
+from core.device_manager import DeviceManager
+from core.lan_discovery import LanDeviceDiscovery
+from models.device import AIType, CloudMachineInfo, DeviceInfo, DeviceStatus, DeviceStatusResponse
 
 router = APIRouter()
 device_manager = DeviceManager()
@@ -62,17 +62,17 @@ def list_devices(availability: Literal["all", "available_only"] = "all"):
 
 @router.post("/discover")
 @router.post("/discover/")
-def discover_devices():
-    ips = discovery.scan_now(force=True)
-    if ips:
-        ConfigLoader.update(
-            total_devices=len(ips),
-            device_ips={str(index): ip for index, ip in enumerate(ips, start=1)},
-        )
-    return {
-        "count": len(ips),
-        "device_ips": {str(index): ip for index, ip in enumerate(ips, start=1)},
-    }
+def discover_devices(background_tasks: BackgroundTasks):
+    def run_scan():
+        ips = discovery.scan_now(force=True)
+        if ips:
+            ConfigLoader.update(
+                total_devices=len(ips),
+                device_ips={str(index): ip for index, ip in enumerate(ips, start=1)},
+            )
+    
+    background_tasks.add_task(run_scan)
+    return {"status": "started", "message": "Background scan initiated"}
 
 
 @router.get("/{device_id}", response_model=DeviceInfo)
@@ -101,20 +101,16 @@ def get_device_status(device_id: int):
 @router.post("/{device_id}/start")
 def start_device(device_id: int):
     try:
-        device_manager.set_device_status(device_id, DeviceStatus.RUNNING, task="runtime_stub", message="started")
+        device_manager.set_device_status(device_id, DeviceStatus.IDLE, task=None, message="connection enabled")
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return {"device_id": device_id, "status": "started", "mode": "runtime_stub"}
+    return {"device_id": device_id, "status": "enabled"}
 
 
 @router.post("/{device_id}/stop")
 def stop_device(device_id: int):
     try:
-        device = device_manager.get_device(device_id)
+        device_manager.set_device_status(device_id, DeviceStatus.OFFLINE, task=None, message="connection disabled")
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-    if device.status == DeviceStatus.RUNNING:
-        device_manager.set_device_status(device_id, DeviceStatus.IDLE, task=None, message="stopped")
-        return {"device_id": device_id, "status": "stopped"}
-    raise HTTPException(status_code=400, detail="No running task to stop")
+    return {"device_id": device_id, "status": "disabled"}

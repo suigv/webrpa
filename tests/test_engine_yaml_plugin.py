@@ -10,16 +10,16 @@ from pathlib import Path
 from typing import Any, Dict
 from unittest.mock import MagicMock
 
-import pytest
-from pydantic import ValidationError
+import pytest  # pyright: ignore[reportMissingImports]
+from pydantic import ValidationError  # pyright: ignore[reportMissingImports]
 
-from new.engine.action_registry import ActionRegistry, get_registry, register_defaults
-from new.engine.actions.credential_actions import credentials_load
-from new.engine.conditions import evaluate as eval_condition
-from new.engine.interpreter import Interpreter, InterpreterError
-from new.engine.models.manifest import PluginManifest
-from new.engine.models.runtime import ActionResult, ExecutionContext
-from new.engine.models.workflow import (
+from engine.action_registry import ActionRegistry, get_registry, register_defaults
+from engine.actions.credential_actions import credentials_load
+from engine.conditions import evaluate as eval_condition
+from engine.interpreter import Interpreter, InterpreterError
+from engine.models.manifest import PluginManifest
+from engine.models.runtime import ActionResult, ExecutionContext
+from engine.models.workflow import (
     ActionStep,
     Condition,
     ConditionExpr,
@@ -30,8 +30,8 @@ from new.engine.models.workflow import (
     WaitUntilStep,
     WorkflowScript,
 )
-from new.engine.parser import interpolate, interpolate_params, parse_manifest, parse_script
-from new.engine.plugin_loader import PluginLoader
+from engine.parser import interpolate, interpolate_params, parse_manifest, parse_script
+from engine.plugin_loader import PluginLoader
 
 
 # ============================================================
@@ -570,6 +570,63 @@ class TestInterpreter:
         result = interp.execute(script, {})
         assert result["ok"] is False
         mock_browser.close.assert_called_once()
+
+    def test_selector_cleanup_in_finally_on_action_failure(self, monkeypatch):
+        from engine.actions import ui_actions
+
+        class FakeSelectorRpc:
+            instances: list["FakeSelectorRpc"] = []
+
+            def __init__(self):
+                self.closed = False
+                self.clear_calls = 0
+                self.query_calls = 0
+                FakeSelectorRpc.instances.append(self)
+
+            def init(self, ip, port, timeout):
+                return True
+
+            def close(self):
+                self.closed = True
+
+            def create_selector(self):
+                return 7
+
+            def addQuery_Text(self, selector, value):
+                self.query_calls += 1
+                return not self.closed
+
+            def clear_selector(self, selector):
+                self.clear_calls += 1
+                return not self.closed
+
+        monkeypatch.setattr(ui_actions, "MytRpc", FakeSelectorRpc)
+
+        reg = get_registry()
+        reg.register("test.fail_after_selector", lambda p, c: ActionResult(ok=False, code="err", message="forced failure"))
+
+        script = WorkflowScript.model_validate({
+            "version": "v1",
+            "workflow": "selector_cleanup",
+            "steps": [
+                {"kind": "action", "action": "ui.create_selector", "params": {}},
+                {"kind": "action", "action": "ui.selector_add_query", "params": {"type": "text", "value": "hello"}},
+                {"kind": "action", "action": "test.fail_after_selector", "params": {}},
+            ],
+        })
+
+        interp = self._make_interpreter()
+        result = interp.execute(
+            script,
+            {"device_ip": "192.168.1.2", "cloud_index": 1, "cloud_machines_per_device": 1},
+        )
+
+        assert result["ok"] is False
+        assert "forced failure" in result["message"]
+        assert len(FakeSelectorRpc.instances) == 1
+        assert FakeSelectorRpc.instances[0].query_calls == 1
+        assert FakeSelectorRpc.instances[0].clear_calls == 1
+        assert FakeSelectorRpc.instances[0].closed is True
 
 
 # ============================================================

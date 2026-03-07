@@ -1,6 +1,6 @@
 # pyright: reportMissingImports=false
-from new.hardware_adapters.browser_client import HumanizedWrapper
-from new.models.humanized import HumanizedWrapperConfig
+from hardware_adapters.browser_client import HumanizedWrapper
+from models.humanized import HumanizedWrapperConfig
 
 
 class _FakeRect:
@@ -234,7 +234,7 @@ def test_humanized_input_adds_word_boundary_pauses(monkeypatch):
     def _record_sleep(seconds):
         sleeps.append(seconds)
 
-    monkeypatch.setattr("new.hardware_adapters.browser_client.time.sleep", _record_sleep)
+    monkeypatch.setattr("hardware_adapters.browser_client.time.sleep", _record_sleep)
 
     wrapper = HumanizedWrapper(page, cfg)
     wrapper.ele("#input").input("ab c!")
@@ -468,7 +468,7 @@ def test_humanized_click_applies_pre_hover_and_cadence_delays(monkeypatch):
     def _record_sleep(seconds):
         sleeps.append(seconds)
 
-    monkeypatch.setattr("new.hardware_adapters.browser_client.time.sleep", _record_sleep)
+    monkeypatch.setattr("hardware_adapters.browser_client.time.sleep", _record_sleep)
 
     wrapper = HumanizedWrapper(page, cfg)
     wrapper.ele("#btn").click()
@@ -498,7 +498,7 @@ def test_humanized_click_uses_down_up_when_click_method_unavailable(monkeypatch)
     def _record_sleep(seconds):
         sleeps.append(seconds)
 
-    monkeypatch.setattr("new.hardware_adapters.browser_client.time.sleep", _record_sleep)
+    monkeypatch.setattr("hardware_adapters.browser_client.time.sleep", _record_sleep)
 
     wrapper = HumanizedWrapper(page, cfg)
     wrapper.ele("#btn").click()

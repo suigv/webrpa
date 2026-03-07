@@ -6,12 +6,16 @@ import time
 import uuid
 from datetime import datetime, timedelta, timezone
 import math
+import json
 from typing import Any, Protocol
+from core.data_store import read_lines, write_lines
 
-from new.core.task_events import TaskEventStore
-from new.core.task_queue import QueueBackend, create_task_queue
-from new.core.task_store import TaskRecord, TaskStore
-from new.engine.runner import Runner
+from core.task_events import TaskEventStore
+from core.task_queue import QueueBackend, create_task_queue
+from core.task_store import TaskRecord, TaskStore
+from core.device_manager import DeviceManager
+from engine.runner import Runner
+from engine.plugin_loader import PluginLoader
 
 
 class RunnerLike(Protocol):
@@ -30,19 +34,36 @@ class TaskController:
         self._queue = queue_backend or create_task_queue()
         self._runner = runner or Runner()
         self._events = event_store or TaskEventStore()
+        self._device_manager = DeviceManager()
+        self._plugin_loader = PluginLoader()
+        self._plugin_loader.scan()
         self._stop_event = threading.Event()
         self._worker: threading.Thread | None = None
+        
+        # 并发线程池，最大并发数可以根据云机数量动态调整，默认给 32
+        import concurrent.futures
+        self._executor: concurrent.futures.ThreadPoolExecutor | None = None
 
     def start(self) -> None:
         if self._worker is not None and self._worker.is_alive():
             return
         self._stop_event.clear()
         self._recover_stale_running_tasks()
+        
+        import concurrent.futures
+        max_workers = int(os.environ.get("MYT_MAX_CONCURRENT_TASKS", "32"))
+        self._executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=max_workers, 
+            thread_name_prefix="task-worker"
+        )
+        
         self._worker = threading.Thread(target=self._work_loop, name="task-controller-worker", daemon=True)
         self._worker.start()
 
     def stop(self) -> None:
         self._stop_event.set()
+        if self._executor is not None:
+            self._executor.shutdown(wait=False)
         if self._worker is not None:
             self._worker.join(timeout=2)
 
@@ -101,9 +122,11 @@ class TaskController:
 
         task_id = record.task_id
         delay = 0
+        run_at_epoch: float | None = None
         if run_at:
+            run_at_epoch = self._iso_to_epoch(run_at)
             delay = self._delay_seconds(run_at)
-        self._queue.enqueue(task_id, delay_seconds=delay, priority=priority)
+        self._queue.enqueue(task_id, delay_seconds=delay, priority=priority, run_at_epoch=run_at_epoch)
         self._events.append_event(
             task_id,
             "task.created",
@@ -141,6 +164,18 @@ class TaskController:
                     self._metrics_payload(task_id, {"reason": "user_pending"}),
                 )
         return state
+
+    def clear_all(self) -> None:
+        """Wipe all tasks from store and clear the execution queue."""
+        self._store.clear_all_tasks()
+        # Note: Depending on backend, clear might not be supported on all QueueBackend.
+        # But we attempt to clear the store first which is the source of truth.
+        # Re-initialize the queue if possible or let the dequeue fail gracefully.
+        try:
+            # Most backends used in this project support a simple clear or re-init
+            self._queue = create_task_queue()
+        except Exception:
+            pass
 
     def task_metrics(
         self,
@@ -302,102 +337,165 @@ class TaskController:
             if not task_id:
                 continue
 
-            if not self._store.mark_running(task_id):
-                record = self._store.get_task(task_id)
-                if record is not None and record.status == "pending":
-                    delay = 0
-                    if record.run_at is not None:
-                        delay = self._delay_seconds(record.run_at)
-                    if record.next_retry_at is not None:
-                        delay = max(delay, self._delay_seconds(record.next_retry_at))
-                    self._queue.enqueue(task_id, delay_seconds=delay, priority=record.priority)
-                continue
+            if self._executor is not None:
+                self._executor.submit(self._process_task, task_id)
+            else:
+                self._process_task(task_id)
 
+    def _process_task(self, task_id: str) -> None:
+        if not self._store.mark_running(task_id):
             record = self._store.get_task(task_id)
-            if record is None:
-                continue
-            self._events.append_event(
-                task_id,
-                "task.started",
-                {"retry_count": record.retry_count, "priority": record.priority},
-            )
-            task_name = str(record.payload.get("task") or "anonymous")
-            self._events.append_event(
-                task_id,
-                "task.dispatching",
-                {
-                    "task": task_name,
-                    "retry_count": record.retry_count,
-                    "priority": record.priority,
-                },
-            )
+            if record is not None and record.status == "pending":
+                delay = 0
+                run_at_epoch: float | None = None
+                if record.run_at is not None:
+                    run_at_epoch = self._iso_to_epoch(record.run_at)
+                    delay = self._delay_seconds(record.run_at)
+                if record.next_retry_at is not None:
+                    run_at_epoch = self._iso_to_epoch(record.next_retry_at)
+                    delay = max(delay, self._delay_seconds(record.next_retry_at))
+                self._queue.enqueue(
+                    task_id,
+                    delay_seconds=delay,
+                    priority=record.priority,
+                    run_at_epoch=run_at_epoch,
+                )
+            return
 
-            try:
+        record = self._store.get_task(task_id)
+        if record is None:
+            return
+        self._events.append_event(
+            task_id,
+            "task.started",
+            {"retry_count": record.retry_count, "priority": record.priority},
+        )
+        task_name = str(record.payload.get("task") or "anonymous")
+        self._events.append_event(
+            task_id,
+            "task.dispatching",
+            {
+                "task": task_name,
+                "retry_count": record.retry_count,
+                "priority": record.priority,
+            },
+        )
+
+        payload_for_run = dict(record.payload)
+        raw_targets = payload_for_run.pop("_dispatch_targets", None)
+        dispatch_targets: list[dict[str, int]] = []
+        if isinstance(raw_targets, list):
+            for item in raw_targets:
+                if not isinstance(item, dict):
+                    continue
+                device_id_raw = item.get("device_id")
+                cloud_id_raw = item.get("cloud_id", 1)
+                if device_id_raw is None or cloud_id_raw is None:
+                    continue
+                try:
+                    device_id = int(str(device_id_raw))
+                    cloud_id = int(str(cloud_id_raw))
+                except Exception:
+                    continue
+                if device_id < 1 or cloud_id < 1:
+                    continue
+                dispatch_targets.append({"device_id": device_id, "cloud_id": cloud_id})
+        if not dispatch_targets:
+            if record.devices:
+                dispatch_targets = [{"device_id": int(device_id), "cloud_id": 1} for device_id in record.devices]
+            else:
+                dispatch_targets = [{"device_id": 1, "cloud_id": 1}]
+
+        try:
+            target_results: list[dict[str, Any]] = []
+            first_failure: dict[str, Any] | None = None
+
+            should_resolve_target = (os.getenv("MYT_ENABLE_RPC", "1") != "0") and self._plugin_loader.has(task_name)
+
+            for target in dispatch_targets:
+                target_runtime: dict[str, Any] | None = None
+                target_error: dict[str, Any] | None = None
+                if should_resolve_target:
+                    target_runtime, target_error = self._resolve_target_runtime(
+                        target,
+                        enforce_availability=True,
+                    )
+                if target_error is not None:
+                    target_result = {
+                        "target": target,
+                        "result": target_error,
+                    }
+                    target_results.append(target_result)
+                    if first_failure is None:
+                        first_failure = target_error
+                    continue
+
+                target_payload = dict(payload_for_run)
+                target_payload["_task_id"] = task_id
+                target_payload["_cloud_target"] = f"Unit #{target.get('device_id')}-{target.get('cloud_id')}"
+
+                if target_runtime is not None:
+                    target_payload["_target"] = target_runtime
+
                 result = self._runner.run(
-                    record.payload,
+                    target_payload,
                     should_cancel=lambda task_id=task_id: self._store.is_cancel_requested(task_id),
                 )
-                self._events.append_event(
-                    task_id,
-                    "task.dispatch_result",
-                    {
-                        "task": str(result.get("task") or task_name),
-                        "status": str(result.get("status") or "unknown"),
-                        "ok": bool(result.get("ok")),
-                        "checkpoint": str(result.get("checkpoint") or ""),
-                    },
-                )
-                if self._store.is_cancel_requested(task_id) or str(result.get("status")) == "cancelled":
-                    self._store.mark_cancelled(task_id, message="cancelled by user")
-                    self._events.append_event(task_id, "task.cancelled", self._metrics_payload(task_id, {"reason": "user"}))
-                    time.sleep(0)
-                    continue
-                if bool(result.get("ok")):
-                    self._store.mark_completed(task_id, result=result)
-                    self._events.append_event(task_id, "task.completed", self._metrics_payload(task_id, {"ok": True}))
-                else:
-                    error = str(result.get("message", "task failed"))
-                    retry_record = self._store.schedule_retry(task_id, error=error)
-                    if retry_record is not None and retry_record.next_retry_at is not None:
-                        self._queue.enqueue(
-                            task_id,
-                            delay_seconds=self._delay_seconds(retry_record.next_retry_at),
-                            priority=retry_record.priority,
-                        )
-                        self._events.append_event(
-                            task_id,
-                            "task.retry_scheduled",
-                            {
-                                "retry_count": retry_record.retry_count,
-                                "max_retries": retry_record.max_retries,
-                                "next_retry_at": retry_record.next_retry_at,
-                                "error": error,
-                            },
-                        )
-                    else:
-                        if self._store.is_cancel_requested(task_id):
-                            self._store.mark_cancelled(task_id, message="cancelled by user")
-                            self._events.append_event(
-                                task_id,
-                                "task.cancelled",
-                                self._metrics_payload(task_id, {"reason": "user_exception_path"}),
-                            )
-                            time.sleep(0)
-                            continue
-                        self._store.mark_failed(task_id, error=error, result=result)
-                        self._events.append_event(
-                            task_id,
-                            "task.failed",
-                            self._metrics_payload(task_id, {"error": error}),
-                        )
-            except Exception as exc:
-                error = str(exc)
+                target_result = {                    "target": target_runtime or target,
+                    "result": result,
+                }
+                target_results.append(target_result)
+                if not bool(result.get("ok")) and first_failure is None:
+                    first_failure = result
+
+            if first_failure is None:
+                result = {
+                    "ok": True,
+                    "task": task_name,
+                    "status": "completed",
+                    "target_count": len(target_results),
+                    "targets": target_results,
+                }
+            else:
+                result = {
+                    "ok": False,
+                    "task": task_name,
+                    "status": str(first_failure.get("status") or "failed"),
+                    "message": str(first_failure.get("message") or "task failed"),
+                    "target_count": len(target_results),
+                    "targets": target_results,
+                }
+
+            self._events.append_event(
+                task_id,
+                "task.dispatch_result",
+                {
+                    "task": str(result.get("task") or task_name),
+                    "status": str(result.get("status") or "unknown"),
+                    "ok": bool(result.get("ok")),
+                    "checkpoint": str(result.get("checkpoint") or ""),
+                },
+            )
+            if self._store.is_cancel_requested(task_id) or str(result.get("status")) == "cancelled":
+                self._store.mark_cancelled(task_id, message="cancelled by user")
+                self._events.append_event(task_id, "task.cancelled", self._metrics_payload(task_id, {"reason": "user"}))
+                return
+
+            if bool(result.get("ok")):
+                self._store.mark_completed(task_id, result=result)
+                self._events.append_event(task_id, "task.completed", self._metrics_payload(task_id, {"ok": True}))
+            else:
+                error = str(result.get("message", "task failed"))
+                # --- NEW: Account Status Feedback ---
+                self._handle_account_error_feedback(record.payload, error)
+                # ------------------------------------
                 retry_record = self._store.schedule_retry(task_id, error=error)
                 if retry_record is not None and retry_record.next_retry_at is not None:
                     self._queue.enqueue(
                         task_id,
                         delay_seconds=self._delay_seconds(retry_record.next_retry_at),
                         priority=retry_record.priority,
+                        run_at_epoch=self._iso_to_epoch(retry_record.next_retry_at),
                     )
                     self._events.append_event(
                         task_id,
@@ -417,23 +515,142 @@ class TaskController:
                             "task.cancelled",
                             self._metrics_payload(task_id, {"reason": "user_exception_path"}),
                         )
-                        time.sleep(0)
-                        continue
-                    self._store.mark_failed(task_id, error=error, result=None)
+                        return
+                    self._store.mark_failed(task_id, error=error, result=result)
                     self._events.append_event(
                         task_id,
                         "task.failed",
                         self._metrics_payload(task_id, {"error": error}),
                     )
-            time.sleep(0)
+        except Exception as exc:
+            error = str(exc)
+            retry_record = self._store.schedule_retry(task_id, error=error)
+            if retry_record is not None and retry_record.next_retry_at is not None:
+                self._queue.enqueue(
+                    task_id,
+                    delay_seconds=self._delay_seconds(retry_record.next_retry_at),
+                    priority=retry_record.priority,
+                    run_at_epoch=self._iso_to_epoch(retry_record.next_retry_at),
+                )
+                self._events.append_event(
+                    task_id,
+                    "task.retry_scheduled",
+                    {
+                        "retry_count": retry_record.retry_count,
+                        "max_retries": retry_record.max_retries,
+                        "next_retry_at": retry_record.next_retry_at,
+                        "error": error,
+                    },
+                )
+            else:
+                if self._store.is_cancel_requested(task_id):
+                    self._store.mark_cancelled(task_id, message="cancelled by user")
+                    self._events.append_event(
+                        task_id,
+                        "task.cancelled",
+                        self._metrics_payload(task_id, {"reason": "user_exception_path"}),
+                    )
+                    return
+                self._store.mark_failed(task_id, error=error)
+                self._events.append_event(
+                    task_id,
+                    "task.failed",
+                    self._metrics_payload(task_id, {"error": error}),
+                )
+        time.sleep(0)
+
+
+    def _resolve_target_runtime(
+        self,
+        target: dict[str, int],
+        enforce_availability: bool,
+    ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+        try:
+            device_id_raw = target.get("device_id")
+            cloud_id_raw = target.get("cloud_id")
+            if device_id_raw is None or cloud_id_raw is None:
+                raise ValueError("missing target keys")
+            device_id = int(device_id_raw)
+            cloud_id = int(cloud_id_raw)
+        except Exception:
+            device_id = 0
+            cloud_id = 0
+        if device_id < 1 or cloud_id < 1:
+            return None, {
+                "ok": False,
+                "status": "failed_target_validation",
+                "code": "invalid_target",
+                "message": f"invalid target: device_id={device_id}, cloud_id={cloud_id}",
+            }
+
+        try:
+            info = self._device_manager.get_device_info(device_id)
+        except Exception as exc:
+            return None, {
+                "ok": False,
+                "status": "failed_target_validation",
+                "code": "target_not_found",
+                "message": str(exc),
+            }
+
+        clouds_raw = info.get("cloud_machines") if isinstance(info, dict) else []
+        clouds = clouds_raw if isinstance(clouds_raw, list) else []
+        cloud = None
+        for item in clouds:
+            if not isinstance(item, dict):
+                continue
+            cloud_value = item.get("cloud_id", 0)
+            try:
+                cloud_value_int = int(cloud_value)
+            except Exception:
+                cloud_value_int = 0
+            if cloud_value_int == cloud_id:
+                cloud = item
+                break
+        if cloud is None:
+            return None, {
+                "ok": False,
+                "status": "failed_target_validation",
+                "code": "cloud_not_found",
+                "message": f"cloud_id out of range for device {device_id}: {cloud_id}",
+            }
+
+        availability_state = str(cloud.get("availability_state") or "unknown")
+        if enforce_availability and availability_state != "available":
+            return None, {
+                "ok": False,
+                "status": "failed_target_unavailable",
+                "code": "target_unavailable",
+                "message": (
+                    f"target unavailable: device={device_id}, cloud={cloud_id}, "
+                    f"state={availability_state}"
+                ),
+            }
+
+        return {
+            "device_id": device_id,
+            "cloud_id": cloud_id,
+            "device_ip": str(info.get("ip") or ""),
+            "api_port": int(cloud.get("api_port", 0)),
+            "rpa_port": int(cloud.get("rpa_port", 0)),
+            "availability_state": availability_state,
+        }, None
 
     def _delay_seconds(self, next_retry_at: str) -> int:
         dt = datetime.fromisoformat(next_retry_at)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
         now = datetime.now(timezone.utc)
         delta = (dt - now).total_seconds()
         if delta <= 0:
             return 0
         return int(math.ceil(delta))
+
+    def _iso_to_epoch(self, timestamp: str) -> float:
+        dt = datetime.fromisoformat(timestamp)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.timestamp()
 
     def _metrics_payload(self, task_id: str, extra: dict[str, Any]) -> dict[str, Any]:
         record = self._store.get_task(task_id)
@@ -456,17 +673,78 @@ class TaskController:
         payload.update(extra)
         return payload
 
+    def _handle_account_error_feedback(self, payload: dict[str, Any], error: str) -> None:
+        """Internal helper to automatically flag account status based on task errors."""
+        ref = str(payload.get("credentials_ref") or "").strip()
+        if not ref:
+            return
+
+        account_name = None
+        # Try to extract account name from ref (if JSON)
+        if ref.startswith("{") and ref.endswith("}"):
+            try:
+                creds = json.loads(ref)
+                account_name = creds.get("account") or creds.get("username_or_email")
+            except Exception:
+                pass
+        
+        if not account_name:
+            return
+
+        # Determine target status
+        target_status = None
+        error_lower = error.lower()
+        if any(k in error_lower for k in ["wrong password", "incorrect", "bad credentials"]):
+            target_status = "bad_auth"
+        elif any(k in error_lower for k in ["suspended", "banned", "locked"]):
+            target_status = "banned"
+        elif "2fa" in error_lower:
+            target_status = "2fa_issue"
+            
+        if not target_status:
+            return
+
+        # Update accounts.json
+        try:
+            lines = read_lines("accounts")
+            updated = []
+            found = False
+            for line in lines:
+                try:
+                    item = json.loads(line)
+                    if item.get("account") == account_name:
+                        item["status"] = target_status
+                        item["error_msg"] = error
+                        updated.append(json.dumps(item))
+                        found = True
+                    else:
+                        updated.append(line)
+                except Exception:
+                    updated.append(line)
+            if found:
+                write_lines("accounts", updated)
+        except Exception:
+            pass
+
     def _recover_stale_running_tasks(self) -> None:
         stale_after_seconds = self._stale_running_seconds()
         stale_before = (datetime.now(timezone.utc) - timedelta(seconds=stale_after_seconds)).isoformat()
         recovered = self._store.recover_stale_running_tasks(stale_before=stale_before)
         for record in recovered:
             delay = 0
+            run_at_epoch: float | None = None
             if record.run_at is not None:
+                run_at_epoch = self._iso_to_epoch(record.run_at)
                 delay = self._delay_seconds(record.run_at)
             if record.next_retry_at is not None:
+                run_at_epoch = self._iso_to_epoch(record.next_retry_at)
                 delay = max(delay, self._delay_seconds(record.next_retry_at))
-            self._queue.enqueue(record.task_id, delay_seconds=delay, priority=record.priority)
+            self._queue.enqueue(
+                record.task_id,
+                delay_seconds=delay,
+                priority=record.priority,
+                run_at_epoch=run_at_epoch,
+            )
             self._events.append_event(
                 record.task_id,
                 "task.recovered_stale_running",

@@ -66,5 +66,5 @@ fi
 
 echo "Headless browser setup completed"
 echo "CHROME_BIN=${CHROME_BIN}"
-echo "Verify with: ${PROJECT_ROOT}/.venv/bin/python -m uvicorn new.api.server:app --host 127.0.0.1 --port 8001"
+echo "Verify with: ${PROJECT_ROOT}/.venv/bin/python -m uvicorn api.server:app --host 127.0.0.1 --port 8001"
 echo "Then curl: http://127.0.0.1:8001/api/diagnostics/browser"

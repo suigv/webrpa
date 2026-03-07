@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 from pathlib import Path
-from typing import List
+from typing import Any, List
 
 
 DATA_TYPES = {
@@ -33,6 +34,22 @@ def _normalize_lines(text: str) -> List[str]:
     return [line.strip() for line in text.splitlines() if line.strip()]
 
 
+def write_json_atomic(path: str | Path, payload: Any) -> None:
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_path = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=str(target.parent))
+    temp_file = Path(temp_path)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temp_file, target)
+    finally:
+        if temp_file.exists():
+            temp_file.unlink()
+
+
 def read_lines(data_type: str) -> List[str]:
     path = _json_path(data_type)
     if not os.path.exists(path):
@@ -56,8 +73,7 @@ def write_lines(data_type: str, lines: List[str]) -> None:
         "encoding": "utf-8",
         "lines": [line for line in (str(x).strip() for x in lines) if line],
     }
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
+    write_json_atomic(path, payload)
 
 
 def read_text(data_type: str) -> str:

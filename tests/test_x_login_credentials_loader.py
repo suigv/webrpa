@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from new.core.credentials_loader import load_credentials_from_ref
+from core.credentials_loader import load_credentials_from_ref
 
 
 def test_x_login_credentials_loader_happy_path(tmp_path: Path, monkeypatch):

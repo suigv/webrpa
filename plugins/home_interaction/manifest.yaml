@@ -2,7 +2,8 @@ api_version: v1
 kind: plugin
 name: home_interaction
 version: "1.0.0"
-display_name: "Home Interaction"
+display_name: "首页信息流互动"
+category: "互动与增长"
 description: "Home feed interaction workflow contract"
 entry_script: script.yaml
 inputs:
@@ -12,8 +13,16 @@ inputs:
   - name: status_hint
     type: string
     required: false
-    default: "success"
+    default: "runtime"
   - name: package
     type: string
     required: false
     default: "com.twitter.android"
+  - name: ai_type
+    type: string
+    required: false
+    default: "volc"
+  - name: interaction_counter_key
+    type: string
+    required: false
+    default: "home_interaction_count"

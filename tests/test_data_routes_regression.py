@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 
-from new.api.server import app
+from api.server import app
 
 
 def test_data_routes_and_removed_migrate_route():

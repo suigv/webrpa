@@ -9,8 +9,8 @@ import time
 from pathlib import Path
 from typing import Any
 
-from new.core.config_loader import get_humanized_wrapper_config
-from new.models.humanized import HumanizedWrapperConfig
+from core.config_loader import get_humanized_wrapper_config
+from models.humanized import HumanizedWrapperConfig
 
 
 def _vendor_root() -> Path:
@@ -136,7 +136,7 @@ class BrowserClient:
             "chromium_binary_path": browser_binary,
         }
 
-    def open(self, url: str, headless: bool = True) -> bool:
+    def open(self, url: str, headless: bool = True, profile_id: str | None = None) -> bool:
         if not self._available:
             return False
         try:
@@ -145,6 +145,17 @@ class BrowserClient:
                 options = self._chromium_options_cls()
                 if hasattr(options, "headless"):
                     options.headless(on_off=headless)
+                if profile_id:
+                    # Implement browser profile isolation
+                    import hashlib
+                    import os
+                    safe_id = hashlib.md5(profile_id.encode('utf-8')).hexdigest()
+                    base_dir = os.environ.get("MYT_USER_DATA_DIR", "/tmp/webrpa_browser_profiles")
+                    profile_dir = Path(base_dir) / safe_id
+                    profile_dir.mkdir(parents=True, exist_ok=True)
+                    if hasattr(options, "set_user_data_path"):
+                        options.set_user_data_path(str(profile_dir))
+            
             self._page = self._web_page_cls(chromium_options=options) if options else self._web_page_cls()
             self._humanized_page = HumanizedWrapper(self._page, self._humanized_config)
             self._page.get(url)

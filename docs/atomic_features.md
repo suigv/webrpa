@@ -34,16 +34,21 @@
 
 ## 4. Tasks (`/api/tasks`)
 
+- `GET /api/tasks/catalog`
 - `POST /api/tasks`
 - `GET /api/tasks`
 - `GET /api/tasks/{task_id}`
 - `POST /api/tasks/{task_id}/cancel`
 - `GET /api/tasks/{task_id}/events` (SSE)
+- `GET /api/tasks/metrics`
+- `GET /api/tasks/metrics/prometheus`
 
 ## 5. Data (`/api/data`)
 
-- `GET/PUT /api/data/accounts`
+- `GET /api/data/accounts`
 - `POST /api/data/accounts/import`
+- `POST /api/data/accounts/status`
+- `POST /api/data/accounts/pop`
 - `GET /api/data/accounts/parsed`
 - `GET/PUT /api/data/location`
 - `GET/PUT /api/data/website`
@@ -52,9 +57,10 @@
 
 - Runner + Interpreter 执行链路
 - 条件/跳转/失败策略
-- 插件加载（当前内置：`plugins/x_auto_login`）
-- 浏览器动作（open/input/click/exists/check_html/wait_url/close）
-- 凭据动作（`credentials.load`）
+- 插件加载（当前内置：`x_mobile_login`、`mytos_device_setup`、`device_reboot`、`device_soft_reset`、`blogger_scrape`、`profile_clone` 及互动类插件）
+- 浏览器动作（open/input/click/exists/check_html/wait_url/add_cookies/close）
+- 凭据动作（`credentials.load`、`credentials.checkout`）
+- Core 动作（共享数据、TOTP、X 登录阶段检测/等待）
 - UI/RPC 动作（点击/滑动/输入/按键/截图/节点查询等）
 - SDK/MYTOS 动作绑定（`engine/actions/sdk_actions.py`）
 
@@ -62,27 +68,31 @@
 
 - BrowserClient 拟人化执行 + 失败降级
 - MytRpc 跨平台动态库选择
+- Browser diagnostics：`GET /api/diagnostics/browser`
 
 ## 8. Web Console
 
-- 设备/云机状态展示
-- 云机机型展示
-- 任务管理 + 事件流显示
+- 云机大厅与设备/云机状态展示
+- 单机任务下发与批量选机下发
+- 账号池导入预览、库存展示、ready 账号批量分派
+- 实时日志 WebSocket 订阅与过滤
 - 配置编辑与保存
 - 局域网扫描触发
 - humanized 预设（高/中/低）
+- 任务管理模块代码已实现，但当前未在 `web/index.html` 暴露独立任务页入口
+
 
 ## 9. Quality Gates
 
-- 无 legacy 导入：`new/tools/check_no_legacy_imports.py`
-- 全量测试通过：`pytest new/tests -q`
+- 无 legacy 导入：`tools/check_no_legacy_imports.py`
+- 全量测试通过：`pytest tests -q`
 - RPC 关闭可启动 + `/health` 通过
 
 ## Quick Verify Commands
 
 ```bash
-./new/.venv/bin/python new/tools/check_no_legacy_imports.py
-./new/.venv/bin/python -m pytest new/tests -q
-MYT_NEW_ROOT=$(pwd)/new MYT_ENABLE_RPC=0 ./new/.venv/bin/python -m uvicorn new.api.server:app --host 127.0.0.1 --port 8001
+./.venv/bin/python tools/check_no_legacy_imports.py
+./.venv/bin/python -m pytest tests -q
+MYT_ENABLE_RPC=0 ./.venv/bin/python -m uvicorn api.server:app --host 127.0.0.1 --port 8001
 curl http://127.0.0.1:8001/health
 ```

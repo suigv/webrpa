@@ -4,7 +4,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from new.tools.check_plugin_manifest_inputs import collect_manifest_input_gaps
+from tools.check_plugin_manifest_inputs import collect_manifest_input_gaps
 
 
 def _tool_path() -> Path:

@@ -3,8 +3,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from new.engine.models.runtime import ExecutionContext
-from new.engine.models.workflow import Condition, ConditionExpr, ConditionType
+from engine.models.runtime import ExecutionContext
+from engine.models.workflow import Condition, ConditionExpr, ConditionType
 
 logger = logging.getLogger(__name__)
 
@@ -19,8 +19,27 @@ def _eval_single(condition: Condition, context: ExecutionContext) -> bool:
     if ct == ConditionType.var_equals:
         if condition.var is None:
             return False
-        actual = context.vars.get(condition.var)
+        # Handle nested var access like "creds.token"
+        var_path = condition.var.split('.')
+        actual = context.vars
+        for p in var_path:
+            if isinstance(actual, dict):
+                actual = actual.get(p)
+            else:
+                actual = getattr(actual, p, None)
         return actual == condition.equals
+
+    if ct == ConditionType.var_truthy:
+        if condition.var is None:
+            return False
+        var_path = condition.var.split('.')
+        actual = context.vars
+        for p in var_path:
+            if isinstance(actual, dict):
+                actual = actual.get(p)
+            else:
+                actual = getattr(actual, p, None)
+        return bool(actual)
 
     # Browser-dependent checks — browser may not be open yet
     browser: Any = context.browser

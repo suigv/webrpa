@@ -1,7 +1,7 @@
 import pytest
 
-from new.core.config_loader import ConfigLoader
-from new.core.device_manager import DeviceManager
+from core.config_loader import ConfigLoader
+from core.device_manager import DeviceManager
 
 
 def test_startup_fails_on_port_collision():

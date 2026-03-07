@@ -3,18 +3,21 @@ workflow: x_mobile_login
 
 vars:
   package: "${payload.package:-com.twitter.android}"
-  status_hint: "${payload.status_hint:-success}"
+  status_hint: "${payload.status_hint:-runtime}"
+  account: "${payload.acc:-}"
+  password: "${payload.pwd:-}"
+  two_factor_code: "${payload.two_factor_code:-}"
+  fa2_secret: "${payload.fa2_secret:-}"
 
 steps:
-  - label: ensure_running
-    kind: action
-    action: app.ensure_running
-    params:
-      device_ip: "${payload.device_ip}"
-      package: "${vars.package}"
-      verify_timeout: 2.0
-    on_fail:
-      strategy: skip
+  - label: check_forced_success
+    kind: if
+    when:
+      all:
+        - type: var_equals
+          var: status_hint
+          equals: success
+    then: login_success
 
   - label: check_bad_credentials
     kind: if
@@ -43,10 +46,648 @@ steps:
           equals: captcha
     then: captcha_detected
 
+  - label: load_login_entry_selector
+    kind: action
+    action: core.load_ui_selector
+    params:
+      key: "login.entry_login_btn"
+    save_as: login_entry_selector
+
+  - label: load_existing_account_selector
+    kind: action
+    action: core.load_ui_selector
+    params:
+      key: "login.entry_existing_account"
+    save_as: existing_account_selector
+
+  - label: load_account_input_selector
+    kind: action
+    action: core.load_ui_selector
+    params:
+      key: "login.input_user"
+    save_as: account_input_selector
+
+  - label: load_next_button_selector
+    kind: action
+    action: core.load_ui_selector
+    params:
+      key: "login.btn_next"
+    save_as: next_button_selector
+
+  - label: load_password_input_selector
+    kind: action
+    action: core.load_ui_selector
+    params:
+      key: "login.input_password"
+    save_as: password_input_selector
+
+  - label: load_login_submit_selector
+    kind: action
+    action: core.load_ui_selector
+    params:
+      key: "login.btn_submit_login"
+    save_as: login_submit_selector
+
+  - label: load_2fa_input_selector
+    kind: action
+    action: core.load_ui_selector
+    params:
+      key: "login.input_2fa"
+    save_as: two_factor_input_selector
+
+  - label: load_2fa_submit_selector
+    kind: action
+    action: core.load_ui_selector
+    params:
+      key: "login.btn_submit_2fa"
+    save_as: two_factor_submit_selector
+
+  - label: verify_rpa_connection
+    kind: action
+    action: device.check_connect_state
+    params:
+      device_ip: "${payload.device_ip}"
+    on_fail:
+      strategy: goto
+      goto: device_connection_failed
+
+  - label: enable_new_node_mode
+    kind: action
+    action: device.use_new_node_mode
+    params:
+      device_ip: "${payload.device_ip}"
+      enabled: true
+    on_fail:
+      strategy: skip
+
+  - label: ensure_running
+    kind: action
+    action: app.ensure_running
+    params:
+      device_ip: "${payload.device_ip}"
+      package: "${vars.package}"
+      verify_timeout: 2.0
+    on_fail:
+      strategy: skip
+
+  - label: open_app
+    kind: action
+    action: app.open
+    params:
+      device_ip: "${payload.device_ip}"
+      package: "${vars.package}"
+    on_fail:
+      strategy: skip
+
+  - label: detect_entry_stage
+    kind: action
+    action: core.detect_x_login_stage
+    params:
+      device_ip: "${payload.device_ip}"
+    save_as: entry_state
+    on_fail:
+      strategy: goto
+      goto: stage_detection_failed
+
+  - label: check_entry_home
+    kind: if
+    when:
+      all:
+        - type: var_equals
+          var: entry_state.stage
+          equals: home
+    then: login_success
+
+  - label: check_entry_captcha
+    kind: if
+    when:
+      all:
+        - type: var_equals
+          var: entry_state.stage
+          equals: captcha
+    then: captcha_detected
+
+  - label: check_entry_two_factor
+    kind: if
+    when:
+      all:
+        - type: var_equals
+          var: entry_state.stage
+          equals: two_factor
+    then: choose_2fa_source_or_fail
+
+  - label: check_entry_password
+    kind: if
+    when:
+      all:
+        - type: var_equals
+          var: entry_state.stage
+          equals: password
+    then: ensure_password_available
+
+  - label: ensure_account_available
+    kind: if
+    when:
+      all:
+        - type: var_truthy
+          var: account
+    then: click_login_entry_direct
+    otherwise: missing_account
+
+  - label: click_login_entry_direct
+    kind: action
+    action: ui.selector_click_one
+    params:
+      device_ip: "${payload.device_ip}"
+      type: "${vars.login_entry_selector.type}"
+      mode: "${vars.login_entry_selector.mode}"
+      value: "${vars.login_entry_selector.value}"
+    on_fail:
+      strategy: skip
+
+  - label: click_login_entry_row
+    kind: action
+    action: ui.selector_click_one
+    params:
+      device_ip: "${payload.device_ip}"
+      type: "${vars.existing_account_selector.type}"
+      mode: "${vars.existing_account_selector.mode}"
+      value: "${vars.existing_account_selector.value}"
+    on_fail:
+      strategy: skip
+
+  - label: tap_login_entry_fallback
+    kind: action
+    action: mytos.tap
+    params:
+      device_ip: "${payload.device_ip}"
+      x: 680
+      y: 1850
+    on_fail:
+      strategy: skip
+
+  - label: focus_account_input
+    kind: action
+    action: ui.selector_click_one
+    params:
+      device_ip: "${payload.device_ip}"
+      type: "${vars.account_input_selector.type}"
+      mode: "${vars.account_input_selector.mode}"
+      value: "${vars.account_input_selector.value}"
+    on_fail:
+      strategy: skip
+
+  - label: tap_account_input_fallback
+    kind: action
+    action: mytos.tap
+    params:
+      device_ip: "${payload.device_ip}"
+      x: 540
+      y: 600
+    on_fail:
+      strategy: skip
+
+  - label: input_account
+    kind: action
+    action: ui.input_text
+    params:
+      device_ip: "${payload.device_ip}"
+      text: "${vars.account}"
+    on_fail:
+      strategy: goto
+      goto: input_account_shell_fallback
+
+  - label: input_account_shell_fallback
+    kind: action
+    action: device.exec
+    params:
+      device_ip: "${payload.device_ip}"
+      command: "input text '${vars.account}'"
+    on_fail:
+      strategy: goto
+      goto: account_input_failed
+
+  - label: click_next_zh
+    kind: action
+    action: ui.selector_click_one
+    params:
+      device_ip: "${payload.device_ip}"
+      type: "${vars.next_button_selector.type}"
+      mode: "${vars.next_button_selector.mode}"
+      value: "${vars.next_button_selector.value}"
+    on_fail:
+      strategy: skip
+
+  - label: click_next_en
+    kind: action
+    action: ui.selector_click_one
+    params:
+      device_ip: "${payload.device_ip}"
+      type: "${vars.next_button_selector.type}"
+      mode: "${vars.next_button_selector.mode}"
+      value: "${vars.next_button_selector.value}"
+    on_fail:
+      strategy: skip
+
+  - label: key_enter_after_account
+    kind: action
+    action: mytos.keypress
+    params:
+      device_ip: "${payload.device_ip}"
+      code: "KEYCODE_ENTER"
+    on_fail:
+      strategy: skip
+
+  - label: ensure_password_available
+    kind: if
+    when:
+      all:
+        - type: var_truthy
+          var: password
+    then: focus_password_input
+    otherwise: missing_password
+
+  - label: focus_password_input
+    kind: action
+    action: ui.selector_click_one
+    params:
+      device_ip: "${payload.device_ip}"
+      type: "${vars.password_input_selector.type}"
+      mode: "${vars.password_input_selector.mode}"
+      value: "${vars.password_input_selector.value}"
+    on_fail:
+      strategy: skip
+
+  - label: tap_password_input_fallback
+    kind: action
+    action: mytos.tap
+    params:
+      device_ip: "${payload.device_ip}"
+      x: 540
+      y: 780
+    on_fail:
+      strategy: skip
+
+  - label: input_password
+    kind: action
+    action: ui.input_text
+    params:
+      device_ip: "${payload.device_ip}"
+      text: "${vars.password}"
+    on_fail:
+      strategy: goto
+      goto: input_password_shell_fallback
+
+  - label: input_password_shell_fallback
+    kind: action
+    action: device.exec
+    params:
+      device_ip: "${payload.device_ip}"
+      command: "input text '${vars.password}'"
+    on_fail:
+      strategy: goto
+      goto: password_input_failed
+
+  - label: click_login_zh
+    kind: action
+    action: ui.selector_click_one
+    params:
+      device_ip: "${payload.device_ip}"
+      type: "${vars.login_submit_selector.type}"
+      mode: "${vars.login_submit_selector.mode}"
+      value: "${vars.login_submit_selector.value}"
+    on_fail:
+      strategy: skip
+
+  - label: click_login_en
+    kind: action
+    action: ui.selector_click_one
+    params:
+      device_ip: "${payload.device_ip}"
+      type: "${vars.login_submit_selector.type}"
+      mode: "${vars.login_submit_selector.mode}"
+      value: "${vars.login_submit_selector.value}"
+    on_fail:
+      strategy: skip
+
+  - label: tap_login_submit_fallback
+    kind: action
+    action: mytos.tap
+    params:
+      device_ip: "${payload.device_ip}"
+      x: 930
+      y: 1830
+    on_fail:
+      strategy: skip
+
+  - label: wait_post_submit_stage
+    kind: action
+    action: core.wait_x_login_stage
+    params:
+      device_ip: "${payload.device_ip}"
+      target_stages:
+        - home
+        - two_factor
+        - captcha
+        - password
+        - account
+      timeout_ms: 12000
+      interval_ms: 800
+    save_as: post_submit_state
+    on_fail:
+      strategy: goto
+      goto: login_not_confirmed
+
+  - label: check_post_submit_home
+    kind: if
+    when:
+      all:
+        - type: var_equals
+          var: post_submit_state.stage
+          equals: home
+    then: login_success
+
+  - label: check_post_submit_captcha
+    kind: if
+    when:
+      all:
+        - type: var_equals
+          var: post_submit_state.stage
+          equals: captcha
+    then: captcha_detected
+
+  - label: check_post_submit_two_factor
+    kind: if
+    when:
+      all:
+        - type: var_equals
+          var: post_submit_state.stage
+          equals: two_factor
+    then: choose_2fa_source_or_fail
+
+  - label: check_post_submit_password
+    kind: if
+    when:
+      all:
+        - type: var_equals
+          var: post_submit_state.stage
+          equals: password
+    then: bad_credentials
+
+  - label: check_post_submit_account
+    kind: if
+    when:
+      all:
+        - type: var_equals
+          var: post_submit_state.stage
+          equals: account
+    then: account_rejected
+
+  - label: login_not_confirmed
+    kind: stop
+    status: failed
+    message: "login_not_confirmed"
+
   - label: login_success
     kind: stop
     status: success
     message: "login completed"
+
+  - label: choose_2fa_source_or_fail
+    kind: if
+    when:
+      all:
+        - type: var_truthy
+          var: fa2_secret
+    then: generate_2fa_from_secret
+    otherwise: try_payload_2fa_if_present
+
+  - label: try_payload_2fa_if_present
+    kind: if
+    when:
+      all:
+        - type: var_truthy
+          var: two_factor_code
+    then: try_2fa_input_payload
+    otherwise: missing_2fa
+
+  - label: generate_2fa_from_secret
+    kind: action
+    action: core.generate_totp
+    params:
+      secret: "${vars.fa2_secret}"
+    save_as: generated_2fa
+    on_fail:
+      strategy: skip
+
+  - label: choose_2fa_input_source
+    kind: if
+    when:
+      all:
+        - type: var_truthy
+          var: generated_2fa.token
+    then: try_2fa_input_generated
+    otherwise: try_2fa_input_payload
+
+  - label: try_2fa_input_generated
+    kind: action
+    action: ui.selector_click_one
+    params:
+      device_ip: "${payload.device_ip}"
+      type: "${vars.two_factor_input_selector.type}"
+      mode: "${vars.two_factor_input_selector.mode}"
+      value: "${vars.two_factor_input_selector.value}"
+    on_fail:
+      strategy: skip
+
+  - label: tap_2fa_input_fallback_generated
+    kind: action
+    action: mytos.tap
+    params:
+      device_ip: "${payload.device_ip}"
+      x: 540
+      y: 500
+    on_fail:
+      strategy: skip
+
+  - label: input_2fa_code_generated
+    kind: action
+    action: ui.input_text
+    params:
+      device_ip: "${payload.device_ip}"
+      text: "${vars.generated_2fa.token}"
+    on_fail:
+      strategy: goto
+      goto: input_2fa_code_generated_shell_fallback
+
+  - label: input_2fa_code_generated_shell_fallback
+    kind: action
+    action: device.exec
+    params:
+      device_ip: "${payload.device_ip}"
+      command: "input text '${vars.generated_2fa.token}'"
+    on_fail:
+      strategy: goto
+      goto: try_2fa_input_payload
+
+  - label: goto_submit_2fa_generated
+    kind: goto
+    target: submit_2fa_zh
+
+  - label: try_2fa_input_payload
+    kind: action
+    action: ui.selector_click_one
+    params:
+      device_ip: "${payload.device_ip}"
+      type: "${vars.two_factor_input_selector.type}"
+      mode: "${vars.two_factor_input_selector.mode}"
+      value: "${vars.two_factor_input_selector.value}"
+    on_fail:
+      strategy: skip
+
+  - label: tap_2fa_input_fallback_payload
+    kind: action
+    action: mytos.tap
+    params:
+      device_ip: "${payload.device_ip}"
+      x: 540
+      y: 500
+    on_fail:
+      strategy: skip
+
+  - label: input_2fa_code
+    kind: action
+    action: ui.input_text
+    params:
+      device_ip: "${payload.device_ip}"
+      text: "${vars.two_factor_code}"
+    on_fail:
+      strategy: goto
+      goto: input_2fa_code_shell_fallback
+
+  - label: input_2fa_code_shell_fallback
+    kind: action
+    action: device.exec
+    params:
+      device_ip: "${payload.device_ip}"
+      command: "input text '${vars.two_factor_code}'"
+    on_fail:
+      strategy: goto
+      goto: two_factor_failed
+
+  - label: submit_2fa_zh
+    kind: action
+    action: ui.selector_click_one
+    params:
+      device_ip: "${payload.device_ip}"
+      type: "${vars.two_factor_submit_selector.type}"
+      mode: "${vars.two_factor_submit_selector.mode}"
+      value: "${vars.two_factor_submit_selector.value}"
+    on_fail:
+      strategy: skip
+
+  - label: submit_2fa_en
+    kind: action
+    action: ui.selector_click_one
+    params:
+      device_ip: "${payload.device_ip}"
+      type: "${vars.two_factor_submit_selector.type}"
+      mode: "${vars.two_factor_submit_selector.mode}"
+      value: "${vars.two_factor_submit_selector.value}"
+    on_fail:
+      strategy: skip
+
+  - label: key_enter_after_2fa
+    kind: action
+    action: mytos.keypress
+    params:
+      device_ip: "${payload.device_ip}"
+      code: "KEYCODE_ENTER"
+    on_fail:
+      strategy: skip
+
+  - label: wait_after_2fa
+    kind: action
+    action: core.wait_x_login_stage
+    params:
+      device_ip: "${payload.device_ip}"
+      target_stages:
+        - home
+        - captcha
+      timeout_ms: 10000
+      interval_ms: 800
+    save_as: after_2fa_state
+    on_fail:
+      strategy: goto
+      goto: two_factor_failed
+
+  - label: check_after_2fa_home
+    kind: if
+    when:
+      all:
+        - type: var_equals
+          var: after_2fa_state.stage
+          equals: home
+    then: login_success_after_2fa
+
+  - label: check_after_2fa_captcha
+    kind: if
+    when:
+      all:
+        - type: var_equals
+          var: after_2fa_state.stage
+          equals: captcha
+    then: captcha_detected
+
+  - label: after_2fa_not_confirmed
+    kind: stop
+    status: failed
+    message: "2fa_not_confirmed"
+
+  - label: login_success_after_2fa
+    kind: stop
+    status: success
+    message: "login completed"
+
+  - label: missing_account
+    kind: stop
+    status: failed
+    message: "missing_account"
+
+  - label: device_connection_failed
+    kind: stop
+    status: failed
+    message: "device_connection_failed"
+
+  - label: account_input_failed
+    kind: stop
+    status: failed
+    message: "account_input_failed"
+
+  - label: missing_password
+    kind: stop
+    status: failed
+    message: "missing_password"
+
+  - label: password_input_failed
+    kind: stop
+    status: failed
+    message: "password_input_failed"
+
+  - label: missing_2fa
+    kind: stop
+    status: failed
+    message: "missing_2fa"
+
+  - label: account_rejected
+    kind: stop
+    status: failed
+    message: "account_rejected"
+
+  - label: stage_detection_failed
+    kind: stop
+    status: failed
+    message: "stage_detection_failed"
 
   - label: bad_credentials
     kind: stop

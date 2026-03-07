@@ -1,8 +1,8 @@
 from fastapi.testclient import TestClient
 
-from new.api.server import app
-from new.core.config_loader import ConfigLoader
-from new.core.lan_discovery import LanDeviceDiscovery
+from api.server import app
+from core.config_loader import ConfigLoader
+from core.lan_discovery import LanDeviceDiscovery
 
 
 def test_api_devices_discover_endpoint(monkeypatch):
@@ -11,15 +11,12 @@ def test_api_devices_discover_endpoint(monkeypatch):
         "scan_now",
         lambda self, force=False: ["192.168.1.214", "192.168.1.216"] if force else [],
     )
-    client = TestClient(app)
-    response = client.post("/api/devices/discover")
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["count"] == 2
-    assert payload["device_ips"] == {
-        "1": "192.168.1.214",
-        "2": "192.168.1.216",
-    }
+    with TestClient(app) as client:
+        response = client.post("/api/devices/discover")
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["status"] == "started"
+        assert "message" in payload
 
 
 def test_api_devices_discover_updates_config_mapping(monkeypatch):
@@ -37,15 +34,14 @@ def test_api_devices_discover_updates_config_mapping(monkeypatch):
         }
         monkeypatch.setattr(LanDeviceDiscovery, "scan_now", lambda self, force=False: ["192.168.1.214"])
 
-        client = TestClient(app)
-        response = client.post("/api/devices/discover")
-        assert response.status_code == 200
-        payload = response.json()
-        assert payload["count"] == 1
-        assert payload["device_ips"] == {"1": "192.168.1.214"}
+        with TestClient(app) as client:
+            response = client.post("/api/devices/discover")
+            assert response.status_code == 200
+            payload = response.json()
+            assert payload["status"] == "started"
 
-        cfg = client.get("/api/config/").json()
-        assert cfg["total_devices"] == 1
-        assert cfg["device_ips"] == {"1": "192.168.1.214"}
+            cfg = client.get("/api/config/").json()
+            assert cfg["total_devices"] == 1
+            assert cfg["device_ips"] == {"1": "192.168.1.214"}
     finally:
         ConfigLoader._config = backup

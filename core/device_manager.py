@@ -18,8 +18,8 @@ from .config_loader import (
 )
 from .lan_discovery import LanDeviceDiscovery
 from .port_calc import calculate_ports
-from ..hardware_adapters.myt_client import BaseHTTPClient
-from ..models.device import AIType, DeviceStatus
+from hardware_adapters.myt_client import BaseHTTPClient
+from models.device import AIType, DeviceStatus
 
 logger = logging.getLogger(__name__)
 
@@ -147,13 +147,16 @@ class DeviceManager:
         return models_by_api_port
 
     def _resolve_device_endpoints(self) -> list[tuple[int, str]]:
-        if get_discovery_enabled():
-            discovered = self._discovery.get_discovered_ips()
-            if discovered:
-                return [(index, ip) for index, ip in enumerate(discovered, start=1)]
+        endpoints: list[tuple[int, str]] = []
 
+        # Load static config as source-of-truth.
+        # LAN discovery updates config via /api/devices/discover.
         total = get_total_devices()
-        return [(device_id, get_device_ip(device_id)) for device_id in range(1, total + 1)]
+        for device_id in range(1, total + 1):
+            endpoints.append((device_id, get_device_ip(device_id)))
+
+        endpoints.sort(key=lambda item: item[0])
+        return endpoints
 
     def start_cloud_probe_worker(self) -> None:
         thread = self._probe_thread
@@ -409,6 +412,20 @@ class DeviceManager:
                 continue
             clouds.append(cloud_info)
 
+        if device.status == DeviceStatus.ERROR:
+            effective_status = DeviceStatus.ERROR
+        elif device.status == DeviceStatus.OFFLINE:
+            effective_status = DeviceStatus.OFFLINE
+        elif available_count > 0:
+            effective_status = DeviceStatus.RUNNING
+        elif probe_partial:
+            effective_status = DeviceStatus.IDLE
+        else:
+            effective_status = DeviceStatus.OFFLINE
+
+        for cloud in clouds:
+            cloud["status"] = effective_status.value
+
         return {
             "schema_version": get_schema_version(),
             "allocation_version": get_allocation_version(),
@@ -417,7 +434,7 @@ class DeviceManager:
             "sdk_port": get_sdk_port(),
             "sdk_port_role": "device_control_api",
             "ai_type": device.ai_type.value,
-            "status": device.status.value,
+            "status": effective_status.value,
             "current_task": device.current_task,
             "message": device.message,
             "cloud_slots_total": cloud_machines_per_device,

@@ -32,8 +32,6 @@ DOC_PATTERNS = [
 
 DOC_FILES = [
     ROOT / "README.md",
-    ROOT / "AI_PROJECT_GUIDE.md",
-    ROOT / "docs" / "migration-matrix.md",
 ]
 
 

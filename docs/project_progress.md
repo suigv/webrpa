@@ -6,7 +6,7 @@
 ## 1. 当前阶段
 
 - 阶段：**Legacy capability extraction closed（Tasks 1-12 + F1/F2/F3/F4）**
-- 核心状态：API、任务系统、插件执行、Web 控制台、配置管理、适配器降级均可用，且旧项目核心能力已按插件化路径迁移收敛
+- 核心状态：API、任务系统、插件执行、账号池、Web 控制台、配置管理、适配器降级均可用，且旧项目核心能力已按插件化路径迁移收敛
 - 最近重点：
   - 完成旧能力迁移闭环与证据链（F1/F2/F3/F4）
   - 补齐 selector 查询链 not-found 语义与设备 HostPort 异常防护
@@ -19,17 +19,19 @@
   - 继续补齐跨进程幂等语义回归：新增 running/retry 窗口去重测试，验证控制器重启后 duplicate submit 仍返回原任务
   - 补齐 stale-running 启动恢复：控制器启动前自动回收超时 running 任务并重新入队，新增 `MYT_TASK_STALE_RUNNING_SECONDS` 阈值配置与回归测试
   - 完成插件 manifest 输入完整性审计基线：新增 `tools/check_plugin_manifest_inputs.py`，并将其纳入 `tools/run_migration_gates.sh` 一键门禁
-  - 补齐插件输入声明覆盖：修复 `blogger_scrape`、`follow_interaction`、`home_interaction`、`quote_interaction`、`dm_reply`、`x_auto_login` 的 payload 引用与 manifest 声明一致性
+  - 补齐插件输入声明覆盖：修复 `blogger_scrape`、`follow_interaction`、`home_interaction`、`quote_interaction`、`dm_reply`、`x_mobile_login` 的 payload 引用与 manifest 声明一致性
   - 在 runtime 严格拒绝未声明参数：`engine/runner.py` 对插件 payload 新增 unknown-key 拦截（保留 `task` 保留字段），并复用 `invalid_params` 失败语义
   - 为严格 unknown-key 校验增加灰度开关：新增环境变量 `MYT_STRICT_PLUGIN_UNKNOWN_INPUTS`（默认开启，可按环境关闭）
   - 增加运行策略可观测性：`GET /health` 新增 `task_policy`（`strict_plugin_unknown_inputs` / `stale_running_seconds`）用于环境基线核验
   - 新增对外契约文档：`docs/plugin_input_contract.md`（校验规则、灰度开关基线与发布策略）
   - 补齐 Alertmanager 接线资产：新增模板 `config/monitoring/alertmanager/task_metrics_route.example.yml`，并扩展 `tools/render_task_metrics_monitoring.py` 可渲染 `task_metrics_alertmanager.yml`
   - 增加 stale-running 恢复告警规则：`task_metrics_alerts` 新增 `NewTaskStaleRunningRecovered`，用于提示已发生启动恢复行为
-  - 修复执行上下文与测试稳定性问题：新增 `sitecustomize.py`、`pytest.ini(testpaths=tests)`，并修复 `check_plugin_manifest_inputs.py` 直跑导入路径；任务控制面相关 SQLite 测试切换为 `tmp_path` 隔离，消除共享 `config/data` 导致的偶发 `no such table` / `disk I/O error`
+  - 修复执行上下文与测试稳定性问题：新增 `sitecustomize.py`、在 `pyproject.toml` 中固定 `pytest testpaths=tests`，并修复 `check_plugin_manifest_inputs.py` 直跑导入路径；任务控制面相关 SQLite 测试切换为 `tmp_path` 隔离，消除共享 `config/data` 导致的偶发 `no such table` / `disk I/O error`
   - 稳定幂等去重回归测试隔离性：duplicate-submit 用例改为独立临时 DB，避免共享历史导致的分页/顺序耦合波动
   - 收紧插件分发安全边界：动作命名空间白名单 + manifest 输入参数必填/类型前置校验（失败码显式化）
   - 强化任务可靠性/幂等：支持 `idempotency_key` 防重复提交（原子化去重），补齐 body/header 冲突校验，并修复取消请求在异常路径下的状态一致性
+  - 完成前端重构与组件化：拆分 `app.js` 为 ES Modules，引入 Toast 状态反馈与 Loading 交互，解决长连接日志渲染性能瓶颈
+  - 增强设备与任务控制面：新增设备启停/扫描快捷操作；任务管理模块已集成插件目录与参数表单逻辑，但当前未在 `web/index.html` 暴露独立任务页入口
 
 ## 2. 已实现功能清单
 
@@ -47,7 +49,7 @@
 - Runner + Interpreter 工作流执行（`engine/runner.py`, `engine/interpreter.py`）
 - 条件、跳转、等待、失败策略（`engine/conditions.py`, `engine/models/*`）
 - 插件扫描与加载（`engine/plugin_loader.py`）
-- 示例插件：`plugins/x_auto_login`（manifest + script）
+- 已内置插件：`x_mobile_login`、`mytos_device_setup`、`device_reboot`、`device_soft_reset`、`blogger_scrape`、`profile_clone` 及互动类插件
 
 ### 2.3 适配器与动作
 
@@ -60,9 +62,10 @@
 
 ### 2.4 前端控制台
 
-- 多 Tab 控制台（监控、任务、账号、配置）
-- 配置页支持拟人化参数编辑 + 高/中/低档位快捷设置（`web/index.html`, `web/app.js`）
-- 实时日志、任务详情、事件监听
+- **架构重构**：移除单体 `app.js`，采用 ES Modules 模块化设计 (`web/js/features/*`, `web/js/state/*`, `web/js/utils/*`)
+- **交互增强**：引入全局 Toast 通知系统，替代原生 Alert/Console 日志；增加设备列表快捷控制（启动/停止/扫描）
+- **账号与调度**：账号池支持导入预览、库存状态展示、ready 账号批量分派；云机大厅支持单机下发与批量选机下发
+- **实际公开 UI**：当前公开页为云机大厅、账号池、配置；`web/js/features/tasks.js` 已实现任务管理逻辑，但 `web/index.html` 尚未暴露独立任务页入口，属于部分接线状态
 
 ### 2.5 质量保障
 
@@ -72,17 +75,16 @@
 ## 3. 自动统计快照
 
 <!-- AUTO_PROGRESS_SNAPSHOT:START -->
-- Last generated (UTC): `2026-03-05T11:21:49.649439+00:00`
 - Source: `tools/update_project_progress.py`
 
 | Metric | Value |
 |---|---:|
-| API route decorators (`api/routes`) | 26 |
+| API route decorators (`api/routes`) | 28 |
 | App-level route decorators (`api/server.py`) | 5 |
-| Plugin count (`plugins/*/manifest.yaml`) | 10 |
-| SDK action bindings (`engine/actions/sdk_actions.py`) | 44 |
-| Test files (`tests/test_*.py`) | 48 |
-| Test functions (`def test_*`) | 151 |
+| Plugin count (`plugins/*/manifest.yaml`) | 12 |
+| SDK action bindings (`engine/actions/sdk_actions.py`) | 131 |
+| Test files (`tests/test_*.py`) | 52 |
+| Test functions (`def test_*`) | 184 |
 <!-- AUTO_PROGRESS_SNAPSHOT:END -->
 
 ## 4. 维护方式（实时更新建议）
@@ -90,7 +92,7 @@
 每次“有意义变更”后执行：
 
 ```bash
-./new/.venv/bin/python new/tools/update_project_progress.py
+./.venv/bin/python tools/update_project_progress.py
 ```
 
 推荐在以下时机执行：

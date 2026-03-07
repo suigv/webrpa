@@ -1,4 +1,4 @@
-from new.engine.runner import Runner
+from engine.runner import Runner
 
 
 def test_x_mobile_login_success_status_contract():
@@ -26,3 +26,11 @@ def test_x_mobile_login_captcha_status_contract():
     assert result["task"] == "x_mobile_login"
     assert result["status"] == "failed"
     assert "captcha" in result.get("message", "")
+
+
+def test_x_mobile_login_without_forced_hint_does_not_false_positive_when_rpc_disabled(monkeypatch):
+    monkeypatch.setenv("MYT_ENABLE_RPC", "0")
+    result = Runner().run({"task": "x_mobile_login", "device_ip": "192.168.1.2"})
+    assert result["task"] == "x_mobile_login"
+    assert result["status"] == "failed"
+    assert "device_connection_failed" in result.get("message", "")

@@ -1,7 +1,7 @@
 import pytest
 
-from new.core.config_loader import ConfigLoader
-from new.core.port_calc import build_task_port_map, calculate_ports
+from core.config_loader import ConfigLoader
+from core.port_calc import build_task_port_map, calculate_ports
 
 
 def test_allocator_deterministic_repeatability():

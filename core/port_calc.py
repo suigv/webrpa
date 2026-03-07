@@ -1,4 +1,4 @@
-from new.core.config_loader import get_sdk_port
+from core.config_loader import get_sdk_port
 
 BASE_PORT = 30000
 PORT_STEP = 100

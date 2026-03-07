@@ -10,7 +10,13 @@ from typing import Protocol
 
 
 class QueueBackend(Protocol):
-    def enqueue(self, task_id: str, delay_seconds: int = 0, priority: int = 50) -> None: ...
+    def enqueue(
+        self,
+        task_id: str,
+        delay_seconds: int = 0,
+        priority: int = 50,
+        run_at_epoch: float | None = None,
+    ) -> None: ...
 
     def dequeue(self, timeout_seconds: int = 1) -> str | None: ...
 
@@ -22,14 +28,24 @@ class InMemoryTaskQueue:
         self._lock = threading.Lock()
         self._counter = 0
 
-    def enqueue(self, task_id: str, delay_seconds: int = 0, priority: int = 50) -> None:
+    def enqueue(
+        self,
+        task_id: str,
+        delay_seconds: int = 0,
+        priority: int = 50,
+        run_at_epoch: float | None = None,
+    ) -> None:
         prio = max(0, min(100, int(priority)))
-        if delay_seconds <= 0:
+        has_delay = run_at_epoch is not None or delay_seconds > 0
+        if not has_delay:
             with self._lock:
                 self._counter += 1
                 self._q.put((-prio, self._counter, task_id))
             return
-        due = float(int(time.time()) + int(delay_seconds))
+        if run_at_epoch is not None:
+            due = float(run_at_epoch)
+        else:
+            due = time.time() + float(delay_seconds)
         with self._lock:
             self._counter += 1
             heapq.heappush(self._delayed, (due, -prio, self._counter, task_id))
@@ -65,14 +81,24 @@ class RedisTaskQueue:
         self._delayed_key = f"{queue_key}:delayed"
         self._seq_key = f"{queue_key}:seq"
 
-    def enqueue(self, task_id: str, delay_seconds: int = 0, priority: int = 50) -> None:
+    def enqueue(
+        self,
+        task_id: str,
+        delay_seconds: int = 0,
+        priority: int = 50,
+        run_at_epoch: float | None = None,
+    ) -> None:
         prio = max(0, min(100, int(priority)))
-        if delay_seconds <= 0:
+        has_delay = run_at_epoch is not None or delay_seconds > 0
+        if not has_delay:
             seq = int(self._client.incr(self._seq_key))
             score = (100 - prio) * 1_000_000_000 + seq
             self._client.zadd(self._queue_key, {task_id: float(score)})
             return
-        score = time.time() + float(delay_seconds)
+        if run_at_epoch is not None:
+            score = float(run_at_epoch)
+        else:
+            score = time.time() + float(delay_seconds)
         payload = f"{prio}:{task_id}"
         self._client.zadd(self._delayed_key, {payload: score})
 

@@ -1,7 +1,7 @@
 import types
 
-import new.hardware_adapters.browser_client as browser_client_module
-from new.hardware_adapters.browser_client import BrowserClient
+import hardware_adapters.browser_client as browser_client_module
+from hardware_adapters.browser_client import BrowserClient
 
 
 def test_browser_adapter_import_and_state():

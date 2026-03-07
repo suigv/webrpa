@@ -1,6 +1,6 @@
 import json
 
-import new.core.config_loader as config_loader
+import core.config_loader as config_loader
 
 
 def test_config_migration_idempotent(tmp_path):

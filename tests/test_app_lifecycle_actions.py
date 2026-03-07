@@ -2,7 +2,7 @@ import importlib
 
 
 def _load_ui_actions_module():
-    for name in ("new.engine.actions.ui_actions", "engine.actions.ui_actions"):
+    for name in ("engine.actions.ui_actions", "engine.actions.ui_actions"):
         try:
             return importlib.import_module(name)
         except ModuleNotFoundError:
@@ -11,7 +11,7 @@ def _load_ui_actions_module():
 
 
 def _load_execution_context():
-    for name in ("new.engine.models.runtime", "engine.models.runtime"):
+    for name in ("engine.models.runtime", "engine.models.runtime"):
         try:
             return importlib.import_module(name).ExecutionContext
         except ModuleNotFoundError:

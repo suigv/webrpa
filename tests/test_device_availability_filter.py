@@ -1,8 +1,8 @@
 import time
 from typing import Any, cast
 
-from new.core.config_loader import ConfigLoader
-from new.core.device_manager import DeviceManager
+from core.config_loader import ConfigLoader
+from core.device_manager import DeviceManager
 
 
 def test_device_info_available_only_filters_by_probe_cache():

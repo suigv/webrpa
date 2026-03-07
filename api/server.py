@@ -8,16 +8,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from new.api.routes import config as config_route
-from new.api.routes import data as data_route
-from new.api.routes import devices as devices_route
-from new.api.routes import task_routes as tasks_route
-from new.api.routes import websocket as websocket_route
-from new.core.device_manager import DeviceManager
-from new.core.lan_discovery import LanDeviceDiscovery
-from new.core.task_control import get_task_controller
-from new.engine.runner import Runner, strict_plugin_unknown_inputs_enabled
-from new.hardware_adapters.browser_client import BrowserClient
+from api.routes import config as config_route
+from api.routes import data as data_route
+from api.routes import devices as devices_route
+from api.routes import task_routes as tasks_route
+from api.routes import websocket as websocket_route
+from core.device_manager import DeviceManager
+from core.lan_discovery import LanDeviceDiscovery
+from core.task_control import get_task_controller
+from engine.runner import Runner, strict_plugin_unknown_inputs_enabled
+from hardware_adapters.browser_client import BrowserClient
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
@@ -55,7 +55,9 @@ app.include_router(tasks_route.router, prefix="/api/tasks", tags=["tasks"])
 app.include_router(config_route.router, prefix="/api/config", tags=["config"])
 app.include_router(data_route.router, prefix="/api/data", tags=["data"])
 app.include_router(websocket_route.router)
-app.mount("/web", StaticFiles(directory=str(WEB_DIR), html=True), name="web")
+
+# Mount static files first
+app.mount("/static", StaticFiles(directory=str(WEB_DIR)), name="static")
 
 @app.get("/")
 def root():

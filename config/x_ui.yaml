@@ -1,0 +1,173 @@
+version: v1
+package_name: com.twitter.android
+
+schemes:
+  login_flow: "twitter://onboarding/task?flow_token=login"
+  home: "twitter://home"
+  search: "twitter://search"
+  search_query: "https://twitter.com/search?q={query}"
+  compose: "twitter://post"
+  profile: "twitter://user?screen_name={screen_name}"
+  follow_intent_native: "twitter://follow?screen_name={screen_name}"
+  follow_intent_web: "https://x.com/intent/follow?screen_name={screen_name}"
+  followers: "https://twitter.com/{screen_name}/followers"
+  following: "https://twitter.com/{screen_name}/following"
+  settings: "twitter://settings"
+  messages: "twitter://messages"
+  dm_compose: "twitter://messages/compose?recipient_id={recipient_id}&text={text}"
+
+selectors:
+  login.entry_login_btn:
+    type: text
+    mode: match
+    value: "^(Log in|登录|登入|ログイン)$"
+
+  login.entry_existing_account:
+    type: text
+    mode: match
+    value: "^(Already have an account\\??|已有账号\\??|已有帳號\\??|アカウントをお持ちですか\\??).*$"
+
+  login.input_user:
+    type: id
+    mode: equal
+    value: "com.twitter.android:id/ocf_text_input_edit"
+
+  login.btn_next:
+    type: text
+    mode: match
+    value: "^(Next|下一步|次へ)$"
+
+  login.input_password:
+    type: id
+    mode: equal
+    value: "com.twitter.android:id/password_edit_text"
+
+  login.btn_submit_login:
+    type: text
+    mode: match
+    value: "^(Log in|登录|登入|ログイン)$"
+
+  login.input_2fa:
+    type: id
+    mode: equal
+    value: "com.twitter.android:id/ocf_text_input_edit"
+
+  login.btn_submit_2fa:
+    type: text
+    mode: match
+    value: "^(Next|下一步|次へ)$"
+
+  profile.nav_profile:
+    type: text
+    mode: match
+    value: "^(Profile|个人资料|個人資料|プロフィール)$"
+
+  profile.edit_button:
+    type: text
+    mode: match
+    value: "^(Edit profile|编辑个人资料|編輯個人資料|编辑资料|編輯資料|プロフィールを編集)$"
+
+  profile.name_input:
+    type: id
+    mode: equal
+    value: "com.twitter.android:id/edit_name"
+
+  profile.bio_input:
+    type: id
+    mode: equal
+    value: "com.twitter.android:id/edit_bio"
+
+  profile.save_button:
+    type: id
+    mode: equal
+    value: "com.twitter.android:id/save"
+
+  profile.save_button_text:
+    type: text
+    mode: match
+    value: "^(Save|保存)$"
+
+  home.nav_home:
+    type: desc
+    mode: match
+    value: "^(Home|主页|首頁|ホーム)$"
+
+  home.nav_search:
+    type: desc
+    mode: match
+    value: "^(Search|搜索|搜尋|検索)$"
+
+  home.nav_notifications:
+    type: desc
+    mode: match
+    value: "^(Notifications|通知)$"
+
+  home.nav_messages:
+    type: desc
+    mode: match
+    value: "^(Messages|消息|訊息|メッセージ)$"
+
+  dm.nav_messages:
+    type: desc
+    mode: match
+    value: "^(Messages|消息|訊息|メッセージ)$"
+
+  dm.reply_box_desc:
+    type: desc
+    mode: match
+    value: "^(Message|Message text|消息|訊息|メッセージ).*$"
+
+  dm.reply_box_text:
+    type: text
+    mode: match
+    value: "^(Message|消息|訊息|メッセージ).*$"
+
+  dm.send_button:
+    type: text
+    mode: match
+    value: "^(Send|发送|發送|送信)$"
+
+  quote.repost_button_desc:
+    type: desc
+    mode: match
+    value: "^(Repost|转发|轉發|リポスト).*$"
+
+  quote.repost_button_text:
+    type: text
+    mode: match
+    value: "^(Repost|转发|轉發|リポスト|引用).*$"
+
+  quote.quote_menu_item:
+    type: text
+    mode: match
+    value: "^(Quote|Quote post|引用|引用帖子|引用貼文)$"
+
+  quote.post_button:
+    type: text
+    mode: match
+    value: "^(Post|发布|發佈|ポスト)$"
+
+  post.like_button_desc:
+    type: desc
+    mode: match
+    value: "^(Like|喜欢|喜歡|いいね).*$"
+
+  post.like_button_text:
+    type: text
+    mode: match
+    value: "^(Like|喜欢|喜歡|いいね)$"
+
+  popup.not_now:
+    type: text
+    mode: match
+    value: "^(Not now|暂不|稍后|今はしない)$"
+
+  popup.deny:
+    type: text
+    mode: match
+    value: "^(Deny|拒绝|不允許|許可しない)$"
+
+  popup.allow:
+    type: text
+    mode: match
+    value: "^(Allow|允许|允許|許可)$"

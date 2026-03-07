@@ -3,3 +3,34 @@ __pycache__/
 .pytest_cache/
 .venv/
 .sisyphus/
+
+# uv
+uv.lock
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment
+.env
+.env.local
+
+# Logs
+logs/
+*.log
+
+# Runtime data
+config/data/*.db
+config/data/*.backup
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build
+dist/
+build/
+*.egg-info/

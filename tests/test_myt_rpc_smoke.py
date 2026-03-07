@@ -1,4 +1,4 @@
-from new.hardware_adapters.myt_client import MytRpc
+from hardware_adapters.myt_client import MytRpc
 
 
 def test_myt_rpc_module_smoke():

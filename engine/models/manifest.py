@@ -26,6 +26,7 @@ class PluginManifest(BaseModel):
     name: str
     version: str
     display_name: str
+    category: str = "其他"
     entry_script: str = "script.yaml"
     description: str = ""
     inputs: List[PluginInput] = Field(default_factory=list)

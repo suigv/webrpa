@@ -1,0 +1,64 @@
+version: v1
+strategies:
+  volc:
+    weights:
+      core: 5
+      action: 3
+      derivative: 2
+      target: 1
+    keywords:
+      core:
+        - "#裏垢女子 filter:images min_faves:50"
+        - "#ナースコス filter:images min_faves:20"
+        - "#彼シャツ filter:images"
+      action:
+        - "#バニーガール filter:images min_faves:10"
+      derivative:
+        - "#黒スト filter:images min_faves:10"
+        - "#お風呂上がり filter:images"
+      target:
+        - "#太もも filter:images min_faves:10"
+    blacklist:
+      - "業者"
+      - "ママ活"
+      - "パパ活"
+      - "ビジネス"
+      - "スカウト"
+      - "募集"
+  part_time:
+    weights:
+      core: 5
+      action: 3
+      derivative: 2
+      target: 1
+    keywords:
+      core:
+        - "PayPay (全員 OR 全プレ) -filter:links min_faves:20"
+        - "PayPay (突発 OR 抽選) -filter:links min_faves:20"
+        - "現金 (配布 OR プレゼント) -filter:links min_faves:20"
+        - "paypay 配布"
+        - "paypay あげます"
+      action:
+        - "PayPay (リプ OR コメント) -filter:links min_faves:20"
+        - "PayPay (早い者勝ち OR 即渡し) -filter:links min_faves:10"
+        - "PayPay 通知オン -filter:links min_faves:20"
+        - "paypay フォロー RT"
+      derivative:
+        - "PayPay (ハズレなし OR 確定) -filter:links min_faves:20"
+        - "PayPay (生活費 OR 救済) -filter:links min_faves:20"
+        - "PayPay (在庫 OR 残高) filter:images min_faves:20"
+        - "PayPay 実績 filter:images min_faves:20"
+        - "PayPay (1000円 OR 3000円 OR 5000円) -filter:links min_faves:10"
+        - "アマギフ (全員 OR 配布) -filter:links min_faves:20"
+      target:
+        - "paypay 欲しい"
+        - "paypay 恵んで"
+        - "金欠"
+        - "助けて"
+    blacklist:
+      - "業者"
+      - "アダルト"
+      - "裏垢"
+      - "代行"
+      - "副業"
+      - "案件"

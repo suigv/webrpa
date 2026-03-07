@@ -1,27 +1,27 @@
-# AGENTS.md for `new/` Standalone Project
+# AGENTS.md for `webrpa`
 
 ## Mission
-Build and evolve `new/` as an independent project.
+Build and evolve `webrpa` as an independent project.
 
 Hard goals:
-- Keep `new/` copy-ready and runnable by itself.
+- Keep `webrpa` copy-ready and runnable by itself.
 - Do not reintroduce legacy task code from old repo.
 - Evolve runtime via pluginized architecture.
 
 ## Scope Rules
 
 ### In Scope
-- `new/api/**`
-- `new/core/**`
-- `new/models/**`
-- `new/common/**`
-- `new/engine/**`
-- `new/hardware_adapters/**`
-- `new/ai_services/**`
-- `new/plugins/**`
-- `new/tests/**`
-- `new/tools/**`
-- `new/config/**`
+- `api/**`
+- `core/**`
+- `models/**`
+- `common/**`
+- `engine/**`
+- `hardware_adapters/**`
+- `ai_services/**`
+- `plugins/**`
+- `tests/**`
+- `tools/**`
+- `config/**`
 
 ### Out of Scope
 - Any direct dependency on old `tasks/*.py`
@@ -35,15 +35,15 @@ Hard goals:
 2. Baseline startup must work with RPC disabled:
    - `MYT_ENABLE_RPC=0`
 3. Data path must stay inside:
-   - `new/config/data`
+   - `config/data`
 
 ## Required Validation
 Run all before finishing any meaningful change:
 
 ```bash
-./.venv/bin/python new/tools/check_no_legacy_imports.py
-./.venv/bin/python -m pytest new/tests -q
-MYT_NEW_ROOT=$(pwd)/new MYT_ENABLE_RPC=0 ./.venv/bin/python -m uvicorn new.api.server:app --host 127.0.0.1 --port 8001
+./.venv/bin/python tools/check_no_legacy_imports.py
+./.venv/bin/python -m pytest tests -q
+MYT_ENABLE_RPC=0 ./.venv/bin/python -m uvicorn api.server:app --host 127.0.0.1 --port 8001
 ```
 
 Health check:
@@ -55,19 +55,31 @@ curl http://127.0.0.1:8001/health
 ## Architecture Contracts
 
 ### API Layer
-- `new/api/server.py` is the single app entrypoint.
+- `api/server.py` is the single app entrypoint.
 - Keep routes thin; business logic belongs in core/engine.
 - `/web` is the default operator console endpoint and should remain available.
 
 ### Runtime Layer
-- `new/engine/parser.py` normalizes script payload.
-- `new/engine/runner.py` owns execution orchestration.
-- `new/engine/actions/*` contains atomic action functions.
+- `engine/parser.py` normalizes script payload.
+- `engine/runner.py` owns execution orchestration.
+- `engine/actions/*` contains atomic action functions.
+- Keep action modules capability-focused; when one file starts mixing connection lifecycle, parameter policy, fallback strategy, and a mini-subsystem, split it before adding more features.
+- Prefer shared helpers for RPC/session/bootstrap wiring; do not duplicate connection patterns across action modules.
+
+### Orchestration Boundary
+- `core/task_control.py` is orchestration glue, not a home for business policy.
+- Business feedback or compensation rules must live behind a dedicated hook/service, not inline inside task failure/scheduling paths.
+- Keep `core/task_store.py`, `core/task_queue.py`, and `core/task_events.py` as the persistence/queue/event boundaries; avoid moving those concerns back into routes or plugins.
+
+### Plugin Workflow Boundary
+- Plugins should express business workflows, not low-level transport or fallback boilerplate.
+- When a workflow repeats the same fallback sequence three or more times, add a composite action instead of copying more YAML.
+- Treat unusually long plugin scripts as an architecture smell that requires review, especially login/onboarding flows.
 
 ### Adapter Layer
-- `new/hardware_adapters/myt_client.py` is optional capability.
+- `hardware_adapters/myt_client.py` is optional capability.
 - Native lib loading must be lazy and failure-safe.
-- `new/hardware_adapters/browser_client.py` is optional browser capability based on vendored DrissionPage.
+- `hardware_adapters/browser_client.py` is optional browser capability based on vendored DrissionPage.
 - Browser adapter must fail gracefully when DrissionPage or browser runtime is unavailable.
 
 ### Port Architecture
@@ -89,14 +101,16 @@ cloud 10 → api 30901, rpa 30902
 Different devices use the same port numbers but different IPs — `(ip, port)` is unique.
 
 ### Data and Config Layer
-- `new/core/config_loader.py` controls runtime config access.
-- `new/core/data_store.py` controls JSON data I/O.
+- `core/config_loader.py` controls runtime config access.
+- `core/data_store.py` controls JSON data I/O.
 - Legacy TXT migration remains opt-in only.
 
 ## Pluginization Direction
-- New business workflows go to `new/plugins/`.
+- New business workflows go to `plugins/`.
 - Avoid embedding business task logic inside API routes.
 - Keep plugin interface stable and versioned once defined.
+- Use plugins for workflow composition and state flow; move reusable low-level interaction patterns into actions or composite actions.
+- Before expanding an existing large workflow, check whether the repeated pattern belongs in a new action instead.
 
 ## Commit and Change Hygiene
 - Small, capability-based commits.
@@ -109,3 +123,93 @@ A change is done only if:
 - tests pass,
 - app starts and `/health` returns 200,
 - no legacy imports were introduced.
+
+## Merged Reference (from CLAUDE.md)
+
+This section keeps practical project guidance that used to live in `CLAUDE.md`.
+
+### Project Overview
+- Web/RPA automation platform: FastAPI + pluginized execution engine + browser automation.
+- Key capabilities: multi-device/cloud topology mapping, task scheduling with retry/SSE, YAML workflow engine, Web console (`/web`) and log stream (`/ws/logs`).
+
+### Tech Stack
+- Runtime: Python 3.11+, FastAPI 0.115, uvicorn 0.32, Pydantic 2.9.
+- Communication: WebSocket (`websockets` 13.1), SSE task events.
+- Data: SQLite (`config/data/tasks.db`) + JSON configs.
+- RPA/Parsing: DownloadKit, lxml, cssselect, browser automation stack.
+- AI clients: `ai_services/llm_client.py`, `ai_services/vlm_client.py`.
+
+### Common Commands (uv)
+Install dependencies:
+```bash
+uv pip install -r requirements.txt
+```
+
+Start service:
+```bash
+uv run python api/server.py
+uv run uvicorn api.server:app --reload
+uv run uvicorn api.server:app --host 0.0.0.0 --port 8000
+```
+
+Operational debugging:
+```bash
+curl http://localhost:8000/health | jq
+curl http://localhost:8000/api/tasks/metrics | jq
+curl -N http://localhost:8000/api/tasks/{task_id}/events
+websocat ws://localhost:8000/ws/logs
+```
+
+Code quality:
+```bash
+uv run ruff check api/ core/ engine/ ai_services/ common/
+uv run ruff check --fix .
+uv run ruff format .
+```
+
+### Development Conventions (Additions)
+- New API route:
+  - Add route module under `api/routes/`.
+  - Register route in `api/server.py`.
+  - Reuse standard response models where possible.
+- New engine action:
+  - Add implementation in `engine/actions/`.
+  - Register via `register_action("namespace.action")`.
+  - First argument must be execution context (`ctx`).
+  - Keep the action narrowly scoped; if the change needs selector frameworks, shared state policy, or complex connection management, extract helpers or submodules instead of growing a god-file.
+- Task system key classes:
+  - `TaskController` (`core/task_control.py`)
+  - `TaskQueue` (`core/task_queue.py`)
+  - `TaskStore` (`core/task_store.py`)
+  - `TaskEventEmitter` (`core/task_events.py`)
+  - `WorkflowInterpreter` (`engine/interpreter.py`)
+- Humanized behavior config:
+  - `models/humanized.HumanizedConfig` controls move/click/input rhythm and fallback strategy.
+- Config hot reload:
+  - `common/config_manager.py` watches `config/` and reloads using `watchdog`.
+
+### Additional Do-Not Rules
+- Do not directly mutate `config/data/tasks.db`; use task store/control APIs.
+- Do not block event loop in action handlers; keep `async/await` discipline.
+- Do not hardcode secrets; use `credentials_loader` or environment variables.
+- If plugin contract changes, keep implementation and docs synchronized.
+- Do not place account/business remediation logic directly in orchestration hot paths when a hook/service boundary can own it.
+- Do not solve repeated workflow boilerplate by copying more YAML when a composite action is the real abstraction.
+
+### Plugin Notes
+- Reference implementation path: `plugins/x_mobile_login/`.
+- Workflow supports template interpolation, e.g. `{{ credentials.username }}`.
+
+### Debug Tips
+Task execution flow quick check:
+```bash
+response=$(curl -s -X POST http://localhost:8000/api/tasks -H "Content-Type: application/json" -d '{"name":"test","priority":10}')
+task_id=$(echo "$response" | jq -r '.data.task_id')
+curl -N http://localhost:8000/api/tasks/$task_id/events
+curl http://localhost:8000/api/tasks/$task_id | jq
+```
+
+Action registry smoke check:
+```bash
+uv run python -c "from engine.action_registry import list_actions; print('\\n'.join(list_actions()))"
+```

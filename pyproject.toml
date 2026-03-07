@@ -1,0 +1,70 @@
+[project]
+name = "webrpa"
+version = "0.1.0"
+description = "Web/RPA 自动化平台：FastAPI + 插件化执行引擎 + 浏览器自动化"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn>=0.32.0",
+    "pydantic>=2.9.2",
+    "requests>=2.32.3",
+    "websockets>=13.1",
+    "lxml",
+    "cssselect",
+    "DownloadKit>=2.0.7",
+    "websocket-client",
+    "click",
+    "tldextract>=3.4.4",
+    "psutil",
+    "PyYAML>=6.0",
+    "pyotp>=2.9.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.3",
+    "ruff>=0.3.0",
+    "httpx>=0.27.0",
+    "websocat",  # WebSocket 调试工具
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+select = [
+    "E",      # pycodestyle errors
+    "F",      # Pyflakes
+    "I",      # isort
+    "N",      # pep8-naming
+    "W",      # pycodestyle warnings
+    "UP",     # pyupgrade
+    "B",      # flake8-bugbear
+    "C4",     # flake8-comprehensions
+    "SIM",    # flake8-simplify
+    "ASYNC",  # flake8-async
+]
+ignore = ["E501"]  # 行宽由 formatter 处理
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "lf"
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-ra -q --tb=short"
+
+[tool.uv]
+# uv 特定配置
+dev-dependencies = [
+    "pytest>=8.3.3",
+    "ruff>=0.3.0",
+    "httpx>=0.27.0",
+]

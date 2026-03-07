@@ -1,6 +1,28 @@
 {
   "k1": {
     "username": "u1",
-    "display_name": "U1"
-  }
+    "display_name": "U1",
+    "profile": ""
+  },
+  "blogger_pool": [
+    {
+      "username": "u1",
+      "display_name": "U1",
+      "profile": ""
+    }
+  ],
+  "blogger_scrape_count": 7,
+  "device:192.168.1.2:k1": {
+    "username": "u1",
+    "display_name": "U1",
+    "profile": ""
+  },
+  "device:192.168.1.2:blogger_pool": [
+    {
+      "username": "u1",
+      "display_name": "U1",
+      "profile": ""
+    }
+  ],
+  "device:192.168.1.2:blogger_scrape_count": 16
 }

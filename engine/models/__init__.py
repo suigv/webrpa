@@ -1,6 +1,6 @@
-from new.engine.models.manifest import PluginInput, PluginManifest
-from new.engine.models.runtime import ActionResult, ExecutionContext
-from new.engine.models.workflow import (
+from engine.models.manifest import PluginInput, PluginManifest
+from engine.models.runtime import ActionResult, ExecutionContext
+from engine.models.workflow import (
     ActionStep,
     Condition,
     ConditionExpr,

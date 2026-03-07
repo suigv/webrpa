@@ -1,5 +1,5 @@
-from new.core.config_loader import ConfigLoader
-from new.core.lan_discovery import LanDeviceDiscovery
+from core.config_loader import ConfigLoader
+from core.lan_discovery import LanDeviceDiscovery
 
 
 def test_scan_now_force_bypasses_discovery_enabled(monkeypatch):

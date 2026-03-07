@@ -2,14 +2,54 @@ api_version: v1
 kind: plugin
 name: blogger_scrape
 version: "1.0.0"
-display_name: "Blogger Scrape"
+display_name: "博主资料采集"
+category: "数据采集"
 description: "Prepare scrape output payload for downstream clone workflow"
 entry_script: script.yaml
 inputs:
+  - name: device_ip
+    type: string
+    required: false
+  - name: package
+    type: string
+    required: false
+    default: "com.twitter.android"
   - name: source_key
     type: string
     required: false
     default: "scrape_profile"
+  - name: pool_key
+    type: string
+    required: false
+    default: "blogger_pool"
+  - name: counter_key
+    type: string
+    required: false
+    default: "blogger_scrape_count"
+  - name: scope
+    type: string
+    required: false
+    default: "device"
+  - name: ai_type
+    type: string
+    required: false
+    default: "volc"
+  - name: search_query
+    type: string
+    required: false
+    default: ""
+  - name: max_candidates
+    type: integer
+    required: false
+    default: 10
+  - name: max_rounds
+    type: integer
+    required: false
+    default: 3
+  - name: settle_ms
+    type: integer
+    required: false
+    default: 900
   - name: profile
     type: string
     required: false

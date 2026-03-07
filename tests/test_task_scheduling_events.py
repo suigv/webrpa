@@ -5,15 +5,15 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from new.api.server import app
-from new.core.task_control import (
+from api.server import app
+from core.task_control import (
     TaskController,
     override_task_controller_for_tests,
     reset_task_controller_for_tests,
 )
-from new.core.task_events import TaskEventStore
-from new.core.task_queue import InMemoryTaskQueue
-from new.core.task_store import TaskStore
+from core.task_events import TaskEventStore
+from core.task_queue import InMemoryTaskQueue
+from core.task_store import TaskStore
 
 
 def _wait_status(client: TestClient, task_id: str, wanted: str, timeout_s: float = 6.0) -> bool:
@@ -68,8 +68,9 @@ def test_run_at_delays_execution():
         assert _wait_status(client, task_id, "completed", timeout_s=5.0)
 
 
-def test_priority_prefers_higher_first_when_same_run_at(tmp_path: Path):
+def test_priority_prefers_higher_first_when_same_run_at(tmp_path: Path, monkeypatch):
     reset_task_controller_for_tests()
+    monkeypatch.setenv("MYT_MAX_CONCURRENT_TASKS", "1")
     db_path = tmp_path / "tasks_priority_test.db"
     if db_path.exists():
         db_path.unlink()

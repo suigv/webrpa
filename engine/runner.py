@@ -5,16 +5,16 @@ import os
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict
 
-from new.engine.action_registry import get_registry
-from new.engine.interpreter import Interpreter
-from new.engine.models.manifest import InputType, PluginInput
-from new.engine.models.workflow import ActionStep, WorkflowScript
-from new.engine.parser import ScriptParser, parse_script
-from new.engine.plugin_loader import PluginLoader
+from engine.action_registry import get_registry
+from engine.interpreter import Interpreter
+from engine.models.manifest import InputType, PluginInput
+from engine.models.workflow import ActionStep, WorkflowScript
+from engine.parser import ScriptParser, parse_script
+from engine.plugin_loader import PluginLoader
 
 logger = logging.getLogger(__name__)
 
-ALLOWED_ACTION_PREFIXES = ("app.", "browser.", "core.", "credentials.", "device.", "sdk.", "ui.")
+ALLOWED_ACTION_PREFIXES = ("app.", "browser.", "core.", "credentials.", "device.", "mytos.", "sdk.", "ui.")
 
 
 def strict_plugin_unknown_inputs_enabled() -> bool:
@@ -112,7 +112,11 @@ class Runner:
     def _validate_plugin_payload(self, payload: Dict[str, Any], inputs: list[PluginInput]) -> Dict[str, str] | None:
         if self._strict_unknown_inputs_enabled():
             declared_inputs = {plugin_input.name for plugin_input in inputs}
-            unknown_inputs = sorted(key for key in payload if key not in declared_inputs and key != "task")
+            unknown_inputs = sorted(
+                key
+                for key in payload
+                if key not in declared_inputs and key != "task" and not str(key).startswith("_")
+            )
             if unknown_inputs:
                 rendered = ", ".join(unknown_inputs)
                 return {
