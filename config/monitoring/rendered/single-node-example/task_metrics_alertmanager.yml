@@ -1,0 +1,17 @@
+# Alertmanager routing config for webrpa task metrics alerts
+route:
+  receiver: webrpa-task-alerts
+  group_by: ['alertname']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 2h
+  routes:
+    - receiver: webrpa-task-alerts
+      matchers:
+        - alertname=~"NewTask.*"
+
+receivers:
+  - name: webrpa-task-alerts
+    webhook_configs:
+      - url: http://127.0.0.1:19093/webhook
+        send_resolved: true

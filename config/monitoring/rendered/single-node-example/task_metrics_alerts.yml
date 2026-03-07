@@ -1,0 +1,39 @@
+# Prometheus alert rules for webrpa task control-plane metrics
+groups:
+  - name: new-task-control-plane
+    rules:
+      - alert: NewTaskAlertThresholdTriggered
+        expr: new_task_alert_triggered == 1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Task reliability threshold triggered'
+          description: 'Failure/cancellation ratio exceeded configured threshold in the task metrics window.'
+
+      - alert: NewTaskFailureRateHigh
+        expr: new_task_alert_reason{reason="failure_rate_exceeded"} == 1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Task failure rate is high'
+          description: 'new_task_failure_rate exceeded configured threshold.'
+
+      - alert: NewTaskCancellationRateHigh
+        expr: new_task_alert_reason{reason="cancellation_rate_exceeded"} == 1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Task cancellation rate is high'
+          description: 'new_task_cancellation_rate exceeded configured threshold.'
+
+      - alert: NewTaskStaleRunningRecovered
+        expr: new_task_event_type_count{event_type="task.recovered_stale_running"} > 0
+        for: 0m
+        labels:
+          severity: info
+        annotations:
+          summary: 'Stale-running task recovery detected'
+          description: 'One or more stale running tasks were recovered and re-enqueued.'

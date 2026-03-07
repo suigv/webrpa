@@ -1,0 +1,12 @@
+# Prometheus scrape config for webrpa task control-plane metrics
+scrape_configs:
+  - job_name: new-task-metrics
+    scrape_interval: 30s
+    metrics_path: /api/tasks/metrics/prometheus
+    params:
+      window_seconds: ['3600']
+      failure_rate_threshold: ['0.2']
+      cancellation_rate_threshold: ['0.2']
+      min_terminal_samples: ['20']
+    static_configs:
+      - targets: ['127.0.0.1:8001']
