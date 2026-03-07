@@ -62,8 +62,8 @@
 | App-level route decorators (`api/server.py`) | 5 |
 | Plugin count (`plugins/*/manifest.yaml`) | 12 |
 | SDK action bindings (`engine/actions/sdk_actions.py`) | 131 |
-| Test files (`tests/test_*.py`) | 52 |
-| Test functions (`def test_*`) | 184 |
+| Test files (`tests/test_*.py`) | 53 |
+| Test functions (`def test_*`) | 197 |
 <!-- AUTO_PROGRESS_SNAPSHOT:END -->
 
 ## 4. 维护方式（实时更新建议）
