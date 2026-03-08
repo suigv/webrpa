@@ -16,7 +16,6 @@ from .config_loader import (
     get_stop_hour,
     get_total_devices,
 )
-from .lan_discovery import LanDeviceDiscovery
 from .port_calc import calculate_ports
 from hardware_adapters.myt_client import BaseHTTPClient
 from models.device import AIType, DeviceStatus
@@ -31,8 +30,6 @@ class Device:
         self.status = DeviceStatus.IDLE
         self.current_task: Optional[str] = None
         self.message: Optional[str] = None
-        self.thread: Optional[threading.Thread] = None
-        self.stop_event = threading.Event()
         self.updated_at = datetime.now()
 
 
@@ -68,7 +65,6 @@ class DeviceManager:
             self._cloud_model_retries = 2
             self._cloud_model_success_ttl_seconds = 30.0
             self._cloud_model_error_ttl_seconds = 5.0
-            self._discovery = LanDeviceDiscovery()
             self._initialized = True
 
     def _query_cloud_model_map(self, device_ip: str) -> dict[int, dict[str, Optional[str]]]:
