@@ -9,6 +9,9 @@
 - 核心状态：API、任务系统、插件执行、账号池、Web 控制台、配置管理、适配器降级均可用；RPA/RPC 控制层 remediation 已完成，后续 watchpoint、监控 rollout、stale-running 调优与交接流程文档已同步落地
 - 最近重点：
   - 完成 RPA/RPC 控制层 remediation：selector 热路径清理、解释器退出 safety net、共享 RPC helper、`mytRpc` 原生边界 hardening、`TaskController` 业务反馈抽离
+  - 完成 `sdk_actions` 内部 helper 收口，现状为 `sdk_actions.py` facade + `sdk_*_support.py` helper 模块，动作名与测试入口保持稳定
+  - 完成 `x_mobile_login` 定向 fallback-chain 缩减，复用 `ui.click_selector_or_tap` 与 `ui.focus_and_input_with_shell_fallback` 去掉主登录路径中的重复 YAML 编排，而不是做整插件重写
+  - 明确 `/api/runtime/execute` 为 debug/internal-only 同步直跑入口，并补齐回归测试，保证它不生成 `/api/tasks` 托管记录、生命周期字段或 metrics artifacts
   - 新增 contract-focused regression coverage，固定 shared bootstrap 契约、cleanup 顺序与 `/health` 的 `rpc_enabled=false` 行为
   - 完成 `MYT_ENABLE_RPC=0` 启动烟测与全量 `pytest tests -q` 门禁
   - 完成 post-remediation follow-up 文档收口：`sdk_actions`、shared JSON store、`x_mobile_login` compression watchpoint 均已有独立评估文档
@@ -20,7 +23,7 @@
 
 ### 2.1 API 与控制面
 
-- 健康检查、运行时执行、Web 控制台入口（`api/server.py`）
+- 健康检查、debug/internal-only 运行时直跑入口、Web 控制台入口（`api/server.py`）
 - 设备管理：列表/详情/状态/启停（`api/routes/devices.py`）
 - 任务管理：创建/列表/详情/取消 + SSE 事件流（`api/routes/task_routes.py`）
 - 配置管理：读取/更新系统配置与 humanized 配置（`api/routes/config.py`）
@@ -39,7 +42,7 @@
 - 浏览器动作：open/input/click/exists/wait/check_html/close（`engine/actions/browser_actions.py`）
 - 账号凭据动作：`credentials.load`（`engine/actions/credential_actions.py`）
 - UI/RPC 动作：点击、滑动、输入、按键、截图、节点查询等（`engine/actions/ui_actions.py`）
-- SDK 动作绑定（`engine/actions/sdk_actions.py`）
+- SDK 动作绑定 facade + `sdk_*_support.py` helper 分层（`engine/actions/sdk_actions.py`）
 - BrowserClient 拟人化与降级兜底（`hardware_adapters/browser_client.py`）
 - MytRpc 跨平台动态库选择（`hardware_adapters/mytRpc.py`）
 
@@ -53,7 +56,7 @@
 ### 2.5 质量保障
 
 - 关键门禁脚本：`tools/check_no_legacy_imports.py`
-- 测试覆盖：API、任务、配置迁移、插件、适配器、Web smoke、跨平台库选择等（`tests/`）
+- 测试覆盖：API、任务、配置迁移、插件、适配器、Web smoke、跨平台库选择，以及 `/api/runtime/execute` 非托管任务语义回归（`tests/`）
 
 ## 3. 自动统计快照
 
@@ -89,4 +92,4 @@
 1. 提交与 PR 打包：把已完成的 follow-up 文档/监控产物整理成可审阅的提交批次，并按 `docs/HANDOFF.md` 补齐证据链。
 2. 外部 Prometheus / Alertmanager 实际部署联调：将 `docs/monitoring_rollout.md` 和 `config/monitoring/rendered/single-node-example/` 落到真实环境。
 3. stale-running 线上阈值校准：按 `docs/stale_running_recovery_tuning.md` 的规则在目标环境确认常态值、演练值与告警响应。
-4. 持续观察 watchpoint：定期复查 `docs/reference/sdk_actions_followup_assessment.md`、`docs/reference/shared_json_store_watchpoint.md`、`docs/reference/x_mobile_login_compression_watchpoint.md` 是否命中新触发条件。
+4. 持续观察 watchpoint：定期复查 `docs/reference/sdk_actions_followup_assessment.md`、`docs/reference/shared_json_store_watchpoint.md`、`docs/reference/x_mobile_login_compression_watchpoint.md` 是否在已落地收口后命中新触发条件。
