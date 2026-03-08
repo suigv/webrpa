@@ -11,10 +11,14 @@
 - `sdk_actions.py` 已保持稳定 facade，并把运行时、配置、shared-store、profile 与业务辅助逻辑下沉到 `sdk_*_support.py` helper 模块
 - `core/task_control.py` 中的账号反馈策略已抽到 `core/account_feedback.py`
 - `hardware_adapters/mytRpc.py` 已补齐 pointer ownership、timeout 透传与 failure-safe 保护
-- `plugins/x_mobile_login/script.yaml` 已做定向 fallback-chain 压缩，复用现有 composite action 去掉登录主路径中的重复点击/输入回退编排，但没有把插件改写成全新结构
+- `UIStateService` 统一只读状态契约已落地，native/mobile 与 browser/web 观察结果已收敛到共享 contract，并保留平台证据细节
+- service-backed thin action wrappers 与动作注册已完成，legacy action 兼容面保持可用
+- interpreter / condition 已接入统一状态观察与等待能力，保持现有 YAML 模型与 cleanup 语义，不引入新 DSL
+- `plugins/x_mobile_login`、`dm_reply`、`nurture` 已完成定向 UIStateService 迁移，`profile_clone` 也完成了目标明确的状态观察收口
 - `/api/runtime/execute` 已明确为 debug/internal-only 同步直跑入口，并有回归测试保证它不参与 `/api/tasks` 托管任务记录、事件、重试、取消或指标产物
 - 原子化相关中文复盘文档已迁入 `docs/reference/`，参考审查文档与 README 入口均已同步
 - `MYT_ENABLE_RPC=0` 启动与 `/health` 契约已验证通过
+- UIStateService rollout 最终验证波次已完成，覆盖 service / adapters / wrappers / interpreter / plugins / 全量测试 / required startup checks
 
 ## 部分完成
 
@@ -22,10 +26,10 @@
 
 ## 下一步优先级
 
-1. 按提交边界整理已完成的 follow-up 文档与监控产物，补齐 commit / PR 证据链
+1. 继续观察新旧插件是否稳定复用 `UIStateService` 统一状态边界，避免重新长出插件内重复状态判断
 2. 将 `docs/monitoring_rollout.md` 与渲染监控配置落到外部 Prometheus / Alertmanager 环境
 3. 按 `docs/stale_running_recovery_tuning.md` 在真实部署里校准 `MYT_TASK_STALE_RUNNING_SECONDS`
-4. 继续观察 `sdk_actions`、shared JSON store 与 `x_mobile_login` 在定向压缩后的 watchpoint 触发条件
+4. 继续观察 `sdk_actions`、shared JSON store 与相关插件 watchpoint 的触发条件
 
 ## 参考文档
 

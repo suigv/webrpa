@@ -5,19 +5,16 @@
 
 ## 1. 当前阶段
 
-- 阶段：**Post-remediation follow-ups documented and aligned**
-- 核心状态：API、任务系统、插件执行、账号池、Web 控制台、配置管理、适配器降级均可用；RPA/RPC 控制层 remediation 已完成，后续 watchpoint、监控 rollout、stale-running 调优与交接流程文档已同步落地
+- 阶段：**UIStateService unified rollout completed and documented**
+- 核心状态：API、任务系统、插件执行、账号池、Web 控制台、配置管理、原生/RPC 与浏览器观察链路均可用；`UIStateService` 已作为统一只读状态契约落地，并完成插件迁移与验证收口
 - 最近重点：
-  - 完成 RPA/RPC 控制层 remediation：selector 热路径清理、解释器退出 safety net、共享 RPC helper、`mytRpc` 原生边界 hardening、`TaskController` 业务反馈抽离
-  - 完成 `sdk_actions` 内部 helper 收口，现状为 `sdk_actions.py` facade + `sdk_*_support.py` helper 模块，动作名与测试入口保持稳定
-  - 完成 `x_mobile_login` 定向 fallback-chain 缩减，复用 `ui.click_selector_or_tap` 与 `ui.focus_and_input_with_shell_fallback` 去掉主登录路径中的重复 YAML 编排，而不是做整插件重写
-  - 明确 `/api/runtime/execute` 为 debug/internal-only 同步直跑入口，并补齐回归测试，保证它不生成 `/api/tasks` 托管记录、生命周期字段或 metrics artifacts
-  - 新增 contract-focused regression coverage，固定 shared bootstrap 契约、cleanup 顺序与 `/health` 的 `rpc_enabled=false` 行为
-  - 完成 `MYT_ENABLE_RPC=0` 启动烟测与全量 `pytest tests -q` 门禁
-  - 完成 post-remediation follow-up 文档收口：`sdk_actions`、shared JSON store、`x_mobile_login` compression watchpoint 均已有独立评估文档
-  - 新增 `docs/monitoring_rollout.md` 与 `config/monitoring/rendered/single-node-example/`，明确 Prometheus/Alertmanager 外部接线基线
-  - 新增 `docs/stale_running_recovery_tuning.md`，把 `MYT_TASK_STALE_RUNNING_SECONDS` 调优规则与 `/health`、`task.recovered_stale_running`、`NewTaskStaleRunningRecovered` 串成同一验证链
-  - 原位于仓库根目录的中文原子化复盘文档已迁入 `docs/reference/`
+  - 完成 `UIStateService` 统一契约，收敛原生端与浏览器端的状态识别结果形状，同时保留各自证据细节
+  - 完成 native/mobile 与 browser/web 双适配器接线，保持旧行为兼容，不把 recovery 或 fallback 逻辑塞进 service
+  - 完成 thin action wrapper 与动作注册接线，保留 legacy action 兼容面，工作流侧可经统一状态边界消费能力
+  - 完成 interpreter / condition 集成，沿用现有 YAML 模型与 cleanup 语义，不引入新的 DSL
+  - 完成 `x_mobile_login`、`dm_reply`、`nurture` 定向迁移，并对 `profile_clone` 做了目标明确的状态观察收口
+  - 完成 rollout 验证波次，覆盖 service、native adapter、browser adapter、state actions、插件运行时、全量 `pytest tests -q`、`check_no_legacy_imports.py`、`MYT_ENABLE_RPC=0` 启动与 `/health`
+  - 既有 RPA/RPC remediation、`sdk_actions` facade + helper 分层、`/api/runtime/execute` debug/internal-only 契约、监控接线文档与 stale-running 调优文档仍保持有效
 
 ## 2. 已实现功能清单
 
@@ -33,15 +30,16 @@
 ### 2.2 引擎与插件
 
 - Runner + Interpreter 工作流执行（`engine/runner.py`, `engine/interpreter.py`）
-- 条件、跳转、等待、失败策略（`engine/conditions.py`, `engine/models/*`）
+- 条件、跳转、等待、失败策略，且已接入 `UIStateService` 支持统一状态观察与等待（`engine/conditions.py`, `engine/models/*`）
 - 插件扫描与加载（`engine/plugin_loader.py`）
-- 已内置插件：`x_mobile_login`、`mytos_device_setup`、`device_reboot`、`device_soft_reset`、`blogger_scrape`、`profile_clone` 及互动类插件
+- 已内置插件：`x_mobile_login`、`mytos_device_setup`、`device_reboot`、`device_soft_reset`、`blogger_scrape`、`profile_clone` 及互动类插件，其中 `x_mobile_login`、`dm_reply`、`nurture` 已完成 UIStateService 定向迁移
 
 ### 2.3 适配器与动作
 
 - 浏览器动作：open/input/click/exists/wait/check_html/close（`engine/actions/browser_actions.py`）
 - 账号凭据动作：`credentials.load`（`engine/actions/credential_actions.py`）
 - UI/RPC 动作：点击、滑动、输入、按键、截图、节点查询等（`engine/actions/ui_actions.py`）
+- `UIStateService` 统一状态契约、native/browser adapters、thin wrappers 与兼容动作入口已落地（相关实现位于 `engine/actions/` 与 `engine/conditions.py`）
 - SDK 动作绑定 facade + `sdk_*_support.py` helper 分层（`engine/actions/sdk_actions.py`）
 - BrowserClient 拟人化与降级兜底（`hardware_adapters/browser_client.py`）
 - MytRpc 跨平台动态库选择（`hardware_adapters/mytRpc.py`）
@@ -69,8 +67,8 @@
 | App-level route decorators (`api/server.py`) | 5 |
 | Plugin count (`plugins/*/manifest.yaml`) | 12 |
 | SDK action bindings (`engine/actions/sdk_actions.py`) | 131 |
-| Test files (`tests/test_*.py`) | 53 |
-| Test functions (`def test_*`) | 197 |
+| Test files (`tests/test_*.py`) | 54 |
+| Test functions (`def test_*`) | 207 |
 <!-- AUTO_PROGRESS_SNAPSHOT:END -->
 
 ## 4. 维护方式（实时更新建议）
@@ -89,7 +87,7 @@
 
 ## 5. 下一步建议（滚动）
 
-1. 提交与 PR 打包：把已完成的 follow-up 文档/监控产物整理成可审阅的提交批次，并按 `docs/HANDOFF.md` 补齐证据链。
-2. 外部 Prometheus / Alertmanager 实际部署联调：将 `docs/monitoring_rollout.md` 和 `config/monitoring/rendered/single-node-example/` 落到真实环境。
-3. stale-running 线上阈值校准：按 `docs/stale_running_recovery_tuning.md` 的规则在目标环境确认常态值、演练值与告警响应。
-4. 持续观察 watchpoint：定期复查 `docs/reference/sdk_actions_followup_assessment.md`、`docs/reference/shared_json_store_watchpoint.md`、`docs/reference/x_mobile_login_compression_watchpoint.md` 是否在已落地收口后命中新触发条件。
+1. 保持 `UIStateService` rollout 后观察，重点看新增插件是否继续复用统一状态边界，而不是回退到重复的插件内状态梯子。
+2. 将 `docs/monitoring_rollout.md` 和 `config/monitoring/rendered/single-node-example/` 落到真实环境，完成外部 Prometheus / Alertmanager 联调。
+3. 按 `docs/stale_running_recovery_tuning.md` 在真实部署里校准 `MYT_TASK_STALE_RUNNING_SECONDS`，补齐常态值与演练值证据。
+4. 持续复查 `docs/reference/sdk_actions_followup_assessment.md`、`docs/reference/shared_json_store_watchpoint.md`、`docs/reference/x_mobile_login_compression_watchpoint.md` 等 watchpoint 是否触发新的拆分或收口条件。
