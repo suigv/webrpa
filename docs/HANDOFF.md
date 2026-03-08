@@ -11,16 +11,17 @@
 
 ## 2) Current Snapshot (Update this first)
 
-- Phase: **Post-remediation follow-ups completed and ready for packaging**
-- Active follow-up plan source: `.sisyphus/plans/post-rpa-rpc-followups.md` (completed)
+- Phase: **UIStateService unified rollout completed and validated**
+- Active plan source: `.sisyphus/plans/ui-state-service-unified.md` (completed)
 - Core capabilities now covered:
   - API + Web console (`/web`)，当前公开云机大厅、账号池、设置与实时日志
   - Task control plane (`api/routes/task_routes.py`, `core/task_control.py`) with catalog/metrics/prometheus export
-  - Plugin runtime (`engine/*`, `plugins/*`) with migrated reboot/login/interaction/scrape-clone paths
+  - Plugin runtime (`engine/*`, `plugins/*`) with unified UI state contract wired through actions, interpreter, and targeted plugin migrations
   - Account pool import/parse/status/pop flows (`api/routes/data.py`, `core/account_parser.py`)
   - Selector pipeline actions with stable not-found semantics (`code=not_found`)
   - Device cloud-model mapping with malformed adapter payload safety guard (`core/device_manager.py`)
-  - Follow-up docs now cover plugin payload rollout, handoff evidence workflow, monitoring rollout, stale-running tuning, and three architecture watchpoints
+  - `UIStateService` rollout is complete across shared contract, native/browser adapters, thin wrappers, interpreter integration, and targeted plugin migrations (`x_mobile_login`, `dm_reply`, `nurture`, `profile_clone` state observation cleanup)
+  - Active docs now cover plugin payload rollout, handoff evidence workflow, monitoring rollout, stale-running tuning, and post-rollout watchpoints
 - Quality status (latest known baseline):
   - Legacy import guard: pass
   - Tests: full `pytest tests -q` pass
@@ -32,8 +33,11 @@
 
 ## 3) What Was Recently Done
 
-1. Completed the `post-rpa-rpc-followups` plan and checked off all 7 items.
-2. Added follow-up reference docs:
+1. Completed the `ui-state-service-unified` rollout and final validation wave.
+   - Unified the shared read-only UI state contract across native/mobile and browser/web observation paths.
+   - Kept adapter-specific evidence detail while routing workflow-facing state checks through one service boundary.
+   - Finished thin wrapper and action registration wiring, interpreter/condition integration, and targeted plugin migrations.
+2. Earlier completed follow-up docs and watchpoint work remains in place:
    - `docs/reference/sdk_actions_followup_assessment.md`
    - `docs/reference/shared_json_store_watchpoint.md`
    - `docs/reference/x_mobile_login_compression_watchpoint.md`
@@ -134,17 +138,18 @@
 ## 4) Open Items (Next work queue)
 
 - [x] Independent re-audit on latest F1/F2/F4 evidence for external sign-off - PASS (2026-03-05, session `ses_3434d6326ffehaYo5gU4vpd7Gj`)
-- [ ] Commit/PR packaging for the completed follow-up documentation batch
+- [x] UIStateService unified rollout implementation and final validation - COMPLETE
+- [ ] Commit/PR packaging for the completed UIStateService rollout and docs sync batch
 - [ ] External monitoring deployment: apply `docs/monitoring_rollout.md` and `config/monitoring/rendered/single-node-example/` in a real Prometheus/Alertmanager environment
 - [ ] Runtime rollout execution: align `MYT_STRICT_PLUGIN_UNKNOWN_INPUTS` and `MYT_TASK_STALE_RUNNING_SECONDS` with actual deployment manifests and verify the live `/health` policy snapshot
-- [ ] Keep the three watchpoint docs under review and only reopen implementation work if their documented trigger conditions are met
+- [ ] Keep the UIStateService reuse boundary and existing watchpoint docs under review, only reopening implementation work if new plugins drift back toward duplicated state ladders or other documented triggers
 
 ## 5) How to Continue in a New Conversation
 
 Start prompt template:
 
 ```text
-请先阅读 docs/HANDOFF.md、docs/project_progress.md、docs/monitoring_rollout.md 和 docs/stale_running_recovery_tuning.md；
+请先阅读 docs/HANDOFF.md、docs/project_progress.md、docs/current_main_status.md、docs/monitoring_rollout.md 和 docs/stale_running_recovery_tuning.md；
 优先执行 Open Items 第 1 项（提交/PR 打包），随后推进第 2-3 项（外部监控与运行时基线落地）；
 每完成一个子项即更新 docs/project_progress.md，并执行所需门禁与 `/health` 验证。
 ```
