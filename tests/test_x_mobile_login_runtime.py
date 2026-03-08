@@ -1,3 +1,5 @@
+# pyright: reportMissingImports=false, reportMissingModuleSource=false, reportUnknownMemberType=false, reportUnknownParameterType=false, reportIndexIssue=false
+
 from pathlib import Path
 from typing import cast
 
@@ -69,3 +71,24 @@ def test_x_mobile_login_script_uses_composites_and_removes_duplicate_submits():
         "try_2fa_input_generated": "ui.focus_and_input_with_shell_fallback",
         "try_2fa_input_payload": "ui.focus_and_input_with_shell_fallback",
     }
+
+
+def test_x_mobile_login_script_uses_ui_state_service_for_native_stage_checks():
+    script_path = Path(__file__).resolve().parents[1] / "plugins" / "x_mobile_login" / "script.yaml"
+    script = cast(dict[str, object], yaml.safe_load(script_path.read_text(encoding="utf-8")))
+    steps = cast(list[dict[str, object]], script["steps"])
+    labels = cast(dict[str, dict[str, object]], {step["label"]: step for step in steps if step.get("label")})
+
+    assert labels["detect_entry_stage"]["action"] == "ui.match_state"
+    assert labels["wait_post_submit_stage"]["action"] == "ui.wait_until"
+    assert labels["wait_after_2fa"]["action"] == "ui.wait_until"
+    assert labels["detect_entry_stage"]["params"]["expected_state_ids"] == [
+        "home",
+        "captcha",
+        "two_factor",
+        "password",
+        "account",
+    ]
+    assert labels["check_entry_home"]["when"]["all"][0]["var"] == "entry_state.state.state_id"
+    assert labels["check_post_submit_two_factor"]["when"]["all"][0]["var"] == "post_submit_state.state.state_id"
+    assert labels["check_after_2fa_captcha"]["when"]["all"][0]["var"] == "after_2fa_state.state.state_id"

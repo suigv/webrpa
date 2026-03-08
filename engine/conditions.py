@@ -1,12 +1,36 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from engine.models.runtime import ExecutionContext
 from engine.models.workflow import Condition, ConditionExpr, ConditionType
+from engine.ui_state_browser_service import BrowserUIStateService
 
 logger = logging.getLogger(__name__)
+
+
+def browser_condition_state_id(condition: Condition) -> str | None:
+    if condition.type == ConditionType.exists and condition.selector:
+        return f"exists:{condition.selector}"
+    if condition.type == ConditionType.text_contains and condition.text:
+        return f"html:{condition.text}"
+    if condition.type == ConditionType.url_contains and condition.text:
+        return f"url:{condition.text}"
+    return None
+
+
+def _eval_browser_condition_with_service(condition: Condition, context: ExecutionContext) -> bool:
+    state_id = browser_condition_state_id(condition)
+    if state_id is None or context.browser is None:
+        return False
+    try:
+        return BrowserUIStateService().match_state(
+            context,
+            expected_state_ids=[state_id],
+        ).ok
+    except Exception:
+        logger.debug("failed to evaluate browser condition via ui state service", exc_info=True)
+        return False
 
 
 def _eval_single(condition: Condition, context: ExecutionContext) -> bool:
@@ -41,34 +65,14 @@ def _eval_single(condition: Condition, context: ExecutionContext) -> bool:
                 actual = getattr(actual, p, None)
         return bool(actual)
 
-    # Browser-dependent checks — browser may not be open yet
-    browser: Any = context.browser
-
     if ct == ConditionType.exists:
-        if browser is None or condition.selector is None:
-            return False
-        try:
-            return browser.exists(condition.selector)
-        except Exception:
-            return False
+        return _eval_browser_condition_with_service(condition, context)
 
     if ct == ConditionType.text_contains:
-        if browser is None or condition.text is None:
-            return False
-        try:
-            html = browser.html()
-            return condition.text.lower() in html.lower()
-        except Exception:
-            return False
+        return _eval_browser_condition_with_service(condition, context)
 
     if ct == ConditionType.url_contains:
-        if browser is None or condition.text is None:
-            return False
-        try:
-            url = browser.current_url()
-            return condition.text.lower() in url.lower()
-        except Exception:
-            return False
+        return _eval_browser_condition_with_service(condition, context)
 
     # Unknown condition type — should never happen with Pydantic validation
     logger.warning("unknown condition type: %s", ct)

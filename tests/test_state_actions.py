@@ -1,5 +1,7 @@
 import importlib
 
+from engine.action_registry import register_defaults, resolve_action
+
 
 def _load_state_actions_module():
     for name in ("engine.actions.state_actions", "engine.actions.state_actions"):
@@ -438,3 +440,124 @@ def test_state_actions_rpc_bootstrap_error_contracts(monkeypatch):
     assert failed.ok is False
     assert failed.code == "rpc_connect_failed"
     assert failed.message == "connect failed: 192.168.1.214:30002"
+
+
+def test_ui_state_action_wrappers_preserve_legacy_native_contracts(monkeypatch):
+    mod = _load_state_actions_module()
+    ExecutionContext = _load_execution_context()
+    register_defaults()
+
+    class FakeRpc:
+        def __init__(self):
+            self.query_text = ""
+
+        def init(self, ip, port, timeout):
+            _ = (ip, port, timeout)
+            return True
+
+        def close(self):
+            return None
+
+        def exec_cmd(self, command):
+            _ = command
+            return "", True
+
+        def create_selector(self):
+            return 1
+
+        def clear_selector(self, selector):
+            _ = selector
+            return True
+
+        def addQuery_TextContainWith(self, selector, value):
+            _ = selector
+            self.query_text = value
+            return True
+
+        def execQueryOne(self, selector):
+            _ = selector
+            return 1 if self.query_text == "已有账号" else None
+
+        def free_selector(self, selector):
+            _ = selector
+            return True
+
+    monkeypatch.setattr(mod, "MytRpc", FakeRpc)
+
+    ctx = ExecutionContext(payload={"device_ip": "192.168.1.214", "_target": {"device_id": 1, "cloud_id": 3}})
+
+    service_result = resolve_action("ui.match_state")(
+        {"platform": "native", "binding_id": "x_login", "expected_state_ids": ["account", "home"]},
+        ctx,
+    )
+    legacy_result = resolve_action("core.detect_x_login_stage")({}, ctx)
+
+    assert service_result.ok is True
+    assert service_result.code == "ok"
+    assert service_result.data["operation"] == "match_state"
+    assert service_result.data["platform"] == "native"
+    assert service_result.data["state"]["state_id"] == "account"
+    assert service_result.data["raw_details"]["stage"] == "account"
+    assert legacy_result.ok is True
+    assert legacy_result.data == {"stage": "account"}
+
+
+def test_ui_state_action_wrappers_expose_browser_contract_and_aliases():
+    ExecutionContext = _load_execution_context()
+    register_defaults()
+
+    class FakeBrowser:
+        def __init__(self, *, existing=None, url="", wait_result=False):
+            self.available = True
+            self.error = ""
+            self.error_code = ""
+            self._existing = existing or set()
+            self._url = url
+            self._wait_result = wait_result
+            self.wait_calls = []
+
+        def exists(self, selector):
+            return selector in self._existing
+
+        def html(self):
+            return "<body>Login</body>"
+
+        def current_url(self):
+            return self._url
+
+        def wait_url_contains(self, fragment, timeout_seconds):
+            self.wait_calls.append((fragment, timeout_seconds))
+            return self._wait_result
+
+    browser_ctx = ExecutionContext(payload={})
+    browser_ctx.browser = FakeBrowser(existing={"#login"}, url="https://x.com/login")
+    browser_match = resolve_action("browser.match_state")({"expected_state_ids": ["exists:#login"]}, browser_ctx)
+
+    wait_ctx = ExecutionContext(payload={})
+    wait_ctx.browser = FakeBrowser(url="https://x.com/home", wait_result=True)
+    browser_wait = resolve_action("browser.wait_until")({"expected_state_ids": ["url:/home"], "timeout_ms": 2000}, wait_ctx)
+
+    transition_ctx = ExecutionContext(payload={})
+    transition_ctx.browser = FakeBrowser(existing={"#login"}, url="https://x.com/home", wait_result=True)
+    transition = resolve_action("ui.observe_transition")(
+        {
+            "platform": "browser",
+            "from_state_ids": ["exists:#login"],
+            "to_state_ids": ["url:/home"],
+            "timeout_ms": 2000,
+            "interval_ms": 100,
+        },
+        transition_ctx,
+    )
+
+    assert browser_match.ok is True
+    assert browser_match.data["state"]["state_id"] == "exists:#login"
+    assert browser_match.data["platform"] == "browser"
+    assert browser_wait.ok is True
+    assert browser_wait.data["operation"] == "wait_until"
+    assert wait_ctx.browser.wait_calls == [("/home", 2)]
+    assert transition.ok is True
+    assert transition.data["operation"] == "observe_transition"
+    assert transition.data["status"] == "transition_observed"
+    assert transition.data["transition"]["from_state"]["state_id"] == "exists:#login"
+    assert transition.data["transition"]["to_state"]["state_id"] == "url:/home"

@@ -6,10 +6,13 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from engine.action_registry import get_registry, register_defaults
-from engine.conditions import evaluate as eval_condition
+from engine.conditions import browser_condition_state_id, evaluate as eval_condition
 from engine.models.runtime import ActionResult, ExecutionContext
 from engine.models.workflow import (
     ActionStep,
+    Condition,
+    ConditionExpr,
+    ConditionType,
     FailStrategy,
     GotoStep,
     IfStep,
@@ -20,6 +23,7 @@ from engine.models.workflow import (
     WorkflowScript,
 )
 from engine.parser import interpolate_params
+from engine.ui_state_browser_service import BrowserUIStateService
 
 logger = logging.getLogger(__name__)
 
@@ -179,7 +183,32 @@ class Interpreter:
         label_map: Dict[str, int],
     ) -> None:
         timeout_s = min(step.timeout_ms / 1000.0, WAIT_UNTIL_HARD_LIMIT_S)
+        timeout_ms = int(timeout_s * 1000)
         interval_s = step.interval_ms / 1000.0
+        service_state_ids = self._browser_wait_state_ids(step.check, context)
+        if service_state_ids:
+            try:
+                result = BrowserUIStateService().wait_until(
+                    context,
+                    expected_state_ids=service_state_ids,
+                    timeout_ms=timeout_ms,
+                    interval_ms=step.interval_ms,
+                )
+                if result.ok:
+                    return
+                if result.code == "timeout":
+                    on_fail = step.on_timeout or step.on_fail
+                    if on_fail:
+                        self._handle_on_fail(on_fail, context, label_map, "wait_until timed out")
+                    else:
+                        raise InterpreterError(
+                            f"wait_until timed out after {timeout_s:.1f}s at step "
+                            f"{context.pc} ({step.label or 'unlabeled'})"
+                        )
+                    return
+            except Exception:
+                logger.debug("service-backed wait_until failed; falling back to polling", exc_info=True)
+
         deadline = time.monotonic() + timeout_s
 
         while time.monotonic() < deadline:
@@ -197,6 +226,34 @@ class Interpreter:
                 f"wait_until timed out after {timeout_s:.1f}s at step "
                 f"{context.pc} ({step.label or 'unlabeled'})"
             )
+
+    def _browser_wait_state_ids(
+        self,
+        expr: ConditionExpr,
+        context: ExecutionContext,
+    ) -> List[str] | None:
+        if context.browser is None:
+            return None
+
+        if expr.all is not None:
+            if len(expr.all) != 1:
+                return None
+            state_id = self._browser_condition_state_id(expr.all[0])
+            return [state_id] if state_id else None
+
+        if expr.any is not None:
+            state_ids: List[str] = []
+            for condition in expr.any:
+                state_id = self._browser_condition_state_id(condition)
+                if state_id is None:
+                    return None
+                state_ids.append(state_id)
+            return state_ids or None
+
+        return None
+
+    def _browser_condition_state_id(self, condition: Condition) -> str | None:
+        return browser_condition_state_id(condition)
 
     def _exec_goto(
         self,

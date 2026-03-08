@@ -113,25 +113,69 @@ steps:
     on_fail:
       strategy: abort
 
-  - label: open_first_unread_dm
+  - label: observe_unread_dm_target
     kind: action
-    action: core.open_first_unread_dm
+    action: ui.match_state
     params:
+      platform: native
+      binding_id: dm_unread
       device_ip: "${payload.device_ip}"
       package: "${vars.package}"
+      expected_state_ids:
+        - available
+        - missing
+    save_as: unread_dm_observation
+    on_fail:
+      strategy: skip
+
+  - label: check_unread_dm_available
+    kind: if
+    when:
+      all:
+        - type: var_equals
+          var: unread_dm_observation.state.state_id
+          equals: available
+    then: open_first_unread_dm
+    otherwise: observe_last_dm_message
+
+  - label: open_first_unread_dm
+    kind: action
+    action: core.open_candidate
+    params:
+      device_ip: "${payload.device_ip}"
+      candidate: "${vars.unread_dm_observation.raw_details.target}"
     save_as: unread_dm_target
     on_fail:
       strategy: skip
 
-  - label: extract_last_dm_message
+  - label: goto_observe_last_dm_message
+    kind: goto
+    target: observe_last_dm_message
+
+  - label: observe_last_dm_message
     kind: action
-    action: core.extract_dm_last_message
+    action: ui.match_state
     params:
+      platform: native
+      binding_id: dm_last_message
       device_ip: "${payload.device_ip}"
       package: "${vars.package}"
+      expected_state_ids:
+        - available
+        - missing
     save_as: last_dm_message
     on_fail:
       strategy: skip
+
+  - label: check_last_dm_message_available
+    kind: if
+    when:
+      all:
+        - type: var_equals
+          var: last_dm_message.state.state_id
+          equals: available
+    then: save_last_dm_message
+    otherwise: ensure_reply_text
 
   - label: save_last_dm_message
     kind: action
@@ -140,9 +184,9 @@ steps:
       key: "${vars.last_message_key}"
       scope: task
       value:
-        message: "${vars.last_dm_message.message}"
-        raw: "${vars.last_dm_message.raw}"
-        bound: "${vars.last_dm_message.bound}"
+        message: "${vars.last_dm_message.raw_details.message}"
+        raw: "${vars.last_dm_message.raw_details.raw}"
+        bound: "${vars.last_dm_message.raw_details.bound}"
     on_fail:
       strategy: skip
 
@@ -160,7 +204,7 @@ steps:
     action: core.generate_dm_reply
     params:
       ai_type: "${vars.ai_type}"
-      last_message: "${vars.last_dm_message.message:-}"
+      last_message: "${vars.last_dm_message.raw_details.message:-}"
     save_as: generated_reply
     on_fail:
       strategy: goto
@@ -256,7 +300,7 @@ steps:
 
   - label: after_send_button
     kind: goto
-    target: extract_last_sent_dm_message
+    target: observe_last_sent_dm_message
 
   - label: send_with_enter
     kind: action
@@ -269,18 +313,33 @@ steps:
 
   - label: goto_verify_after_enter
     kind: goto
-    target: extract_last_sent_dm_message
+    target: observe_last_sent_dm_message
 
-  - label: extract_last_sent_dm_message
+  - label: observe_last_sent_dm_message
     kind: action
-    action: core.extract_dm_last_outbound_message
+    action: ui.match_state
     params:
+      platform: native
+      binding_id: dm_last_outbound_message
       device_ip: "${payload.device_ip}"
       package: "${vars.package}"
+      expected_state_ids:
+        - available
+        - missing
     save_as: last_sent_dm_message
     on_fail:
       strategy: goto
       goto: success
+
+  - label: check_last_sent_dm_message_available
+    kind: if
+    when:
+      all:
+        - type: var_equals
+          var: last_sent_dm_message.state.state_id
+          equals: available
+    then: save_last_sent_dm_message
+    otherwise: success
 
   - label: save_last_sent_dm_message
     kind: action
@@ -289,9 +348,9 @@ steps:
       key: "${vars.sent_message_key}"
       scope: task
       value:
-        message: "${vars.last_sent_dm_message.message}"
-        raw: "${vars.last_sent_dm_message.raw}"
-        bound: "${vars.last_sent_dm_message.bound}"
+        message: "${vars.last_sent_dm_message.raw_details.message}"
+        raw: "${vars.last_sent_dm_message.raw_details.raw}"
+        bound: "${vars.last_sent_dm_message.raw_details.bound}"
     on_fail:
       strategy: skip
 

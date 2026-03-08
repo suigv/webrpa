@@ -92,13 +92,18 @@ steps:
     on_fail:
       strategy: abort
 
-  - label: extract_search_candidates
+  - label: observe_search_candidates
     kind: action
-    action: core.extract_search_candidates
+    action: ui.match_state
     params:
+      platform: native
+      binding_id: search_candidates
       device_ip: "${payload.device_ip}"
       package: "${vars.package}"
       max_candidates: 8
+      expected_state_ids:
+        - available
+        - missing
     save_as: search_candidates
     on_fail:
       strategy: skip
@@ -107,7 +112,7 @@ steps:
     kind: action
     action: core.pick_candidate
     params:
-      candidates: "${vars.search_candidates.candidates}"
+      candidates: "${vars.search_candidates.raw_details.candidates}"
       ai_type: "${vars.ai_type}"
     save_as: selected_candidate
     on_fail:

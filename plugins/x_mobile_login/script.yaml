@@ -141,9 +141,17 @@ steps:
 
   - label: detect_entry_stage
     kind: action
-    action: core.detect_x_login_stage
+    action: ui.match_state
     params:
+      platform: native
+      binding_id: x_login
       device_ip: "${payload.device_ip}"
+      expected_state_ids:
+        - home
+        - captcha
+        - two_factor
+        - password
+        - account
     save_as: entry_state
     on_fail:
       strategy: goto
@@ -152,37 +160,37 @@ steps:
   - label: check_entry_home
     kind: if
     when:
-      all:
-        - type: var_equals
-          var: entry_state.stage
-          equals: home
+        all:
+          - type: var_equals
+            var: entry_state.state.state_id
+            equals: home
     then: login_success
 
   - label: check_entry_captcha
     kind: if
     when:
-      all:
-        - type: var_equals
-          var: entry_state.stage
-          equals: captcha
+        all:
+          - type: var_equals
+            var: entry_state.state.state_id
+            equals: captcha
     then: captcha_detected
 
   - label: check_entry_two_factor
     kind: if
     when:
-      all:
-        - type: var_equals
-          var: entry_state.stage
-          equals: two_factor
+        all:
+          - type: var_equals
+            var: entry_state.state.state_id
+            equals: two_factor
     then: choose_2fa_source_or_fail
 
   - label: check_entry_password
     kind: if
     when:
-      all:
-        - type: var_equals
-          var: entry_state.stage
-          equals: password
+        all:
+          - type: var_equals
+            var: entry_state.state.state_id
+            equals: password
     then: ensure_password_available
 
   - label: ensure_account_available
@@ -305,10 +313,12 @@ steps:
 
   - label: wait_post_submit_stage
     kind: action
-    action: core.wait_x_login_stage
+    action: ui.wait_until
     params:
+      platform: native
+      binding_id: x_login
       device_ip: "${payload.device_ip}"
-      target_stages:
+      expected_state_ids:
         - home
         - two_factor
         - captcha
@@ -324,46 +334,46 @@ steps:
   - label: check_post_submit_home
     kind: if
     when:
-      all:
-        - type: var_equals
-          var: post_submit_state.stage
-          equals: home
+        all:
+          - type: var_equals
+            var: post_submit_state.state.state_id
+            equals: home
     then: login_success
 
   - label: check_post_submit_captcha
     kind: if
     when:
-      all:
-        - type: var_equals
-          var: post_submit_state.stage
-          equals: captcha
+        all:
+          - type: var_equals
+            var: post_submit_state.state.state_id
+            equals: captcha
     then: captcha_detected
 
   - label: check_post_submit_two_factor
     kind: if
     when:
-      all:
-        - type: var_equals
-          var: post_submit_state.stage
-          equals: two_factor
+        all:
+          - type: var_equals
+            var: post_submit_state.state.state_id
+            equals: two_factor
     then: choose_2fa_source_or_fail
 
   - label: check_post_submit_password
     kind: if
     when:
-      all:
-        - type: var_equals
-          var: post_submit_state.stage
-          equals: password
+        all:
+          - type: var_equals
+            var: post_submit_state.state.state_id
+            equals: password
     then: bad_credentials
 
   - label: check_post_submit_account
     kind: if
     when:
-      all:
-        - type: var_equals
-          var: post_submit_state.stage
-          equals: account
+        all:
+          - type: var_equals
+            var: post_submit_state.state.state_id
+            equals: account
     then: account_rejected
 
   - label: login_not_confirmed
@@ -470,10 +480,12 @@ steps:
 
   - label: wait_after_2fa
     kind: action
-    action: core.wait_x_login_stage
+    action: ui.wait_until
     params:
+      platform: native
+      binding_id: x_login
       device_ip: "${payload.device_ip}"
-      target_stages:
+      expected_state_ids:
         - home
         - captcha
       timeout_ms: 10000
@@ -486,19 +498,19 @@ steps:
   - label: check_after_2fa_home
     kind: if
     when:
-      all:
-        - type: var_equals
-          var: after_2fa_state.stage
-          equals: home
+        all:
+          - type: var_equals
+            var: after_2fa_state.state.state_id
+            equals: home
     then: login_success_after_2fa
 
   - label: check_after_2fa_captcha
     kind: if
     when:
-      all:
-        - type: var_equals
-          var: after_2fa_state.stage
-          equals: captcha
+        all:
+          - type: var_equals
+            var: after_2fa_state.state.state_id
+            equals: captcha
     then: captcha_detected
 
   - label: after_2fa_not_confirmed

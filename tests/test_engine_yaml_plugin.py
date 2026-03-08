@@ -32,6 +32,7 @@ from engine.models.workflow import (
 )
 from engine.parser import interpolate, interpolate_params, parse_manifest, parse_script
 from engine.plugin_loader import PluginLoader, build_scanned_plugin_loader, clear_shared_plugin_loader_cache, get_shared_plugin_loader
+from engine.models.ui_state import UIStateObservationResult
 
 
 # ============================================================
@@ -306,6 +307,32 @@ class TestConditionEvaluator:
         expr = ConditionExpr(any=[Condition(type=ConditionType.exists, selector="div.test")])
         assert eval_condition(expr, ctx) is True
 
+    def test_browser_condition_uses_ui_state_service(self, monkeypatch):
+        ctx = ExecutionContext(payload={})
+        ctx.browser = MagicMock()
+        captured: dict[str, Any] = {}
+
+        def fake_match_state(self, context, *, expected_state_ids, timeout_ms=None):
+            captured["context"] = context
+            captured["expected_state_ids"] = list(expected_state_ids)
+            captured["timeout_ms"] = timeout_ms
+            return UIStateObservationResult.matched(
+                operation="match_state",
+                state_id="html:captcha",
+                platform="browser",
+                expected_state_ids=expected_state_ids,
+            )
+
+        monkeypatch.setattr("engine.conditions.BrowserUIStateService.match_state", fake_match_state)
+
+        expr = ConditionExpr(any=[Condition(type=ConditionType.text_contains, text="captcha")])
+        assert eval_condition(expr, ctx) is True
+        assert captured == {
+            "context": ctx,
+            "expected_state_ids": ["html:captcha"],
+            "timeout_ms": None,
+        }
+
     def test_all_requires_all_true(self):
         ctx = ExecutionContext(payload={})
         ctx.vars["a"] = 1
@@ -408,6 +435,42 @@ class TestInterpreter:
         result = interp.execute(script, {})
         assert result["ok"] is True
         assert result["message"] == "correct"
+
+    def test_if_browser_condition_uses_ui_state_service(self, monkeypatch):
+        reg = get_registry()
+        mock_browser = MagicMock()
+
+        def open_browser(params, context):
+            context.browser = mock_browser
+            return ActionResult(ok=True)
+
+        def fake_match_state(self, context, *, expected_state_ids, timeout_ms=None):
+            return UIStateObservationResult.matched(
+                operation="match_state",
+                state_id="html:captcha",
+                platform="browser",
+                expected_state_ids=expected_state_ids,
+            )
+
+        reg.register("test.open_browser_for_if", open_browser)
+        monkeypatch.setattr("engine.conditions.BrowserUIStateService.match_state", fake_match_state)
+
+        script = WorkflowScript.model_validate({
+            "version": "v1",
+            "workflow": "test",
+            "steps": [
+                {"kind": "action", "action": "test.open_browser_for_if", "params": {}},
+                {"kind": "if", "when": {"any": [{"type": "text_contains", "text": "captcha"}]}, "then": "ui_branch"},
+                {"kind": "stop", "status": "failed", "message": "wrong branch"},
+                {"label": "ui_branch", "kind": "stop", "status": "success", "message": "ui state matched"},
+            ],
+        })
+
+        interp = self._make_interpreter()
+        result = interp.execute(script, {})
+
+        assert result["ok"] is True
+        assert result["message"] == "ui state matched"
 
     def test_max_transitions_guard(self):
         script = WorkflowScript.model_validate({
@@ -547,6 +610,87 @@ class TestInterpreter:
         # but we can verify the workflow completes
         result = interp.execute(script, {})
         assert result["ok"] is True
+
+    def test_wait_until_uses_ui_state_service_for_browser_checks(self, monkeypatch):
+        reg = get_registry()
+        mock_browser = MagicMock()
+        captured: dict[str, Any] = {}
+
+        def open_browser(params, context):
+            context.browser = mock_browser
+            return ActionResult(ok=True)
+
+        def fake_wait_until(self, context, *, expected_state_ids, timeout_ms=15000, interval_ms=500):
+            captured["context"] = context
+            captured["browser"] = context.browser
+            captured["expected_state_ids"] = list(expected_state_ids)
+            captured["timeout_ms"] = timeout_ms
+            captured["interval_ms"] = interval_ms
+            return UIStateObservationResult.matched(
+                operation="wait_until",
+                state_id="url:/home",
+                platform="browser",
+                expected_state_ids=expected_state_ids,
+            )
+
+        reg.register("test.open_browser_for_ui_state_wait", open_browser)
+        monkeypatch.setattr("engine.interpreter.BrowserUIStateService.wait_until", fake_wait_until)
+
+        script = WorkflowScript.model_validate({
+            "version": "v1",
+            "workflow": "test",
+            "steps": [
+                {"kind": "action", "action": "test.open_browser_for_ui_state_wait", "params": {}},
+                {"kind": "wait_until", "check": {"any": [{"type": "url_contains", "text": "/home"}]}, "timeout_ms": 1200, "interval_ms": 150},
+                {"kind": "stop", "status": "success", "message": "waited"},
+            ],
+        })
+
+        interp = self._make_interpreter()
+        result = interp.execute(script, {})
+
+        assert result["ok"] is True
+        assert result["message"] == "waited"
+        assert captured["expected_state_ids"] == ["url:/home"]
+        assert captured["timeout_ms"] == 1200
+        assert captured["interval_ms"] == 150
+        assert captured["browser"] is mock_browser
+
+    def test_cleanup_preserved_on_ui_state_wait_until_timeout(self, monkeypatch):
+        reg = get_registry()
+        mock_browser = MagicMock()
+
+        def open_browser(params, context):
+            context.browser = mock_browser
+            return ActionResult(ok=True)
+
+        def fake_wait_until(self, context, *, expected_state_ids, timeout_ms=15000, interval_ms=500):
+            return UIStateObservationResult.timeout(
+                operation="wait_until",
+                state_id="url:/never",
+                platform="browser",
+                expected_state_ids=expected_state_ids,
+                message="timed out waiting for browser state",
+            )
+
+        reg.register("test.open_browser_for_ui_state_timeout", open_browser)
+        monkeypatch.setattr("engine.interpreter.BrowserUIStateService.wait_until", fake_wait_until)
+
+        script = WorkflowScript.model_validate({
+            "version": "v1",
+            "workflow": "test",
+            "steps": [
+                {"kind": "action", "action": "test.open_browser_for_ui_state_timeout", "params": {}},
+                {"kind": "wait_until", "check": {"any": [{"type": "url_contains", "text": "/never"}]}, "timeout_ms": 200},
+            ],
+        })
+
+        interp = self._make_interpreter()
+        result = interp.execute(script, {})
+
+        assert result["ok"] is False
+        assert "wait_until timed out" in result["message"]
+        mock_browser.close.assert_called_once()
 
     def test_browser_cleanup_in_finally(self):
         """Browser should be closed even if an error occurs."""
