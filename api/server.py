@@ -96,9 +96,9 @@ def _stale_running_seconds() -> int:
     "/api/runtime/execute",
     summary="Debug-only direct runtime execute",
     description=(
-        "Internal/debug direct-run path. Executes the payload synchronously through Runner without creating "
-        "managed task records, retries, cancellation flow, SSE task events, or task metrics artifacts. "
-        "Use /api/tasks for managed task lifecycle behavior."
+        "Internal/debug direct-run path. Executes the payload synchronously and returns the raw Runner result "
+        "without creating managed task records or participating in the /api/tasks lifecycle. Retries, "
+        "cancellation flow, SSE task events, and task metrics artifacts remain exclusive to /api/tasks."
     ),
 )
 def execute_runtime(payload: dict[str, object]):
