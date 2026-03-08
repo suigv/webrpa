@@ -207,28 +207,20 @@ steps:
 
   - label: click_login_entry_row
     kind: action
-    action: ui.selector_click_one
+    action: ui.click_selector_or_tap
     params:
       device_ip: "${payload.device_ip}"
       type: "${vars.existing_account_selector.type}"
       mode: "${vars.existing_account_selector.mode}"
       value: "${vars.existing_account_selector.value}"
-    on_fail:
-      strategy: skip
-
-  - label: tap_login_entry_fallback
-    kind: action
-    action: mytos.tap
-    params:
-      device_ip: "${payload.device_ip}"
-      x: 680
-      y: 1850
+      fallback_x: 680
+      fallback_y: 1850
     on_fail:
       strategy: skip
 
   - label: focus_account_input
     kind: action
-    action: ui.click_selector_or_tap
+    action: ui.focus_and_input_with_shell_fallback
     params:
       device_ip: "${payload.device_ip}"
       type: "${vars.account_input_selector.type}"
@@ -236,14 +228,6 @@ steps:
       value: "${vars.account_input_selector.value}"
       fallback_x: 540
       fallback_y: 600
-    on_fail:
-      strategy: skip
-
-  - label: input_account
-    kind: action
-    action: ui.input_text_with_shell_fallback
-    params:
-      device_ip: "${payload.device_ip}"
       text: "${vars.account}"
       command: "input text '${vars.account}'"
     on_fail:
@@ -251,17 +235,6 @@ steps:
       goto: account_input_failed
 
   - label: click_next_zh
-    kind: action
-    action: ui.selector_click_one
-    params:
-      device_ip: "${payload.device_ip}"
-      type: "${vars.next_button_selector.type}"
-      mode: "${vars.next_button_selector.mode}"
-      value: "${vars.next_button_selector.value}"
-    on_fail:
-      strategy: skip
-
-  - label: click_next_en
     kind: action
     action: ui.selector_click_one
     params:
@@ -292,7 +265,7 @@ steps:
 
   - label: focus_password_input
     kind: action
-    action: ui.click_selector_or_tap
+    action: ui.focus_and_input_with_shell_fallback
     params:
       device_ip: "${payload.device_ip}"
       type: "${vars.password_input_selector.type}"
@@ -300,14 +273,6 @@ steps:
       value: "${vars.password_input_selector.value}"
       fallback_x: 540
       fallback_y: 780
-    on_fail:
-      strategy: skip
-
-  - label: input_password
-    kind: action
-    action: ui.input_text_with_shell_fallback
-    params:
-      device_ip: "${payload.device_ip}"
       text: "${vars.password}"
       command: "input text '${vars.password}'"
     on_fail:
@@ -327,22 +292,14 @@ steps:
 
   - label: click_login_en
     kind: action
-    action: ui.selector_click_one
+    action: ui.click_selector_or_tap
     params:
       device_ip: "${payload.device_ip}"
       type: "${vars.login_submit_selector.type}"
       mode: "${vars.login_submit_selector.mode}"
       value: "${vars.login_submit_selector.value}"
-    on_fail:
-      strategy: skip
-
-  - label: tap_login_submit_fallback
-    kind: action
-    action: mytos.tap
-    params:
-      device_ip: "${payload.device_ip}"
-      x: 930
-      y: 1830
+      fallback_x: 930
+      fallback_y: 1830
     on_fail:
       strategy: skip
 
@@ -457,7 +414,7 @@ steps:
 
   - label: try_2fa_input_generated
     kind: action
-    action: ui.click_selector_or_tap
+    action: ui.focus_and_input_with_shell_fallback
     params:
       device_ip: "${payload.device_ip}"
       type: "${vars.two_factor_input_selector.type}"
@@ -465,14 +422,6 @@ steps:
       value: "${vars.two_factor_input_selector.value}"
       fallback_x: 540
       fallback_y: 500
-    on_fail:
-      strategy: skip
-
-  - label: input_2fa_code_generated
-    kind: action
-    action: ui.input_text_with_shell_fallback
-    params:
-      device_ip: "${payload.device_ip}"
       text: "${vars.generated_2fa.token}"
       command: "input text '${vars.generated_2fa.token}'"
     on_fail:
@@ -485,7 +434,7 @@ steps:
 
   - label: try_2fa_input_payload
     kind: action
-    action: ui.click_selector_or_tap
+    action: ui.focus_and_input_with_shell_fallback
     params:
       device_ip: "${payload.device_ip}"
       type: "${vars.two_factor_input_selector.type}"
@@ -493,14 +442,6 @@ steps:
       value: "${vars.two_factor_input_selector.value}"
       fallback_x: 540
       fallback_y: 500
-    on_fail:
-      strategy: skip
-
-  - label: input_2fa_code
-    kind: action
-    action: ui.input_text_with_shell_fallback
-    params:
-      device_ip: "${payload.device_ip}"
       text: "${vars.two_factor_code}"
       command: "input text '${vars.two_factor_code}'"
     on_fail:
@@ -508,17 +449,6 @@ steps:
       goto: two_factor_failed
 
   - label: submit_2fa_zh
-    kind: action
-    action: ui.selector_click_one
-    params:
-      device_ip: "${payload.device_ip}"
-      type: "${vars.two_factor_submit_selector.type}"
-      mode: "${vars.two_factor_submit_selector.mode}"
-      value: "${vars.two_factor_submit_selector.value}"
-    on_fail:
-      strategy: skip
-
-  - label: submit_2fa_en
     kind: action
     action: ui.selector_click_one
     params:

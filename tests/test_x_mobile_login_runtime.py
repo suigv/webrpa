@@ -1,3 +1,9 @@
+from pathlib import Path
+from typing import cast
+
+import pytest
+import yaml
+
 from engine.runner import Runner
 
 
@@ -28,9 +34,38 @@ def test_x_mobile_login_captcha_status_contract():
     assert "captcha" in result.get("message", "")
 
 
-def test_x_mobile_login_without_forced_hint_does_not_false_positive_when_rpc_disabled(monkeypatch):
+def test_x_mobile_login_without_forced_hint_does_not_false_positive_when_rpc_disabled(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("MYT_ENABLE_RPC", "0")
     result = Runner().run({"task": "x_mobile_login", "device_ip": "192.168.1.2"})
     assert result["task"] == "x_mobile_login"
     assert result["status"] == "failed"
     assert "device_connection_failed" in result.get("message", "")
+
+
+def test_x_mobile_login_script_uses_composites_and_removes_duplicate_submits():
+    script_path = Path(__file__).resolve().parents[1] / "plugins" / "x_mobile_login" / "script.yaml"
+    script = cast(dict[str, object], yaml.safe_load(script_path.read_text(encoding="utf-8")))
+    steps = cast(list[dict[str, object]], script["steps"])
+    labels = {step.get("label") for step in steps}
+
+    for label in {
+        "input_account",
+        "input_password",
+        "input_2fa_code_generated",
+        "input_2fa_code",
+        "click_next_en",
+        "submit_2fa_en",
+    }:
+        assert label not in labels
+
+    composite_labels = {
+        step["label"]: step["action"]
+        for step in steps
+        if step.get("label") in {"focus_account_input", "focus_password_input", "try_2fa_input_generated", "try_2fa_input_payload"}
+    }
+    assert composite_labels == {
+        "focus_account_input": "ui.focus_and_input_with_shell_fallback",
+        "focus_password_input": "ui.focus_and_input_with_shell_fallback",
+        "try_2fa_input_generated": "ui.focus_and_input_with_shell_fallback",
+        "try_2fa_input_payload": "ui.focus_and_input_with_shell_fallback",
+    }
