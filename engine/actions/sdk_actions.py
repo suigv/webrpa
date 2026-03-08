@@ -1,22 +1,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from contextlib import contextmanager
-from datetime import datetime
-import fcntl
 from importlib import import_module
-import json
-import os
 from pathlib import Path
-import random
-import re
 import threading
 import time
 from typing import Any
-import urllib.parse
-
-import pyotp
-import yaml
 
 from engine.models.runtime import ActionResult, ExecutionContext
 from hardware_adapters.myt_client import MytSdkClient
@@ -32,6 +21,18 @@ def _sdk_config_support_module():
 
 def _sdk_profile_support_module():
     return import_module("engine.actions.sdk_profile_support")
+
+
+def _sdk_shared_store_support_module():
+    return import_module("engine.actions.sdk_shared_store_support")
+
+
+def _sdk_runtime_support_module():
+    return import_module("engine.actions.sdk_runtime_support")
+
+
+def _sdk_business_support_module():
+    return import_module("engine.actions.sdk_business_support")
 
 
 def _from_payload_or_params(params: dict[str, Any], context: ExecutionContext, key: str, default: Any = None) -> Any:
@@ -82,84 +83,16 @@ def _invoke(method_name: str, arg_builder: Callable[[dict[str, Any]], tuple[list
 
 
 def _extract_cloud_status_payload(result: dict[str, Any]) -> tuple[str, Any]:
-    payload = result.get("data")
-    if isinstance(payload, list):
-        if payload and isinstance(payload[0], dict):
-            return str(payload[0].get("status") or "").strip().lower(), payload
-        return "", payload
-    if isinstance(payload, dict):
-        if "status" in payload:
-            return str(payload.get("status") or "").strip().lower(), payload
-        items = payload.get("items")
-        if isinstance(items, list) and items and isinstance(items[0], dict):
-            return str(items[0].get("status") or "").strip().lower(), payload
-        data = payload.get("data")
-        if isinstance(data, list) and data and isinstance(data[0], dict):
-            return str(data[0].get("status") or "").strip().lower(), payload
-    return "", payload
+    return _sdk_runtime_support_module().extract_cloud_status_payload(result)
 
 
 def wait_cloud_status(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
-    client = _sdk_client(params, context)
-    if client is None:
-        return ActionResult(ok=False, code="invalid_params", message="device_ip is required")
-
-    name = str(params.get("name", "")).strip()
-    if not name:
-        return ActionResult(ok=False, code="invalid_params", message="name is required")
-
-    target_status = str(params.get("target_status", "running") or "running").strip().lower()
-    timeout_ms = max(int(params.get("timeout_ms", 180000) or 180000), 0)
-    interval_ms = max(int(params.get("interval_ms", 5000) or 5000), 100)
-    deadline = time.monotonic() + timeout_ms / 1000.0
-
-    last_result: dict[str, Any] = {}
-    last_status = ""
-
-    while True:
-        if context.should_cancel is not None and bool(context.should_cancel()):
-            return ActionResult(
-                ok=False,
-                code="cancelled",
-                message="task cancelled by user",
-                data={"name": name, "target_status": target_status, "last_status": last_status},
-            )
-
-        try:
-            result = client.get_cloud_status(name)
-        except Exception as exc:
-            result = {"ok": False, "error": str(exc)}
-
-        if isinstance(result, dict):
-            last_result = result
-            last_status, payload = _extract_cloud_status_payload(result)
-            if bool(result.get("ok")) and last_status == target_status:
-                return ActionResult(
-                    ok=True,
-                    code="ok",
-                    message=f"cloud status reached {target_status}",
-                    data={
-                        "name": name,
-                        "status": last_status,
-                        "target_status": target_status,
-                        "result": result,
-                        "payload": payload,
-                    },
-                )
-
-        if time.monotonic() >= deadline:
-            return ActionResult(
-                ok=False,
-                code="cloud_status_timeout",
-                message=f"cloud status did not reach {target_status} within {timeout_ms}ms",
-                data={
-                    "name": name,
-                    "target_status": target_status,
-                    "last_status": last_status,
-                    "result": last_result,
-                },
-            )
-        time.sleep(interval_ms / 1000.0)
+    return _sdk_runtime_support_module().wait_cloud_status_action(
+        params,
+        context,
+        sdk_client=_sdk_client,
+        time_module=time,
+    )
 
 
 def _args_name(params: dict[str, Any]) -> tuple[list[Any], dict[str, Any]]:
@@ -596,237 +529,98 @@ def get_sdk_action_bindings() -> dict[str, Callable[[dict[str, Any], ExecutionCo
 
 
 def _shared_path() -> Path:
-    root = Path(_resolve_root_path())
-    path = root / "config" / "data" / "migration_shared.json"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    return path
+    return _sdk_shared_store_support_module().shared_path(resolve_root_path=_resolve_root_path)
 
 
 def _shared_lock_path(path: Path) -> Path:
-    return path.with_name(f".{path.name}.lock")
+    return _sdk_shared_store_support_module().shared_lock_path(path)
 
 
-@contextmanager
 def _exclusive_shared_lock(path: Path):
-    lock_file = _shared_lock_path(path)
-    lock_file.parent.mkdir(parents=True, exist_ok=True)
-    fd = os.open(lock_file, os.O_CREAT | os.O_RDWR, 0o600)
-    with os.fdopen(fd, "r+", encoding="utf-8") as handle:
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    return _sdk_shared_store_support_module().exclusive_shared_lock(path)
 
 
 def _read_store() -> dict[str, Any]:
-    path = _shared_path()
-    if not path.exists():
-        return {}
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
+    return _sdk_shared_store_support_module().read_store(resolve_root_path=_resolve_root_path)
 
 
 def _write_store(payload: dict[str, Any]) -> None:
-    write_json_atomic(_shared_path(), payload)
+    _sdk_shared_store_support_module().write_store(
+        payload,
+        resolve_root_path=_resolve_root_path,
+        write_json_atomic=write_json_atomic,
+    )
 
 
 def _update_store(updater: Callable[[dict[str, Any]], None]) -> dict[str, Any]:
-    path = _shared_path()
-    with _SHARED_STORE_LOCK:
-        with _exclusive_shared_lock(path):
-            store = _read_store()
-            updater(store)
-            write_json_atomic(path, store)
-            return store
+    return _sdk_shared_store_support_module().update_store(
+        updater,
+        resolve_root_path=_resolve_root_path,
+        write_json_atomic=write_json_atomic,
+        thread_lock=_SHARED_STORE_LOCK,
+    )
 
 
 def _resolve_shared_key(params: dict[str, Any], context: ExecutionContext) -> str:
-    key = str(params.get("key") or "").strip()
-    if not key:
-        return ""
-
-    scope = str(params.get("scope") or "global").strip().lower()
-    if scope in {"", "global"}:
-        return key
-
-    scope_value = str(params.get("scope_value") or "").strip()
-    payload = context.payload if isinstance(context.payload, dict) else {}
-
-    if not scope_value:
-        if scope == "device":
-            scope_value = str(payload.get("device_ip") or "").strip()
-        elif scope == "task":
-            scope_value = str(payload.get("_task_id") or "").strip()
-        elif scope == "cloud":
-            scope_value = str(payload.get("_cloud_target") or payload.get("name") or "").strip()
-
-    if not scope_value:
-        return key
-    return f"{scope}:{scope_value}:{key}"
+    return _sdk_shared_store_support_module().resolve_shared_key(params, context)
 
 
 def save_shared(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
-    key = _resolve_shared_key(params, context)
-    value = params.get("value")
-    if not key:
-        return ActionResult(ok=False, code="invalid_params", message="key is required")
-
-    def _updater(store: dict[str, Any]) -> None:
-        store[key] = value
-
-    _update_store(_updater)
-    return ActionResult(ok=True, code="ok", data={"key": key})
+    return _sdk_shared_store_support_module().save_shared_action(
+        params,
+        context,
+        resolve_shared_key=_resolve_shared_key,
+        update_store=_update_store,
+    )
 
 
 def load_shared_required(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
-    key = _resolve_shared_key(params, context)
-    if not key:
-        return ActionResult(ok=False, code="invalid_params", message="key is required")
-    store = _read_store()
-    if key not in store:
-        return ActionResult(ok=False, code="missing_source_data", message=f"missing key: {key}")
-    return ActionResult(ok=True, code="ok", data={"key": key, "value": store[key]})
+    return _sdk_shared_store_support_module().load_shared_required_action(
+        params,
+        context,
+        resolve_shared_key=_resolve_shared_key,
+        read_store=_read_store,
+    )
 
 
 def load_shared_optional(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
-    key = _resolve_shared_key(params, context)
-    if not key:
-        return ActionResult(ok=False, code="invalid_params", message="key is required")
-    store = _read_store()
-    exists = key in store
-    default = params.get("default")
-    return ActionResult(
-        ok=True,
-        code="ok",
-        data={"key": key, "exists": exists, "value": store.get(key, default)},
+    return _sdk_shared_store_support_module().load_shared_optional_action(
+        params,
+        context,
+        resolve_shared_key=_resolve_shared_key,
+        read_store=_read_store,
     )
 
 
 def append_shared_unique(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
-    key = _resolve_shared_key(params, context)
-    if not key:
-        return ActionResult(ok=False, code="invalid_params", message="key is required")
-
-    item = params.get("item")
-    if item is None:
-        return ActionResult(ok=False, code="invalid_params", message="item is required")
-
-    identity_field = str(params.get("identity_field") or "").strip()
-    store = _read_store()
-    items = store.get(key)
-    if not isinstance(items, list):
-        items = []
-
-    added = True
-    if identity_field and isinstance(item, dict):
-        item_identity = item.get(identity_field)
-        for existing in items:
-            if isinstance(existing, dict) and existing.get(identity_field) == item_identity:
-                added = False
-                break
-    else:
-        if item in items:
-            added = False
-
-    if added:
-        def _updater(store: dict[str, Any]) -> None:
-            current_items = store.get(key)
-            if not isinstance(current_items, list):
-                current_items = []
-            if identity_field and isinstance(item, dict):
-                item_identity = item.get(identity_field)
-                for existing in current_items:
-                    if isinstance(existing, dict) and existing.get(identity_field) == item_identity:
-                        return
-            elif item in current_items:
-                return
-            current_items.append(item)
-            store[key] = current_items
-
-        store = _update_store(_updater)
-        stored_items = store.get(key)
-        if isinstance(stored_items, list):
-            items = stored_items
-        else:
-            items = items if isinstance(items, list) else []
-
-    return ActionResult(
-        ok=True,
-        code="ok",
-        data={"key": key, "added": added, "size": len(items), "items": items},
+    return _sdk_shared_store_support_module().append_shared_unique_action(
+        params,
+        context,
+        resolve_shared_key=_resolve_shared_key,
+        read_store=_read_store,
+        update_store=_update_store,
     )
 
 
 def increment_shared_counter(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
-    key = _resolve_shared_key(params, context)
-    if not key:
-        return ActionResult(ok=False, code="invalid_params", message="key is required")
-
-    amount = int(params.get("amount", 1) or 1)
-    start = int(params.get("start", 0) or 0)
-
-    result_value = start
-
-    def _updater(store: dict[str, Any]) -> None:
-        nonlocal result_value
-        current = store.get(key, start)
-        try:
-            current_value = int(current)
-        except Exception:
-            current_value = start
-        current_value += amount
-        store[key] = current_value
-        result_value = current_value
-
-    _update_store(_updater)
-    return ActionResult(ok=True, code="ok", data={"key": key, "value": result_value, "amount": amount})
-
-
-def resolve_first_non_empty(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
-    values = params.get("values")
-    if not isinstance(values, list):
-        return ActionResult(ok=False, code="invalid_params", message="values must be a list")
-    for index, value in enumerate(values):
-        if value is None:
-            continue
-        if isinstance(value, str):
-            stripped = value.strip()
-            if stripped:
-                return ActionResult(ok=True, code="ok", data={"value": stripped, "index": index})
-            continue
-        if value:
-            return ActionResult(ok=True, code="ok", data={"value": value, "index": index})
-    return ActionResult(ok=False, code="value_missing", message="no non-empty value found")
-
-
-def plan_follow_rounds(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
-    target_follow_count = max(int(params.get("target_follow_count", 5) or 5), 1)
-    first_round_cap = max(int(params.get("first_round_cap", 3) or 3), 1)
-    round_one = min(target_follow_count, first_round_cap)
-    round_two = max(target_follow_count - round_one, 0)
-    return ActionResult(
-        ok=True,
-        code="ok",
-        data={
-            "target_follow_count": target_follow_count,
-            "round_one": round_one,
-            "round_two": round_two,
-        },
+    return _sdk_shared_store_support_module().increment_shared_counter_action(
+        params,
+        context,
+        resolve_shared_key=_resolve_shared_key,
+        update_store=_update_store,
     )
 
 
+def resolve_first_non_empty(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
+    return _sdk_runtime_support_module().resolve_first_non_empty_action(params)
+
+
+def plan_follow_rounds(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
+    return _sdk_runtime_support_module().plan_follow_rounds_action(params)
+
+
 def generate_totp(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
-    secret = str(params.get("secret") or "").strip()
-    if not secret:
-        return ActionResult(ok=False, code="invalid_params", message="secret is required")
-    try:
-        token = pyotp.TOTP(secret).now()
-    except Exception as exc:
-        return ActionResult(ok=False, code="totp_failed", message=str(exc))
-    return ActionResult(ok=True, code="ok", data={"token": token})
+    return _sdk_runtime_support_module().generate_totp_action(params)
 
 
 def _ui_config_paths() -> list[Path]:
@@ -866,123 +660,44 @@ def _write_daily_counters(payload: dict[str, Any]) -> None:
 
 
 def _resolve_daily_counter_key(params: dict[str, Any], context: ExecutionContext) -> str:
-    base_key = str(params.get("key") or "nurture_daily_count").strip()
-    resolved = _resolve_shared_key({"key": base_key, "scope": params.get("scope"), "scope_value": params.get("scope_value")}, context)
-    return resolved or base_key
+    return _sdk_runtime_support_module().resolve_daily_counter_key(
+        params,
+        context,
+        resolve_shared_key=_resolve_shared_key,
+    )
 
 
 def check_daily_limit(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
-    limit = int(params.get("limit", 5) or 5)
-    today = str(params.get("date") or datetime.now().strftime("%Y-%m-%d"))
-    key = _resolve_daily_counter_key(params, context)
-    store = _read_daily_counters()
-    if store.get("date") != today:
-        store = {"date": today, "counts": {}}
-    counts_obj = store.get("counts")
-    counts: dict[str, Any] = counts_obj if isinstance(counts_obj, dict) else {}
-    try:
-        current = int(counts.get(key, 0))
-    except Exception:
-        current = 0
-    if current >= limit:
-        return ActionResult(
-            ok=False,
-            code="daily_limit_reached",
-            message=f"daily limit reached: {current}/{limit}",
-            data={"key": key, "count": current, "limit": limit, "date": today},
-        )
-    return ActionResult(
-        ok=True,
-        code="ok",
-        data={"key": key, "count": current, "limit": limit, "remaining": max(limit - current, 0), "date": today},
+    return _sdk_runtime_support_module().check_daily_limit_action(
+        params,
+        context,
+        read_daily_counters=_read_daily_counters,
+        resolve_daily_counter_key=_resolve_daily_counter_key,
     )
 
 
 def increment_daily_counter(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
-    amount = int(params.get("amount", 1) or 1)
-    today = str(params.get("date") or datetime.now().strftime("%Y-%m-%d"))
-    key = _resolve_daily_counter_key(params, context)
-    store = _read_daily_counters()
-    if store.get("date") != today:
-        store = {"date": today, "counts": {}}
-    counts_obj = store.get("counts")
-    counts: dict[str, Any] = counts_obj if isinstance(counts_obj, dict) else {}
-    try:
-        current = int(counts.get(key, 0))
-    except Exception:
-        current = 0
-    current += amount
-    counts[key] = current
-    store["date"] = today
-    store["counts"] = counts
-    _write_daily_counters(store)
-    return ActionResult(ok=True, code="ok", data={"key": key, "count": current, "amount": amount, "date": today})
+    return _sdk_runtime_support_module().increment_daily_counter_action(
+        params,
+        context,
+        read_daily_counters=_read_daily_counters,
+        write_daily_counters=_write_daily_counters,
+        resolve_daily_counter_key=_resolve_daily_counter_key,
+    )
 
 
 def pick_weighted_keyword(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
-    override = str(params.get("override") or "").strip()
-    ai_type = str(params.get("ai_type") or "volc").strip()
-    blogger = str(params.get("blogger") or "").strip()
-    if override:
-        return ActionResult(ok=True, code="ok", data={"keyword": override, "rendered_keyword": override, "source": "override", "ai_type": ai_type})
-
-    try:
-        document = _load_strategy_document()
-    except Exception as exc:
-        return ActionResult(ok=False, code="strategy_config_unavailable", message=str(exc))
-
-    strategies = document.get("strategies", {})
-    strategy = strategies.get(ai_type) or strategies.get("volc")
-    if not isinstance(strategy, dict):
-        return ActionResult(ok=False, code="strategy_missing", message=f"strategy not found: {ai_type}")
-
-    keywords = strategy.get("keywords", {})
-    weights = strategy.get("weights", {})
-    weighted_pool: list[tuple[str, str]] = []
-    for bucket_name, entries in keywords.items():
-        if not isinstance(entries, list):
-            continue
-        try:
-            weight = int(weights.get(bucket_name, 1))
-        except Exception:
-            weight = 1
-        for entry in entries:
-            entry_text = str(entry).strip()
-            if not entry_text:
-                continue
-            weighted_pool.extend([(bucket_name, entry_text)] * max(weight, 1))
-
-    if not weighted_pool:
-        return ActionResult(ok=False, code="empty_keyword_pool", message=f"keyword pool empty: {ai_type}")
-
-    bucket, keyword = random.choice(weighted_pool)
-    rendered = keyword.replace("{blogger}", blogger) if blogger else keyword
-    return ActionResult(
-        ok=True,
-        code="ok",
-        data={"ai_type": ai_type, "bucket": bucket, "keyword": keyword, "rendered_keyword": rendered},
+    return _sdk_business_support_module().pick_weighted_keyword_action(
+        params,
+        load_strategy_document=_load_strategy_document,
     )
 
 
 def is_text_blacklisted(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
-    text = str(params.get("text") or "").strip()
-    ai_type = str(params.get("ai_type") or "volc").strip()
-    try:
-        document = _load_strategy_document()
-    except Exception as exc:
-        return ActionResult(ok=False, code="strategy_config_unavailable", message=str(exc))
-    strategies = document.get("strategies", {})
-    strategy = strategies.get(ai_type) or strategies.get("volc")
-    if not isinstance(strategy, dict):
-        return ActionResult(ok=False, code="strategy_missing", message=f"strategy not found: {ai_type}")
-    blacklist = strategy.get("blacklist", [])
-    if not isinstance(blacklist, list):
-        blacklist = []
-    for word in blacklist:
-        word_text = str(word).strip()
-        if word_text and word_text in text:
-            return ActionResult(ok=True, code="ok", data={"contains": True, "matched": word_text, "ai_type": ai_type})
-    return ActionResult(ok=True, code="ok", data={"contains": False, "matched": "", "ai_type": ai_type})
+    return _sdk_business_support_module().is_text_blacklisted_action(
+        params,
+        load_strategy_document=_load_strategy_document,
+    )
 
 
 def _select_interaction_template(section: str, ai_type: str) -> str:
@@ -990,191 +705,60 @@ def _select_interaction_template(section: str, ai_type: str) -> str:
 
 
 def generate_dm_reply(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
-    override = str(params.get("override") or "").strip()
-    ai_type = str(params.get("ai_type") or "default").strip()
-    last_message = str(params.get("last_message") or "").strip()
-    if override:
-        return ActionResult(ok=True, code="ok", data={"reply_text": override, "source": "override", "ai_type": ai_type})
-    try:
-        template = _select_interaction_template("dm_reply", ai_type)
-    except Exception as exc:
-        return ActionResult(ok=False, code="interaction_text_unavailable", message=str(exc))
-    snippet = re.sub(r"\s+", " ", last_message).strip()
-    if snippet:
-        snippet = snippet[:24]
-        reply_text = f"{template} {snippet}"
-    else:
-        reply_text = template
-    return ActionResult(
-        ok=True,
-        code="ok",
-        data={"reply_text": reply_text[:120], "source": "template", "ai_type": ai_type, "last_message": last_message},
+    return _sdk_business_support_module().generate_dm_reply_action(
+        params,
+        select_interaction_template=_select_interaction_template,
     )
 
 
 def generate_quote_text(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
-    override = str(params.get("override") or "").strip()
-    ai_type = str(params.get("ai_type") or "default").strip()
-    source_text = str(params.get("source_text") or params.get("candidate_text") or params.get("target_post_url") or "").strip()
-    if override:
-        return ActionResult(ok=True, code="ok", data={"quote_text": override, "source": "override", "ai_type": ai_type})
-    try:
-        template = _select_interaction_template("quote_text", ai_type)
-    except Exception as exc:
-        return ActionResult(ok=False, code="interaction_text_unavailable", message=str(exc))
-    snippet = re.sub(r"\s+", " ", source_text).strip()
-    if snippet:
-        snippet = snippet[:28]
-        quote_text = f"{template} {snippet}"
-    else:
-        quote_text = template
-    return ActionResult(
-        ok=True,
-        code="ok",
-        data={"quote_text": quote_text[:140], "source": "template", "ai_type": ai_type, "source_text": source_text},
+    return _sdk_business_support_module().generate_quote_text_action(
+        params,
+        select_interaction_template=_select_interaction_template,
     )
 
 
 def save_blogger_candidate(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
-    candidate = params.get("candidate")
-    if not isinstance(candidate, dict):
-        return ActionResult(ok=False, code="invalid_params", message="candidate must be an object")
-    wrapped_params = {
-        "key": params.get("key", "blogger_pool"),
-        "scope": params.get("scope", "device"),
-        "scope_value": params.get("scope_value"),
-        "identity_field": params.get("identity_field", "username"),
-        "item": candidate,
-    }
-    result = append_shared_unique(wrapped_params, context)
-    if not result.ok:
-        return result
-    payload = dict(result.data)
-    payload["candidate"] = candidate
-    return ActionResult(ok=True, code="ok", data=payload)
+    return _sdk_business_support_module().save_blogger_candidate_action(
+        params,
+        context,
+        append_shared_unique=append_shared_unique,
+    )
 
 
 def get_blogger_candidate(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
-    wrapped_params = {
-        "key": params.get("key", "blogger_pool"),
-        "scope": params.get("scope", "device"),
-        "scope_value": params.get("scope_value"),
-        "default": [],
-    }
-    result = load_shared_optional(wrapped_params, context)
-    if not result.ok:
-        return result
-    items = result.data.get("value", [])
-    if not isinstance(items, list):
-        items = []
-    index = int(params.get("index", 0) or 0)
-    if index < 0 or index >= len(items):
-        return ActionResult(ok=False, code="blogger_candidate_missing", message="blogger candidate not found", data={"size": len(items), "index": index})
-    return ActionResult(ok=True, code="ok", data={"candidate": items[index], "index": index, "size": len(items)})
+    return _sdk_business_support_module().get_blogger_candidate_action(
+        params,
+        context,
+        load_shared_optional=load_shared_optional,
+    )
 
 
 def mark_processed(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
-    item = params.get("item")
-    if item in (None, ""):
-        return ActionResult(ok=False, code="invalid_params", message="item is required")
-    wrapped_params = {
-        "key": params.get("key", "processed_items"),
-        "scope": params.get("scope", "device"),
-        "scope_value": params.get("scope_value"),
-        "item": item,
-    }
-    result = append_shared_unique(wrapped_params, context)
-    if not result.ok:
-        return result
-    payload = dict(result.data)
-    payload["item"] = item
-    return ActionResult(ok=True, code="ok", data=payload)
+    return _sdk_business_support_module().mark_processed_action(
+        params,
+        context,
+        append_shared_unique=append_shared_unique,
+    )
 
 
 def check_processed(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
-    item = params.get("item")
-    if item in (None, ""):
-        return ActionResult(ok=False, code="invalid_params", message="item is required")
-    wrapped_params = {
-        "key": params.get("key", "processed_items"),
-        "scope": params.get("scope", "device"),
-        "scope_value": params.get("scope_value"),
-        "default": [],
-    }
-    result = load_shared_optional(wrapped_params, context)
-    if not result.ok:
-        return result
-    items = result.data.get("value", [])
-    if not isinstance(items, list):
-        items = []
-    contains = item in items
-    return ActionResult(ok=True, code="ok", data={"contains": contains, "item": item, "size": len(items)})
+    return _sdk_business_support_module().check_processed_action(
+        params,
+        context,
+        load_shared_optional=load_shared_optional,
+    )
 
 
 def pick_candidate(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
-    candidates = params.get("candidates")
-    if not isinstance(candidates, list):
-        return ActionResult(ok=False, code="invalid_params", message="candidates must be a list")
-
-    ai_type = str(params.get("ai_type") or "generic").strip()
-    strategy = str(params.get("strategy") or "best").strip().lower()
-    min_text_length = int(params.get("min_text_length", 4) or 4)
-
-    try:
-        document = _load_strategy_document()
-        strategies = document.get("strategies", {})
-        strategy_cfg = strategies.get(ai_type) or {}
-        blacklist = strategy_cfg.get("blacklist", []) if isinstance(strategy_cfg, dict) else []
-    except Exception:
-        blacklist = []
-
-    scored: list[tuple[int, dict[str, Any]]] = []
-    for candidate in candidates:
-        if not isinstance(candidate, dict):
-            continue
-        text = str(candidate.get("text") or "").strip()
-        desc = str(candidate.get("desc") or "").strip()
-        combined = " ".join(part for part in (text, desc) if part).strip()
-        if len(combined) < min_text_length:
-            continue
-        if any(str(word).strip() and str(word).strip() in combined for word in blacklist):
-            continue
-
-        score = 1
-        if candidate.get("has_media"):
-            score += 3
-        if ai_type == "volc" and candidate.get("has_media"):
-            score += 10
-        if ai_type == "part_time":
-            lowered = combined.lower()
-            if "円" in combined:
-                score += 10
-            if "paypay" in lowered:
-                score += 8
-            if "現金" in combined or "配布" in combined:
-                score += 5
-        score += min(len(combined), 120) // 20
-        scored.append((score, candidate))
-
-    if not scored:
-        return ActionResult(ok=False, code="no_candidate_selected", message="no candidate selected")
-
-    if strategy == "random":
-        _, selected = random.choice(scored)
-    elif strategy == "first":
-        _, selected = scored[0]
-    else:
-        selected = max(scored, key=lambda item: item[0])[1]
-    return ActionResult(ok=True, code="ok", data={"candidate": selected, "count": len(scored), "ai_type": ai_type, "strategy": strategy})
+    return _sdk_business_support_module().pick_candidate_action(
+        params,
+        load_strategy_document=_load_strategy_document,
+    )
 
 
 def choose_blogger_search_query(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
-    override = str(params.get("override") or "").strip()
-    ai_type = str(params.get("ai_type") or "volc").strip()
-    if override:
-        return ActionResult(ok=True, code="ok", data={"query": override, "source": "override", "ai_type": ai_type})
-    query = "#mytxx" if ai_type == "volc" else "#mytjz"
-    return ActionResult(ok=True, code="ok", data={"query": query, "source": "default", "ai_type": ai_type})
+    return _sdk_business_support_module().choose_blogger_search_query_action(params)
 
 
 def _derive_blogger_profile_data(
@@ -1192,83 +776,18 @@ def _derive_blogger_profile_data(
 
 
 def derive_blogger_profile(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
-    candidate = params.get("candidate")
-    if not isinstance(candidate, dict):
-        return ActionResult(ok=False, code="invalid_params", message="candidate must be an object")
-
-    profile = _derive_blogger_profile_data(
-        candidate=candidate,
-        fallback_username=str(params.get("fallback_username") or "").strip(),
-        fallback_display_name=str(params.get("fallback_display_name") or "").strip(),
-        fallback_profile=str(params.get("fallback_profile") or "").strip(),
-    )
-    if profile is None:
-        return ActionResult(ok=False, code="blogger_profile_missing", message="unable to derive blogger identity")
-
-    return ActionResult(
-        ok=True,
-        code="ok",
-        data=profile,
+    return _sdk_business_support_module().derive_blogger_profile_action(
+        params,
+        derive_blogger_profile_data=_derive_blogger_profile_data,
     )
 
 
 def save_blogger_candidates(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
-    candidates = params.get("candidates")
-    if not isinstance(candidates, list):
-        return ActionResult(ok=False, code="invalid_params", message="candidates must be a list")
-
-    key = params.get("key", "blogger_pool")
-    scope = params.get("scope", "device")
-    scope_value = params.get("scope_value")
-    identity_field = str(params.get("identity_field") or "username").strip() or "username"
-    fallback_profile = str(params.get("fallback_profile") or "").strip()
-
-    added_items: list[dict[str, Any]] = []
-    skipped_count = 0
-    last_result: ActionResult | None = None
-
-    for candidate in candidates:
-        if not isinstance(candidate, dict):
-            skipped_count += 1
-            continue
-        derived = _derive_blogger_profile_data(candidate=candidate, fallback_profile=fallback_profile)
-        if derived is None or not str(derived.get(identity_field) or "").strip():
-            skipped_count += 1
-            continue
-        result = save_blogger_candidate(
-            {
-                "key": key,
-                "scope": scope,
-                "scope_value": scope_value,
-                "identity_field": identity_field,
-                "candidate": derived,
-            },
-            context,
-        )
-        if not result.ok:
-            return result
-        last_result = result
-        if result.data.get("added") is True:
-            added_items.append(derived)
-
-    if last_result is None:
-        return ActionResult(
-            ok=False,
-            code="blogger_candidates_missing",
-            message="no blogger candidates saved",
-            data={"added_count": 0, "skipped_count": skipped_count, "candidates": []},
-        )
-
-    return ActionResult(
-        ok=True,
-        code="ok",
-        data={
-            "key": last_result.data.get("key"),
-            "size": last_result.data.get("size", 0),
-            "added_count": len(added_items),
-            "skipped_count": skipped_count,
-            "candidates": added_items,
-        },
+    return _sdk_business_support_module().save_blogger_candidates_action(
+        params,
+        context,
+        derive_blogger_profile_data=_derive_blogger_profile_data,
+        save_blogger_candidate=save_blogger_candidate,
     )
 
 
@@ -1281,93 +800,26 @@ def _resolve_localized_entry(entry: Any, locale: str) -> Any:
 
 
 def load_ui_value(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
-    key = str(params.get("key") or "").strip()
-    if not key:
-        return ActionResult(ok=False, code="invalid_params", message="key is required")
-    try:
-        document = _load_ui_config_document()
-    except Exception as exc:
-        return ActionResult(ok=False, code="ui_config_unavailable", message=str(exc))
-
-    value = _resolve_ui_key(document, key)
-    if value is None:
-        if "default" in params:
-            return ActionResult(ok=True, code="ok", data={"key": key, "value": params.get("default"), "exists": False})
-        return ActionResult(ok=False, code="ui_value_missing", message=f"ui value not found: {key}")
-    return ActionResult(ok=True, code="ok", data={"key": key, "value": value, "exists": True})
+    return _sdk_runtime_support_module().load_ui_value_action(
+        params,
+        load_ui_config_document=_load_ui_config_document,
+        resolve_ui_key=_resolve_ui_key,
+    )
 
 
 def load_ui_selector(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
-    key = str(params.get("key") or "").strip()
-    if not key:
-        return ActionResult(ok=False, code="invalid_params", message="key is required")
-    locale = str(params.get("locale") or context.payload.get("locale") or "default").strip().lower()
-    try:
-        document = _load_ui_config_document()
-    except Exception as exc:
-        return ActionResult(ok=False, code="ui_config_unavailable", message=str(exc))
-
-    selectors = document.get("selectors", {})
-    entry = _resolve_localized_entry(_resolve_ui_key(selectors, key), locale)
-    if not isinstance(entry, dict):
-        return ActionResult(ok=False, code="ui_selector_missing", message=f"ui selector not found: {key}")
-
-    selector_type = str(entry.get("type") or "").strip().lower()
-    mode = str(entry.get("mode") or "equal").strip().lower()
-    value = entry.get("value")
-    if not selector_type or value in (None, ""):
-        return ActionResult(ok=False, code="ui_selector_invalid", message=f"ui selector invalid: {key}")
-    return ActionResult(
-        ok=True,
-        code="ok",
-        data={
-            "key": key,
-            "locale": locale,
-            "type": selector_type,
-            "mode": mode,
-            "value": value,
-        },
+    return _sdk_runtime_support_module().load_ui_selector_action(
+        params,
+        context,
+        load_ui_config_document=_load_ui_config_document,
+        resolve_ui_key=_resolve_ui_key,
+        resolve_localized_entry=_resolve_localized_entry,
     )
 
 
 def load_ui_scheme(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
-    key = str(params.get("key") or "").strip()
-    if not key:
-        return ActionResult(ok=False, code="invalid_params", message="key is required")
-    try:
-        document = _load_ui_config_document()
-    except Exception as exc:
-        return ActionResult(ok=False, code="ui_config_unavailable", message=str(exc))
-
-    schemes = document.get("schemes", {})
-    entry = _resolve_ui_key(schemes, key)
-    if entry is None:
-        return ActionResult(ok=False, code="ui_scheme_missing", message=f"ui scheme not found: {key}")
-
-    template = entry.get("template") if isinstance(entry, dict) else entry
-    if not isinstance(template, str) or not template.strip():
-        return ActionResult(ok=False, code="ui_scheme_invalid", message=f"ui scheme invalid: {key}")
-
-    args = params.get("args")
-    kwargs = params.get("kwargs")
-    url = template
-    try:
-        if isinstance(kwargs, dict) and kwargs:
-            safe_kwargs = {name: urllib.parse.quote(str(value), safe="") for name, value in kwargs.items()}
-            url = template.format(**safe_kwargs)
-        elif isinstance(args, list) and args:
-            safe_args = [urllib.parse.quote(str(value), safe="") for value in args]
-            url = template.format(*safe_args)
-    except Exception as exc:
-        return ActionResult(ok=False, code="ui_scheme_format_failed", message=str(exc))
-
-    return ActionResult(
-        ok=True,
-        code="ok",
-        data={
-            "key": key,
-            "template": template,
-            "url": url,
-            "command": f'am start -a android.intent.action.VIEW -d "{url}" &',
-        },
+    return _sdk_runtime_support_module().load_ui_scheme_action(
+        params,
+        load_ui_config_document=_load_ui_config_document,
+        resolve_ui_key=_resolve_ui_key,
     )
