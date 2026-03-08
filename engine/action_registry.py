@@ -1,17 +1,17 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Dict
+from collections.abc import Callable
 
 from .models.runtime import ActionResult, ExecutionContext
 
-ActionCallable = Callable[[Dict[str, Any], ExecutionContext], ActionResult]
+ActionCallable = Callable[[dict[str, object], ExecutionContext], ActionResult]
 
 
 class ActionRegistry:
     """Maps action names (e.g. 'browser.open') to callable implementations."""
 
     def __init__(self) -> None:
-        self._actions: Dict[str, ActionCallable] = {}
+        self._actions: dict[str, ActionCallable] = {}
 
     def register(self, name: str, handler: ActionCallable) -> None:
         self._actions[name] = handler
@@ -110,7 +110,11 @@ def register_defaults() -> None:
         node_get_text,
         node_long_click,
     )
-    from .actions.login_actions import click_selector_or_tap, input_text_with_shell_fallback
+    from .actions.login_actions import (
+        click_selector_or_tap,
+        focus_and_input_with_shell_fallback,
+        input_text_with_shell_fallback,
+    )
     from .actions.sdk_actions import (
         append_shared_unique,
         check_daily_limit,
@@ -212,6 +216,7 @@ def register_defaults() -> None:
     _registry.register("ui.long_click", long_click)
     _registry.register("ui.input_text", input_text)
     _registry.register("ui.input_text_with_shell_fallback", input_text_with_shell_fallback)
+    _registry.register("ui.focus_and_input_with_shell_fallback", focus_and_input_with_shell_fallback)
     _registry.register("ui.key_press", key_press)
     _registry.register("ui.click_selector_or_tap", click_selector_or_tap)
     _registry.register("app.open", app_open)
