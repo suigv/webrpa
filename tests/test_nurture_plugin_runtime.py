@@ -1,4 +1,24 @@
+# pyright: reportMissingModuleSource=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownArgumentType=false, reportUnknownLambdaType=false, reportUnusedImport=false
+
+from typing import cast
+
 from engine.runner import Runner
+
+
+def test_nurture_script_uses_ui_state_service_for_search_observation():
+    from pathlib import Path
+    import yaml
+
+    script_path = Path(__file__).resolve().parents[1] / "plugins" / "nurture" / "script.yaml"
+    script = cast(dict[str, object], yaml.safe_load(script_path.read_text(encoding="utf-8")))
+    steps = cast(list[dict[str, object]], script["steps"])
+    labels = cast(dict[str, dict[str, object]], {step["label"]: step for step in steps if step.get("label")})
+    observe_params = cast(dict[str, object], labels["observe_search_candidates"]["params"])
+    pick_params = cast(dict[str, object], labels["pick_search_candidate"]["params"])
+
+    assert labels["observe_search_candidates"]["action"] == "ui.match_state"
+    assert observe_params["binding_id"] == "search_candidates"
+    assert pick_params["candidates"] == "${vars.search_candidates.raw_details.candidates}"
 
 
 def test_nurture_plugin_success_status_contract():
@@ -61,6 +81,41 @@ def test_nurture_plugin_executes_minimal_runtime_flow(monkeypatch, tmp_path):
         def touchClick(self, finger_id, x, y):
             _ = (finger_id, x, y)
             return True
+
+    monkeypatch.setattr(state_actions, "MytRpc", FakeRpc)
+    monkeypatch.setattr(ui_actions, "app_ensure_running", lambda params, context: ActionResult(ok=True, code="ok"))
+    monkeypatch.setattr(ui_actions, "exec_command", lambda params, context: ActionResult(ok=True, code="ok"))
+    monkeypatch.setattr(ui_actions, "selector_click_one", lambda params, context: ActionResult(ok=True, code="ok"))
+
+    result = Runner().run({"task": "nurture", "device_ip": "192.168.1.2", "ai_type": "volc"})
+    assert result["task"] == "nurture"
+    assert result["status"] == "success"
+
+    payload = (tmp_path / "config" / "data" / "migration_shared.json").read_text(encoding="utf-8")
+    assert "nurture_last_interaction" in payload
+
+
+def test_nurture_plugin_skips_candidate_open_when_observation_missing(monkeypatch, tmp_path):
+    from engine.actions import state_actions, ui_actions
+    from engine.models.runtime import ActionResult
+
+    monkeypatch.setenv("MYT_NEW_ROOT", str(tmp_path))
+
+    class FakeRpc:
+        def init(self, ip, port, timeout):
+            _ = (ip, port, timeout)
+            return True
+
+        def close(self):
+            return None
+
+        def dump_node_xml_ex(self, work_mode, timeout_ms):
+            _ = (work_mode, timeout_ms)
+            return "<hierarchy />"
+
+        def dump_node_xml(self, dump_all):
+            _ = dump_all
+            return ""
 
     monkeypatch.setattr(state_actions, "MytRpc", FakeRpc)
     monkeypatch.setattr(ui_actions, "app_ensure_running", lambda params, context: ActionResult(ok=True, code="ok"))
