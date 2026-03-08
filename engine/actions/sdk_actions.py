@@ -4,6 +4,7 @@ from collections.abc import Callable
 from contextlib import contextmanager
 from datetime import datetime
 import fcntl
+from importlib import import_module
 import json
 import os
 from pathlib import Path
@@ -23,6 +24,14 @@ from core.data_store import _resolve_root_path, write_json_atomic
 
 
 _SHARED_STORE_LOCK = threading.Lock()
+
+
+def _sdk_config_support_module():
+    return import_module("engine.actions.sdk_config_support")
+
+
+def _sdk_profile_support_module():
+    return import_module("engine.actions.sdk_profile_support")
 
 
 def _from_payload_or_params(params: dict[str, Any], context: ExecutionContext, key: str, default: Any = None) -> Any:
@@ -821,104 +830,39 @@ def generate_totp(params: dict[str, Any], context: ExecutionContext) -> ActionRe
 
 
 def _ui_config_paths() -> list[Path]:
-    repo_root = Path(__file__).resolve().parents[2]
-    candidates = [Path(_resolve_root_path()) / "config" / "x_ui.yaml", repo_root / "config" / "x_ui.yaml"]
-    unique: list[Path] = []
-    seen: set[str] = set()
-    for path in candidates:
-        path_str = str(path.resolve()) if path.exists() else os.path.abspath(str(path))
-        if path_str not in seen:
-            seen.add(path_str)
-            unique.append(path)
-    return unique
+    return _sdk_config_support_module().ui_config_paths()
 
 
 def _load_ui_config_document() -> dict[str, Any]:
-    for path in _ui_config_paths():
-        if not path.exists():
-            continue
-        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
-        if isinstance(raw, dict):
-            return raw
-        raise ValueError(f"x_ui config must be a mapping: {path}")
-    raise FileNotFoundError("config/x_ui.yaml not found")
+    return _sdk_config_support_module().load_ui_config_document()
 
 
 def _strategy_config_paths() -> list[Path]:
-    repo_root = Path(__file__).resolve().parents[2]
-    candidates = [Path(_resolve_root_path()) / "config" / "strategies" / "nurture_keywords.yaml", repo_root / "config" / "strategies" / "nurture_keywords.yaml"]
-    unique: list[Path] = []
-    seen: set[str] = set()
-    for path in candidates:
-        path_str = str(path.resolve()) if path.exists() else os.path.abspath(str(path))
-        if path_str not in seen:
-            seen.add(path_str)
-            unique.append(path)
-    return unique
+    return _sdk_config_support_module().strategy_config_paths()
 
 
 def _load_strategy_document() -> dict[str, Any]:
-    for path in _strategy_config_paths():
-        if not path.exists():
-            continue
-        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
-        if isinstance(raw, dict):
-            return raw
-        raise ValueError(f"nurture strategy config must be a mapping: {path}")
-    raise FileNotFoundError("config/strategies/nurture_keywords.yaml not found")
+    return _sdk_config_support_module().load_strategy_document()
 
 
 def _interaction_text_config_paths() -> list[Path]:
-    repo_root = Path(__file__).resolve().parents[2]
-    candidates = [
-        Path(_resolve_root_path()) / "config" / "strategies" / "interaction_texts.yaml",
-        repo_root / "config" / "strategies" / "interaction_texts.yaml",
-    ]
-    unique: list[Path] = []
-    seen: set[str] = set()
-    for path in candidates:
-        path_str = str(path.resolve()) if path.exists() else os.path.abspath(str(path))
-        if path_str not in seen:
-            seen.add(path_str)
-            unique.append(path)
-    return unique
+    return _sdk_config_support_module().interaction_text_config_paths()
 
 
 def _load_interaction_text_document() -> dict[str, Any]:
-    for path in _interaction_text_config_paths():
-        if not path.exists():
-            continue
-        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
-        if isinstance(raw, dict):
-            return raw
-        raise ValueError(f"interaction text config must be a mapping: {path}")
-    raise FileNotFoundError("config/strategies/interaction_texts.yaml not found")
+    return _sdk_config_support_module().load_interaction_text_document()
 
 
 def _daily_counter_path() -> Path:
-    return Path(_resolve_root_path()) / "config" / "data" / "daily_counters.json"
+    return _sdk_config_support_module().daily_counter_path()
 
 
 def _read_daily_counters() -> dict[str, Any]:
-    path = _daily_counter_path()
-    if not path.exists():
-        return {"date": datetime.now().strftime("%Y-%m-%d"), "counts": {}}
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return {"date": datetime.now().strftime("%Y-%m-%d"), "counts": {}}
-    if not isinstance(payload, dict):
-        return {"date": datetime.now().strftime("%Y-%m-%d"), "counts": {}}
-    counts = payload.get("counts")
-    if not isinstance(counts, dict):
-        counts = {}
-    return {"date": str(payload.get("date") or ""), "counts": counts}
+    return _sdk_config_support_module().read_daily_counters()
 
 
 def _write_daily_counters(payload: dict[str, Any]) -> None:
-    path = _daily_counter_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    write_json_atomic(path, payload)
+    _sdk_config_support_module().write_daily_counters(payload)
 
 
 def _resolve_daily_counter_key(params: dict[str, Any], context: ExecutionContext) -> str:
@@ -1042,16 +986,7 @@ def is_text_blacklisted(params: dict[str, Any], context: ExecutionContext) -> Ac
 
 
 def _select_interaction_template(section: str, ai_type: str) -> str:
-    document = _load_interaction_text_document()
-    section_doc = document.get(section)
-    if not isinstance(section_doc, dict):
-        raise ValueError(f"interaction text section missing: {section}")
-    pool = section_doc.get(ai_type)
-    if not isinstance(pool, list) or not pool:
-        pool = section_doc.get("default")
-    if not isinstance(pool, list) or not pool:
-        raise ValueError(f"interaction text pool missing: {section}/{ai_type}")
-    return str(random.choice(pool)).strip()
+    return _sdk_config_support_module().select_interaction_template(section, ai_type)
 
 
 def generate_dm_reply(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
@@ -1248,35 +1183,12 @@ def _derive_blogger_profile_data(
     fallback_display_name: str = "",
     fallback_profile: str = "",
 ) -> dict[str, Any] | None:
-    text = str(candidate.get("text") or "").strip()
-    desc = str(candidate.get("desc") or "").strip()
-    combined = " ".join(part for part in (text, desc) if part).strip()
-
-    username_matches = re.findall(r"@([A-Za-z0-9_]{1,32})", combined)
-    username = username_matches[0] if username_matches else fallback_username
-
-    display_name = fallback_display_name
-    if not display_name:
-        if username and text:
-            marker = f"@{username}"
-            if marker in text:
-                prefix = text.split(marker, 1)[0].strip(" |-:")
-                if prefix:
-                    display_name = prefix
-        if not display_name:
-            display_name = username or (text[:32].strip() if text else "")
-
-    profile = fallback_profile or combined
-
-    if not username and not display_name:
-        return None
-
-    return {
-        "username": username,
-        "display_name": display_name,
-        "profile": profile,
-        "source_candidate": candidate,
-    }
+    return _sdk_profile_support_module().derive_blogger_profile_data(
+        candidate=candidate,
+        fallback_username=fallback_username,
+        fallback_display_name=fallback_display_name,
+        fallback_profile=fallback_profile,
+    )
 
 
 def derive_blogger_profile(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
@@ -1361,33 +1273,11 @@ def save_blogger_candidates(params: dict[str, Any], context: ExecutionContext) -
 
 
 def _resolve_ui_key(source: Any, key: str) -> Any:
-    if not key:
-        return None
-    if isinstance(source, dict) and key in source:
-        return source[key]
-
-    current = source
-    for part in key.split("."):
-        if not isinstance(current, dict) or part not in current:
-            return None
-        current = current[part]
-    return current
+    return _sdk_config_support_module().resolve_ui_key(source, key)
 
 
 def _resolve_localized_entry(entry: Any, locale: str) -> Any:
-    if not isinstance(entry, dict):
-        return entry
-    if "type" in entry or "value" in entry or "template" in entry:
-        return entry
-    locale_key = str(locale or "").strip().lower()
-    if locale_key and locale_key in entry:
-        return entry[locale_key]
-    if "default" in entry:
-        return entry["default"]
-    for value in entry.values():
-        if isinstance(value, dict):
-            return value
-    return entry
+    return _sdk_config_support_module().resolve_localized_entry(entry, locale)
 
 
 def load_ui_value(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
