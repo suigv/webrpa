@@ -1,5 +1,15 @@
+# pyright: reportMissingImports=false, reportMissingModuleSource=false, reportUnknownVariableType=false, reportUnknownMemberType=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportUnknownLambdaType=false
+
+import json
+import os
 from pathlib import Path
+import socket
+import subprocess
+import sys
+import time
 from typing import cast
+from urllib import request
+from http.client import HTTPResponse
 
 from fastapi.testclient import TestClient
 
@@ -139,3 +149,144 @@ def test_runtime_execute_openapi_marks_route_as_debug_only_direct_run():
     assert "task metrics artifacts" in description.lower()
     assert "exclusive to /api/tasks" in description.lower()
     assert "/api/tasks" in description
+
+
+def test_runtime_execute_can_dispatch_migrated_dm_reply_plugin_actions(monkeypatch):
+    from engine.actions import state_actions, ui_actions
+    from engine.models.runtime import ActionResult
+
+    class FakeRpc:
+        def init(self, ip, port, timeout):
+            _ = (ip, port, timeout)
+            return True
+
+        def close(self):
+            return None
+
+        def dump_node_xml_ex(self, work_mode, timeout_ms):
+            _ = (work_mode, timeout_ms)
+            return "<hierarchy />"
+
+        def dump_node_xml(self, dump_all):
+            _ = dump_all
+            return ""
+
+        def touchClick(self, finger_id, x, y):
+            _ = (finger_id, x, y)
+            return True
+
+    monkeypatch.setattr(state_actions, "MytRpc", FakeRpc)
+    monkeypatch.setattr(ui_actions, "app_ensure_running", lambda params, context: ActionResult(ok=True, code="ok"))
+    monkeypatch.setattr(ui_actions, "exec_command", lambda params, context: ActionResult(ok=True, code="ok"))
+    monkeypatch.setattr(ui_actions, "selector_click_one", lambda params, context: ActionResult(ok=True, code="ok"))
+    monkeypatch.setattr(ui_actions, "input_text", lambda params, context: ActionResult(ok=True, code="ok"))
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/runtime/execute",
+        json={
+            "task": "dm_reply",
+            "device_ip": "192.168.1.2",
+            "reply_text": "hello dm",
+        },
+    )
+    assert response.status_code == 200
+    payload = cast(dict[str, object], response.json())
+    assert payload["ok"] is True
+    assert payload["status"] == "success"
+    assert payload["task"] == "dm_reply"
+
+
+def test_action_registry_is_initialized_in_fresh_process_without_runner() -> None:
+    project_root = Path(__file__).resolve().parents[1]
+    script = (
+        "from engine.action_registry import get_registry\n"
+        "print(get_registry().has('ui.focus_and_input_with_shell_fallback'))\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=project_root,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert result.stdout.strip() == "True"
+
+
+def _find_free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return cast(int, sock.getsockname()[1])
+
+
+def test_runtime_execute_live_uvicorn_path_dispatches_migrated_plugin_actions() -> None:
+    project_root = Path(__file__).resolve().parents[1]
+    port = _find_free_port()
+    proc = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "uvicorn",
+            "api.server:app",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(port),
+        ],
+        cwd=project_root,
+        env={**os.environ, "MYT_ENABLE_RPC": "0"},
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+    try:
+        health_url = f"http://127.0.0.1:{port}/health"
+        for _ in range(50):
+            if proc.poll() is not None:
+                stdout, stderr = proc.communicate(timeout=5)
+                raise AssertionError(f"uvicorn exited early\nstdout:\n{stdout}\nstderr:\n{stderr}")
+            try:
+                response = cast(HTTPResponse, request.urlopen(health_url, timeout=1))
+                try:
+                    if response.status == 200:
+                        break
+                finally:
+                    response.close()
+            except Exception:
+                time.sleep(0.1)
+        else:
+            proc.terminate()
+            stdout, stderr = proc.communicate(timeout=5)
+            raise AssertionError(f"uvicorn did not become healthy\nstdout:\n{stdout}\nstderr:\n{stderr}")
+
+        runtime_request = request.Request(
+            f"http://127.0.0.1:{port}/api/runtime/execute",
+            data=json.dumps(
+                {
+                    "task": "x_mobile_login",
+                    "device_ip": "192.168.1.2",
+                    "status_hint": "success",
+                }
+            ).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        response = cast(HTTPResponse, request.urlopen(runtime_request, timeout=10))
+        try:
+            payload = cast(dict[str, object], json.loads(response.read().decode("utf-8")))
+        finally:
+            response.close()
+
+        assert payload["ok"] is True
+        assert payload["status"] == "success"
+        assert payload["task"] == "x_mobile_login"
+        assert payload.get("code") != "unknown_action"
+    finally:
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                _ = proc.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                _ = proc.communicate(timeout=5)

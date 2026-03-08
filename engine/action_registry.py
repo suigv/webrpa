@@ -31,9 +31,19 @@ class ActionRegistry:
 
 # Global registry instance
 _registry = ActionRegistry()
+_defaults_registered = False
+
+
+def _ensure_defaults_registered() -> None:
+    global _defaults_registered
+    if _defaults_registered:
+        return
+    register_defaults()
+    _defaults_registered = True
 
 
 def get_registry() -> ActionRegistry:
+    _ensure_defaults_registered()
     return _registry
 
 
@@ -115,6 +125,14 @@ def register_defaults() -> None:
         focus_and_input_with_shell_fallback,
         input_text_with_shell_fallback,
     )
+    from .actions.ui_state_actions import (
+        browser_match_state,
+        browser_observe_transition,
+        browser_wait_until,
+        ui_match_state,
+        ui_observe_transition,
+        ui_wait_until,
+    )
     from .actions.sdk_actions import (
         append_shared_unique,
         check_daily_limit,
@@ -165,6 +183,9 @@ def register_defaults() -> None:
     _registry.register("browser.exists", browser_exists)
     _registry.register("browser.check_html", browser_check_html)
     _registry.register("browser.wait_url", browser_wait_url)
+    _registry.register("browser.match_state", browser_match_state)
+    _registry.register("browser.wait_until", browser_wait_until)
+    _registry.register("browser.observe_transition", browser_observe_transition)
     _registry.register("browser.add_cookies", browser_add_cookies)
     _registry.register("browser.close", browser_close)
     _registry.register("credentials.load", credentials_load)
@@ -209,9 +230,12 @@ def register_defaults() -> None:
     _registry.register("ai.llm_evaluate", llm_evaluate)
     _registry.register("ai.vlm_evaluate", vlm_evaluate)
     _registry.register("ui.click", click)
+    _registry.register("ui.match_state", ui_match_state)
     _registry.register("ui.touch_down", touch_down)
     _registry.register("ui.touch_up", touch_up)
     _registry.register("ui.touch_move", touch_move)
+    _registry.register("ui.wait_until", ui_wait_until)
+    _registry.register("ui.observe_transition", ui_observe_transition)
     _registry.register("ui.swipe", swipe)
     _registry.register("ui.long_click", long_click)
     _registry.register("ui.input_text", input_text)
