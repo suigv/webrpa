@@ -1,5 +1,6 @@
 import os
-from pathlib import Path
+
+from core.paths import project_root
 
 
 class ToolsKit:
@@ -7,4 +8,4 @@ class ToolsKit:
         env_root = os.environ.get("MYT_NEW_ROOT")
         if env_root:
             return env_root
-        return str(Path(__file__).resolve().parents[1])
+        return str(project_root())

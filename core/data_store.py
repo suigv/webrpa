@@ -6,6 +6,8 @@ import tempfile
 from pathlib import Path
 from typing import Any, List
 
+from core.paths import data_dir, project_root
+
 
 DATA_TYPES = {
     "accounts": "accounts.json",
@@ -14,16 +16,11 @@ DATA_TYPES = {
 }
 
 def _resolve_root_path() -> str:
-    env_root = os.environ.get("MYT_NEW_ROOT")
-    if env_root:
-        return env_root
-    return str(Path(__file__).resolve().parents[1])
+    return str(project_root())
 
 
 def _data_dir() -> str:
-    path = os.path.join(_resolve_root_path(), "config", "data")
-    os.makedirs(path, exist_ok=True)
-    return path
+    return str(data_dir())
 
 
 def _json_path(data_type: str) -> str:

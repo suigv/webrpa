@@ -1,18 +1,15 @@
 import json
-import os
 import ipaddress
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from core.paths import project_root
 from models.humanized import FALLBACK_POLICIES, TARGET_STRATEGIES, HumanizedConfig, HumanizedWrapperConfig
 
 
 def _project_root() -> Path:
-    env_root = os.environ.get("MYT_NEW_ROOT")
-    if env_root:
-        return Path(env_root).resolve()
-    return Path(__file__).resolve().parents[1]
+    return project_root()
 
 
 CONFIG_FILE = _project_root() / "config" / "devices.json"
