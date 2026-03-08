@@ -10,16 +10,18 @@
 - `engine/actions/sdk_actions.py` 已收敛 shared-store 写入路径，补上原子写入、同进程锁与跨进程文件锁
 - `core/data_store.py` 已改为原子 JSON 写入
 
-以下建议在当前 `main` 上仍然成立，但尚未完整完成：
+以下建议在当前 `main` 上仍然应作为长期 watchpoint，但不再都属于未完成阻塞项：
 
-- 共享 RPC helper 统一抽取
-- `core/task_control.py` 的职责进一步抽离
+- `core/task_control.py` 的职责继续保持 orchestration 边界
 - 插件层重复 fallback 的 composite action 收敛（当前主分支上的 `x_mobile_login` workflow 形态与最初审查时不同，因此未在本轮强行推进）
 
-如果只关心“现在已经修了什么”，请优先看根目录：
+如果只关心“现在已经修了什么”和“哪些项只保留为 watchpoint”，请优先看：
 
-- `功能原子化修复结果.md`
-- `功能原子化问题分类说明.md`
+- `docs/reference/功能原子化修复结果.md`
+- `docs/reference/功能原子化问题分类说明.md`
+- `docs/reference/sdk_actions_followup_assessment.md`
+- `docs/reference/shared_json_store_watchpoint.md`
+- `docs/reference/x_mobile_login_compression_watchpoint.md`
 
 ## 结论
 

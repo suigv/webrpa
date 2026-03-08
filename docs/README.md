@@ -10,10 +10,10 @@
 - `PLUGIN_CONTRACT.md` - Plugin manifest/workflow schema and authoring contract
 - `WEB_GUI_EMBED.md` - Desktop shell embedding guide for `/web`
 
-## Root-Level Chinese Summaries
+## Chinese Retrospectives
 
-- `../功能原子化问题分类说明.md` - Atomicity issue taxonomy with current resolution status
-- `../功能原子化修复结果.md` - Branch-to-main remediation outcome and verification summary
+- `reference/功能原子化问题分类说明.md` - Atomicity issue taxonomy with current resolution status
+- `reference/功能原子化修复结果.md` - Branch-to-main remediation outcome and verification summary
 
 ## Reference
 
