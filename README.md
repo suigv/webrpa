@@ -15,7 +15,7 @@
 ### 1) API 服务
 
 - `GET /health`：健康检查（含 `task_policy` 运行策略快照）
-- `POST /api/runtime/execute`：直接执行 runtime payload
+- `POST /api/runtime/execute`：debug/internal-only 直跑入口；同步执行 runtime payload，不创建 `/api/tasks` 托管任务、重试、取消、SSE 事件或指标
 - `GET /web`：控制台页面
 
 ### 2) 设备管理（`/api/devices`）
@@ -142,8 +142,8 @@ curl http://127.0.0.1:8001/health
 - 当前 main 已完成/未完成事项：`docs/current_main_status.md`
 - 跨对话交接模板：`docs/HANDOFF.md`
 - 插件输入契约与灰度策略：`docs/plugin_input_contract.md`
-- 原子化问题分类：`功能原子化问题分类说明.md`
-- 原子化修复结果：`功能原子化修复结果.md`
+- 原子化问题分类：`docs/reference/功能原子化问题分类说明.md`
+- 原子化修复结果：`docs/reference/功能原子化修复结果.md`
 - 自动刷新快照（建议每次有意义变更后执行）：
 
 ```bash

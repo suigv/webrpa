@@ -92,7 +92,15 @@ def _stale_running_seconds() -> int:
     return max(0, parsed)
 
 
-@app.post("/api/runtime/execute")
+@app.post(
+    "/api/runtime/execute",
+    summary="Debug-only direct runtime execute",
+    description=(
+        "Internal/debug direct-run path. Executes the payload synchronously through Runner without creating "
+        "managed task records, retries, cancellation flow, SSE task events, or task metrics artifacts. "
+        "Use /api/tasks for managed task lifecycle behavior."
+    ),
+)
 def execute_runtime(payload: dict[str, object]):
     runner = Runner()
     return runner.run(payload)

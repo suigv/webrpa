@@ -24,9 +24,11 @@ The current repo exposes three real caller surfaces that operators should treat 
 
 1. `POST /api/runtime/execute`
    - `api/server.py` passes the request body directly to `Runner().run(payload)`.
+   - This is the debug/internal-only direct-run surface; it does **not** create managed task rows, retries, cancellation flow, SSE task events, or task metrics artifacts.
    - Any undeclared plugin input sent here is rejected when strict mode is on.
 2. `POST /api/tasks`
    - `api/routes/task_routes.py` builds `script_payload` from `task` plus `payload`, then submits that payload for runner dispatch.
+   - This is the managed task lifecycle surface for queued execution, retries, cancellation, events, and metrics.
    - Unknown keys inside `payload` reach the same plugin validation path.
 3. `GET /api/tasks/catalog`
    - `api/routes/task_routes.py` builds `required`, `defaults`, and `example_payload` from plugin manifests.

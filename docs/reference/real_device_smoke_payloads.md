@@ -5,7 +5,7 @@
 说明：
 - 当前外部 HTTP 接口直接暴露的是“任务执行”，不是“任意原子 action 执行”。
 - 所以对外最短路径是：
-  - `POST /api/runtime/execute` 用同步任务做快速验证
+  - `POST /api/runtime/execute` 用 debug/internal-only 同步直跑做快速验证；它不会创建 `/api/tasks` 托管任务、重试、取消、事件流或指标副作用
   - `POST /api/tasks/` 用异步任务做真实调度验证
 - 如果你要逐个验证 `mytos.*` 原子动作，当前最短路径是本地 Python 调用 `ActionRegistry`。
 
@@ -16,6 +16,8 @@ curl -s http://127.0.0.1:8000/health | jq
 ```
 
 ## 2. 同步验证 `mytos_device_setup`
+
+> 该入口适合 smoke/debug 验证；需要可追踪任务生命周期时，请改用 `POST /api/tasks/`。
 
 这条会覆盖：
 - `mytos.query_adb_permission`
@@ -47,6 +49,8 @@ curl -s http://127.0.0.1:8000/api/runtime/execute \
 - `message` 包含 `mytos device setup completed`
 
 ## 3. 同步验证 `x_mobile_login` 入口连通性
+
+> 该入口仍是 direct-run smoke/debug surface，不会产出托管任务记录或任务事件。
 
 这条不会真的登录，只验证：
 - RPA 连接

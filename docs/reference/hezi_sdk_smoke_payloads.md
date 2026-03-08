@@ -9,6 +9,8 @@
 
 ## 1. 同步验证 SDK 主链路
 
+> `POST /api/runtime/execute` 在这里是 debug/internal-only 的同步直跑入口；如果你需要托管任务、重试、取消或事件流，请改用 `POST /api/tasks/`。
+
 覆盖：
 - `sdk.get_api_version`
 - `sdk.get_device_info`
@@ -35,6 +37,8 @@ curl -s http://127.0.0.1:8000/api/runtime/execute \
 - `message` 包含 `hezi sdk probe completed`
 
 ## 2. 异步提交 SDK 探针任务
+
+> 这才是带有任务控制面语义的入口，会落入 `/api/tasks` 的托管生命周期。
 
 ```bash
 curl -s http://127.0.0.1:8000/api/tasks/ \

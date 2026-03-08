@@ -6,7 +6,7 @@
 
 - `GET /`
 - `GET /health`
-- `POST /api/runtime/execute`
+- `POST /api/runtime/execute`（debug/internal-only direct-run；不进入 `/api/tasks` 托管生命周期）
 - `GET /web`
 - `GET /ws/logs`
 
