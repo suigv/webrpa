@@ -5,12 +5,16 @@
 
 ## 1. 当前阶段
 
-- 阶段：**RPA/RPC remediation completed on worktree**
-- 核心状态：API、任务系统、插件执行、账号池、Web 控制台、配置管理、适配器降级均可用；RPA/RPC 控制层已完成 selector 生命周期、共享 RPC bootstrap、native pointer ownership 与 task-control 边界收敛
+- 阶段：**Post-remediation follow-ups documented and aligned**
+- 核心状态：API、任务系统、插件执行、账号池、Web 控制台、配置管理、适配器降级均可用；RPA/RPC 控制层 remediation 已完成，后续 watchpoint、监控 rollout、stale-running 调优与交接流程文档已同步落地
 - 最近重点：
   - 完成 RPA/RPC 控制层 remediation：selector 热路径清理、解释器退出 safety net、共享 RPC helper、`mytRpc` 原生边界 hardening、`TaskController` 业务反馈抽离
   - 新增 contract-focused regression coverage，固定 shared bootstrap 契约、cleanup 顺序与 `/health` 的 `rpc_enabled=false` 行为
   - 完成 `MYT_ENABLE_RPC=0` 启动烟测与全量 `pytest tests -q` 门禁
+  - 完成 post-remediation follow-up 文档收口：`sdk_actions`、shared JSON store、`x_mobile_login` compression watchpoint 均已有独立评估文档
+  - 新增 `docs/monitoring_rollout.md` 与 `config/monitoring/rendered/single-node-example/`，明确 Prometheus/Alertmanager 外部接线基线
+  - 新增 `docs/stale_running_recovery_tuning.md`，把 `MYT_TASK_STALE_RUNNING_SECONDS` 调优规则与 `/health`、`task.recovered_stale_running`、`NewTaskStaleRunningRecovered` 串成同一验证链
+  - 原位于仓库根目录的中文原子化复盘文档已迁入 `docs/reference/`
 
 ## 2. 已实现功能清单
 
@@ -82,8 +86,7 @@
 
 ## 5. 下一步建议（滚动）
 
-1. 迁移闭环提交打包（commit/PR）：整理证据链、关联 `docs/HANDOFF.md` 与 `.sisyphus/evidence/*`，确保评审可一键复现门禁。
-2. 将 Prometheus 抓取指标接入外部监控系统（抓取配置、告警规则与告警投递链路）。
-   - 已完成仓内抓取/告警模板与参数化渲染工具；待完成外部 Prometheus/Alertmanager 实际部署与投递链路联调。
-3. 线上化 stale-running 恢复策略：按环境调优 `MYT_TASK_STALE_RUNNING_SECONDS`，并联动外部监控确认恢复事件与重入行为符合预期。
-4. 推进“拒绝未声明参数”落地：将 `docs/plugin_input_contract.md` 同步到调用方/部署手册，并完成各环境开关基线对齐与发布演练。
+1. 提交与 PR 打包：把已完成的 follow-up 文档/监控产物整理成可审阅的提交批次，并按 `docs/HANDOFF.md` 补齐证据链。
+2. 外部 Prometheus / Alertmanager 实际部署联调：将 `docs/monitoring_rollout.md` 和 `config/monitoring/rendered/single-node-example/` 落到真实环境。
+3. stale-running 线上阈值校准：按 `docs/stale_running_recovery_tuning.md` 的规则在目标环境确认常态值、演练值与告警响应。
+4. 持续观察 watchpoint：定期复查 `docs/reference/sdk_actions_followup_assessment.md`、`docs/reference/shared_json_store_watchpoint.md`、`docs/reference/x_mobile_login_compression_watchpoint.md` 是否命中新触发条件。

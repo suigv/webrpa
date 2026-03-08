@@ -10,7 +10,7 @@
 - `ui_actions` / `state_actions` 已收敛为稳定 facade，selector/state internals 已拆到 helper 子模块
 - `core/task_control.py` 中的账号反馈策略已抽到 `core/account_feedback.py`
 - `hardware_adapters/mytRpc.py` 已补齐 pointer ownership、timeout 透传与 failure-safe 保护
-- 原子化相关中文说明文档、参考审查文档、README 入口均已同步
+- 原子化相关中文复盘文档已迁入 `docs/reference/`，参考审查文档与 README 入口均已同步
 - `MYT_ENABLE_RPC=0` 启动与 `/health` 契约已验证通过
 
 ## 部分完成
@@ -26,12 +26,13 @@
 
 ## 下一步优先级
 
-1. 按提交边界整理 remediation 变更，补齐 commit / PR 证据链
-2. 继续观察 `sdk_actions` 与长 workflow 的复杂度增长，必要时沿相同思路拆 helper 或 composite action
-3. 若后续再扩展控制面策略，继续保持 `TaskController` 只承载 orchestration 边界
+1. 按提交边界整理已完成的 follow-up 文档与监控产物，补齐 commit / PR 证据链
+2. 将 `docs/monitoring_rollout.md` 与渲染监控配置落到外部 Prometheus / Alertmanager 环境
+3. 按 `docs/stale_running_recovery_tuning.md` 在真实部署里校准 `MYT_TASK_STALE_RUNNING_SECONDS`
+4. 继续观察 `sdk_actions`、shared JSON store 与长 workflow 的 watchpoint 触发条件
 
 ## 参考文档
 
-- `功能原子化问题分类说明.md`
-- `功能原子化修复结果.md`
+- `docs/reference/功能原子化问题分类说明.md`
+- `docs/reference/功能原子化修复结果.md`
 - `docs/reference/atomicity_architecture_review.md`

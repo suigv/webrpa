@@ -11,8 +11,8 @@
 
 ## 2) Current Snapshot (Update this first)
 
-- Phase: **Post-migration stabilization and documentation cleanup**
-- Migration plan source: `.sisyphus/plans/legacy-feature-extraction.md`
+- Phase: **Post-remediation follow-ups completed and ready for packaging**
+- Active follow-up plan source: `.sisyphus/plans/post-rpa-rpc-followups.md` (completed)
 - Core capabilities now covered:
   - API + Web console (`/web`)，当前公开云机大厅、账号池、设置与实时日志
   - Task control plane (`api/routes/task_routes.py`, `core/task_control.py`) with catalog/metrics/prometheus export
@@ -20,28 +20,31 @@
   - Account pool import/parse/status/pop flows (`api/routes/data.py`, `core/account_parser.py`)
   - Selector pipeline actions with stable not-found semantics (`code=not_found`)
   - Device cloud-model mapping with malformed adapter payload safety guard (`core/device_manager.py`)
+  - Follow-up docs now cover plugin payload rollout, handoff evidence workflow, monitoring rollout, stale-running tuning, and three architecture watchpoints
 - Quality status (latest known baseline):
-  - Full gates: `./tools/run_migration_gates.sh` -> pass
-  - Tests: `209 passed`
+  - Legacy import guard: pass
+  - Tests: full `pytest tests -q` pass
+  - RPC-disabled startup + `/health`: pass
+  - Monitoring render tool focused test: pass
+- Reference docs moved under `docs/reference/`, including the two Chinese atomicity retrospectives
   - Legacy import guard: pass
   - Health check (`MYT_ENABLE_RPC=0`): pass
 
 ## 3) What Was Recently Done
 
-1. Closed final migration-audit mismatches:
-   - Task 6 evidence/contract aligned to selector `not_found` behavior
-   - Task 11 unsupported-task evidence chain hardened
-2. Added runtime safety hardening in `core/device_manager.py`:
-   - guarded `HostPort` parsing with `try/except (TypeError, ValueError)`
-3. Added/updated focused tests:
-   - `tests/test_selector_pipeline_actions.py`
-   - `tests/test_cloud_model_info.py`
-4. Updated final evidence set:
-   - `.sisyphus/evidence/f1-plan-compliance.txt`
-   - `.sisyphus/evidence/f2-runtime-safety.txt`
-   - refreshed task evidence files for Task 6/11/12 and scope fidelity
-5. Removed out-of-scope drift from `web/*` and re-validated full migration gates (pass)
-6. Added scheduler/plugin dispatch observability events:
+1. Completed the `post-rpa-rpc-followups` plan and checked off all 7 items.
+2. Added follow-up reference docs:
+   - `docs/reference/sdk_actions_followup_assessment.md`
+   - `docs/reference/shared_json_store_watchpoint.md`
+   - `docs/reference/x_mobile_login_compression_watchpoint.md`
+3. Expanded rollout/operator docs:
+   - `docs/plugin_input_contract.md`
+   - `docs/monitoring_rollout.md`
+   - `docs/stale_running_recovery_tuning.md`
+4. Standardized review handoff expectations in `docs/HANDOFF.md` and checked in rendered monitoring examples under `config/monitoring/rendered/single-node-example/`.
+5. Moved the two Chinese atomicity retrospectives from repo root into `docs/reference/` and updated cross-links.
+6. Earlier control-plane and runtime hardening already on this branch includes:
+   - scheduler/plugin dispatch observability events
    - `task.dispatching` emitted before runner dispatch
    - `task.dispatch_result` emitted immediately after runner returns
    - covered by SSE lifecycle regression in `tests/test_task_scheduling_events.py`
@@ -131,18 +134,19 @@
 ## 4) Open Items (Next work queue)
 
 - [x] Independent re-audit on latest F1/F2/F4 evidence for external sign-off - PASS (2026-03-05, session `ses_3434d6326ffehaYo5gU4vpd7Gj`)
-- [ ] Commit/PR packaging for migration-closure batch (if not yet submitted)
-- [ ] Post-migration hardening roadmap (next): complete external monitoring delivery chain (Prometheus/Alertmanager deployment-side integration), and tune/operationalize stale-running threshold policy
-- [ ] Rollout execution: align environment baselines (`MYT_STRICT_PLUGIN_UNKNOWN_INPUTS`, `MYT_TASK_STALE_RUNNING_SECONDS`) with deployment manifests and Alertmanager routing policy
+- [ ] Commit/PR packaging for the completed follow-up documentation batch
+- [ ] External monitoring deployment: apply `docs/monitoring_rollout.md` and `config/monitoring/rendered/single-node-example/` in a real Prometheus/Alertmanager environment
+- [ ] Runtime rollout execution: align `MYT_STRICT_PLUGIN_UNKNOWN_INPUTS` and `MYT_TASK_STALE_RUNNING_SECONDS` with actual deployment manifests and verify the live `/health` policy snapshot
+- [ ] Keep the three watchpoint docs under review and only reopen implementation work if their documented trigger conditions are met
 
 ## 5) How to Continue in a New Conversation
 
 Start prompt template:
 
 ```text
-请先阅读 docs/HANDOFF.md、docs/project_progress.md 和 .sisyphus/plans/legacy-feature-extraction.md；
-优先执行 Open Items 第 2 项（提交打包），随后推进第 3 项（迁移后加固）；
-每完成一个子项即更新 docs/project_progress.md，并执行 ./tools/run_migration_gates.sh。
+请先阅读 docs/HANDOFF.md、docs/project_progress.md、docs/monitoring_rollout.md 和 docs/stale_running_recovery_tuning.md；
+优先执行 Open Items 第 1 项（提交/PR 打包），随后推进第 2-3 项（外部监控与运行时基线落地）；
+每完成一个子项即更新 docs/project_progress.md，并执行所需门禁与 `/health` 验证。
 ```
 
 ## 6) Required Validation Commands
