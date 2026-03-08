@@ -1,27 +1,24 @@
 from __future__ import annotations
 
 import json
-import os
 import sqlite3
 import threading
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
+
+from core.paths import project_root, task_db_path
 
 
 def _project_root() -> Path:
-    env_root = os.environ.get("MYT_NEW_ROOT")
-    if env_root:
-        return Path(env_root).resolve()
-    return Path(__file__).resolve().parents[1]
+    return project_root()
 
 
 def _db_path() -> Path:
-    data_dir = _project_root() / "config" / "data"
-    data_dir.mkdir(parents=True, exist_ok=True)
-    return data_dir / "tasks.db"
+    return task_db_path()
 
 
 def _now_iso() -> str:
@@ -60,7 +57,7 @@ class TaskRecord:
 class TaskStore:
     def __init__(self, db_path: Path | None = None) -> None:
         self._db_path = db_path or _db_path()
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._init_schema()
 
     def _connect(self) -> sqlite3.Connection:
@@ -121,6 +118,21 @@ class TaskStore:
                 )
                 conn.commit()
 
+    @contextmanager
+    def transaction(self, immediate: bool = False) -> Iterator[sqlite3.Connection]:
+        with self._lock:
+            conn = self._connect()
+            try:
+                if immediate:
+                    conn.execute("BEGIN IMMEDIATE")
+                yield conn
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                conn.close()
+
     def create_task(
         self,
         task_id: str,
@@ -132,12 +144,11 @@ class TaskStore:
         retry_backoff_seconds: int,
         priority: int,
         run_at: str | None,
+        conn: sqlite3.Connection | None = None,
     ) -> None:
-        now = _now_iso()
-        with self._lock:
-            with self._connect() as conn:
-                self._insert_task(
-                    conn=conn,
+        if conn is None:
+            with self.transaction(immediate=True) as tx_conn:
+                self.create_task(
                     task_id=task_id,
                     payload=payload,
                     devices=devices,
@@ -147,9 +158,23 @@ class TaskStore:
                     retry_backoff_seconds=retry_backoff_seconds,
                     priority=priority,
                     run_at=run_at,
-                    now=now,
+                    conn=tx_conn,
                 )
-                conn.commit()
+            return
+        now = _now_iso()
+        self._insert_task(
+            conn=conn,
+            task_id=task_id,
+            payload=payload,
+            devices=devices,
+            ai_type=ai_type,
+            idempotency_key=idempotency_key,
+            max_retries=max_retries,
+            retry_backoff_seconds=retry_backoff_seconds,
+            priority=priority,
+            run_at=run_at,
+            now=now,
+        )
 
     def create_or_get_active_task(
         self,
@@ -161,34 +186,11 @@ class TaskStore:
         retry_backoff_seconds: int,
         priority: int,
         run_at: str | None,
+        conn: sqlite3.Connection | None = None,
     ) -> tuple[TaskRecord, bool]:
-        task_id = str(uuid.uuid4())
-        now = _now_iso()
-        with self._lock:
-            with self._connect() as conn:
-                _ = conn.execute("BEGIN IMMEDIATE")
-                if idempotency_key:
-                    existing = conn.execute(
-                        """
-                        SELECT task_id, payload_json, devices_json, ai_type, idempotency_key, status,
-                               created_at, updated_at, started_at, finished_at,
-                               result_json, error, retry_count, max_retries,
-                               retry_backoff_seconds, next_retry_at, cancel_requested,
-                               priority, run_at
-                        FROM tasks
-                        WHERE idempotency_key = ?
-                          AND status IN ('pending', 'running')
-                        ORDER BY created_at DESC
-                        LIMIT 1
-                        """,
-                        (idempotency_key,),
-                    ).fetchone()
-                    if existing is not None:
-                        conn.commit()
-                        return self._row_to_record(existing), False
-                self._insert_task(
-                    conn=conn,
-                    task_id=task_id,
+        if conn is None:
+            with self.transaction(immediate=True) as tx_conn:
+                return self.create_or_get_active_task(
                     payload=payload,
                     devices=devices,
                     ai_type=ai_type,
@@ -197,11 +199,43 @@ class TaskStore:
                     retry_backoff_seconds=retry_backoff_seconds,
                     priority=priority,
                     run_at=run_at,
-                    now=now,
+                    conn=tx_conn,
                 )
-                conn.commit()
+        task_id = str(uuid.uuid4())
+        now = _now_iso()
+        if idempotency_key:
+            existing = conn.execute(
+                """
+                SELECT task_id, payload_json, devices_json, ai_type, idempotency_key, status,
+                       created_at, updated_at, started_at, finished_at,
+                       result_json, error, retry_count, max_retries,
+                       retry_backoff_seconds, next_retry_at, cancel_requested,
+                       priority, run_at
+                FROM tasks
+                WHERE idempotency_key = ?
+                  AND status IN ('pending', 'running')
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (idempotency_key,),
+            ).fetchone()
+            if existing is not None:
+                return self._row_to_record(existing), False
+        self._insert_task(
+            conn=conn,
+            task_id=task_id,
+            payload=payload,
+            devices=devices,
+            ai_type=ai_type,
+            idempotency_key=idempotency_key,
+            max_retries=max_retries,
+            retry_backoff_seconds=retry_backoff_seconds,
+            priority=priority,
+            run_at=run_at,
+            now=now,
+        )
 
-        created = self.get_task(task_id)
+        created = self.get_task(task_id, conn=conn)
         if created is None:
             raise RuntimeError("failed to create task")
         return created, True
@@ -282,23 +316,53 @@ class TaskStore:
             run_at=str(row[18]) if row[18] is not None else None,
         )
 
-    def get_task(self, task_id: str) -> TaskRecord | None:
+    def get_task(self, task_id: str, conn: sqlite3.Connection | None = None) -> TaskRecord | None:
+        if conn is None:
+            with self._lock:
+                with self._connect() as tx_conn:
+                    row = tx_conn.execute(
+                        """
+                        SELECT task_id, payload_json, devices_json, ai_type, idempotency_key, status,
+                               created_at, updated_at, started_at, finished_at,
+                               result_json, error, retry_count, max_retries,
+                               retry_backoff_seconds, next_retry_at, cancel_requested,
+                               priority, run_at
+                        FROM tasks WHERE task_id = ?
+                        """,
+                        (task_id,),
+                    ).fetchone()
+        else:
+            row = conn.execute(
+                """
+                SELECT task_id, payload_json, devices_json, ai_type, idempotency_key, status,
+                       created_at, updated_at, started_at, finished_at,
+                       result_json, error, retry_count, max_retries,
+                       retry_backoff_seconds, next_retry_at, cancel_requested,
+                       priority, run_at
+                FROM tasks WHERE task_id = ?
+                """,
+                (task_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return self._row_to_record(row)
+
+    def list_pending_tasks(self) -> list[TaskRecord]:
         with self._lock:
             with self._connect() as conn:
-                row = conn.execute(
+                rows = conn.execute(
                     """
                     SELECT task_id, payload_json, devices_json, ai_type, idempotency_key, status,
                            created_at, updated_at, started_at, finished_at,
                            result_json, error, retry_count, max_retries,
                            retry_backoff_seconds, next_retry_at, cancel_requested,
                            priority, run_at
-                    FROM tasks WHERE task_id = ?
-                    """,
-                    (task_id,),
-                ).fetchone()
-        if row is None:
-            return None
-        return self._row_to_record(row)
+                    FROM tasks
+                    WHERE status = 'pending' AND cancel_requested = 0
+                    ORDER BY created_at ASC
+                    """
+                ).fetchall()
+        return [self._row_to_record(row) for row in rows]
 
     def list_tasks(self, limit: int = 100) -> list[TaskRecord]:
         with self._lock:
@@ -333,136 +397,145 @@ class TaskStore:
             counts[str(row[0])] = int(row[1])
         return counts
 
-    def recover_stale_running_tasks(self, stale_before: str, message: str = "recovered stale running after controller restart") -> list[TaskRecord]:
+    def recover_stale_running_tasks(
+        self,
+        stale_before: str,
+        message: str = "recovered stale running after controller restart",
+        conn: sqlite3.Connection | None = None,
+    ) -> list[TaskRecord]:
+        if conn is None:
+            with self.transaction(immediate=True) as tx_conn:
+                return self.recover_stale_running_tasks(stale_before=stale_before, message=message, conn=tx_conn)
         now = _now_iso()
-        recovered_ids: list[str] = []
-        with self._lock:
-            with self._connect() as conn:
-                rows = conn.execute(
-                    """
-                    SELECT task_id
-                    FROM tasks
-                    WHERE status = 'running' AND updated_at <= ?
-                    ORDER BY updated_at ASC
-                    """,
-                    (stale_before,),
-                ).fetchall()
-                for row in rows:
-                    task_id = str(row[0])
-                    cur = conn.execute(
-                        """
-                        UPDATE tasks
-                        SET status = 'pending',
-                            updated_at = ?,
-                            started_at = NULL,
-                            finished_at = NULL,
-                            error = ?,
-                            cancel_requested = 0
-                        WHERE task_id = ? AND status = 'running'
-                        """,
-                        (now, message, task_id),
-                    )
-                    if cur.rowcount == 1:
-                        recovered_ids.append(task_id)
-                conn.commit()
-
         recovered: list[TaskRecord] = []
-        for task_id in recovered_ids:
-            record = self.get_task(task_id)
-            if record is not None:
-                recovered.append(record)
+        rows = conn.execute(
+            """
+            SELECT task_id
+            FROM tasks
+            WHERE status = 'running' AND updated_at <= ?
+            ORDER BY updated_at ASC
+            """,
+            (stale_before,),
+        ).fetchall()
+        for row in rows:
+            task_id = str(row[0])
+            cur = conn.execute(
+                """
+                UPDATE tasks
+                SET status = 'pending',
+                    updated_at = ?,
+                    started_at = NULL,
+                    finished_at = NULL,
+                    error = ?,
+                    cancel_requested = 0
+                WHERE task_id = ? AND status = 'running'
+                """,
+                (now, message, task_id),
+            )
+            if cur.rowcount == 1:
+                record = self.get_task(task_id, conn=conn)
+                if record is not None:
+                    recovered.append(record)
         return recovered
 
-    def mark_running(self, task_id: str) -> bool:
+    def mark_running(self, task_id: str, conn: sqlite3.Connection | None = None) -> bool:
+        if conn is None:
+            with self.transaction(immediate=True) as tx_conn:
+                return self.mark_running(task_id, conn=tx_conn)
         now = _now_iso()
-        with self._lock:
-            with self._connect() as conn:
-                cur = conn.execute(
-                    """
-                    UPDATE tasks
-                    SET status = 'running', started_at = COALESCE(started_at, ?), updated_at = ?, next_retry_at = NULL
-                    WHERE task_id = ?
-                      AND status = 'pending'
-                      AND (next_retry_at IS NULL OR next_retry_at <= ?)
-                      AND (run_at IS NULL OR run_at <= ?)
-                      AND cancel_requested = 0
-                    """,
-                    (now, now, task_id, now, now),
-                )
-                conn.commit()
-                return cur.rowcount == 1
+        cur = conn.execute(
+            """
+            UPDATE tasks
+            SET status = 'running', started_at = COALESCE(started_at, ?), updated_at = ?, next_retry_at = NULL
+            WHERE task_id = ?
+              AND status = 'pending'
+              AND (next_retry_at IS NULL OR next_retry_at <= ?)
+              AND (run_at IS NULL OR run_at <= ?)
+              AND cancel_requested = 0
+            """,
+            (now, now, task_id, now, now),
+        )
+        return cur.rowcount == 1
 
-    def mark_completed(self, task_id: str, result: dict[str, Any]) -> None:
+    def mark_completed(self, task_id: str, result: dict[str, Any], conn: sqlite3.Connection | None = None) -> None:
+        if conn is None:
+            with self.transaction(immediate=True) as tx_conn:
+                self.mark_completed(task_id, result=result, conn=tx_conn)
+            return
         now = _now_iso()
-        with self._lock:
-            with self._connect() as conn:
-                _ = conn.execute(
-                    """
-                    UPDATE tasks
-                    SET status = 'completed', finished_at = ?, updated_at = ?,
-                        result_json = ?, error = NULL, next_retry_at = NULL
-                        , cancel_requested = 0
-                    WHERE task_id = ?
-                    """,
-                    (now, now, json.dumps(result, ensure_ascii=False), task_id),
-                )
-                conn.commit()
+        _ = conn.execute(
+            """
+            UPDATE tasks
+            SET status = 'completed', finished_at = ?, updated_at = ?,
+                result_json = ?, error = NULL, next_retry_at = NULL
+                , cancel_requested = 0
+            WHERE task_id = ?
+            """,
+            (now, now, json.dumps(result, ensure_ascii=False), task_id),
+        )
 
-    def mark_failed(self, task_id: str, error: str, result: dict[str, Any] | None = None) -> None:
+    def mark_failed(
+        self,
+        task_id: str,
+        error: str,
+        result: dict[str, Any] | None = None,
+        conn: sqlite3.Connection | None = None,
+    ) -> None:
+        if conn is None:
+            with self.transaction(immediate=True) as tx_conn:
+                self.mark_failed(task_id, error=error, result=result, conn=tx_conn)
+            return
         now = _now_iso()
-        with self._lock:
-            with self._connect() as conn:
-                _ = conn.execute(
-                    """
-                    UPDATE tasks
-                    SET status = 'failed', finished_at = ?, updated_at = ?,
-                        result_json = ?, error = ?, next_retry_at = NULL
-                        , cancel_requested = 0
-                    WHERE task_id = ?
-                    """,
-                    (now, now, json.dumps(result, ensure_ascii=False) if result else None, error, task_id),
-                )
-                conn.commit()
+        _ = conn.execute(
+            """
+            UPDATE tasks
+            SET status = 'failed', finished_at = ?, updated_at = ?,
+                result_json = ?, error = ?, next_retry_at = NULL
+                , cancel_requested = 0
+            WHERE task_id = ?
+            """,
+            (now, now, json.dumps(result, ensure_ascii=False) if result else None, error, task_id),
+        )
 
-    def schedule_retry(self, task_id: str, error: str) -> TaskRecord | None:
+    def schedule_retry(self, task_id: str, error: str, conn: sqlite3.Connection | None = None) -> TaskRecord | None:
+        if conn is None:
+            with self.transaction(immediate=True) as tx_conn:
+                return self.schedule_retry(task_id, error=error, conn=tx_conn)
         now = _now_iso()
-        with self._lock:
-            with self._connect() as conn:
-                row = conn.execute(
-                    """
-                    SELECT retry_count, max_retries, retry_backoff_seconds, cancel_requested
-                    FROM tasks
-                    WHERE task_id = ?
-                    """,
-                    (task_id,),
-                ).fetchone()
-                if row is None:
-                    return None
-                retry_count = int(row[0])
-                max_retries = int(row[1])
-                backoff = int(row[2])
-                cancel_requested = bool(int(row[3]))
-                if cancel_requested:
-                    return None
-                if retry_count >= max_retries:
-                    return None
-                next_retry_at = _next_retry_iso(backoff * (2**retry_count))
-                _ = conn.execute(
-                    """
-                    UPDATE tasks
-                    SET status = 'pending',
-                        updated_at = ?,
-                        error = ?,
-                        retry_count = retry_count + 1,
-                        next_retry_at = ?,
-                        result_json = NULL,
-                        cancel_requested = 0
-                    WHERE task_id = ?
-                    """,
-                    (now, error, next_retry_at, task_id),
-                )
-                conn.commit()
-        return self.get_task(task_id)
+        row = conn.execute(
+            """
+            SELECT retry_count, max_retries, retry_backoff_seconds, cancel_requested
+            FROM tasks
+            WHERE task_id = ?
+            """,
+            (task_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        retry_count = int(row[0])
+        max_retries = int(row[1])
+        backoff = int(row[2])
+        cancel_requested = bool(int(row[3]))
+        if cancel_requested:
+            return None
+        if retry_count >= max_retries:
+            return None
+        next_retry_at = _next_retry_iso(backoff * (2**retry_count))
+        _ = conn.execute(
+            """
+            UPDATE tasks
+            SET status = 'pending',
+                updated_at = ?,
+                error = ?,
+                retry_count = retry_count + 1,
+                next_retry_at = ?,
+                result_json = NULL,
+                cancel_requested = 0
+            WHERE task_id = ?
+            """,
+            (now, error, next_retry_at, task_id),
+        )
+        return self.get_task(task_id, conn=conn)
 
     def find_active_by_idempotency_key(self, idempotency_key: str) -> TaskRecord | None:
         with self._lock:
@@ -502,40 +575,38 @@ class TaskStore:
                 conn.commit()
                 return cur.rowcount == 1
 
-    def request_cancel(self, task_id: str) -> str | None:
+    def request_cancel(self, task_id: str, conn: sqlite3.Connection | None = None) -> str | None:
+        if conn is None:
+            with self.transaction(immediate=True) as tx_conn:
+                return self.request_cancel(task_id, conn=tx_conn)
         now = _now_iso()
-        with self._lock:
-            with self._connect() as conn:
-                cur_pending = conn.execute(
-                    """
-                    UPDATE tasks
-                    SET status = 'cancelled', finished_at = ?, updated_at = ?,
-                        error = 'cancelled by user', next_retry_at = NULL, cancel_requested = 0
-                    WHERE task_id = ? AND status = 'pending'
-                    """,
-                    (now, now, task_id),
-                )
-                if cur_pending.rowcount == 1:
-                    conn.commit()
-                    return "cancelled"
+        cur_pending = conn.execute(
+            """
+            UPDATE tasks
+            SET status = 'cancelled', finished_at = ?, updated_at = ?,
+                error = 'cancelled by user', next_retry_at = NULL, cancel_requested = 0
+            WHERE task_id = ? AND status = 'pending'
+            """,
+            (now, now, task_id),
+        )
+        if cur_pending.rowcount == 1:
+            return "cancelled"
 
-                cur_running = conn.execute(
-                    """
-                    UPDATE tasks
-                    SET cancel_requested = 1, updated_at = ?, error = 'cancellation requested'
-                    WHERE task_id = ? AND status = 'running'
-                    """,
-                    (now, task_id),
-                )
-                if cur_running.rowcount == 1:
-                    conn.commit()
-                    return "cancelling"
+        cur_running = conn.execute(
+            """
+            UPDATE tasks
+            SET cancel_requested = 1, updated_at = ?, error = 'cancellation requested'
+            WHERE task_id = ? AND status = 'running'
+            """,
+            (now, task_id),
+        )
+        if cur_running.rowcount == 1:
+            return "cancelling"
 
-                row = conn.execute("SELECT task_id FROM tasks WHERE task_id = ?", (task_id,)).fetchone()
-                conn.commit()
-                if row is None:
-                    return None
-                return "unchanged"
+        row = conn.execute("SELECT task_id FROM tasks WHERE task_id = ?", (task_id,)).fetchone()
+        if row is None:
+            return None
+        return "unchanged"
 
     def is_cancel_requested(self, task_id: str) -> bool:
         with self._lock:
@@ -548,20 +619,26 @@ class TaskStore:
             return False
         return bool(int(row[0]))
 
-    def mark_cancelled(self, task_id: str, message: str = "cancelled by user") -> None:
+    def mark_cancelled(
+        self,
+        task_id: str,
+        message: str = "cancelled by user",
+        conn: sqlite3.Connection | None = None,
+    ) -> None:
+        if conn is None:
+            with self.transaction(immediate=True) as tx_conn:
+                self.mark_cancelled(task_id, message=message, conn=tx_conn)
+            return
         now = _now_iso()
-        with self._lock:
-            with self._connect() as conn:
-                _ = conn.execute(
-                    """
-                    UPDATE tasks
-                    SET status = 'cancelled', finished_at = ?, updated_at = ?,
-                        error = ?, next_retry_at = NULL, cancel_requested = 0
-                    WHERE task_id = ?
-                    """,
-                    (now, now, message, task_id),
-                )
-                conn.commit()
+        _ = conn.execute(
+            """
+            UPDATE tasks
+            SET status = 'cancelled', finished_at = ?, updated_at = ?,
+                error = ?, next_retry_at = NULL, cancel_requested = 0
+            WHERE task_id = ?
+            """,
+            (now, now, message, task_id),
+        )
 
     def clear_all_tasks(self) -> None:
         with self._lock:

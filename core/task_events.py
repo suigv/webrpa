@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import sqlite3
 import threading
 from dataclasses import dataclass
@@ -9,18 +8,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from core.paths import project_root, task_db_path
+
 
 def _project_root() -> Path:
-    env_root = os.environ.get("MYT_NEW_ROOT")
-    if env_root:
-        return Path(env_root).resolve()
-    return Path(__file__).resolve().parents[1]
+    return project_root()
 
 
 def _db_path() -> Path:
-    data_dir = _project_root() / "config" / "data"
-    data_dir.mkdir(parents=True, exist_ok=True)
-    return data_dir / "tasks.db"
+    return task_db_path()
 
 
 def _now_iso() -> str:
@@ -39,7 +35,7 @@ class TaskEvent:
 class TaskEventStore:
     def __init__(self, db_path: Path | None = None) -> None:
         self._db_path = db_path or _db_path()
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._init_schema()
 
     def _connect(self) -> sqlite3.Connection:
@@ -64,20 +60,34 @@ class TaskEventStore:
                 )
                 conn.commit()
 
-    def append_event(self, task_id: str, event_type: str, payload: dict[str, Any]) -> int:
+    def append_event(
+        self,
+        task_id: str,
+        event_type: str,
+        payload: dict[str, Any],
+        conn: sqlite3.Connection | None = None,
+    ) -> int:
         now = _now_iso()
-        with self._lock:
-            with self._connect() as conn:
-                cur = conn.execute(
-                    """
-                    INSERT INTO task_events (task_id, event_type, payload_json, created_at)
-                    VALUES (?, ?, ?, ?)
-                    """,
-                    (task_id, event_type, json.dumps(payload, ensure_ascii=False), now),
-                )
-                conn.commit()
-                event_id = int(cur.lastrowid or 0)
-        return event_id
+        if conn is None:
+            with self._lock:
+                with self._connect() as tx_conn:
+                    cur = tx_conn.execute(
+                        """
+                        INSERT INTO task_events (task_id, event_type, payload_json, created_at)
+                        VALUES (?, ?, ?, ?)
+                        """,
+                        (task_id, event_type, json.dumps(payload, ensure_ascii=False), now),
+                    )
+                    tx_conn.commit()
+                    return int(cur.lastrowid or 0)
+        cur = conn.execute(
+            """
+            INSERT INTO task_events (task_id, event_type, payload_json, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (task_id, event_type, json.dumps(payload, ensure_ascii=False), now),
+        )
+        return int(cur.lastrowid or 0)
 
     def list_events(self, task_id: str, after_event_id: int = 0, limit: int = 200) -> list[TaskEvent]:
         with self._lock:

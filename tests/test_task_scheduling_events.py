@@ -26,6 +26,17 @@ def _wait_status(client: TestClient, task_id: str, wanted: str, timeout_s: float
     return False
 
 
+def _stream_task_events(client: TestClient, task_id: str) -> str:
+    text = ""
+    with client.stream("GET", f"/api/tasks/{task_id}/events") as resp:
+        assert resp.status_code == 200
+        for chunk in resp.iter_text():
+            text += chunk
+            if ": close" in text:
+                break
+    return text
+
+
 class OrderRunner:
     def __init__(self) -> None:
         self.order: list[str] = []
@@ -141,16 +152,70 @@ def test_task_events_sse_stream_contains_lifecycle_events():
         assert create.status_code == 200
         task_id = create.json()["task_id"]
 
-        text = ""
-        with client.stream("GET", f"/api/tasks/{task_id}/events") as resp:
-            assert resp.status_code == 200
-            for chunk in resp.iter_text():
-                text += chunk
-                if ": close" in text:
-                    break
+        text = _stream_task_events(client, task_id)
 
         assert "event: task.created" in text
         assert "event: task.started" in text
         assert "event: task.dispatching" in text
         assert "event: task.dispatch_result" in text
         assert "event: task.completed" in text
+
+
+def test_task_events_sse_stream_contains_retry_and_failed_terminal_events():
+    reset_task_controller_for_tests()
+    with TestClient(app) as client:
+        create = client.post(
+            "/api/tasks/",
+            json={
+                "script": {"task": "nonexistent_task"},
+                "devices": [1],
+                "ai_type": "volc",
+                "priority": 50,
+                "max_retries": 2,
+                "retry_backoff_seconds": 0,
+            },
+        )
+        assert create.status_code == 200
+        task_id = create.json()["task_id"]
+
+        text = _stream_task_events(client, task_id)
+
+        assert text.count("event: task.created") == 1
+        assert text.count("event: task.started") == 3
+        assert text.count("event: task.dispatching") == 3
+        assert text.count("event: task.dispatch_result") == 3
+        assert text.count("event: task.retry_scheduled") == 2
+        assert text.count("event: task.failed") == 1
+
+
+def test_pending_task_cancel_emits_cancel_requested_and_cancelled_without_starting():
+    reset_task_controller_for_tests()
+    with TestClient(app) as client:
+        run_at = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+        create = client.post(
+            "/api/tasks/",
+            json={
+                "script": {"task": "anonymous", "steps": []},
+                "devices": [1],
+                "ai_type": "volc",
+                "priority": 50,
+                "run_at": run_at,
+                "max_retries": 0,
+                "retry_backoff_seconds": 0,
+            },
+        )
+        assert create.status_code == 200
+        task_id = create.json()["task_id"]
+
+        cancel = client.post(f"/api/tasks/{task_id}/cancel")
+        assert cancel.status_code == 200
+        assert cancel.json()["cancelled"] is True
+        assert cancel.json()["cancel_state"] == "cancelled"
+
+        text = _stream_task_events(client, task_id)
+
+        assert "event: task.created" in text
+        assert "event: task.cancel_requested" in text
+        assert "event: task.cancelled" in text
+        assert "event: task.started" not in text
+        assert "event: task.dispatching" not in text
