@@ -43,8 +43,8 @@
 
 - `docs/current_main_status.md:22` 把“`x_mobile_login` 的超长 fallback workflow 压缩”列进“当前分支不适用”。
 - `docs/current_main_status.md:25` 说明原因是当前 `main` 上的脚本已经不是最初审查时的超长 workflow 形态。
-- `功能原子化问题分类说明.md:11` 和 `功能原子化问题分类说明.md:138` 同样说明当前分支不再是旧审查里的同一形态。
-- `功能原子化修复结果.md:78` 和 `功能原子化修复结果.md:84` 也把 login fallback composite actions 与 workflow 压缩列为当前 worktree 不适用。
+- `docs/reference/功能原子化问题分类说明.md:11` 和 `docs/reference/功能原子化问题分类说明.md:138` 同样说明当前分支不再是旧审查里的同一形态。
+- `docs/reference/功能原子化修复结果.md:78` 和 `docs/reference/功能原子化修复结果.md:84` 也把 login fallback composite actions 与 workflow 压缩列为当前 worktree 不适用。
 
 因此，这里的正确 reconciliation 不是推翻旧文档，也不是忽略旧文档，而是把旧文档理解为“风险识别来源”，把较新的状态文档理解为“当前分支裁决”。
 
@@ -82,6 +82,6 @@
 - 插件 manifest：`plugins/x_mobile_login/manifest.yaml:1`
 - 相邻运行时测试：`tests/test_x_mobile_login_runtime.py:1`
 - 当前主分支状态：`docs/current_main_status.md:20`
-- 中文分类说明：`功能原子化问题分类说明.md:104`
-- 中文修复结果：`功能原子化修复结果.md:72`
+- 中文分类说明：`docs/reference/功能原子化问题分类说明.md:104`
+- 中文修复结果：`docs/reference/功能原子化修复结果.md:72`
 - 旧架构审查：`docs/reference/atomicity_architecture_review.md:24`

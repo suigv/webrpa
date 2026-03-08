@@ -17,7 +17,7 @@
 - 业务反馈调用：`core/account_feedback.py:29`、`core/account_feedback.py:46`
 - 共享状态 helper：`engine/actions/sdk_actions.py:589`、`engine/actions/sdk_actions.py:600`、`engine/actions/sdk_actions.py:627`
 - 就近测试：`tests/test_data_store_path.py:6`、`tests/test_data_store_path.py:11`、`tests/test_sdk_actions_runtime.py:101`、`tests/test_sdk_actions_runtime.py:112`、`tests/test_sdk_actions_runtime.py:139`
-- 就近文档：`docs/project_progress.md:9`、`功能原子化修复结果.md:25`、`功能原子化修复结果.md:37`、`功能原子化问题分类说明.md:65`、`docs/reference/sdk_actions_followup_assessment.md:48`
+- 就近文档：`docs/project_progress.md:9`、`docs/reference/功能原子化修复结果.md:25`、`docs/reference/功能原子化修复结果.md:37`、`docs/reference/功能原子化问题分类说明.md:65`、`docs/reference/sdk_actions_followup_assessment.md:48`
 
 ## 当前并发假设
 
@@ -46,8 +46,8 @@
 
 ### 3. 现有文档口径也是“已加固，但不是数据库”
 
-- `功能原子化修复结果.md:33`、`功能原子化修复结果.md:35`、`功能原子化修复结果.md:44`、`功能原子化修复结果.md:45`、`功能原子化修复结果.md:46` 明确记录了原子写、同进程锁和跨进程文件锁
-- `功能原子化修复结果.md:114`、`功能原子化修复结果.md:115`、`功能原子化修复结果.md:116` 也明确写了它仍不是数据库级共享状态方案
+- `docs/reference/功能原子化修复结果.md:33`、`docs/reference/功能原子化修复结果.md:35`、`docs/reference/功能原子化修复结果.md:44`、`docs/reference/功能原子化修复结果.md:45`、`docs/reference/功能原子化修复结果.md:46` 明确记录了原子写、同进程锁和跨进程文件锁
+- `docs/reference/功能原子化修复结果.md:114`、`docs/reference/功能原子化修复结果.md:115`、`docs/reference/功能原子化修复结果.md:116` 也明确写了它仍不是数据库级共享状态方案
 - `docs/reference/sdk_actions_followup_assessment.md:57` 认为 shared-store 当前更像边界观察点，不是 correctness 救火点
 
 ## 什么时候当前模型就不够了
@@ -80,7 +80,7 @@
 
 ## 现在还不该启动迁移的原因
 
-- 现有 repo 证据已经证明当前热点先靠原子写和锁做了加固，见 `功能原子化修复结果.md:25`、`功能原子化修复结果.md:37`
+- 现有 repo 证据已经证明当前热点先靠原子写和锁做了加固，见 `docs/reference/功能原子化修复结果.md:25`、`docs/reference/功能原子化修复结果.md:37`
 - 就近测试覆盖的是“保持 JSON 有效”和“避免已知丢写”，还没有出现失败证据指向现模型已失效，见 `tests/test_data_store_path.py:11`、`tests/test_sdk_actions_runtime.py:139`
 - `docs/project_progress.md:9` 的项目状态也没有把 shared JSON store 列成当前 blocker
 - 当前任务要求的是 watchpoint。仓库证据支持的结论也是 watchpoint，而不是隐式开启迁移
