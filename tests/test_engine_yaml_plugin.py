@@ -31,7 +31,7 @@ from engine.models.workflow import (
     WorkflowScript,
 )
 from engine.parser import interpolate, interpolate_params, parse_manifest, parse_script
-from engine.plugin_loader import PluginLoader
+from engine.plugin_loader import PluginLoader, build_scanned_plugin_loader, clear_shared_plugin_loader_cache, get_shared_plugin_loader
 
 
 # ============================================================
@@ -661,6 +661,29 @@ class TestInterpreter:
 
 
 class TestPluginLoader:
+    def test_shared_plugin_loader_refresh_is_explicit(self, tmp_path: Path):
+        clear_shared_plugin_loader_cache()
+
+        loader = get_shared_plugin_loader(plugins_root=tmp_path, refresh=True)
+        assert loader.names == []
+
+        plugin_dir = tmp_path / "late_plugin"
+        plugin_dir.mkdir()
+        (plugin_dir / "manifest.yaml").write_text(
+            "api_version: v1\nkind: plugin\nname: late_plugin\nversion: '1.0'\ndisplay_name: Late Plugin\n",
+            encoding="utf-8",
+        )
+        (plugin_dir / "script.yaml").write_text(
+            "version: v1\nworkflow: late_plugin\nsteps:\n  - kind: stop\n    status: success\n    message: ok\n",
+            encoding="utf-8",
+        )
+
+        cached = get_shared_plugin_loader(plugins_root=tmp_path)
+        assert not cached.has("late_plugin")
+
+        refreshed = get_shared_plugin_loader(plugins_root=tmp_path, refresh=True)
+        assert refreshed.has("late_plugin")
+
     def test_scan_finds_valid_plugin(self, tmp_path: Path):
         plugin_dir = tmp_path / "my_plugin"
         plugin_dir.mkdir()
@@ -676,6 +699,27 @@ class TestPluginLoader:
         loader.scan()
         assert loader.has("my_plugin")
         assert "my_plugin" in loader.names
+
+    def test_build_scanned_plugin_loader_returns_isolated_plugin_map(self, tmp_path: Path):
+        clear_shared_plugin_loader_cache()
+
+        plugin_dir = tmp_path / "my_plugin"
+        plugin_dir.mkdir()
+        (plugin_dir / "manifest.yaml").write_text(
+            "api_version: v1\nkind: plugin\nname: my_plugin\nversion: '1.0'\ndisplay_name: My Plugin\n",
+            encoding="utf-8",
+        )
+        (plugin_dir / "script.yaml").write_text(
+            "version: v1\nworkflow: my_plugin\nsteps:\n  - kind: stop\n    status: success\n    message: ok\n",
+            encoding="utf-8",
+        )
+
+        first = build_scanned_plugin_loader(plugins_root=tmp_path, refresh=True)
+        second = build_scanned_plugin_loader(plugins_root=tmp_path)
+
+        first._plugins.clear()
+
+        assert second.has("my_plugin")
 
     def test_scan_skips_invalid_manifest(self, tmp_path: Path):
         plugin_dir = tmp_path / "bad_plugin"

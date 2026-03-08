@@ -137,10 +137,9 @@ def clear_tasks():
 
 @router.get("/catalog")
 def task_catalog():
-    from engine.plugin_loader import PluginLoader
+    from engine.plugin_loader import get_shared_plugin_loader
 
-    loader = PluginLoader()
-    loader.scan()
+    loader = get_shared_plugin_loader(refresh=True)
     catalog: list[dict[str, object]] = []
     for name in loader.names:
         entry = loader.get(name)

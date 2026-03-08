@@ -10,7 +10,7 @@ from engine.interpreter import Interpreter
 from engine.models.manifest import InputType, PluginInput
 from engine.models.workflow import ActionStep, WorkflowScript
 from engine.parser import ScriptParser, parse_script
-from engine.plugin_loader import PluginLoader
+from engine.plugin_loader import build_scanned_plugin_loader
 
 logger = logging.getLogger(__name__)
 
@@ -25,8 +25,7 @@ def strict_plugin_unknown_inputs_enabled() -> bool:
 class Runner:
     def __init__(self) -> None:
         self._parser = ScriptParser()
-        self._plugin_loader = PluginLoader()
-        self._plugin_loader.scan()
+        self._plugin_loader = build_scanned_plugin_loader()
         self._interpreter = Interpreter()
 
     def run(
