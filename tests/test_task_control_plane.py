@@ -11,7 +11,7 @@ from api.server import app
 from core.task_control import TaskController, override_task_controller_for_tests, reset_task_controller_for_tests
 from core.task_events import TaskEventStore
 from core.task_queue import InMemoryTaskQueue
-from core.task_store import TaskStore
+from core.task_store import ManagedTaskStateClearBlocked, TaskStore
 
 
 def _wait_status(client: TestClient, task_id: str, timeout_s: float = 3.0) -> str:
@@ -206,6 +206,246 @@ def test_task_control_plane_list_contains_created_task():
         assert listing.status_code == 200
         ids = {item["task_id"] for item in listing.json()}
         assert task_id in ids
+
+
+
+
+def test_task_control_plane_rejects_managed_submit_without_targets_or_devices():
+    os.environ["MYT_TASK_QUEUE_BACKEND"] = "memory"
+    reset_task_controller_for_tests()
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/tasks/",
+            json={
+                "task": "named-task",
+                "payload": {"foo": "bar"},
+                "ai_type": "volc",
+            },
+        )
+
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        assert any("either targets or devices must be provided" in str(item.get("msg", "")) for item in detail)
+
+
+def test_task_control_plane_devices_input_is_normalized_to_explicit_targets():
+    os.environ["MYT_TASK_QUEUE_BACKEND"] = "memory"
+    reset_task_controller_for_tests()
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/tasks/",
+            json={
+                "task": "named-task",
+                "payload": {"foo": "bar"},
+                "devices": [3, 3, 5],
+                "ai_type": "volc",
+            },
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["devices"] == [3, 5]
+        assert payload["targets"] == [
+            {"device_id": 3, "cloud_id": 1},
+            {"device_id": 5, "cloud_id": 1},
+        ]
+
+
+def test_task_controller_rejects_submit_without_targets_or_devices(tmp_path: Path):
+    reset_task_controller_for_tests()
+    db_path = tmp_path / "tasks_missing_targets_service_test.db"
+    if db_path.exists():
+        db_path.unlink()
+
+    controller = TaskController(
+        store=TaskStore(db_path=db_path),
+        queue_backend=InMemoryTaskQueue(),
+        event_store=TaskEventStore(db_path=db_path),
+    )
+
+    try:
+        try:
+            controller.submit_with_retry(
+                payload={"task": "anonymous", "steps": []},
+                devices=[],
+                targets=None,
+                ai_type="volc",
+                max_retries=0,
+                retry_backoff_seconds=0,
+                priority=50,
+                run_at=None,
+            )
+            raise AssertionError("submit_with_retry should reject missing targets/devices")
+        except ValueError as exc:
+            assert str(exc) == "either targets or devices must be provided"
+    finally:
+        reset_task_controller_for_tests()
+        if db_path.exists():
+            db_path.unlink()
+
+
+def test_task_control_plane_rejects_conflicting_devices_and_targets():
+    os.environ["MYT_TASK_QUEUE_BACKEND"] = "memory"
+    reset_task_controller_for_tests()
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/tasks/",
+            json={
+                "task": "named-task",
+                "payload": {"foo": "bar"},
+                "devices": [3],
+                "targets": [{"device_id": 5, "cloud_id": 1}],
+                "ai_type": "volc",
+            },
+        )
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == "devices and targets must refer to the same device set"
+
+
+def test_task_control_plane_targets_drive_canonical_devices_even_with_duplicates():
+    os.environ["MYT_TASK_QUEUE_BACKEND"] = "memory"
+    reset_task_controller_for_tests()
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/tasks/",
+            json={
+                "task": "named-task",
+                "payload": {"foo": "bar"},
+                "targets": [
+                    {"device_id": 3, "cloud_id": 2},
+                    {"device_id": 3, "cloud_id": 4},
+                    {"device_id": 5, "cloud_id": 1},
+                ],
+                "ai_type": "volc",
+            },
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["devices"] == [3, 5]
+        assert payload["targets"] == [
+            {"device_id": 3, "cloud_id": 2},
+            {"device_id": 3, "cloud_id": 4},
+            {"device_id": 5, "cloud_id": 1},
+        ]
+
+
+def test_task_control_plane_clear_route_clears_managed_tasks_and_events(tmp_path: Path):
+    reset_task_controller_for_tests()
+    db_path = tmp_path / "tasks_clear_managed_state_test.db"
+    if db_path.exists():
+        db_path.unlink()
+
+    controller = TaskController(
+        store=TaskStore(db_path=db_path),
+        queue_backend=InMemoryTaskQueue(),
+        event_store=TaskEventStore(db_path=db_path),
+    )
+    override_task_controller_for_tests(controller)
+
+    try:
+        with TestClient(app) as client:
+            create = client.post(
+                "/api/tasks/",
+                json={
+                    "task": "named-task",
+                    "payload": {"foo": "bar"},
+                    "targets": [{"device_id": 3, "cloud_id": 2}],
+                    "ai_type": "volc",
+                    "run_at": "2999-01-01T00:00:00+00:00",
+                },
+            )
+            assert create.status_code == 200
+            task_id = create.json()["task_id"]
+            assert controller.list_events(task_id)
+
+            cleared = client.delete("/api/tasks/")
+            assert cleared.status_code == 200
+            assert cleared.json() == {"status": "ok", "message": "managed task state cleared"}
+            assert client.get("/api/tasks/?limit=50").json() == []
+            assert controller.list_events(task_id) == []
+    finally:
+        reset_task_controller_for_tests()
+        if db_path.exists():
+            db_path.unlink()
+
+
+def test_task_controller_clear_all_blocks_when_running_tasks_exist(tmp_path: Path):
+    reset_task_controller_for_tests()
+    db_path = tmp_path / "tasks_clear_blocked_running_test.db"
+    if db_path.exists():
+        db_path.unlink()
+
+    controller = TaskController(
+        store=TaskStore(db_path=db_path),
+        queue_backend=InMemoryTaskQueue(),
+        event_store=TaskEventStore(db_path=db_path),
+    )
+
+    try:
+        created = controller.submit_with_retry(
+            payload={"task": "anonymous", "steps": []},
+            devices=[1],
+            targets=None,
+            ai_type="volc",
+            max_retries=0,
+            retry_backoff_seconds=0,
+            priority=50,
+            run_at=None,
+        )
+        assert controller._store.mark_running(created.task_id) is True
+
+        try:
+            controller.clear_all()
+            raise AssertionError("clear_all should block while tasks are running")
+        except ManagedTaskStateClearBlocked as exc:
+            assert str(exc) == "cannot clear managed task state while tasks are running"
+
+        assert controller.get(created.task_id) is not None
+        assert controller.list_events(created.task_id)
+    finally:
+        reset_task_controller_for_tests()
+        if db_path.exists():
+            db_path.unlink()
+
+
+def test_task_control_plane_clear_route_rejects_when_running_tasks_exist(tmp_path: Path):
+    reset_task_controller_for_tests()
+    db_path = tmp_path / "tasks_clear_route_blocked_running_test.db"
+    if db_path.exists():
+        db_path.unlink()
+
+    controller = TaskController(
+        store=TaskStore(db_path=db_path),
+        queue_backend=InMemoryTaskQueue(),
+        event_store=TaskEventStore(db_path=db_path),
+    )
+    override_task_controller_for_tests(controller)
+
+    try:
+        created = controller.submit_with_retry(
+            payload={"task": "anonymous", "steps": []},
+            devices=[1],
+            targets=None,
+            ai_type="volc",
+            max_retries=0,
+            retry_backoff_seconds=0,
+            priority=50,
+            run_at=None,
+        )
+        assert controller._store.mark_running(created.task_id) is True
+
+        with TestClient(app) as client:
+            response = client.delete("/api/tasks/")
+
+        assert response.status_code == 409
+        assert response.json()["detail"] == "cannot clear managed task state while tasks are running"
+        assert controller.get(created.task_id) is not None
+    finally:
+        reset_task_controller_for_tests()
+        if db_path.exists():
+            db_path.unlink()
 
 
 def test_task_control_plane_create_list_detail_share_task_mapping():

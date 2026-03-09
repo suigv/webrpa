@@ -29,7 +29,7 @@ def normalize_dispatch_targets(raw_targets: Any, devices: list[int]) -> list[dic
         return dispatch_targets
     if devices:
         return [{"device_id": int(device_id), "cloud_id": 1} for device_id in devices]
-    return [{"device_id": 1, "cloud_id": 1}]
+    return []
 
 
 def build_queue_schedule(

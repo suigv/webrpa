@@ -17,7 +17,7 @@ from core.task_store import TaskStore
 
 
 class CancellableFakeRunner:
-    def run(self, script_payload, should_cancel=None):
+    def run(self, script_payload, should_cancel=None, runtime=None):
         deadline = time.time() + 1.5
         while time.time() < deadline:
             if should_cancel is not None and should_cancel():
@@ -31,13 +31,14 @@ class CancellableFakeRunner:
 
 
 class ExceptionAfterCancelRunner:
-    def run(self, script_payload, should_cancel=None):
+    def run(self, script_payload, should_cancel=None, runtime=None):
         deadline = time.time() + 1.5
         while time.time() < deadline:
             if should_cancel is not None and should_cancel():
                 raise RuntimeError("interrupted by cancellation")
             time.sleep(0.02)
         return {"ok": True, "status": "completed", "message": "done"}
+
 
 
 def _wait_until_status(client: TestClient, task_id: str, wanted: str, timeout_s: float = 4.0) -> bool:

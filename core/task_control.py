@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import threading
-import uuid
 from typing import Any, Protocol
 
 from core.account_feedback import AccountFeedbackService
@@ -11,7 +10,12 @@ from core.task_execution import TaskExecutionService
 from core.task_finalizer import AccountFeedbackLike, TaskAttemptFinalizer
 from core.task_metrics import TaskMetricsService, build_task_metrics_payload
 from core.task_queue import QueueBackend, create_task_queue
-from core.task_runtime import TaskDispatchRuntimeResolver, TaskTargetRuntimeResolver, build_queue_schedule
+from core.task_runtime import (
+    TaskDispatchRuntimeResolver,
+    TaskTargetRuntimeResolver,
+    build_queue_schedule,
+    normalize_dispatch_targets,
+)
 from core.task_store import TaskRecord, TaskStore
 from engine.plugin_loader import get_shared_plugin_loader
 from engine.runner import Runner
@@ -70,32 +74,17 @@ class TaskController:
         self._execution_service.stop()
 
     def submit(self, payload: dict[str, Any], devices: list[int], ai_type: str) -> TaskRecord:
-        task_id = str(uuid.uuid4())
-        with self._store.transaction(immediate=True) as conn:
-            self._store.create_task(
-                task_id=task_id,
-                payload=payload,
-                devices=devices,
-                targets=None,
-                ai_type=ai_type,
-                idempotency_key=None,
-                max_retries=0,
-                retry_backoff_seconds=2,
-                priority=50,
-                run_at=None,
-                conn=conn,
-            )
-            self._events.append_event(
-                task_id,
-                "task.created",
-                {"priority": 50, "run_at": None, "max_retries": 0, "retry_backoff_seconds": 2},
-                conn=conn,
-            )
-            record = self._store.get_task(task_id, conn=conn)
-        self._queue.enqueue(task_id, priority=50)
-        if record is None:
-            raise RuntimeError("failed to create task")
-        return record
+        return self.submit_with_retry(
+            payload=payload,
+            devices=devices,
+            targets=None,
+            ai_type=ai_type,
+            max_retries=0,
+            retry_backoff_seconds=2,
+            priority=50,
+            run_at=None,
+            idempotency_key=None,
+        )
 
     def submit_with_retry(
         self,
@@ -109,11 +98,12 @@ class TaskController:
         run_at: str | None,
         idempotency_key: str | None = None,
     ) -> TaskRecord:
+        normalized_devices, normalized_targets = self._normalize_submit_targets(devices=devices, targets=targets)
         with self._store.transaction(immediate=True) as conn:
             record, created = self._store.create_or_get_active_task(
                 payload=payload,
-                devices=devices,
-                targets=targets,
+                devices=normalized_devices,
+                targets=normalized_targets,
                 ai_type=ai_type,
                 idempotency_key=idempotency_key,
                 max_retries=max_retries,
@@ -177,12 +167,58 @@ class TaskController:
         return state
 
     def clear_all(self) -> None:
-        self._store.clear_all_tasks()
-        try:
-            self._queue = create_task_queue()
-            self._execution_service.replace_queue_backend(self._queue)
-        except Exception:
-            pass
+        with self._store.transaction(immediate=True) as conn:
+            self._store.clear_all_tasks(conn=conn, require_no_running=True)
+            self._events.clear_all_events(conn=conn)
+        new_queue = create_task_queue()
+        self._queue = new_queue
+        self._execution_service.replace_queue_backend(new_queue)
+
+    def _normalize_submit_targets(
+        self,
+        devices: list[int],
+        targets: list[dict[str, int]] | None,
+    ) -> tuple[list[int], list[dict[str, int]]]:
+        normalized_devices = self._normalize_device_ids(devices)
+        raw_targets = list(targets or [])
+        normalized_targets = normalize_dispatch_targets(raw_targets, [])
+        if raw_targets and len(normalized_targets) != len(raw_targets):
+            raise ValueError("targets must contain valid device_id/cloud_id pairs")
+        if normalized_targets:
+            target_devices = self._device_ids_from_targets(normalized_targets)
+            if normalized_devices and set(normalized_devices) != set(target_devices):
+                raise ValueError("devices and targets must refer to the same device set")
+            return target_devices, normalized_targets
+        if normalized_devices:
+            return normalized_devices, normalize_dispatch_targets(None, normalized_devices)
+        raise ValueError("either targets or devices must be provided")
+
+    def _normalize_device_ids(self, devices: list[int]) -> list[int]:
+        normalized: list[int] = []
+        seen: set[int] = set()
+        for raw_device_id in devices:
+            try:
+                device_id = int(str(raw_device_id))
+            except Exception as exc:
+                raise ValueError("devices must contain positive integers") from exc
+            if device_id < 1:
+                raise ValueError("devices must contain positive integers")
+            if device_id in seen:
+                continue
+            seen.add(device_id)
+            normalized.append(device_id)
+        return normalized
+
+    def _device_ids_from_targets(self, targets: list[dict[str, int]]) -> list[int]:
+        device_ids: list[int] = []
+        seen: set[int] = set()
+        for target in targets:
+            device_id = int(target["device_id"])
+            if device_id in seen:
+                continue
+            seen.add(device_id)
+            device_ids.append(device_id)
+        return device_ids
 
     def task_metrics(
         self,

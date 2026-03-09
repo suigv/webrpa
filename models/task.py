@@ -37,10 +37,10 @@ class TaskRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_submission_mode(self):
-        if self.script is not None:
-            return self
-        if self.task is None or not str(self.task).strip():
+        if self.script is None and (self.task is None or not str(self.task).strip()):
             raise ValueError("either script or task must be provided")
+        if not self.targets and not self.devices:
+            raise ValueError("either targets or devices must be provided")
         return self
 
 

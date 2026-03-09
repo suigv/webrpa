@@ -54,6 +54,10 @@ class TaskRecord:
     run_at: str | None = None
 
 
+class ManagedTaskStateClearBlocked(RuntimeError):
+    pass
+
+
 class TaskStore:
     def __init__(self, db_path: Path | None = None) -> None:
         self._db_path = db_path or _db_path()
@@ -649,8 +653,21 @@ class TaskStore:
             (now, now, message, task_id),
         )
 
-    def clear_all_tasks(self) -> None:
-        with self._lock:
-            with self._connect() as conn:
-                _ = conn.execute("DELETE FROM tasks")
-                conn.commit()
+    def has_running_tasks(self, conn: sqlite3.Connection | None = None) -> bool:
+        if conn is None:
+            with self._lock:
+                with self._connect() as tx_conn:
+                    return self.has_running_tasks(conn=tx_conn)
+        row = conn.execute(
+            "SELECT COUNT(*) FROM tasks WHERE status = 'running'"
+        ).fetchone()
+        return int(row[0]) > 0
+
+    def clear_all_tasks(self, conn: sqlite3.Connection | None = None, *, require_no_running: bool = True) -> None:
+        if conn is None:
+            with self.transaction(immediate=True) as tx_conn:
+                self.clear_all_tasks(conn=tx_conn, require_no_running=require_no_running)
+            return
+        if require_no_running and self.has_running_tasks(conn=conn):
+            raise ManagedTaskStateClearBlocked("cannot clear managed task state while tasks are running")
+        _ = conn.execute("DELETE FROM tasks")

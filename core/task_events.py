@@ -140,3 +140,12 @@ class TaskEventStore:
         for row in rows:
             counts[str(row[0])] = int(row[1])
         return counts
+
+    def clear_all_events(self, conn: sqlite3.Connection | None = None) -> None:
+        if conn is None:
+            with self._lock:
+                with self._connect() as tx_conn:
+                    _ = tx_conn.execute("DELETE FROM task_events")
+                    tx_conn.commit()
+            return
+        _ = conn.execute("DELETE FROM task_events")

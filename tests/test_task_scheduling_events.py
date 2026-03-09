@@ -42,7 +42,7 @@ class OrderRunner:
         self.order: list[str] = []
         self._lock = threading.Lock()
 
-    def run(self, script_payload, should_cancel=None):
+    def run(self, script_payload, should_cancel=None, runtime=None):
         with self._lock:
             self.order.append(str(script_payload.get("label", "unknown")))
         return {"ok": True, "status": "completed", "message": "ok"}

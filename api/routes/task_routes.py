@@ -9,6 +9,7 @@ from fastapi.responses import StreamingResponse
 
 from api.mappers.task_mapper import to_task_detail_response, to_task_response
 from core.task_control import get_task_controller
+from core.task_store import ManagedTaskStateClearBlocked
 from models.task import TaskDetailResponse, TaskMetricsResponse, TaskRequest, TaskResponse, TaskStatus
 
 
@@ -29,36 +30,20 @@ def create_task(request: TaskRequest, x_idempotency_key: str | None = Header(def
         if isinstance(request.payload, dict):
             script_payload.update(request.payload)
 
-    targets: list[dict[str, int]] = []
-    device_ids: list[int] = []
-    seen_device_ids: set[int] = set()
-    if request.targets:
-        for target in request.targets:
-            normalized_target = {"device_id": int(target.device_id), "cloud_id": int(target.cloud_id)}
-            targets.append(normalized_target)
-            device_id = normalized_target["device_id"]
-            if device_id not in seen_device_ids:
-                seen_device_ids.add(device_id)
-                device_ids.append(device_id)
-    elif request.devices:
-        for device_id in request.devices:
-            normalized_device_id = int(device_id)
-            if normalized_device_id not in seen_device_ids:
-                seen_device_ids.add(normalized_device_id)
-                device_ids.append(normalized_device_id)
-            targets.append({"device_id": normalized_device_id, "cloud_id": 1})
-
-    record = controller.submit_with_retry(
-        payload=script_payload,
-        devices=device_ids,
-        targets=targets,
-        ai_type=request.ai_type,
-        max_retries=request.max_retries,
-        retry_backoff_seconds=request.retry_backoff_seconds,
-        priority=request.priority,
-        run_at=request.run_at.isoformat() if request.run_at is not None else None,
-        idempotency_key=idempotency_key,
-    )
+    try:
+        record = controller.submit_with_retry(
+            payload=script_payload,
+            devices=[int(device_id) for device_id in request.devices],
+            targets=[target.model_dump() for target in request.targets] if request.targets else None,
+            ai_type=request.ai_type,
+            max_retries=request.max_retries,
+            retry_backoff_seconds=request.retry_backoff_seconds,
+            priority=request.priority,
+            run_at=request.run_at.isoformat() if request.run_at is not None else None,
+            idempotency_key=idempotency_key,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return to_task_response(record)
 
 
@@ -71,8 +56,11 @@ def list_tasks(limit: int = Query(default=100, ge=1, le=500)):
 @router.delete("/")
 def clear_tasks():
     controller = get_task_controller()
-    controller.clear_all()
-    return {"status": "ok", "message": "all tasks cleared"}
+    try:
+        controller.clear_all()
+    except ManagedTaskStateClearBlocked as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"status": "ok", "message": "managed task state cleared"}
 
 
 @router.get("/catalog")
