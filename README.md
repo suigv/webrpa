@@ -6,7 +6,7 @@
 - 任务调度与控制（优先级、定时、重试、取消、SSE 事件流）
 - 插件化执行引擎（YAML 工作流 + 动作注册）
 - 浏览器自动化与拟人化交互（可配置移动/点击/输入节奏）
-- Web 控制台与日志推送（`/web` + `/ws/logs`）
+- Web 控制台入口与日志 WebSocket 路由（`/web` + `/ws/logs`）
 
 ---
 
@@ -16,7 +16,7 @@
 
 - `GET /health`：健康检查（含 `task_policy` 运行策略快照）
 - `POST /api/runtime/execute`：debug/internal-only 直跑入口；同步执行 runtime payload，不创建 `/api/tasks` 托管任务、重试、取消、SSE 事件或指标
-- `GET /web`：控制台页面
+- `GET /web`：控制台静态入口页面（smoke-backed）
 
 ### 2) 设备管理（`/api/devices`）
 
@@ -67,7 +67,7 @@
 - `plugins/x_mobile_login`
   - 当前主分支内置的 X/Twitter 移动端登录工作流
   - 负责登录阶段状态判定与运行时接线验证
-  - 已验证可通过 manifest 或 `_target` session defaults 省去重复 `device_ip` / `package` 接线，同时保持既有 status / message 契约
+  - 已验证可通过 manifest 输入默认值与 `_target` 派生的 session defaults 收口重复 runtime 接线；当前回归只明确覆盖 `device_ip` 无需在步骤里重复传递，且相关步骤不必再显式重复声明 `package`，同时保持既有 status / message 契约
 - `plugins/hezi_sdk_probe`
   - SDK 能力探测与基础连通性验证
 - `plugins/mytos_device_setup`

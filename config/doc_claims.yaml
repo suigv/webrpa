@@ -1,0 +1,281 @@
+- claim_id: wait_until_polling_semantics
+  status: completed
+  allowed_surfaces:
+    - README.md
+    - docs/project_progress.md
+    - docs/current_main_status.md
+    - docs/HANDOFF.md
+  claim_type: capability
+  wording_note: Keep this claim bounded to polling semantics and regression coverage only.
+  anchors:
+    - .sisyphus/evidence/20260309-docs-progress-sync-summary.md:19-19
+    - .sisyphus/evidence/20260309-docs-progress-sync-validation.md:18-24
+  surface_assertions:
+    README.md:
+      must_contain:
+        - "`wait_until` 已补齐"
+        - "动态重轮询"
+    docs/project_progress.md:
+      must_contain:
+        - "收紧 `wait_until` 轮询语义"
+        - "动态重轮询回归覆盖"
+    docs/current_main_status.md:
+      must_contain:
+        - "`wait_until` 轮询语义已收紧"
+        - "动态重轮询回归覆盖"
+    docs/HANDOFF.md:
+      must_contain:
+        - "`wait_until` polling semantics are tightened"
+        - "dynamic re-polling against changing context data"
+  verification_mode: evidence_note
+  blocking_level: blocking
+
+- claim_id: execution_context_session_defaults_minimal_seam
+  status: completed
+  allowed_surfaces:
+    - README.md
+    - docs/project_progress.md
+    - docs/current_main_status.md
+    - docs/HANDOFF.md
+  claim_type: contract
+  wording_note: "Preserve the override order explicitly: action params, then session defaults, then raw payload fallback."
+  anchors:
+    - engine/models/runtime.py:30-36
+    - engine/actions/navigation_actions.py:90-118
+    - .sisyphus/evidence/20260309-docs-progress-sync-summary.md:20-20
+  surface_assertions:
+    README.md:
+      must_contain:
+        - "`ExecutionContext.session.defaults` 已作为最小任务级默认值接缝落地"
+        - "显式 action 参数优先"
+    docs/project_progress.md:
+      must_contain:
+        - "`ExecutionContext.session.defaults` 最小任务级接缝"
+        - "显式 action 参数优先"
+    docs/current_main_status.md:
+      must_contain:
+        - "`ExecutionContext.session.defaults` 已作为最小任务级接缝落地"
+        - "显式 action 参数优先"
+    docs/HANDOFF.md:
+      must_contain:
+        - "`ExecutionContext.session.defaults` is the minimal task-scoped seam"
+        - "explicit action params still winning"
+  verification_mode: code_and_evidence
+  blocking_level: blocking
+
+- claim_id: ui_state_observation_conservative_expansion
+  status: completed
+  allowed_surfaces:
+    - README.md
+    - docs/project_progress.md
+    - docs/current_main_status.md
+    - docs/HANDOFF.md
+  claim_type: capability
+  wording_note: Describe added bindings and first-item aliases only; do not imply a top-level result-shape redesign.
+  anchors:
+    - .sisyphus/evidence/20260309-docs-progress-sync-summary.md:21-21
+  surface_assertions:
+    README.md:
+      must_contain:
+        - "`timeline_candidates`"
+        - "`follow_targets`"
+    docs/project_progress.md:
+      must_contain:
+        - "`timeline_candidates`"
+        - "不改顶层观察结果形状"
+    docs/current_main_status.md:
+      must_contain:
+        - "`timeline_candidates`"
+        - "不改变顶层观察结果形状"
+    docs/HANDOFF.md:
+      must_contain:
+        - "`timeline_candidates`"
+        - "without changing the top-level result shape"
+  verification_mode: evidence_note
+  blocking_level: blocking
+
+- claim_id: bounded_ui_navigation_and_form_helpers
+  status: completed
+  allowed_surfaces:
+    - README.md
+    - docs/project_progress.md
+    - docs/current_main_status.md
+    - docs/HANDOFF.md
+  claim_type: capability
+  wording_note: Keep these helpers framed as bounded page-level navigation and form-driving helpers, not workflow-level recovery.
+  anchors:
+    - tests/test_login_composite_actions.py:195-220
+    - tests/test_x_mobile_login_runtime.py:47-77
+    - .sisyphus/evidence/20260309-docs-progress-sync-summary.md:22-22
+  surface_assertions:
+    README.md:
+      must_contain:
+        - "`ui.navigate_to`"
+        - "未上提为工作流级恢复系统"
+    docs/project_progress.md:
+      must_contain:
+        - "`ui.navigate_to` 与 `ui.fill_form`"
+        - "不把它们写成工作流级恢复系统"
+    docs/current_main_status.md:
+      must_contain:
+        - "`ui.navigate_to` 与 `ui.fill_form`"
+        - "不扩大为通用恢复系统"
+    docs/HANDOFF.md:
+      must_contain:
+        - "`ui.navigate_to` and `ui.fill_form`"
+        - "not workflow-level recovery"
+  verification_mode: tests_and_evidence
+  blocking_level: blocking
+
+- claim_id: x_mobile_login_runtime_plumbing_defaults
+  status: completed
+  allowed_surfaces:
+    - README.md
+    - docs/project_progress.md
+    - docs/current_main_status.md
+    - docs/HANDOFF.md
+  claim_type: workflow
+  wording_note: Say repeated runtime plumbing can be reduced via manifest or `_target` session defaults while preserving status/message contracts; avoid unsupported exact sourcing phrasing.
+  anchors:
+    - tests/test_x_mobile_login_runtime.py:109-133
+    - engine/models/runtime.py:30-36
+    - engine/actions/navigation_actions.py:90-118
+    - .sisyphus/evidence/20260309-docs-progress-sync-summary.md:23-23
+  surface_assertions:
+    README.md:
+      must_contain:
+        - "manifest 输入默认值与 `_target` 派生的 session defaults"
+        - "`device_ip` 无需在步骤里重复传递"
+      must_not_contain:
+        - "`package` comes from `_target`"
+        - "`package` 来自 `_target`"
+    docs/project_progress.md:
+      must_contain:
+        - "manifest 输入默认值与 `_target` 派生的 session defaults"
+        - "不再显式重复声明 `package`"
+      must_not_contain:
+        - "`package` comes from `_target`"
+        - "`package` 来自 `_target`"
+    docs/current_main_status.md:
+      must_contain:
+        - "`device_ip` 不再在步骤中重复传递"
+        - "不再显式重复声明 `package`"
+      must_not_contain:
+        - "`package` comes from `_target`"
+        - "`package` 来自 `_target`"
+    docs/HANDOFF.md:
+      must_contain:
+        - "`x_mobile_login` wording is narrowed to repeated runtime plumbing only"
+        - "without implying `_target` sources it"
+      must_not_contain:
+        - "`package` comes from `_target`"
+        - "`package` is sourced from `_target`"
+  verification_mode: code_tests_and_evidence
+  blocking_level: blocking
+
+- claim_id: x_mobile_login_validation_wave
+  status: completed
+  allowed_surfaces:
+    - docs/project_progress.md
+    - docs/current_main_status.md
+    - docs/HANDOFF.md
+  claim_type: validation
+  wording_note: This claim may cite targeted tests plus the manual runtime smoke with success status, message, and task identity.
+  anchors:
+    - tests/test_x_mobile_login_runtime.py:12-45
+    - .sisyphus/evidence/20260309-docs-progress-sync-summary.md:24-24
+    - .sisyphus/evidence/20260309-docs-progress-sync-validation.md:18-24
+  surface_assertions:
+    docs/project_progress.md:
+      must_contain:
+        - "定向登录工作流测试"
+        - "运行时接线 smoke"
+    docs/current_main_status.md:
+      must_contain:
+        - "相关登录工作流验证已通过"
+    docs/HANDOFF.md:
+      must_contain:
+        - "Login workflow targeted tests: pass"
+        - "`login completed` runtime smoke"
+  verification_mode: tests_plus_manual_evidence
+  blocking_level: blocking
+
+- claim_id: runtime_control_plane_validation_wave
+  status: completed
+  allowed_surfaces:
+    - docs/project_progress.md
+    - docs/current_main_status.md
+    - docs/HANDOFF.md
+  claim_type: validation
+  wording_note: Keep this claim bounded to targeted runtime/control-plane tests plus RPC-disabled startup and `/health` smoke.
+  anchors:
+    - tests/test_runtime_execute_integration.py:131-150
+    - tests/test_runtime_execute_integration.py:222-284
+    - tests/test_task_control_plane.py:29-79
+    - .sisyphus/evidence/20260309-docs-progress-sync-summary.md:25-25
+  surface_assertions:
+    docs/project_progress.md:
+      must_contain:
+        - "`MYT_ENABLE_RPC=0` 启动"
+        - "`/health` 验证结论"
+    docs/current_main_status.md:
+      must_contain:
+        - "运行时控制面验证波次已完成"
+        - "`/health` smoke"
+    docs/HANDOFF.md:
+      must_contain:
+        - "Runtime/control-plane targeted tests: pass"
+        - "RPC-disabled startup + `/health`: pass"
+  verification_mode: tests_plus_live_smoke_evidence
+  blocking_level: blocking
+
+- claim_id: workflow_conservative_recovery_deferred
+  status: deferred
+  allowed_surfaces:
+    - README.md
+    - docs/project_progress.md
+    - docs/current_main_status.md
+    - docs/HANDOFF.md
+    - docs/README.md
+  claim_type: status
+  wording_note: Preserve `DEFERRED` meaning exactly; do not describe workflow-level conservative recovery extraction as shipped.
+  anchors:
+    - .sisyphus/evidence/20260309-docs-progress-sync-summary.md:26-26
+    - .sisyphus/evidence/20260309-docs-progress-sync-validation.md:18-24
+  surface_assertions:
+    docs/current_main_status.md:
+      must_contain:
+        - "deferred watchpoint"
+      must_not_contain:
+        - "已完成 workflow-level conservative recovery"
+    docs/HANDOFF.md:
+      must_contain:
+        - "**DEFERRED**, keep as watchpoint only"
+      must_not_contain:
+        - "Workflow-level conservative recovery extraction: completed"
+  verification_mode: evidence_gate
+  blocking_level: blocking
+
+- claim_id: workflow_conservative_recovery_watchpoint
+  status: next_step
+  allowed_surfaces:
+    - docs/project_progress.md
+    - docs/current_main_status.md
+    - docs/HANDOFF.md
+  claim_type: watchpoint
+  wording_note: "Phrase this as a watchpoint: wait for the same bounded ordered chain to recur across multiple workflows before extracting shared policy upward."
+  anchors:
+    - .sisyphus/evidence/20260309-docs-progress-sync-summary.md:27-27
+    - .sisyphus/evidence/20260309-docs-progress-sync-summary.md:32-36
+  surface_assertions:
+    docs/current_main_status.md:
+      must_contain:
+        - "deferred watchpoint"
+        - "跨多个 workflow 重复出现后再考虑上提"
+    docs/HANDOFF.md:
+      must_contain:
+        - "keep as watchpoint only"
+      must_not_contain:
+        - "workflow-level conservative recovery extraction is shipped"
+  verification_mode: evidence_gate
+  blocking_level: watchpoint

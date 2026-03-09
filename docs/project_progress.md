@@ -6,14 +6,14 @@
 ## 1. 当前阶段
 
 - 阶段：**Workflow-roadmap executor wave landed on top of the UIStateService baseline**
-- 核心状态：API、任务系统、插件执行、账号池、Web 控制台、配置管理、原生/RPC 与浏览器观察链路均可用；`UIStateService` 统一只读状态契约仍是当前基线，其上又补齐了 `wait_until` 轮询语义、`ExecutionContext.session.defaults`、扩展 UI-state 观察覆盖，以及有界 `ui.navigate_to` / `ui.fill_form` 页面级 helper
+- 核心状态：API、任务系统、插件执行、账号池、`/web` 静态控制台入口、配置管理、原生/RPC 与浏览器观察链路均可用；`UIStateService` 统一只读状态契约仍是当前基线，其上又补齐了 `wait_until` 轮询语义、`ExecutionContext.session.defaults`、扩展 UI-state 观察覆盖，以及有界 `ui.navigate_to` / `ui.fill_form` 页面级 helper
 - 最近重点：
   - 保留 `UIStateService` rollout 基线，继续沿用统一状态结果形状与 thin action wrapper，不把 recovery 或 fallback 逻辑塞进 service
   - 收紧 `wait_until` 轮询语义，并补齐 success-before-timeout、timeout 文案、`on_timeout goto`、`on_fail` fallback、取消返回与动态重轮询回归覆盖
   - 落地 `ExecutionContext.session.defaults` 最小任务级接缝，明确覆盖顺序为显式 action 参数优先，其次 session defaults，最后才回退到原始 payload
   - 保守扩展 UI-state 观察覆盖，新增 `timeline_candidates`、`follow_targets` 绑定与集合首项别名，不改顶层观察结果形状
   - 补齐有界页面级 composite helper，`ui.navigate_to` 与 `ui.fill_form` 现在用于导航和表单驱动，不把它们写成工作流级恢复系统
-  - 保留此前 `home` / `x_mobile_login` 工作流迁移基线，其中 `x_mobile_login` 已验证可通过 manifest 或 `_target` session defaults 省去重复 `device_ip` / `package` 接线，同时不改变状态与消息契约
+  - 保留此前 `home` / `x_mobile_login` 工作流迁移基线，其中 `x_mobile_login` 已验证可通过 manifest 输入默认值与 `_target` 派生的 session defaults 收口重复 runtime 接线；当前只明确覆盖 `device_ip` 去重和相关步骤不再显式重复声明 `package`，同时不改变状态与消息契约
   - 最新验证波次已覆盖定向登录工作流测试、运行时接线 smoke，以及既有 `pytest tests -q`、`check_no_legacy_imports.py`、`MYT_ENABLE_RPC=0` 启动与 `/health` 验证结论
   - 既有 RPA/RPC remediation、`sdk_actions` facade + helper 分层、`/api/runtime/execute` debug/internal-only 契约、监控接线文档与 stale-running 调优文档仍保持有效
 
@@ -21,12 +21,12 @@
 
 ### 2.1 API 与控制面
 
-- 健康检查、debug/internal-only 运行时直跑入口、Web 控制台入口（`api/server.py`）
+- 健康检查、debug/internal-only 运行时直跑入口、`/web` 静态控制台入口（smoke-backed，`api/server.py`）
 - 设备管理：列表/详情/状态/启停（`api/routes/devices.py`）
 - 任务管理：创建/列表/详情/取消 + SSE 事件流（`api/routes/task_routes.py`）
 - 配置管理：读取/更新系统配置与 humanized 配置（`api/routes/config.py`）
 - 数据接口：账号/位置/网站读写与账号导入解析（`api/routes/data.py`）
-- 日志 WebSocket 推送（`api/routes/websocket.py`）
+- 日志 WebSocket 路由（`/ws/logs`，由 `tests/test_websocket_logs_route.py` 覆盖 ping/filter 广播路径；`api/routes/websocket.py`）
 
 ### 2.2 引擎与插件
 
@@ -70,8 +70,8 @@
 | App-level route decorators (`api/server.py`) | 5 |
 | Plugin count (`plugins/*/manifest.yaml`) | 12 |
 | SDK action bindings (`engine/actions/sdk_actions.py`) | 131 |
-| Test files (`tests/test_*.py`) | 58 |
-| Test functions (`def test_*`) | 262 |
+| Test files (`tests/test_*.py`) | 61 |
+| Test functions (`def test_*`) | 282 |
 <!-- AUTO_PROGRESS_SNAPSHOT:END -->
 
 ## 4. 维护方式（实时更新建议）
