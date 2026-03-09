@@ -60,6 +60,47 @@ def test_rpc_bootstrap_resolves_target_rpa_port_before_port_calculation() -> Non
     assert rpa_port == 30902
 
 
+def test_rpc_bootstrap_uses_session_defaults_before_raw_payload_fallback() -> None:
+    ExecutionContext = _load_execution_context()
+    ctx = ExecutionContext(
+        payload={
+            "device_ip": "192.168.1.214",
+            "cloud_index": 7,
+            "device_index": 8,
+            "cloud_machines_per_device": 10,
+        },
+        session={
+            "defaults": {
+                "device_ip": "192.168.1.215",
+                "cloud_index": 3,
+                "device_index": 2,
+                "cloud_machines_per_device": 4,
+            }
+        },
+    )
+
+    device_ip, rpa_port = _rpc_bootstrap.resolve_connection_params({}, ctx)
+
+    assert device_ip == "192.168.1.215"
+    assert rpa_port == 30202
+
+
+def test_rpc_bootstrap_explicit_params_override_session_defaults() -> None:
+    ExecutionContext = _load_execution_context()
+    ctx = ExecutionContext(
+        payload={"device_ip": "192.168.1.214", "cloud_index": 7, "device_index": 8},
+        session={"defaults": {"device_ip": "192.168.1.215", "rpa_port": 30202, "cloud_index": 3, "device_index": 2}},
+    )
+
+    device_ip, rpa_port = _rpc_bootstrap.resolve_connection_params(
+        {"device_ip": "192.168.1.216", "rpa_port": 30502, "cloud_index": 5, "device_index": 6},
+        ctx,
+    )
+
+    assert device_ip == "192.168.1.216"
+    assert rpa_port == 30502
+
+
 def test_ui_and_state_bootstrap_wrappers_share_connect_timeout_contract(monkeypatch: MonkeyPatch) -> None:
     ui_actions = _load_ui_actions_module()
     state_actions = _load_state_actions_module()
