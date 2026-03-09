@@ -45,7 +45,7 @@ def _register_noop_actions() -> None:
         "app.open",
         "ui.selector_click_one",
         "ui.click_selector_or_tap",
-        "ui.focus_and_input_with_shell_fallback",
+        "ui.fill_form",
         "mytos.keypress",
     ):
         registry.register(action_name, ok_action)
@@ -56,12 +56,16 @@ def _run_login_plugin(
     match_handler: Callable[[dict[str, object], ExecutionContext], ActionResult],
     wait_handler: Callable[[dict[str, object], ExecutionContext], ActionResult],
     two_factor_code: str = "",
+    fa2_secret: str = "",
+    action_overrides: dict[str, Callable[[dict[str, object], ExecutionContext], ActionResult]] | None = None,
 ) -> dict[str, object]:
     runner = Runner()
     _register_noop_actions()
     registry = get_registry()
     registry.register("ui.match_state", match_handler)
     registry.register("ui.wait_until", wait_handler)
+    for action_name, handler in (action_overrides or {}).items():
+        registry.register(action_name, handler)
     return runner.run(
         {
             "task": "x_mobile_login",
@@ -69,6 +73,7 @@ def _run_login_plugin(
             "acc": "demo_user",
             "pwd": "demo_pass",
             "two_factor_code": two_factor_code,
+            "fa2_secret": fa2_secret,
         }
     )
 
@@ -78,8 +83,9 @@ def test_x_mobile_login_script_uses_service_backed_native_state_actions() -> Non
     by_label = cast(dict[str, dict[str, object]], {step["label"]: step for step in steps if "label" in step})
 
     assert by_label["detect_entry_stage"]["action"] == "ui.match_state"
+    assert by_label["focus_password_input"]["action"] == "ui.fill_form"
     assert by_label["wait_post_submit_stage"]["action"] == "ui.wait_until"
-    assert by_label["wait_after_2fa"]["action"] == "ui.wait_until"
+    assert by_label["try_2fa_input_payload"]["action"] == "ui.fill_form"
     assert by_label["detect_entry_stage"]["params"]["binding_id"] == "x_login"
     assert by_label["wait_post_submit_stage"]["params"]["expected_state_ids"] == [
         "home",
@@ -207,3 +213,52 @@ def test_x_mobile_login_two_factor_timeout_preserved() -> None:
 
     assert result["status"] == "failed"
     assert result["message"] == "2fa_failed"
+
+
+def test_x_mobile_login_generated_two_factor_skips_payload_fallthrough() -> None:
+    fill_calls: list[str] = []
+
+    def fill_form_handler(params: dict[str, object], context: ExecutionContext) -> ActionResult:
+        _ = context
+        fields = cast(list[dict[str, object]], params.get("fields") or [])
+        text = str(fields[0].get("text") or "") if fields else ""
+        fill_calls.append(text)
+        if len(fill_calls) > 1:
+            raise AssertionError("generated 2FA path fell through into payload fill_form")
+        return ActionResult(ok=True, code="ok")
+
+    def match_handler(params: dict[str, object], context: ExecutionContext) -> ActionResult:
+        _ = (params, context)
+        return UIStateObservationResult.matched(
+            operation="match_state",
+            state_id="two_factor",
+            platform="native",
+            expected_state_ids=["home", "captcha", "two_factor", "password", "account"],
+        ).to_action_result()
+
+    def wait_handler(params: dict[str, object], context: ExecutionContext) -> ActionResult:
+        _ = context
+        expected = list(cast(list[str], params.get("expected_state_ids") or []))
+        if expected == ["home", "captcha"]:
+            return UIStateObservationResult.matched(
+                operation="wait_until",
+                state_id="home",
+                platform="native",
+                expected_state_ids=expected,
+            ).to_action_result()
+        raise AssertionError(f"unexpected expected_state_ids: {expected}")
+
+    result = _run_login_plugin(
+        match_handler=match_handler,
+        wait_handler=wait_handler,
+        two_factor_code="payload-should-not-run",
+        fa2_secret="JBSWY3DPEHPK3PXP",
+        action_overrides={
+            "core.generate_totp": lambda _params, _context: ActionResult(ok=True, code="ok", data={"token": "654321"}),
+            "ui.fill_form": fill_form_handler,
+        },
+    )
+
+    assert result["status"] == "success"
+    assert result["message"] == "login completed"
+    assert len(fill_calls) == 1

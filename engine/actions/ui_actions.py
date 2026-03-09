@@ -173,7 +173,7 @@ def app_open(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
     if err:
         return err
     try:
-        package = str(params.get("package") or "")
+        package = str(params.get("package") or context.get_session_default("package") or "").strip()
         if not package:
             return ActionResult(ok=False, code="invalid_params", message="package is required")
         ok = rpc.openApp(package) if rpc is not None else False
@@ -187,7 +187,7 @@ def app_stop(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
     if err:
         return err
     try:
-        package = str(params.get("package") or "")
+        package = str(params.get("package") or context.get_session_default("package") or "").strip()
         if not package:
             return ActionResult(ok=False, code="invalid_params", message="package is required")
         ok = rpc.stopApp(package) if rpc is not None else False
@@ -201,7 +201,7 @@ def app_ensure_running(params: Dict[str, Any], context: ExecutionContext) -> Act
     if err:
         return err
     try:
-        package = str(params.get("package") or "")
+        package = str(params.get("package") or context.get_session_default("package") or "").strip()
         if not package:
             return ActionResult(ok=False, code="invalid_params", message="package is required")
 
@@ -229,7 +229,7 @@ def app_grant_permissions(params: Dict[str, Any], context: ExecutionContext) -> 
     if err:
         return err
     try:
-        package = str(params.get("package") or "")
+        package = str(params.get("package") or context.get_session_default("package") or "").strip()
         permissions = params.get("permissions")
         if not package:
             return ActionResult(ok=False, code="invalid_params", message="package is required")

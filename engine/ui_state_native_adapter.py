@@ -118,12 +118,40 @@ _SEARCH_CANDIDATES_BINDING = NativeStateBinding(
     match_action=state_actions.extract_search_candidates,
 )
 
+_TIMELINE_CANDIDATES_BINDING = NativeStateBinding(
+    binding_id="timeline_candidates",
+    display_name="timeline candidates",
+    state_noun="state",
+    supported_state_ids=("available", "missing", "unknown"),
+    normalize_state_id=lambda state_id: _normalize_supported_state(state_id, ("available", "missing", "unknown")),
+    state_id_from_action_result=_extract_presence_state_id(
+        present_state_id="available",
+        missing_codes=("no_candidates",),
+    ),
+    match_action=state_actions.extract_timeline_candidates,
+)
+
+_FOLLOW_TARGETS_BINDING = NativeStateBinding(
+    binding_id="follow_targets",
+    display_name="follow targets",
+    state_noun="state",
+    supported_state_ids=("available", "missing", "unknown"),
+    normalize_state_id=lambda state_id: _normalize_supported_state(state_id, ("available", "missing", "unknown")),
+    state_id_from_action_result=_extract_presence_state_id(
+        present_state_id="available",
+        missing_codes=("follow_targets_missing",),
+    ),
+    match_action=state_actions.extract_follow_targets,
+)
+
 _BINDINGS: dict[str, NativeStateBinding] = {
     _X_LOGIN_BINDING.binding_id: _X_LOGIN_BINDING,
     _DM_UNREAD_BINDING.binding_id: _DM_UNREAD_BINDING,
     _DM_LAST_MESSAGE_BINDING.binding_id: _DM_LAST_MESSAGE_BINDING,
     _DM_LAST_OUTBOUND_BINDING.binding_id: _DM_LAST_OUTBOUND_BINDING,
     _SEARCH_CANDIDATES_BINDING.binding_id: _SEARCH_CANDIDATES_BINDING,
+    _TIMELINE_CANDIDATES_BINDING.binding_id: _TIMELINE_CANDIDATES_BINDING,
+    _FOLLOW_TARGETS_BINDING.binding_id: _FOLLOW_TARGETS_BINDING,
 }
 
 
@@ -481,9 +509,12 @@ class NativeUIStateAdapter:
         action_data = cast(dict[str, object], action_result.data)
         for key, value in action_data.items():
             raw_details[key] = value
-        if self._binding.binding_id == "dm_unread" and isinstance(action_data.get("targets"), list):
+        if isinstance(action_data.get("targets"), list):
             targets = cast(list[object], action_data["targets"])
             raw_details["target"] = targets[0] if targets else None
+        if isinstance(action_data.get("candidates"), list):
+            candidates = cast(list[object], action_data["candidates"])
+            raw_details["candidate"] = candidates[0] if candidates else None
         if action_result.code != "ok":
             raw_details["legacy_code"] = action_result.code
         if extra:

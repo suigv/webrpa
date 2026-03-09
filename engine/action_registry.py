@@ -122,9 +122,11 @@ def register_defaults() -> None:
     )
     from .actions.login_actions import (
         click_selector_or_tap,
+        fill_form,
         focus_and_input_with_shell_fallback,
         input_text_with_shell_fallback,
     )
+    from .actions.navigation_actions import navigate_to
     from .actions.ui_state_actions import (
         browser_match_state,
         browser_observe_transition,
@@ -239,10 +241,12 @@ def register_defaults() -> None:
     _registry.register("ui.swipe", swipe)
     _registry.register("ui.long_click", long_click)
     _registry.register("ui.input_text", input_text)
+    _registry.register("ui.fill_form", fill_form)
     _registry.register("ui.input_text_with_shell_fallback", input_text_with_shell_fallback)
     _registry.register("ui.focus_and_input_with_shell_fallback", focus_and_input_with_shell_fallback)
     _registry.register("ui.key_press", key_press)
     _registry.register("ui.click_selector_or_tap", click_selector_or_tap)
+    _registry.register("ui.navigate_to", navigate_to)
     _registry.register("app.open", app_open)
     _registry.register("app.stop", app_stop)
     _registry.register("app.ensure_running", app_ensure_running)

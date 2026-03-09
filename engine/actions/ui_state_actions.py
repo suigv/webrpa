@@ -81,7 +81,7 @@ def _resolve_service(
     if platform == "native":
         try:
             return NativeUIStateAdapter(
-                binding_id=str(params.get("binding_id") or "x_login"),
+                binding_id=_resolve_native_binding_id(params),
                 action_params=dict(params),
             ), None
         except ValueError as exc:
@@ -106,6 +106,11 @@ def _coerce_state_ids(raw: object) -> tuple[str, ...]:
     if isinstance(raw, Sequence):
         return tuple(str(part).strip() for part in raw if str(part).strip())
     return ()
+
+
+def _resolve_native_binding_id(params: dict[str, object]) -> str:
+    binding_id = str(params.get("binding_id") or "x_login").strip()
+    return binding_id or "x_login"
 
 
 def _looks_like_browser_state_id(state_id: str) -> bool:

@@ -456,7 +456,7 @@ def test_dm_plugin_skip_message_save_when_observation_missing(monkeypatch, tmp_p
 
 
 def test_home_plugin_extracts_candidate_when_rpc_available(monkeypatch, tmp_path):
-    from engine.actions import sdk_actions, state_actions, ui_actions
+    from engine.actions import navigation_actions, sdk_actions, state_actions, ui_actions
     from engine.models.runtime import ActionResult
 
     monkeypatch.setenv("MYT_NEW_ROOT", str(tmp_path))
@@ -502,12 +502,39 @@ def test_home_plugin_extracts_candidate_when_rpc_available(monkeypatch, tmp_path
     monkeypatch.setattr(sdk_actions, "MytSdkClient", FakeClient)
     monkeypatch.setattr(state_actions, "MytRpc", FakeRpc)
     monkeypatch.setattr(ui_actions, "app_ensure_running", lambda params, context: ActionResult(ok=True, code="ok"))
-    monkeypatch.setattr(ui_actions, "app_open", lambda params, context: ActionResult(ok=True, code="ok"))
     monkeypatch.setattr(ui_actions, "exec_command", lambda params, context: ActionResult(ok=True, code="ok"))
     monkeypatch.setattr(ui_actions, "selector_click_one", lambda params, context: ActionResult(ok=True, code="ok"))
+    monkeypatch.setattr(
+        navigation_actions,
+        "_resolve_current_route",
+        lambda params, context: {"route_id": "messages_inbox", "probes": {"messages_inbox": {"matched": True}}},
+    )
+    monkeypatch.setattr(
+        navigation_actions,
+        "_execute_hop",
+        lambda hop, params, context, *, active_route: {
+            "code": "ok",
+            "message": "reached home timeline",
+            "attempts": [{"attempt_id": hop.attempts[0].attempt_id}],
+        },
+    )
 
     result = Runner().run({"task": "home_interaction", "device_ip": "192.168.1.2", "ai_type": "part_time"})
     assert result["status"] == "success"
 
     payload = (tmp_path / "config" / "data" / "migration_shared.json").read_text(encoding="utf-8")
     assert "home_last_interaction" in payload
+
+
+def test_home_plugin_uses_ui_navigate_to_step():
+    from pathlib import Path
+    import yaml
+
+    script_path = Path(__file__).resolve().parents[1] / "plugins" / "home_interaction" / "script.yaml"
+    script = cast(dict[str, object], yaml.safe_load(script_path.read_text(encoding="utf-8")))
+    steps = cast(list[dict[str, object]], script["steps"])
+    labels = cast(dict[str, dict[str, object]], {step["label"]: step for step in steps if step.get("label")})
+
+    assert labels["go_home_timeline"]["action"] == "ui.navigate_to"
+    params = cast(dict[str, object], labels["go_home_timeline"]["params"])
+    assert params["target"] == "home_timeline"

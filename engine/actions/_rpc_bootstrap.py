@@ -18,20 +18,35 @@ def resolve_connection_params(params: Dict[str, Any], context: ExecutionContext)
     payload: Dict[str, Any] = dict(context.payload) if isinstance(context.payload, dict) else {}
     target_obj = payload.get("_target")
     target: Dict[str, Any] = target_obj if isinstance(target_obj, dict) else {}
+    session_defaults = context.session_defaults
 
-    device_ip = str(params.get("device_ip") or payload.get("device_ip") or target.get("device_ip") or "").strip()
+    device_ip = str(
+        params.get("device_ip")
+        or session_defaults.get("device_ip")
+        or payload.get("device_ip")
+        or target.get("device_ip")
+        or ""
+    ).strip()
     if not device_ip:
         raise ValueError("device_ip is required")
 
     if "rpa_port" in params:
         return device_ip, int(params["rpa_port"])
+    session_rpa_port = session_defaults.get("rpa_port")
+    if session_rpa_port is not None:
+        return device_ip, int(session_rpa_port)
     target_rpa_port = target.get("rpa_port")
     if target_rpa_port is not None:
         return device_ip, int(target_rpa_port)
 
-    cloud_index = int(params.get("cloud_index") or payload.get("cloud_index") or target.get("cloud_id") or 1)
-    device_index = int(params.get("device_index") or payload.get("device_index") or target.get("device_id") or 1)
-    cloud_machines_per_device = int(params.get("cloud_machines_per_device") or payload.get("cloud_machines_per_device") or 1)
+    cloud_index = int(params.get("cloud_index") or session_defaults.get("cloud_index") or payload.get("cloud_index") or target.get("cloud_id") or 1)
+    device_index = int(params.get("device_index") or session_defaults.get("device_index") or payload.get("device_index") or target.get("device_id") or 1)
+    cloud_machines_per_device = int(
+        params.get("cloud_machines_per_device")
+        or session_defaults.get("cloud_machines_per_device")
+        or payload.get("cloud_machines_per_device")
+        or 1
+    )
     _, rpa_port = calculate_ports(
         device_index=device_index,
         cloud_index=cloud_index,

@@ -223,9 +223,10 @@ def extract_dm_last_message(params: Dict[str, Any], context: ExecutionContext) -
     assert rpc is not None
     try:
         xml_text = _dump_xml_for_candidates(rpc, int(params.get("timeout_ms", 2500)))
+        package = str(params.get("package") or context.get_session_default("package") or "com.twitter.android").strip()
         message = _extract_last_dm_message_from_xml(
             xml_text=xml_text,
-            package=str(params.get("package") or "com.twitter.android").strip(),
+            package=package,
             max_left=int(params.get("max_left", 540) or 540),
         )
         if message is None:
@@ -242,9 +243,10 @@ def extract_dm_last_outbound_message(params: Dict[str, Any], context: ExecutionC
     assert rpc is not None
     try:
         xml_text = _dump_xml_for_candidates(rpc, int(params.get("timeout_ms", 2500)))
+        package = str(params.get("package") or context.get_session_default("package") or "com.twitter.android").strip()
         message = _extract_last_outbound_dm_message_from_xml(
             xml_text=xml_text,
-            package=str(params.get("package") or "com.twitter.android").strip(),
+            package=package,
             min_left=int(params.get("min_left", 540) or 540),
         )
         if message is None:
@@ -261,9 +263,10 @@ def extract_follow_targets(params: Dict[str, Any], context: ExecutionContext) ->
     assert rpc is not None
     try:
         xml_text = _dump_xml_for_candidates(rpc, int(params.get("timeout_ms", 2500)))
+        package = str(params.get("package") or context.get_session_default("package") or "com.twitter.android").strip()
         targets = _extract_follow_targets_from_xml(
             xml_text=xml_text,
-            package=str(params.get("package") or "com.twitter.android").strip(),
+            package=package,
             min_top=int(params.get("min_top", 350) or 350),
         )
         if not targets:
@@ -280,9 +283,10 @@ def follow_visible_targets(params: Dict[str, Any], context: ExecutionContext) ->
     assert rpc is not None
     try:
         xml_text = _dump_xml_for_candidates(rpc, int(params.get("timeout_ms", 2500)))
+        package = str(params.get("package") or context.get_session_default("package") or "com.twitter.android").strip()
         targets = _extract_follow_targets_from_xml(
             xml_text=xml_text,
-            package=str(params.get("package") or "com.twitter.android").strip(),
+            package=package,
             min_top=int(params.get("min_top", 350) or 350),
         )
         max_clicks = max(int(params.get("max_clicks", 3) or 3), 1)
@@ -313,9 +317,10 @@ def extract_unread_dm_targets(params: Dict[str, Any], context: ExecutionContext)
     assert rpc is not None
     try:
         xml_text = _dump_xml_for_candidates(rpc, int(params.get("timeout_ms", 2500)))
+        package = str(params.get("package") or context.get_session_default("package") or "com.twitter.android").strip()
         targets = _extract_unread_dm_targets_from_xml(
             xml_text=xml_text,
-            package=str(params.get("package") or "com.twitter.android").strip(),
+            package=package,
             min_top=int(params.get("min_top", 250) or 250),
         )
         if not targets:
@@ -332,9 +337,10 @@ def open_first_unread_dm(params: Dict[str, Any], context: ExecutionContext) -> A
     assert rpc is not None
     try:
         xml_text = _dump_xml_for_candidates(rpc, int(params.get("timeout_ms", 2500)))
+        package = str(params.get("package") or context.get_session_default("package") or "com.twitter.android").strip()
         targets = _extract_unread_dm_targets_from_xml(
             xml_text=xml_text,
-            package=str(params.get("package") or "com.twitter.android").strip(),
+            package=package,
             min_top=int(params.get("min_top", 250) or 250),
         )
         if not targets:
