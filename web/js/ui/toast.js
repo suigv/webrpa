@@ -8,7 +8,9 @@ export class Toast {
     show(message, type = 'info', duration = 3000) {
         const toast = document.createElement('div');
         toast.className = `toast toast-${type}`;
-        toast.innerHTML = `<span>${message}</span>`;
+        const text = document.createElement('span');
+        text.textContent = String(message ?? '');
+        toast.appendChild(text);
 
         const dismiss = () => {
             if (toast.classList.contains('hide')) return;
@@ -16,14 +18,10 @@ export class Toast {
             toast.addEventListener('transitionend', () => toast.remove());
         };
 
-        // Click to dismiss
         toast.onclick = dismiss;
-
-        // Auto remove
         setTimeout(dismiss, duration);
 
         this.container.appendChild(toast);
-        // Trigger reflow for animation
         void toast.offsetWidth;
         toast.classList.add('show');
     }

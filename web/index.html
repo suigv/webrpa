@@ -72,8 +72,8 @@
               </div>
               <div id="tasksAdvanced" class="collapsible-section">
                 <div class="form-grid columns-2">
-                  <div class="form-group"><label>指定设备 ID</label><input type="number" id="targetDeviceId" value="1"></div>
-                  <div class="form-group"><label>指定云机 ID</label><input type="number" id="targetCloudId" value="1"></div>
+                  <div class="form-group"><label>指定设备 ID</label><input type="number" id="targetDeviceId" placeholder="例如 1" min="1"></div>
+                  <div class="form-group"><label>指定云机 ID</label><input type="number" id="targetCloudId" placeholder="例如 1" min="1"></div>
                   <div class="form-group"><label>优先级调度</label><input type="number" id="taskPriority" value="50"></div>
                   <div class="form-group"><label>失败重试上限</label><input type="number" id="taskMaxRetries" value="0"></div>
                   <div class="form-group col-span-2"><label>计划执行时间 (可选)</label><input type="datetime-local" id="taskRunAt"></div>
@@ -169,13 +169,14 @@
             <div class="panel-body">
               <div class="flex gap-3 mb-6">
                 <select id="hzPreset" class="flex-1">
+                  <option value="low">低扰动环境</option>
                   <option value="medium">标准环境 (推荐)</option>
                   <option value="high">高危环境 (深压)</option>
                   <option value="custom">专家自定义参数</option>
                 </select>
                 <button id="applyHzPreset" class="btn btn-secondary">载入</button>
               </div>
-              
+
               <label class="custom-checkbox">
                 <input type="checkbox" id="hzEnabled">
                 <span class="checkmark"></span>
@@ -184,14 +185,20 @@
                   <span class="text-muted display-block text-sm">在所有输入与点击动作中注入随机噪点</span>
                 </div>
               </label>
-              
+
               <div id="expertConfig" class="mt-6 border-t pt-6" style="display: block;">
                 <h4 class="text-sm font-medium mb-4">底层时间轴 (秒/像素)</h4>
                 <div class="form-grid columns-2">
                   <div class="form-group"><label>击键错误率</label><input type="number" id="hzTypoProbability" step="0.01"></div>
-                  <div class="form-group"></div>
-                  <div class="form-group"><label>输入流控 (最小值)</label><input type="number" id="hzTypingDelayMin"></div>
-                  <div class="form-group"><label>输入流控 (最大值)</label><input type="number" id="hzTypingDelayMax"></div>
+                  <div class="form-group"><label>随机种子</label><input type="number" id="hzRandomSeed" placeholder="留空则随机"></div>
+                  <div class="form-group"><label>输入流控 (最小值)</label><input type="number" id="hzTypingDelayMin" step="0.01"></div>
+                  <div class="form-group"><label>输入流控 (最大值)</label><input type="number" id="hzTypingDelayMax" step="0.01"></div>
+                  <div class="form-group"><label>错误停顿 (最小值)</label><input type="number" id="hzTypoDelayMin" step="0.01"></div>
+                  <div class="form-group"><label>错误停顿 (最大值)</label><input type="number" id="hzTypoDelayMax" step="0.01"></div>
+                  <div class="form-group"><label>退格延迟 (最小值)</label><input type="number" id="hzBackspaceDelayMin" step="0.01"></div>
+                  <div class="form-group"><label>退格延迟 (最大值)</label><input type="number" id="hzBackspaceDelayMax" step="0.01"></div>
+                  <div class="form-group"><label>点击偏移 X (最大值)</label><input type="number" id="hzClickOffsetXMax"></div>
+                  <div class="form-group"><label>点击偏移 Y (最大值)</label><input type="number" id="hzClickOffsetYMax"></div>
                 </div>
               </div>
 

@@ -1,12 +1,8 @@
 import { fetchJson } from '../utils/api.js';
-import { store } from '../state/store.js';
 import { toast } from '../ui/toast.js';
 
-// DOM Elements
-const configMsg = document.getElementById("configMsg");
 const saveBtn = document.getElementById("saveConfig");
 
-// Humanized Elements
 const hzPreset = document.getElementById("hzPreset");
 const applyHzPreset = document.getElementById("applyHzPreset");
 const hzEnabled = document.getElementById("hzEnabled");
@@ -21,7 +17,6 @@ const hzClickOffsetXMax = document.getElementById("hzClickOffsetXMax");
 const hzClickOffsetYMax = document.getElementById("hzClickOffsetYMax");
 const hzRandomSeed = document.getElementById("hzRandomSeed");
 
-// Discovery Elements
 const discoveryEnabled = document.getElementById("discoveryEnabled");
 const discoverySubnet = document.getElementById("discoverySubnet");
 
@@ -29,7 +24,7 @@ const hzInputs = [
   hzEnabled, hzTypoProbability, hzTypingDelayMin, hzTypingDelayMax,
   hzTypoDelayMin, hzTypoDelayMax, hzBackspaceDelayMin, hzBackspaceDelayMax,
   hzClickOffsetXMax, hzClickOffsetYMax, hzRandomSeed,
-  discoveryEnabled, discoverySubnet
+  discoveryEnabled, discoverySubnet,
 ];
 
 const HZ_PRESETS = {
@@ -50,15 +45,25 @@ const HZ_PRESETS = {
   },
 };
 
-const HZ_PRESET_KEYS = ["typo_probability", "typing_delay_min", "typing_delay_max"];
+const HZ_PRESET_KEYS = [
+  "typo_probability",
+  "typing_delay_min",
+  "typing_delay_max",
+  "typo_delay_min",
+  "typo_delay_max",
+  "backspace_delay_min",
+  "backspace_delay_max",
+  "click_offset_x_max",
+  "click_offset_y_max",
+];
 
 export function initConfig() {
     if (saveBtn) saveBtn.addEventListener("click", saveConfig);
-    
+
     if (applyHzPreset) {
         applyHzPreset.addEventListener("click", () => {
-            if (hzPreset.value === "custom") return;
-            applyHumanizedPreset(hzPreset.value);
+            if (hzPreset?.value === "custom") return;
+            applyHumanizedPreset(hzPreset?.value);
         });
     }
 
@@ -71,7 +76,7 @@ export function initConfig() {
     }
 
     hzInputs.forEach(input => {
-        if(input) {
+        if (input) {
             input.addEventListener("input", refreshHumanizedPreview);
             input.addEventListener("change", refreshHumanizedPreview);
         }
@@ -81,27 +86,25 @@ export function initConfig() {
 }
 
 export async function loadConfig() {
-    const r = await fetchJson("/api/config/");
+    const r = await fetchJson("/api/config/", { silentErrors: true });
     if (!r.ok) {
         toast.error("加载配置失败");
         return;
     }
-    
+
     const data = r.data;
     setFormValues(data);
-    store.setState({ config: data });
 }
 
 export async function saveConfig() {
-    if(saveBtn) {
+    if (saveBtn) {
         saveBtn.disabled = true;
         saveBtn.textContent = "保存中...";
     }
 
-    const currentConfig = store.getState().config || {};
     const parsedHumanized = buildHumanizedFromForm();
     const humanizedError = validateHumanizedForm(parsedHumanized);
-    
+
     if (humanizedError) {
         toast.error(humanizedError);
         resetSaveBtn();
@@ -109,9 +112,8 @@ export async function saveConfig() {
     }
 
     const body = {
-        ...currentConfig,
         discovery_enabled: Boolean(discoveryEnabled ? discoveryEnabled.checked : false),
-        discovery_subnet: (discoverySubnet ? discoverySubnet.value : "").trim() || currentConfig.discovery_subnet,
+        discovery_subnet: (discoverySubnet ? discoverySubnet.value : "").trim(),
         humanized: parsedHumanized,
     };
 
@@ -119,12 +121,12 @@ export async function saveConfig() {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
+        silentErrors: true,
     });
 
     if (r.ok) {
         toast.success("配置已保存");
-        if (configMsg) configMsg.textContent = "配置已保存";
-        loadConfig(); // Reload to sync
+        await loadConfig();
     } else {
         toast.error(`保存失败: ${r.status}`);
     }
@@ -132,9 +134,9 @@ export async function saveConfig() {
 }
 
 function resetSaveBtn() {
-    if(saveBtn) {
+    if (saveBtn) {
         saveBtn.disabled = false;
-        saveBtn.textContent = "保存全局配置";
+        saveBtn.textContent = "持久化当前配置";
     }
 }
 
@@ -153,59 +155,74 @@ function detectHumanizedPreset(cfg) {
 
 function refreshHumanizedPreview() {
     const cfg = buildHumanizedFromForm();
-    if(hzPreset) hzPreset.value = detectHumanizedPreset(cfg);
+    if (hzPreset) hzPreset.value = detectHumanizedPreset(cfg);
 }
 
 function applyHumanizedPreset(presetName) {
     const preset = HZ_PRESETS[presetName];
     if (!preset) return;
-    
-    if(hzTypoProbability) hzTypoProbability.value = preset.typo_probability;
-    if(hzTypingDelayMin) hzTypingDelayMin.value = preset.typing_delay_min;
-    if(hzTypingDelayMax) hzTypingDelayMax.value = preset.typing_delay_max;
-    if(hzTypoDelayMin) hzTypoDelayMin.value = preset.typo_delay_min;
-    if(hzTypoDelayMax) hzTypoDelayMax.value = preset.typo_delay_max;
-    if(hzBackspaceDelayMin) hzBackspaceDelayMin.value = preset.backspace_delay_min;
-    if(hzBackspaceDelayMax) hzBackspaceDelayMax.value = preset.backspace_delay_max;
-    if(hzClickOffsetXMax) hzClickOffsetXMax.value = preset.click_offset_x_max;
-    if(hzClickOffsetYMax) hzClickOffsetYMax.value = preset.click_offset_y_max;
-    
-    if(hzPreset) hzPreset.value = presetName;
+
+    if (hzTypoProbability) hzTypoProbability.value = preset.typo_probability;
+    if (hzTypingDelayMin) hzTypingDelayMin.value = preset.typing_delay_min;
+    if (hzTypingDelayMax) hzTypingDelayMax.value = preset.typing_delay_max;
+    if (hzTypoDelayMin) hzTypoDelayMin.value = preset.typo_delay_min;
+    if (hzTypoDelayMax) hzTypoDelayMax.value = preset.typo_delay_max;
+    if (hzBackspaceDelayMin) hzBackspaceDelayMin.value = preset.backspace_delay_min;
+    if (hzBackspaceDelayMax) hzBackspaceDelayMax.value = preset.backspace_delay_max;
+    if (hzClickOffsetXMax) hzClickOffsetXMax.value = preset.click_offset_x_max;
+    if (hzClickOffsetYMax) hzClickOffsetYMax.value = preset.click_offset_y_max;
+
+    if (hzPreset) hzPreset.value = presetName;
 }
 
 function setFormValues(data) {
     const hz = data.humanized || {};
-    if(hzEnabled) hzEnabled.checked = Boolean(hz.enabled);
-    if(hzTypoProbability) hzTypoProbability.value = hz.typo_probability ?? 0.03;
-    if(hzTypingDelayMin) hzTypingDelayMin.value = hz.typing_delay_min ?? 0.04;
-    if(hzTypingDelayMax) hzTypingDelayMax.value = hz.typing_delay_max ?? 0.18;
-    if(hzTypoDelayMin) hzTypoDelayMin.value = hz.typo_delay_min ?? 0.04;
-    if(hzTypoDelayMax) hzTypoDelayMax.value = hz.typo_delay_max ?? 0.12;
-    if(hzBackspaceDelayMin) hzBackspaceDelayMin.value = hz.backspace_delay_min ?? 0.02;
-    if(hzBackspaceDelayMax) hzBackspaceDelayMax.value = hz.backspace_delay_max ?? 0.08;
-    if(hzClickOffsetXMax) hzClickOffsetXMax.value = hz.click_offset_x_max ?? 4;
-    if(hzClickOffsetYMax) hzClickOffsetYMax.value = hz.click_offset_y_max ?? 4;
-    if(hzRandomSeed) hzRandomSeed.value = hz.random_seed ?? "";
-    
-    if(discoveryEnabled) discoveryEnabled.checked = Boolean(data.discovery_enabled);
-    if(discoverySubnet) discoverySubnet.value = data.discovery_subnet || "";
+    if (hzEnabled) hzEnabled.checked = Boolean(hz.enabled);
+    if (hzTypoProbability) hzTypoProbability.value = hz.typo_probability ?? 0.03;
+    if (hzTypingDelayMin) hzTypingDelayMin.value = hz.typing_delay_min ?? 0.04;
+    if (hzTypingDelayMax) hzTypingDelayMax.value = hz.typing_delay_max ?? 0.18;
+    if (hzTypoDelayMin) hzTypoDelayMin.value = hz.typo_delay_min ?? 0.04;
+    if (hzTypoDelayMax) hzTypoDelayMax.value = hz.typo_delay_max ?? 0.12;
+    if (hzBackspaceDelayMin) hzBackspaceDelayMin.value = hz.backspace_delay_min ?? 0.02;
+    if (hzBackspaceDelayMax) hzBackspaceDelayMax.value = hz.backspace_delay_max ?? 0.08;
+    if (hzClickOffsetXMax) hzClickOffsetXMax.value = hz.click_offset_x_max ?? 4;
+    if (hzClickOffsetYMax) hzClickOffsetYMax.value = hz.click_offset_y_max ?? 4;
+    if (hzRandomSeed) hzRandomSeed.value = hz.random_seed ?? "";
+
+    if (discoveryEnabled) discoveryEnabled.checked = Boolean(data.discovery_enabled);
+    if (discoverySubnet) discoverySubnet.value = data.discovery_subnet || "";
 
     refreshHumanizedPreview();
 }
 
+function numberValue(input, fallback = 0) {
+    if (!input) return fallback;
+    const raw = String(input.value ?? '').trim();
+    return raw === '' ? fallback : Number(raw);
+}
+
 function buildHumanizedFromForm() {
     const seedText = (hzRandomSeed ? hzRandomSeed.value : "").trim();
+    const clickOffsetXMax = numberValue(hzClickOffsetXMax, 0);
+    const clickOffsetYMax = numberValue(hzClickOffsetYMax, 0);
+
     return {
         enabled: Boolean(hzEnabled ? hzEnabled.checked : false),
-        typo_probability: Number(hzTypoProbability.value || 0),
-        typing_delay_min: Number(hzTypingDelayMin.value || 0),
-        typing_delay_max: Number(hzTypingDelayMax.value || 0),
-        typo_delay_min: Number(hzTypoDelayMin.value || 0),
-        typo_delay_max: Number(hzTypoDelayMax.value || 0),
-        backspace_delay_min: Number(hzBackspaceDelayMin.value || 0),
-        backspace_delay_max: Number(hzBackspaceDelayMax.value || 0),
-        click_offset_x_max: Number(hzClickOffsetXMax.value || 0),
-        click_offset_y_max: Number(hzClickOffsetYMax.value || 0),
+        typing_delay_min: numberValue(hzTypingDelayMin, 0),
+        typing_delay_max: numberValue(hzTypingDelayMax, 0),
+        typo_probability: numberValue(hzTypoProbability, 0),
+        typo_delay_min: numberValue(hzTypoDelayMin, 0),
+        typo_delay_max: numberValue(hzTypoDelayMax, 0),
+        backspace_delay_min: numberValue(hzBackspaceDelayMin, 0),
+        backspace_delay_max: numberValue(hzBackspaceDelayMax, 0),
+        click_offset_x_min: -clickOffsetXMax,
+        click_offset_x_max: clickOffsetXMax,
+        click_offset_y_min: -clickOffsetYMax,
+        click_offset_y_max: clickOffsetYMax,
+        move_duration_min: 0.2,
+        move_duration_max: 0.7,
+        move_steps_min: 8,
+        move_steps_max: 24,
         random_seed: seedText === "" ? null : Number(seedText),
     };
 }

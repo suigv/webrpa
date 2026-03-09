@@ -19,28 +19,53 @@ export function localizeValue(val) {
     const s = String(val);
     if (FIELD_VALUE_MAP[s]) return FIELD_VALUE_MAP[s];
     if (s.startsWith("<") && s.endsWith(">")) {
+        return "";
+    }
+    return s;
+}
+
+function placeholderForValue(val) {
+    if (val === null || val === undefined) return "";
+    const s = String(val);
+    if (s.startsWith("<") && s.endsWith(">")) {
         const key = s.slice(1, -1);
         return `请输入 ${FIELD_LABEL_MAP[key] || key}`;
     }
-    return s;
+    return "";
 }
 
 export function renderCommonFields(container, task, showOptional = false) {
     if (!container || !task) return;
     const payload = task.example_payload || {};
     const requiredKeys = task.required || [];
-    container.innerHTML = "";
+    container.replaceChildren();
 
     Object.keys(payload).forEach(key => {
         const isReq = requiredKeys.includes(key);
-        const val = localizeValue(payload[key]);
+        const value = localizeValue(payload[key]);
+        const placeholder = placeholderForValue(payload[key]);
         const div = document.createElement("div");
         div.className = `form-group ${isReq ? '' : 'field-optional'}`;
         div.style.display = (isReq || showOptional) ? "flex" : "none";
-        div.innerHTML = `
-            <label>${FIELD_LABEL_MAP[key] || key}${isReq ? ' <span class="text-error">*</span>' : ''}</label>
-            <input data-payload-key="${key}" type="text" value="${val}">
-        `;
+
+        const label = document.createElement("label");
+        label.textContent = FIELD_LABEL_MAP[key] || key;
+        if (isReq) {
+            const requiredMark = document.createElement("span");
+            requiredMark.className = 'text-error';
+            requiredMark.textContent = ' *';
+            label.appendChild(requiredMark);
+        }
+
+        const input = document.createElement("input");
+        input.dataset.payloadKey = key;
+        input.type = "text";
+        input.value = value;
+        if (placeholder) {
+            input.placeholder = placeholder;
+        }
+
+        div.append(label, input);
         container.appendChild(div);
     });
 }
