@@ -8,7 +8,8 @@
 - `ExecutionContext.session.defaults` 已作为最小任务级接缝落地，运行时连接值可来自 payload、`_target` 与 manifest 默认值，同时保持显式 action 参数优先
 - UI 状态观察覆盖已保守扩展到 `timeline_candidates`、`follow_targets` 与集合首项别名，不改变顶层观察结果形状
 - 有界页面辅助能力已补齐，`ui.navigate_to` 与 `ui.fill_form` 可用于页面级导航和表单驱动，不扩大为通用恢复系统
-- `x_mobile_login` 已完成重复 `device_ip` / `package` 运行时接线收口，并保持既有 status / message 契约；相关登录工作流验证已通过
+- `x_mobile_login` 已完成重复 runtime 接线收口：当前验证明确覆盖 `device_ip` 不再在步骤中重复传递，且相关步骤不再显式重复声明 `package`；既有 status / message 契约保持不变，相关登录工作流验证已通过
+- `/web` 仍只在 smoke 范围内声明为静态控制台入口，`/ws/logs` 已补上专用 route 回归测试
 - 运行时控制面验证波次已完成，包含定向测试、`MYT_ENABLE_RPC=0` 启动与 `/health` smoke
 
 ## 部分完成

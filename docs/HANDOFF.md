@@ -9,6 +9,14 @@
 - Goal: 可独立运行的 Web/RPA 自动化平台（插件化执行 + 控制平面）
 - Canonical progress doc: `docs/project_progress.md`
 
+### Canonical doc ownership
+
+- `README.md`: entrypoint and summary only.
+- `docs/project_progress.md`: canonical capability and progress ledger.
+- `docs/current_main_status.md`: short canonical status ledger.
+- `docs/HANDOFF.md`: continuation runbook, alignment workflow, and evidence handoff.
+- `docs/README.md`: optional index only, not canonical.
+
 ## 2) Current Snapshot (Update this first)
 
 - Phase: **2026-03-09 executor wave and docs-sync refresh completed for this batch**
@@ -18,7 +26,9 @@
   - `ExecutionContext.session.defaults` is the minimal task-scoped seam, with explicit action params still winning over session defaults and raw payload fallback
   - UI-state observation coverage expanded conservatively with `timeline_candidates`, `follow_targets`, and first-item aliases without changing the top-level result shape
   - Bounded helpers `ui.navigate_to` and `ui.fill_form` are part of the completed rollout, but they remain bounded navigation/form helpers, not workflow-level recovery
-  - `x_mobile_login` can drop repeated runtime plumbing through manifest or `_target` session defaults while preserving status and message contracts
+  - `x_mobile_login` wording is narrowed to repeated runtime plumbing only: `device_ip` is covered via `_target`-derived/session defaults, while `package` is only claimed as no longer needing per-step repetition, without implying `_target` sources it
+  - `/web` remains documented only as the smoke-backed static console entrypoint
+  - `/ws/logs` keeps user-facing documentation only because the dedicated route regression now covers ping and filtered broadcast behavior
   - Runtime/control-plane validation for the same wave is backed by targeted tests plus `MYT_ENABLE_RPC=0` startup and `/health` smoke evidence
 - Current docs-sync evidence chain:
   - summary: `.sisyphus/evidence/20260309-docs-progress-sync-summary.md`
@@ -47,11 +57,11 @@
    - UI-state observation coverage now includes `timeline_candidates`, `follow_targets`, and first-item aliases without a result-shape redesign.
 4. Recorded bounded workflow-helper progress from the same wave:
    - `ui.navigate_to` and `ui.fill_form` are completed bounded helpers, not a broad recovery framework.
-   - `x_mobile_login` reduced repeated runtime plumbing through manifest or `_target` defaults while keeping `status` and `message` contracts stable.
+   - `x_mobile_login` reduced repeated runtime plumbing through manifest defaults and `_target`-derived session defaults while keeping `status` and `message` contracts stable, without claiming `_target` directly provides `package`.
 5. Linked the completed wave back to validation evidence already on hand:
-   - `.sisyphus/evidence/task-8-login-workflow.txt` covers targeted login workflow tests plus the `login completed` runtime smoke.
-   - `.sisyphus/evidence/task-9-runtime-plane.txt` covers targeted runtime/control-plane tests plus `MYT_ENABLE_RPC=0` startup and `/health` smoke.
-   - `.sisyphus/evidence/task-7-recovery-gate.txt` keeps workflow-level conservative recovery extraction explicitly **DEFERRED**.
+   - `.sisyphus/evidence/20260309-docs-progress-sync-summary.md` and `.sisyphus/evidence/20260309-docs-progress-sync-validation.md` together cover the targeted login workflow tests plus the `login completed` runtime smoke for this docs-sync wave.
+   - `.sisyphus/evidence/20260309-docs-progress-sync-summary.md` and `.sisyphus/evidence/20260309-docs-progress-sync-validation.md` together cover the targeted runtime/control-plane validation plus `MYT_ENABLE_RPC=0` startup and `/health` smoke conclusion.
+   - `.sisyphus/evidence/20260309-docs-progress-sync-summary.md` and `.sisyphus/evidence/20260309-docs-progress-sync-validation.md` keep workflow-level conservative recovery extraction explicitly **DEFERRED** for this handoff trail.
 6. Earlier completed work from the previous rollout remains valid and available as branch context:
    - `ui-state-service-unified` rollout and final validation wave
    - `docs/plugin_input_contract.md`, `docs/monitoring_rollout.md`, `docs/stale_running_recovery_tuning.md`
@@ -143,6 +153,10 @@
     - clarified public account-pool/data APIs and task metrics/catalog endpoints
     - clarified that `web/js/features/tasks.js` exists but `web/index.html` does not yet expose an independent task page
     - aligned desktop-embed examples with the current `127.0.0.1:8001` baseline
+27. Tightened weakly anchored public claims for the doc/code alignment task:
+- narrowed `x_mobile_login` wording so docs no longer imply `_target` directly provides `package`
+    - kept `/web` at static-entry smoke scope only
+    - retained `/ws/logs` in user-facing docs because `tests/test_websocket_logs_route.py` now exercises ping plus filtered broadcast delivery
 
 ## 4) Open Items (Next work queue)
 
@@ -165,12 +179,51 @@ workflow-level conservative recovery 继续按 DEFERRED 处理，不要改写成
 每完成一个子项即更新 docs/project_progress.md，并执行所需门禁与 `/health` 验证。
 ```
 
-## 6) Required Validation Commands
+## 6) Alignment runbook
+
+### 6.1 Use the claim inventory first
+
+- Treat `config/doc_claims.yaml` as the bounded inventory for canonical capability, contract, workflow, validation, deferred, and watchpoint claims.
+- Before editing canonical docs, check whether the wording belongs to an existing claim, a deferred item, or a next-step watchpoint.
+- If the claim inventory already bounds the wording, clean up the prose to match it. Do not restate validator rules in full here.
+- If a new long-lived canonical claim is needed, add or update the inventory and keep the allowed surfaces aligned with the ownership list above.
+
+### 6.2 Run the doc validators
+
+- Docs-only alignment work is docs-only, no runtime commands needed.
+- From repo root, use the deterministic guards that CI also uses:
+
+```bash
+python tools/check_doc_claims.py
+python tools/check_evidence_chain.py
+```
+
+- `tools/check_doc_claims.py` checks the bounded claim inventory, anchors, and canonical surface usage.
+- `tools/check_evidence_chain.py` checks evidence naming, required triplets, and the exact docs-only wording allowance.
+- Only move to broader runtime commands when the change introduces or depends on new executable behavior.
+
+### 6.3 Decide between wording cleanup and new tests
+
+- Choose wording cleanup when docs are broader than what current code, tests, or evidence prove. Narrow the claim to the supported behavior.
+- Choose new tests or a new executable anchor when you want to keep or add a stronger user-facing claim that is not yet backed by code-level or route-level verification.
+- If the strongest safe statement is still narrower than the old wording, prefer the narrower wording. Don't add speculative tests just to preserve marketing language.
+- If a route, workflow, or contract stays documented as supported, keep at least one concrete code, test, or evidence anchor behind that claim.
+
+### 6.4 When evidence chains are required
+
+- Any meaningful alignment change needs an evidence chain when the diff alone is not enough for the next reviewer to reconstruct the claim, validation path, and conclusion.
+- New alignment-topic evidence under `.sisyphus/evidence/` should use one shared `YYYYMMDD-<topic>` prefix with `summary`, `commands`, and `validation` files.
+- For docs-only alignment waves, the commands record may say exactly `docs-only, no runtime commands needed`.
+- Historical `task-*` evidence stays grandfathered. Do not rename old files just to match the newer pattern.
+
+## 7) Required Validation Commands
 
 Run from repository root:
 
 ```bash
 ./.venv/bin/python tools/update_project_progress.py
+./.venv/bin/python tools/check_doc_claims.py
+./.venv/bin/python tools/check_evidence_chain.py
 ./.venv/bin/python tools/check_no_legacy_imports.py
 ./.venv/bin/python tools/check_plugin_manifest_inputs.py
 ./.venv/bin/python -m pytest tests -q
@@ -184,21 +237,21 @@ Alternative one-shot gate:
 ./tools/run_migration_gates.sh
 ```
 
-## 7) Evidence and Review Handoff Workflow
+## 8) Evidence and Review Handoff Workflow
 
-### 7.1 When Evidence Is Required
+### 8.1 When Evidence Is Required
 
 - 凡是“有意义变更”都要留证据，最少覆盖：改了什么、怎么验证、产物放在哪里。
 - 如果变更无法只靠 diff 说清楚，评审与交接必须能从本文和 `.sisyphus/evidence/` 直接追到验证过程。
 - docs-only 变更可以只留文档证据，不必为了补证据额外跑会产生工作区噪音的运行命令。
 
-### 7.2 Minimum Evidence by Change Type
+### 8.2 Minimum Evidence by Change Type
 
 - 代码变更：至少包含目标范围说明、执行过的命令、命令结果摘要、相关测试或门禁结论。
 - 文档或配置变更：至少包含受影响文件、需要同步的约束或基线、人工校对结论；如果没有执行命令，要明确写 `docs-only, no runtime commands needed`。
 - 发布、回滚或运维变更：至少包含环境范围、渲染或部署命令、生成的配置产物、上线后检查点。
 
-### 7.3 Storage and Naming Rules
+### 8.3 Storage and Naming Rules
 
 - 所有交接证据统一放在 `.sisyphus/evidence/`。
 - 文件名统一用 `YYYYMMDD-<topic>-<kind>.<ext>`，其中：
@@ -208,14 +261,14 @@ Alternative one-shot gate:
 - 一个完整证据链至少要能让评审看到 3 类东西：变更说明、命令或人工检查记录、最终交接结论。
 - 如果同一主题有多份证据，保持同一个日期与 `topic` 前缀，按 `kind` 区分，不要发散命名。
 
-### 7.4 Handoff Update Rules
+### 8.4 Handoff Update Rules
 
 - `docs/HANDOFF.md` 是交接与证据流程的单一事实来源。
 - 每次完成有意义变更后，在本文 `Current Snapshot` 写结果，在 `What Was Recently Done` 记录事实，在 `Open Items` 更新后续动作。
 - 交接说明必须点名本次证据链的文件路径，至少引用一个 summary 文件和一个 validation 或 commands 文件。
 - 如果证据缺项，交接说明里要直接写缺什么、为什么缺、由谁在下一步补齐。
 
-### 7.5 Reproducible Review Path
+### 8.5 Reproducible Review Path
 
 评审或发布接力时，按这个顺序检查：
 
@@ -224,7 +277,7 @@ Alternative one-shot gate:
 3. 先看 `summary`，再看 `commands` 或 `validation`，最后看 `handoff`，确认变更、验证、结论能串成闭环。
 4. 如果交接提到代码门禁，就按本文 `Required Validation Commands` 复跑；如果交接写明 `docs-only, no runtime commands needed`，则只做文档比对与路径核对。
 
-### 7.6 Example Evidence Chain
+### 8.6 Example Evidence Chain
 
 下面是一个完整但精简的例子，展示从变更到交接的最小闭环：
 
@@ -237,7 +290,7 @@ Alternative one-shot gate:
 - `20260308-handoff-evidence-commands.txt` 写明：`docs-only, no runtime commands needed`，并记录人工检查项，例如“核对 `.sisyphus/evidence/` 命名规则与 `docs/project_progress.md` 的待办是否一致”。
 - `20260308-handoff-evidence-handoff.md` 写明：评审先读 `docs/HANDOFF.md`，再按同前缀查看 `summary` 与 `commands`，确认这是 docs-only 改动，无需额外运行服务门禁。
 
-## 8) Risks / Notes
+## 9) Risks / Notes
 
 - Runtime DB file `config/data/tasks.db` is environment artifact; do not include in commits.
 - Keep standalone constraints: no `tasks.*` and no `app.*` imports.
