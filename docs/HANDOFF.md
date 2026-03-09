@@ -16,6 +16,7 @@
 - `docs/current_main_status.md`: short canonical status ledger.
 - `docs/HANDOFF.md`: continuation runbook, alignment workflow, and evidence handoff.
 - `docs/README.md`: optional index only, not canonical.
+- Validator-facing rule: status or progress claims belong in the canonical status docs, while this file owns handoff steps, evidence paths, and continuation guidance.
 
 ## 2) Current Snapshot (Update this first)
 
@@ -25,6 +26,7 @@
   - `wait_until` polling semantics are tightened and covered for success-before-timeout, timeout text, `on_timeout goto`, `on_fail` fallback, cancellation, and dynamic re-polling against changing context data
   - `ExecutionContext.session.defaults` is the minimal task-scoped seam, with explicit action params still winning over session defaults and raw payload fallback
   - UI-state observation coverage expanded conservatively with `timeline_candidates`, `follow_targets`, and first-item aliases without changing the top-level result shape
+  - Shared UI-state semantics are further tightened: result construction, timing, and browser polling now flow through shared helpers, and native bindings live in a dedicated registry module
   - Bounded helpers `ui.navigate_to` and `ui.fill_form` are part of the completed rollout, but they remain bounded navigation/form helpers, not workflow-level recovery
   - `x_mobile_login` wording is narrowed to repeated runtime plumbing only: `device_ip` is covered via `_target`-derived/session defaults, while `package` is only claimed as no longer needing per-step repetition, without implying `_target` sources it
   - `/web` remains documented only as the smoke-backed static console entrypoint
@@ -55,6 +57,7 @@
    - `wait_until` polling semantics and dynamic re-poll coverage are now treated as completed and evidenced.
    - `ExecutionContext.session.defaults` is documented as the minimal task-scoped seam with explicit-param override order preserved.
    - UI-state observation coverage now includes `timeline_candidates`, `follow_targets`, and first-item aliases without a result-shape redesign.
+   - Shared UI-state helpers now own result construction, timing, and browser polling semantics, while native binding registration has been split out of the adapter.
 4. Recorded bounded workflow-helper progress from the same wave:
    - `ui.navigate_to` and `ui.fill_form` are completed bounded helpers, not a broad recovery framework.
    - `x_mobile_login` reduced repeated runtime plumbing through manifest defaults and `_target`-derived session defaults while keeping `status` and `message` contracts stable, without claiming `_target` directly provides `package`.

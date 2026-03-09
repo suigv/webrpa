@@ -68,6 +68,7 @@ curl http://127.0.0.1:8001/health
 
 ### Orchestration Boundary
 - `core/task_control.py` is orchestration glue, not a home for business policy.
+- Keep execution lifecycle in dedicated services such as `core/task_execution.py`; keep terminal retry/failure policy in dedicated services such as `core/task_finalizer.py`; keep observability aggregation/export in dedicated services such as `core/task_metrics.py`.
 - Business feedback or compensation rules must live behind a dedicated hook/service, not inline inside task failure/scheduling paths.
 - Keep `core/task_store.py`, `core/task_queue.py`, and `core/task_events.py` as the persistence/queue/event boundaries; avoid moving those concerns back into routes or plugins.
 
@@ -179,6 +180,9 @@ uv run ruff format .
   - Keep the action narrowly scoped; if the change needs selector frameworks, shared state policy, or complex connection management, extract helpers or submodules instead of growing a god-file.
 - Task system key classes:
   - `TaskController` (`core/task_control.py`)
+  - `TaskExecutionService` (`core/task_execution.py`)
+  - `TaskAttemptFinalizer` (`core/task_finalizer.py`)
+  - `TaskMetricsService` (`core/task_metrics.py`)
   - `TaskQueue` (`core/task_queue.py`)
   - `TaskStore` (`core/task_store.py`)
   - `TaskEventEmitter` (`core/task_events.py`)

@@ -31,6 +31,8 @@
 - 取消任务
 - 任务事件流（SSE）：`GET /api/tasks/{task_id}/events`
 - 任务指标：`GET /api/tasks/metrics`（JSON）与 `GET /api/tasks/metrics/prometheus`（Prometheus 抓取格式）
+- 任务控制面内部已拆分为 façade + service：`core/task_control.py` 只保留入口编排，执行循环在 `core/task_execution.py`，终态/重试规则在 `core/task_finalizer.py`，指标聚合与导出在 `core/task_metrics.py`
+- `api/mappers/task_mapper.py` 统一承接 `TaskRecord` -> API DTO 映射，避免在 route 中散落时间/targets 转换逻辑
 
 ### 3.1) 外部监控接线资产
 
@@ -43,9 +45,11 @@
 
 - `Runner` 支持匿名脚本与命名任务分发
 - YAML 插件通过 `engine/plugin_loader.py` 加载并交给解释器执行
+- 运行时与 `GET /api/tasks/catalog` 共用同一插件缓存视图；catalog 的显式 refresh 会同步更新现有 runtime 视图
 - 内置动作注册器（浏览器动作、凭据动作等）
 - `wait_until` 已补齐 success-before-timeout、`on_timeout goto`、`on_fail`、取消态与动态重轮询语义
 - `ExecutionContext.session.defaults` 已作为最小任务级默认值接缝落地，保持显式 action 参数优先，其次 session defaults，最后回退到原始 payload
+- `UIStateService` 的结果构造、timing 与 browser polling 语义已收口到共享 helper；native bindings 也已拆到独立 registry，降低 browser/native 平行演化风险
 
 ### 5) 浏览器拟人化能力
 
@@ -78,7 +82,7 @@
 ## 项目结构
 
 ```text
-api/                # FastAPI 路由与服务入口
+api/                # FastAPI 路由、DTO mapper 与服务入口
 core/               # 配置、任务控制、队列、存储、设备管理
 engine/             # 解析器、解释器、动作注册、插件加载
 hardware_adapters/  # 浏览器/RPC 适配
@@ -142,6 +146,12 @@ curl http://127.0.0.1:8001/health
 ---
 
 ## 项目进度文档
+
+- 文档层级约定，单点可判定：
+  - `README.md` = entrypoint / summary only
+  - `docs/project_progress.md` + `docs/current_main_status.md` = canonical status / progress
+  - `docs/HANDOFF.md` = continuation / runbook / evidence workflow
+  - `docs/README.md` = optional index, not canonical
 
 - 进度与功能清单：`docs/project_progress.md`
 - 当前 main 已完成/未完成事项：`docs/current_main_status.md`

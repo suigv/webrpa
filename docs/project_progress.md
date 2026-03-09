@@ -10,6 +10,7 @@
 - 最近重点：
   - 保留 `UIStateService` rollout 基线，继续沿用统一状态结果形状与 thin action wrapper，不把 recovery 或 fallback 逻辑塞进 service
   - 收紧 `wait_until` 轮询语义，并补齐 success-before-timeout、timeout 文案、`on_timeout goto`、`on_fail` fallback、取消返回与动态重轮询回归覆盖
+  - 收口 `UIStateService` 共享语义：结果构造、timing 与 browser polling 改走共享 helper，native binding 注册拆到独立模块，减少 browser/native 的平行演化面
   - 落地 `ExecutionContext.session.defaults` 最小任务级接缝，明确覆盖顺序为显式 action 参数优先，其次 session defaults，最后才回退到原始 payload
   - 保守扩展 UI-state 观察覆盖，新增 `timeline_candidates`、`follow_targets` 绑定与集合首项别名，不改顶层观察结果形状
   - 补齐有界页面级 composite helper，`ui.navigate_to` 与 `ui.fill_form` 现在用于导航和表单驱动，不把它们写成工作流级恢复系统
@@ -24,6 +25,7 @@
 - 健康检查、debug/internal-only 运行时直跑入口、`/web` 静态控制台入口（smoke-backed，`api/server.py`）
 - 设备管理：列表/详情/状态/启停（`api/routes/devices.py`）
 - 任务管理：创建/列表/详情/取消 + SSE 事件流（`api/routes/task_routes.py`）
+- 任务响应映射边界：`api/mappers/task_mapper.py` 统一承接 `TaskRecord` -> `TaskResponse` / `TaskDetailResponse` 转换，路由层保持 thin HTTP coordination
 - 配置管理：读取/更新系统配置与 humanized 配置（`api/routes/config.py`）
 - 数据接口：账号/位置/网站读写与账号导入解析（`api/routes/data.py`）
 - 日志 WebSocket 路由（`/ws/logs`，由 `tests/test_websocket_logs_route.py` 覆盖 ping/filter 广播路径；`api/routes/websocket.py`）
@@ -41,6 +43,7 @@
 - 账号凭据动作：`credentials.load`（`engine/actions/credential_actions.py`）
 - UI/RPC 动作：点击、滑动、输入、按键、截图、节点查询等（`engine/actions/ui_actions.py`）
 - `UIStateService` 统一状态契约、native/browser adapters、thin wrappers 与兼容动作入口已落地，且新增 `timeline_candidates` / `follow_targets` 观察绑定与集合首项别名（相关实现位于 `engine/actions/` 与 `engine/conditions.py`）
+- `UIStateService` 的共享结果构造、timing 与 browser polling helper 已落地，native binding 注册已拆到独立模块，并补充了 helper/adapter 语义回归测试
 - `ExecutionContext.session.defaults` 已作为最小任务级默认值接缝落地，RPC / package / credentials 消费侧可按显式参数 → session defaults → payload 的顺序取值
 - 有界 composite helper `ui.navigate_to` 与 `ui.fill_form` 已可用于页面导航和表单驱动，范围仍限定在页面级封装
 - SDK 动作绑定 facade + `sdk_*_support.py` helper 分层（`engine/actions/sdk_actions.py`）

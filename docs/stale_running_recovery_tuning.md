@@ -14,7 +14,7 @@ The repo-backed baselines below are therefore scenario-based, not environment-na
 
 ## Current Behavior
 
-`api/server.py:86` and `core/task_control.py:707` use the same parsing rule:
+`api/server.py` and `core/task_execution.py` use the same parsing rule:
 
 - default value: `300`
 - invalid integer input: falls back to `300`
@@ -23,10 +23,10 @@ The repo-backed baselines below are therefore scenario-based, not environment-na
 `tests/test_health_smoke.py:18` verifies the invalid-input fallback.
 `tests/test_health_smoke.py:31` verifies negative clamping.
 
-On controller startup, `TaskController.start()` calls stale-running recovery before the worker loop starts, `core/task_control.py:52` and `core/task_control.py:679`.
-Recovered rows come from `TaskStore.recover_stale_running_tasks(...)`, which moves stale `running` tasks back to `pending`, clears stale execution timestamps, and keeps them resumable, `core/task_store.py:336`.
+On controller startup, `TaskController.start()` delegates to `TaskExecutionService.start()`, which runs stale-running recovery before the worker loop starts.
+Recovered rows come from `TaskStore.recover_stale_running_tasks(...)`, which moves stale `running` tasks back to `pending`, clears stale execution timestamps, and keeps them resumable.
 
-Each recovered task is re-enqueued and emits `task.recovered_stale_running` with `stale_after_seconds`, `core/task_control.py:692`.
+Each recovered task is re-enqueued and emits `task.recovered_stale_running` with `stale_after_seconds`.
 
 ## Repo-Backed Baselines
 
@@ -36,8 +36,8 @@ Use `300` seconds as the normal baseline.
 
 Why this is the repo-backed default:
 
-- `api/server.py:87` defaults to `300`
-- `core/task_control.py:709` defaults to `300`
+- `api/server.py` defaults to `300`
+- `core/task_execution.py` defaults to `300`
 - `docs/plugin_input_contract.md:58` documents `300` as the default
 - `docs/HANDOFF.md:93` records `300` as the stale threshold baseline
 
@@ -80,7 +80,7 @@ If you pick a non-default steady-state value, treat that as an operator-managed 
 
 ### `/health`
 
-`GET /health` reports the effective parsed value at `task_policy.stale_running_seconds`, `api/server.py:72`.
+`GET /health` reports the effective parsed value at `task_policy.stale_running_seconds`, `api/server.py`.
 This is the first place to confirm the live process is using the intended threshold, especially if deployment wrappers or service managers set environment variables before startup.
 
 ### Recovery Events
@@ -91,7 +91,7 @@ When a controller restart finds stale `running` rows older than the computed cut
 2. re-enqueues them with their existing scheduling metadata
 3. emits `task.recovered_stale_running`
 
-The event payload includes `stale_after_seconds`, so the recovery record itself shows which threshold was applied, `core/task_control.py:698`.
+The event payload includes `stale_after_seconds`, so the recovery record itself shows which threshold was applied.
 
 ### Monitoring Path
 

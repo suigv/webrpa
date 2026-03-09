@@ -32,6 +32,7 @@ The current repo exposes three real caller surfaces that operators should treat 
    - Unknown keys inside `payload` reach the same plugin validation path.
 3. `GET /api/tasks/catalog`
    - `api/routes/task_routes.py` builds `required`, `defaults`, and `example_payload` from plugin manifests.
+   - Catalog refresh uses the same shared plugin loader as runtime dispatch, so refreshed catalog output and current runner/controller plugin visibility stay aligned.
    - Callers should refresh from this catalog when payload mismatches show up during rollout.
 
 Current repo docs that already show plugin payload examples and should stay aligned with manifest inputs:

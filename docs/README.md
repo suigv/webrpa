@@ -1,5 +1,10 @@
 # Docs Index
 
+This file is an optional index for docs navigation.
+It is not a canonical source of truth.
+Canonical status surfaces live in `docs/project_progress.md` and `docs/current_main_status.md`.
+`docs/HANDOFF.md` owns continuation, runbook, and evidence workflow guidance.
+
 ## Active
 
 - `project_progress.md` - Current capability snapshot, the workflow-roadmap executor wave layered on the UIStateService baseline, and rolling next steps
