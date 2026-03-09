@@ -316,3 +316,74 @@ def test_native_adapter_dm_unread_binding_exposes_first_target_alias(monkeypatch
     assert result.ok is True
     assert result.state.state_id == "available"
     assert result.raw_details["target"] == targets[0]
+
+
+def test_native_adapter_timeline_candidates_binding_exposes_first_candidate_alias(monkeypatch: MonkeyPatch) -> None:
+    @final
+    class FakeRpc:
+        def init(self, ip: object, port: object, timeout: object) -> bool:
+            _ = (ip, port, timeout)
+            return True
+
+        def close(self) -> None:
+            return None
+
+        def dump_node_xml_ex(self, work_mode: object, timeout_ms: object) -> str:
+            _ = (work_mode, timeout_ms)
+            return """
+            <hierarchy>
+              <node text="" resource-id="" class="android.widget.FrameLayout" package="com.twitter.android" bounds="[0,0][1080,2200]">
+                <node text="" resource-id="com.twitter.android:id/row" class="android.widget.LinearLayout" package="com.twitter.android" bounds="[0,420][1080,980]">
+                  <node text="PayPay 配布 5000円" class="android.widget.TextView" package="com.twitter.android" bounds="[50,450][900,520]"/>
+                </node>
+              </node>
+            </hierarchy>
+            """
+
+        def dump_node_xml(self, dump_all: object) -> str:
+            _ = dump_all
+            return ""
+
+    monkeypatch.setattr(state_actions, "MytRpc", FakeRpc)
+
+    service = NativeUIStateAdapter(binding_id="timeline_candidates")
+    ctx = ExecutionContext(payload={"device_ip": "192.168.1.214", "package": "com.twitter.android"})
+    result = service.match_state(ctx, expected_state_ids=["available", "missing"])
+    candidates = cast(list[object], result.raw_details["candidates"])
+
+    assert result.ok is True
+    assert result.state.state_id == "available"
+    assert result.raw_details["candidate"] == candidates[0]
+    assert result.raw_details["supported_state_ids"] == ["available", "missing", "unknown"]
+
+
+def test_native_adapter_follow_targets_binding_treats_missing_as_matched_state(monkeypatch: MonkeyPatch) -> None:
+    @final
+    class FakeRpc:
+        def init(self, ip: object, port: object, timeout: object) -> bool:
+            _ = (ip, port, timeout)
+            return True
+
+        def close(self) -> None:
+            return None
+
+        def dump_node_xml_ex(self, work_mode: object, timeout_ms: object) -> str:
+            _ = (work_mode, timeout_ms)
+            return "<hierarchy />"
+
+        def dump_node_xml(self, dump_all: object) -> str:
+            _ = dump_all
+            return ""
+
+    monkeypatch.setattr(state_actions, "MytRpc", FakeRpc)
+
+    service = NativeUIStateAdapter(binding_id="follow_targets")
+    ctx = ExecutionContext(payload={"device_ip": "192.168.1.214", "package": "com.twitter.android"})
+    result = service.match_state(ctx, expected_state_ids=["available", "missing"])
+
+    assert result.ok is True
+    assert result.code == "ok"
+    assert result.status == "matched"
+    assert result.state.state_id == "missing"
+    assert result.message == "no follow targets extracted"
+    assert result.raw_details["legacy_code"] == "follow_targets_missing"
