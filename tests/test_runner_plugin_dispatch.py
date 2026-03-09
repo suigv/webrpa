@@ -3,7 +3,7 @@ from typing import Any
 
 from engine.action_registry import get_registry
 from engine.models.manifest import PluginManifest
-from engine.models.runtime import ActionResult
+from engine.models.runtime import ActionResult, ExecutionContext
 from engine.plugin_loader import PluginEntry
 from engine.runner import Runner
 
@@ -208,3 +208,226 @@ def test_runner_plugin_action_outside_allowed_namespace_is_denied(tmp_path: Path
     assert result["checkpoint"] == "dispatch"
     assert result["code"] == "action_not_allowed"
     assert "outside allowed namespaces" in result["message"]
+
+
+def test_runner_plugin_manifest_default_package_reaches_action_when_step_omits_it(tmp_path: Path, monkeypatch):
+    manifest_payload = {
+        "api_version": "v1",
+        "kind": "plugin",
+        "name": "secure_plugin",
+        "version": "1.0.0",
+        "display_name": "Secure Plugin",
+        "inputs": [
+            {"name": "device_ip", "type": "string", "required": True},
+            {"name": "package", "type": "string", "required": False, "default": "com.demo.app"},
+        ],
+    }
+    entry = _make_plugin_entry(
+        tmp_path,
+        manifest_payload,
+        (
+            "version: v1\n"
+            "workflow: secure_plugin\n"
+            "steps:\n"
+            "  - kind: action\n"
+            "    action: app.open\n"
+            "    params: {}\n"
+            "  - kind: stop\n"
+            "    status: success\n"
+            "    message: ok\n"
+        ),
+    )
+    runner = Runner()
+    runner._plugin_loader._plugins = {"secure_plugin": entry}
+
+    calls: list[tuple[str, int, int]] = []
+    packages: list[str] = []
+
+    class _RecordingRpc:
+        def init(self, ip: str, port: int, timeout: int) -> bool:
+            calls.append((ip, port, timeout))
+            return True
+
+        def openApp(self, package: str) -> bool:
+            packages.append(package)
+            return True
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr("engine.actions.ui_actions.MytRpc", _RecordingRpc)
+
+    result = runner.run({"task": "secure_plugin", "device_ip": "192.168.1.2"})
+
+    assert result["ok"] is True
+    assert result["status"] == "success"
+    assert calls == [("192.168.1.2", 30002, 5)]
+    assert packages == ["com.demo.app"]
+
+
+def test_runner_plugin_session_defaults_do_not_leak_into_vars_and_explicit_params_win(tmp_path: Path):
+    manifest_payload = {
+        "api_version": "v1",
+        "kind": "plugin",
+        "name": "secure_plugin",
+        "version": "1.0.0",
+        "display_name": "Secure Plugin",
+        "inputs": [
+            {"name": "device_ip", "type": "string", "required": True},
+            {"name": "package", "type": "string", "required": False, "default": "com.demo.app"},
+        ],
+    }
+    entry = _make_plugin_entry(
+        tmp_path,
+        manifest_payload,
+        (
+            "version: v1\n"
+            "workflow: secure_plugin\n"
+            "steps:\n"
+            "  - kind: action\n"
+            "    action: core.capture_session_default_precedence\n"
+            "    params:\n"
+            "      package: com.demo.override\n"
+            "      device_ip: 10.0.0.8\n"
+            "  - kind: stop\n"
+            "    status: success\n"
+            "    message: ok\n"
+        ),
+    )
+    runner = Runner()
+    runner._plugin_loader._plugins = {"secure_plugin": entry}
+
+    captured: dict[str, object] = {}
+
+    def capture_defaults(params: dict[str, object], context: ExecutionContext) -> ActionResult:
+        captured["package_param"] = params.get("package")
+        captured["device_ip_param"] = params.get("device_ip")
+        captured["package_default"] = context.get_session_default("package")
+        captured["device_ip_default"] = context.get_session_default("device_ip")
+        captured["vars"] = dict(context.vars)
+        return ActionResult(ok=True, code="ok")
+
+    get_registry().register("core.capture_session_default_precedence", capture_defaults)
+
+    result = runner.run({"task": "secure_plugin", "device_ip": "192.168.1.20"})
+
+    assert result["ok"] is True
+    assert result["status"] == "success"
+    assert captured == {
+        "package_param": "com.demo.override",
+        "device_ip_param": "10.0.0.8",
+        "package_default": "com.demo.app",
+        "device_ip_default": "192.168.1.20",
+        "vars": {},
+    }
+
+
+def test_runner_plugin_explicit_package_param_overrides_manifest_default(tmp_path: Path, monkeypatch):
+    manifest_payload = {
+        "api_version": "v1",
+        "kind": "plugin",
+        "name": "secure_plugin",
+        "version": "1.0.0",
+        "display_name": "Secure Plugin",
+        "inputs": [
+            {"name": "device_ip", "type": "string", "required": True},
+            {"name": "package", "type": "string", "required": False, "default": "com.demo.default"},
+        ],
+    }
+    entry = _make_plugin_entry(
+        tmp_path,
+        manifest_payload,
+        (
+            "version: v1\n"
+            "workflow: secure_plugin\n"
+            "steps:\n"
+            "  - kind: action\n"
+            "    action: app.open\n"
+            "    params:\n"
+            "      package: com.demo.override\n"
+            "  - kind: stop\n"
+            "    status: success\n"
+            "    message: ok\n"
+        ),
+    )
+    runner = Runner()
+    runner._plugin_loader._plugins = {"secure_plugin": entry}
+
+    packages: list[str] = []
+
+    class _RecordingRpc:
+        def init(self, ip: str, port: int, timeout: int) -> bool:
+            return True
+
+        def openApp(self, package: str) -> bool:
+            packages.append(package)
+            return True
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr("engine.actions.ui_actions.MytRpc", _RecordingRpc)
+
+    result = runner.run({"task": "secure_plugin", "device_ip": "192.168.1.2"})
+
+    assert result["ok"] is True
+    assert result["status"] == "success"
+    assert packages == ["com.demo.override"]
+
+
+def test_runner_plugin_target_device_ip_reaches_action_when_payload_omits_runtime_plumbing(tmp_path: Path, monkeypatch):
+    manifest_payload = {
+        "api_version": "v1",
+        "kind": "plugin",
+        "name": "secure_plugin",
+        "version": "1.0.0",
+        "display_name": "Secure Plugin",
+        "inputs": [
+            {"name": "device_ip", "type": "string", "required": False},
+            {"name": "package", "type": "string", "required": False, "default": "com.demo.app"},
+        ],
+    }
+    entry = _make_plugin_entry(
+        tmp_path,
+        manifest_payload,
+        (
+            "version: v1\n"
+            "workflow: secure_plugin\n"
+            "steps:\n"
+            "  - kind: action\n"
+            "    action: app.open\n"
+            "    params: {}\n"
+            "  - kind: stop\n"
+            "    status: success\n"
+            "    message: ok\n"
+        ),
+    )
+    runner = Runner()
+    runner._plugin_loader._plugins = {"secure_plugin": entry}
+
+    calls: list[tuple[str, int, int]] = []
+    packages: list[str] = []
+
+    class _RecordingRpc:
+        def init(self, ip: str, port: int, timeout: int) -> bool:
+            calls.append((ip, port, timeout))
+            return True
+
+        def openApp(self, package: str) -> bool:
+            packages.append(package)
+            return True
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr("engine.actions.ui_actions.MytRpc", _RecordingRpc)
+
+    result = runner.run({
+        "task": "secure_plugin",
+        "_target": {"device_ip": "10.0.0.5", "rpa_port": 39002},
+    })
+
+    assert result["ok"] is True
+    assert result["status"] == "success"
+    assert calls == [("10.0.0.5", 39002, 5)]
+    assert packages == ["com.demo.app"]
