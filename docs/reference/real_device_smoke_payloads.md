@@ -82,22 +82,49 @@ curl -s http://127.0.0.1:8000/api/runtime/execute \
 
 ## 4. 异步提交真实登录任务
 
+> `POST /api/tasks/` 是托管任务入口；当前必须显式提供 `targets`（推荐）或兼容输入 `devices`。缺失目标的托管任务请求会被拒绝，不再隐式回落到默认设备。
+
+提交前可先查看 catalog，确认当前插件 manifest 暴露的输入字段：
+
+```bash
+curl -s http://127.0.0.1:8000/api/tasks/catalog | jq
+```
+
+异步提交示例：
+
 ```bash
 curl -s http://127.0.0.1:8000/api/tasks/ \
   -H 'Content-Type: application/json' \
   -d '{
     "task": "x_mobile_login",
     "payload": {
-      "device_ip": "192.168.1.20",
       "package": "com.twitter.android",
       "acc": "your_account",
       "pwd": "your_password",
       "two_factor_code": "",
       "fa2_secret": "",
       "status_hint": "runtime"
-    }
+    },
+    "targets": [
+      { "device_id": 1, "cloud_id": 2 }
+    ],
+    "priority": 50,
+    "max_retries": 0,
+    "retry_backoff_seconds": 2,
+    "run_at": null
   }' | jq
 ```
+
+列表查询：
+
+```bash
+curl -s http://127.0.0.1:8000/api/tasks/ | jq
+```
+
+重点字段：
+- 列表项名称看 `task_name`，不是旧的 `display_name`
+- 目标设备看 `targets`
+- 任务生命周期建议结合 SSE 事件流观察
 
 查询详情：
 
@@ -105,11 +132,22 @@ curl -s http://127.0.0.1:8000/api/tasks/ \
 curl -s http://127.0.0.1:8000/api/tasks/<task_id> | jq
 ```
 
+详情重点字段：
+- `result`：任务执行结果对象
+- `error`：失败原因文本
+- 不再依赖旧的 `payload` / `message` 字段表达结果
+
 查看事件流：
 
 ```bash
 curl -N http://127.0.0.1:8000/api/tasks/<task_id>/events
 ```
+
+补充说明：
+- `DELETE /api/tasks/` 清理的是托管任务状态与对应事件流水，不是整套 runtime/full reset。
+- 如果仍有 `running` 任务，清理会被拒绝，避免把运行态与历史事件清到不一致状态。
+- `config/data/tasks.db` 是运行时 SQLite 产物，不应作为源码提交。
+- `config/data/.migration_shared.json.lock` 是共享 JSON 存储的预期 lock artifact，应忽略而不是纳入版本控制。
 
 ## 5. 本地逐个验证 `mytos.*` 原子动作
 

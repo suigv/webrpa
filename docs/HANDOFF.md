@@ -42,6 +42,10 @@
   - Runtime/control-plane targeted tests: pass
   - RPC-disabled startup + `/health`: pass
   - Workflow-level conservative recovery extraction: **DEFERRED**, keep as watchpoint only
+- Additional 2026-03-09 cleanup-batch status:
+  - Managed-task/frontend cleanup batch is closed for this round: shared task submission now sends `Content-Type: application/json`, task/log/store boundaries are aligned, and docs/ignore rules match the current control-plane contract
+  - Focused validation for this cleanup batch passed: `tests/test_task_control_plane.py`, `tests/test_task_cancellation.py`, `tests/test_task_scheduling_events.py`
+  - Temporary `MYT_ENABLE_RPC=0` startup smoke on `127.0.0.1:8001` passed for `/health`, `/api/config/`, `/api/tasks/catalog`, and `/api/tasks/`; missing-target managed submit correctly returns 422
 
 ## 3) What Was Recently Done
 
@@ -158,14 +162,20 @@
     - aligned desktop-embed examples with the current `127.0.0.1:8001` baseline
 27. Tightened weakly anchored public claims for the doc/code alignment task:
 - narrowed `x_mobile_login` wording so docs no longer imply `_target` directly provides `package`
-    - kept `/web` at static-entry smoke scope only
-    - retained `/ws/logs` in user-facing docs because `tests/test_websocket_logs_route.py` now exercises ping plus filtered broadcast delivery
+   - kept `/web` at static-entry smoke scope only
+   - retained `/ws/logs` in user-facing docs because `tests/test_websocket_logs_route.py` now exercises ping plus filtered broadcast delivery
+28. Closed the managed-task/frontend cleanup batch for this round:
+   - aligned frontend task submission on the shared `task_service.js` path, including explicit `Content-Type: application/json` for `POST /api/tasks/`
+   - kept `fetchJson(..., { silentErrors: true })` as the transport-level escape hatch so task/config flows own user-facing feedback without duplicate toasts
+   - verified log DOM ownership stays in `web/js/features/logs.js` and the UI store stays limited to `currentTab` + `currentUnitLogTarget`
+   - re-ran targeted control-plane regressions and an RPC-disabled temporary startup smoke covering `/health`, `/api/config/`, `/api/tasks/catalog`, `/api/tasks/`, plus 422 rejection for managed submits missing `targets/devices`
 
 ## 4) Open Items (Next work queue)
 
 - [x] Independent re-audit on latest F1/F2/F4 evidence for external sign-off - PASS (2026-03-05, session `ses_3434d6326ffehaYo5gU4vpd7Gj`)
 - [x] UIStateService unified rollout implementation and final validation - COMPLETE
 - [x] 2026-03-09 docs-sync batch complete - surfaces aligned and evidence chain closed (`.sisyphus/evidence/20260309-docs-progress-sync-summary.md`, `.sisyphus/evidence/20260309-docs-progress-sync-commands.md`, `.sisyphus/evidence/20260309-docs-progress-sync-validation.md`)
+- [x] Managed-task/frontend/docs cleanup batch complete - task submit contract, frontend JSON submission path, runtime-artifact hygiene notes, and focused validation are all aligned for this round
 - [ ] Keep workflow-level conservative recovery extraction deferred until the same bounded ordered chain repeats across multiple workflows
 - [ ] External monitoring deployment: apply `docs/monitoring_rollout.md` and `config/monitoring/rendered/single-node-example/` in a real Prometheus/Alertmanager environment
 - [ ] Runtime rollout execution: align `MYT_STRICT_PLUGIN_UNKNOWN_INPUTS` and `MYT_TASK_STALE_RUNNING_SECONDS` with actual deployment manifests and verify the live `/health` policy snapshot
@@ -296,4 +306,7 @@ Alternative one-shot gate:
 ## 9) Risks / Notes
 
 - Runtime DB file `config/data/tasks.db` is environment artifact; do not include in commits.
+- Lock file `config/data/.migration_shared.json.lock` is an expected runtime artifact; keep it ignored rather than tracked.
+- `DELETE /api/tasks/` clears managed task state plus task events only; it is not a full runtime reset and should stay blocked while tasks are still running.
+- Preferred managed-task submit contract is `task + payload + targets`; `devices` remains compatibility-only input, and `script` is low-level/compatibility surface.
 - Keep standalone constraints: no `tasks.*` and no `app.*` imports.

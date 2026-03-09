@@ -25,6 +25,7 @@ logs/
 # Runtime data
 config/data/*.db
 config/data/*.backup
+config/data/.migration_shared.json.lock
 
 # OS
 .DS_Store

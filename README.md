@@ -29,12 +29,77 @@
 - 创建任务（支持 `priority` / `run_at` / `max_retries` / `retry_backoff_seconds`）
 - 查询任务列表/详情
 - 取消任务
+- 任务目录：`GET /api/tasks/catalog`
 - 任务事件流（SSE）：`GET /api/tasks/{task_id}/events`
 - 任务指标：`GET /api/tasks/metrics`（JSON）与 `GET /api/tasks/metrics/prometheus`（Prometheus 抓取格式）
 - 任务控制面内部已拆分为 façade + service：`core/task_control.py` 只保留入口编排，执行循环在 `core/task_execution.py`，终态/重试规则在 `core/task_finalizer.py`，指标聚合与导出在 `core/task_metrics.py`
 - `api/mappers/task_mapper.py` 统一承接 `TaskRecord` -> API DTO 映射，避免在 route 中散落时间/targets 转换逻辑
+- 显式 target 已成为任务控制面的正式字段：route / store / mapper / execution / runtime 统一围绕 `targets` 工作，不再依赖把控制面元数据塞回 `payload`
 
-### 3.1) 外部监控接线资产
+#### 3.1) 任务请求/响应契约摘要
+
+`POST /api/tasks/` 请求体：
+
+```json
+{
+  "task": "x_mobile_login",
+  "payload": {
+    "acc": "demo_user",
+    "pwd": "demo_pass"
+  },
+  "targets": [
+    { "device_id": 1, "cloud_id": 2 }
+  ],
+  "priority": 50,
+  "max_retries": 0,
+  "retry_backoff_seconds": 2,
+  "run_at": null
+}
+```
+
+说明：
+- `task` 与 `payload` 是异步任务的主入口
+- 托管任务提交必须显式提供 `targets` 或兼容输入 `devices`；两者都缺失时请求会被拒绝
+- `targets` 是推荐目标声明方式；每项为 `{device_id, cloud_id}`
+- `devices` 仍可作为兼容输入，但控制面内部会归一到显式 `targets`
+- HTTP 调用方应以 `Content-Type: application/json` 发送该请求体；前端共享提交入口已按此契约对齐
+- `script` 仅用于匿名脚本直提交流程；常规插件任务优先使用 `task + payload`
+
+`GET /api/tasks/` 列表项核心字段：
+
+```json
+{
+  "task_id": "...",
+  "task_type": "script",
+  "task_name": "x_mobile_login",
+  "devices": [1],
+  "targets": [{ "device_id": 1, "cloud_id": 2 }],
+  "status": "pending",
+  "created_at": "2026-03-09T01:02:03Z",
+  "retry_count": 0,
+  "max_retries": 0,
+  "retry_backoff_seconds": 2,
+  "next_retry_at": null,
+  "priority": 50,
+  "run_at": null
+}
+```
+
+`GET /api/tasks/{task_id}` 在列表字段基础上额外返回：
+
+```json
+{
+  "result": {},
+  "error": null
+}
+```
+
+说明：
+- 前端列表页应使用 `task_name`，不是旧的 `display_name`
+- 任务详情页应消费 `result` / `error`，不是旧的 `payload` / `message`
+- SSE 事件流用于生命周期追踪；详情接口本身不承担事件聚合职责
+
+### 3.2) 外部监控接线资产
 
 - Prometheus 抓取模板：`config/monitoring/prometheus/task_metrics_scrape.example.yml`
 - 告警规则模板：`config/monitoring/prometheus/task_metrics_alerts.yml`（含 `NewTaskStaleRunningRecovered`）
@@ -49,6 +114,7 @@
 - 内置动作注册器（浏览器动作、凭据动作等）
 - `wait_until` 已补齐 success-before-timeout、`on_timeout goto`、`on_fail`、取消态与动态重轮询语义
 - `ExecutionContext.session.defaults` 已作为最小任务级默认值接缝落地，保持显式 action 参数优先，其次 session defaults，最后回退到原始 payload
+- `ExecutionContext.runtime` 已承接任务运行时信封；target / task_id / cloud_target_label 等控制面信息不再通过 payload 私有字段注入
 - `UIStateService` 的结果构造、timing 与 browser polling 语义已收口到共享 helper；native bindings 也已拆到独立 registry，降低 browser/native 平行演化风险
 
 ### 5) 浏览器拟人化能力
@@ -71,7 +137,7 @@
 - `plugins/x_mobile_login`
   - 当前主分支内置的 X/Twitter 移动端登录工作流
   - 负责登录阶段状态判定与运行时接线验证
-  - 已验证可通过 manifest 输入默认值与 `_target` 派生的 session defaults 收口重复 runtime 接线；当前回归只明确覆盖 `device_ip` 无需在步骤里重复传递，且相关步骤不必再显式重复声明 `package`，同时保持既有 status / message 契约
+  - 已验证可通过 manifest 输入默认值与 `_target` 派生的 session defaults 收口重复接线；当前回归只明确覆盖 `device_ip` 无需在步骤里重复传递，且相关步骤不必再显式重复声明 `package`，同时保持既有 status / message 契约
 - `plugins/hezi_sdk_probe`
   - SDK 能力探测与基础连通性验证
 - `plugins/mytos_device_setup`
