@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+from dataclasses import dataclass
 from typing import Any, Callable
 
 from core.task_store import TaskRecord
@@ -125,3 +127,54 @@ class TaskTargetRuntimeResolver:
             "rpa_port": int(cloud.get("rpa_port", 0)),
             "availability_state": availability_state,
         }, None
+
+
+@dataclass
+class PreparedTaskTarget:
+    target: dict[str, Any]
+    payload: dict[str, Any]
+    runtime: dict[str, Any]
+    error: dict[str, Any] | None = None
+
+
+class TaskDispatchRuntimeResolver:
+    def __init__(self, target_runtime_resolver: TaskTargetRuntimeResolver, plugin_loader: Any) -> None:
+        self._target_runtime_resolver = target_runtime_resolver
+        self._plugin_loader = plugin_loader
+
+    def prepare(
+        self,
+        task_id: str,
+        task_name: str,
+        payload: dict[str, Any],
+        devices: list[int],
+        targets: list[dict[str, int]] | None = None,
+    ) -> list[PreparedTaskTarget]:
+        payload_for_run = dict(payload)
+        dispatch_targets = normalize_dispatch_targets(targets, devices)
+        should_resolve_target = (os.getenv("MYT_ENABLE_RPC", "1") != "0") and self._plugin_loader.has(task_name)
+
+        prepared_targets: list[PreparedTaskTarget] = []
+        for target in dispatch_targets:
+            target_runtime: dict[str, Any] | None = None
+            target_error: dict[str, Any] | None = None
+            if should_resolve_target:
+                target_runtime, target_error = self._target_runtime_resolver.resolve(target, enforce_availability=True)
+
+            runtime_target = target_runtime or target
+            target_payload = dict(payload_for_run)
+            runtime = {
+                "task_id": task_id,
+                "cloud_target": f"Unit #{target.get('device_id')}-{target.get('cloud_id')}",
+                "target": runtime_target,
+            }
+
+            prepared_targets.append(
+                PreparedTaskTarget(
+                    target=runtime_target,
+                    payload=target_payload,
+                    runtime=runtime,
+                    error=target_error,
+                )
+            )
+        return prepared_targets

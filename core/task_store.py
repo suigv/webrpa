@@ -72,6 +72,7 @@ class TaskStore:
                         task_id TEXT PRIMARY KEY,
                         payload_json TEXT NOT NULL,
                         devices_json TEXT NOT NULL,
+                        targets_json TEXT,
                         ai_type TEXT NOT NULL,
                         idempotency_key TEXT,
                         status TEXT NOT NULL,
@@ -95,6 +96,8 @@ class TaskStore:
                     str(row[1])
                     for row in conn.execute("PRAGMA table_info(tasks)").fetchall()
                 }
+                if "targets_json" not in columns:
+                    _ = conn.execute("ALTER TABLE tasks ADD COLUMN targets_json TEXT")
                 if "retry_count" not in columns:
                     _ = conn.execute("ALTER TABLE tasks ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0")
                 if "max_retries" not in columns:
@@ -138,6 +141,7 @@ class TaskStore:
         task_id: str,
         payload: dict[str, Any],
         devices: list[int],
+        targets: list[dict[str, int]] | None,
         ai_type: str,
         idempotency_key: str | None,
         max_retries: int,
@@ -152,6 +156,7 @@ class TaskStore:
                     task_id=task_id,
                     payload=payload,
                     devices=devices,
+                    targets=targets,
                     ai_type=ai_type,
                     idempotency_key=idempotency_key,
                     max_retries=max_retries,
@@ -167,6 +172,7 @@ class TaskStore:
             task_id=task_id,
             payload=payload,
             devices=devices,
+            targets=targets,
             ai_type=ai_type,
             idempotency_key=idempotency_key,
             max_retries=max_retries,
@@ -180,6 +186,7 @@ class TaskStore:
         self,
         payload: dict[str, Any],
         devices: list[int],
+        targets: list[dict[str, int]] | None,
         ai_type: str,
         idempotency_key: str | None,
         max_retries: int,
@@ -193,6 +200,7 @@ class TaskStore:
                 return self.create_or_get_active_task(
                     payload=payload,
                     devices=devices,
+                    targets=targets,
                     ai_type=ai_type,
                     idempotency_key=idempotency_key,
                     max_retries=max_retries,
@@ -206,7 +214,7 @@ class TaskStore:
         if idempotency_key:
             existing = conn.execute(
                 """
-                SELECT task_id, payload_json, devices_json, ai_type, idempotency_key, status,
+                SELECT task_id, payload_json, devices_json, targets_json, ai_type, idempotency_key, status,
                        created_at, updated_at, started_at, finished_at,
                        result_json, error, retry_count, max_retries,
                        retry_backoff_seconds, next_retry_at, cancel_requested,
@@ -226,6 +234,7 @@ class TaskStore:
             task_id=task_id,
             payload=payload,
             devices=devices,
+            targets=targets,
             ai_type=ai_type,
             idempotency_key=idempotency_key,
             max_retries=max_retries,
@@ -246,6 +255,7 @@ class TaskStore:
         task_id: str,
         payload: dict[str, Any],
         devices: list[int],
+        targets: list[dict[str, int]] | None,
         ai_type: str,
         idempotency_key: str | None,
         max_retries: int,
@@ -257,17 +267,18 @@ class TaskStore:
         _ = conn.execute(
             """
             INSERT INTO tasks (
-                task_id, payload_json, devices_json, ai_type,
+                task_id, payload_json, devices_json, targets_json, ai_type,
                 idempotency_key,
                 status, created_at, updated_at,
                 retry_count, max_retries, retry_backoff_seconds, next_retry_at
                 , cancel_requested, priority, run_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 task_id,
                 json.dumps(payload, ensure_ascii=False),
                 json.dumps(devices, ensure_ascii=False),
+                json.dumps(targets, ensure_ascii=False) if targets is not None else None,
                 ai_type,
                 idempotency_key,
                 "pending",
@@ -283,37 +294,35 @@ class TaskStore:
             ),
         )
 
-    def _row_to_record(self, row: tuple[Any, ...], targets_json: str | None = None) -> TaskRecord:
+    def _row_to_record(self, row: tuple[Any, ...]) -> TaskRecord:
         payload = json.loads(str(row[1]))
         targets: list[dict[str, int]] | None = None
-        if targets_json:
+        if row[3]:
             try:
-                targets = json.loads(targets_json)
+                targets = json.loads(str(row[3]))
             except (ValueError, TypeError):
-                pass
-        if not targets:
-            targets = payload.get("_dispatch_targets") if isinstance(payload, dict) else None
+                targets = None
         return TaskRecord(
             task_id=str(row[0]),
             payload=payload,
             devices=json.loads(str(row[2])),
             targets=targets,
-            ai_type=str(row[3]),
-            idempotency_key=str(row[4]) if row[4] is not None else None,
-            status=str(row[5]),
-            created_at=str(row[6]),
-            updated_at=str(row[7]),
-            started_at=str(row[8]) if row[8] is not None else None,
-            finished_at=str(row[9]) if row[9] is not None else None,
-            result=json.loads(str(row[10])) if row[10] else None,
-            error=str(row[11]) if row[11] is not None else None,
-            retry_count=int(row[12]),
-            max_retries=int(row[13]),
-            retry_backoff_seconds=int(row[14]),
-            next_retry_at=str(row[15]) if row[15] is not None else None,
-            cancel_requested=bool(int(row[16])),
-            priority=int(row[17]),
-            run_at=str(row[18]) if row[18] is not None else None,
+            ai_type=str(row[4]),
+            idempotency_key=str(row[5]) if row[5] is not None else None,
+            status=str(row[6]),
+            created_at=str(row[7]),
+            updated_at=str(row[8]),
+            started_at=str(row[9]) if row[9] is not None else None,
+            finished_at=str(row[10]) if row[10] is not None else None,
+            result=json.loads(str(row[11])) if row[11] else None,
+            error=str(row[12]) if row[12] is not None else None,
+            retry_count=int(row[13]),
+            max_retries=int(row[14]),
+            retry_backoff_seconds=int(row[15]),
+            next_retry_at=str(row[16]) if row[16] is not None else None,
+            cancel_requested=bool(int(row[17])),
+            priority=int(row[18]),
+            run_at=str(row[19]) if row[19] is not None else None,
         )
 
     def get_task(self, task_id: str, conn: sqlite3.Connection | None = None) -> TaskRecord | None:
@@ -322,7 +331,7 @@ class TaskStore:
                 with self._connect() as tx_conn:
                     row = tx_conn.execute(
                         """
-                        SELECT task_id, payload_json, devices_json, ai_type, idempotency_key, status,
+                        SELECT task_id, payload_json, devices_json, targets_json, ai_type, idempotency_key, status,
                                created_at, updated_at, started_at, finished_at,
                                result_json, error, retry_count, max_retries,
                                retry_backoff_seconds, next_retry_at, cancel_requested,
@@ -334,7 +343,7 @@ class TaskStore:
         else:
             row = conn.execute(
                 """
-                SELECT task_id, payload_json, devices_json, ai_type, idempotency_key, status,
+                SELECT task_id, payload_json, devices_json, targets_json, ai_type, idempotency_key, status,
                        created_at, updated_at, started_at, finished_at,
                        result_json, error, retry_count, max_retries,
                        retry_backoff_seconds, next_retry_at, cancel_requested,
@@ -352,7 +361,7 @@ class TaskStore:
             with self._connect() as conn:
                 rows = conn.execute(
                     """
-                    SELECT task_id, payload_json, devices_json, ai_type, idempotency_key, status,
+                    SELECT task_id, payload_json, devices_json, targets_json, ai_type, idempotency_key, status,
                            created_at, updated_at, started_at, finished_at,
                            result_json, error, retry_count, max_retries,
                            retry_backoff_seconds, next_retry_at, cancel_requested,
@@ -369,7 +378,7 @@ class TaskStore:
             with self._connect() as conn:
                 rows = conn.execute(
                     """
-                    SELECT task_id, payload_json, devices_json, ai_type, idempotency_key, status,
+                    SELECT task_id, payload_json, devices_json, targets_json, ai_type, idempotency_key, status,
                            created_at, updated_at, started_at, finished_at,
                            result_json, error, retry_count, max_retries,
                            retry_backoff_seconds, next_retry_at, cancel_requested,
@@ -542,7 +551,7 @@ class TaskStore:
             with self._connect() as conn:
                 row = conn.execute(
                     """
-                    SELECT task_id, payload_json, devices_json, ai_type, idempotency_key, status,
+                    SELECT task_id, payload_json, devices_json, targets_json, ai_type, idempotency_key, status,
                            created_at, updated_at, started_at, finished_at,
                            result_json, error, retry_count, max_retries,
                            retry_backoff_seconds, next_retry_at, cancel_requested,

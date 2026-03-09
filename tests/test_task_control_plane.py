@@ -80,7 +80,7 @@ def test_task_control_plane_failed_flow():
 
 
 class _WrongPasswordRunner:
-    def run(self, script_payload, should_cancel=None):
+    def run(self, script_payload, should_cancel=None, runtime=None):
         return {"ok": False, "status": "failed", "message": "wrong password provided"}
 
 
@@ -208,6 +208,62 @@ def test_task_control_plane_list_contains_created_task():
         assert task_id in ids
 
 
+def test_task_control_plane_create_list_detail_share_task_mapping():
+    os.environ["MYT_TASK_QUEUE_BACKEND"] = "memory"
+    reset_task_controller_for_tests()
+    with TestClient(app) as client:
+        run_at = "2999-01-01T00:00:00+00:00"
+        normalized_run_at = "2999-01-01T00:00:00Z"
+        create = client.post(
+            "/api/tasks/",
+            json={
+                "task": "named-task",
+                "payload": {"foo": "bar"},
+                "targets": [
+                    {"device_id": 3, "cloud_id": 2},
+                    {"device_id": 3, "cloud_id": 4},
+                ],
+                "ai_type": "volc",
+                "max_retries": 2,
+                "retry_backoff_seconds": 5,
+                "priority": 80,
+                "run_at": run_at,
+            },
+        )
+        assert create.status_code == 200
+        created = create.json()
+
+        assert created["task_name"] == "named-task"
+        assert created["devices"] == [3]
+        assert created["targets"] == [{"device_id": 3, "cloud_id": 2}, {"device_id": 3, "cloud_id": 4}]
+        assert created["status"] == "pending"
+        assert created["max_retries"] == 2
+        assert created["retry_backoff_seconds"] == 5
+        assert created["priority"] == 80
+        assert created["run_at"] == normalized_run_at
+
+        task_id = created["task_id"]
+
+        listing = client.get("/api/tasks/?limit=50")
+        assert listing.status_code == 200
+        listed = next(item for item in listing.json() if item["task_id"] == task_id)
+
+        assert listed["task_name"] == created["task_name"]
+        assert listed["devices"] == created["devices"]
+        assert listed["targets"] == created["targets"]
+        assert listed["run_at"] == normalized_run_at
+
+        detail = client.get(f"/api/tasks/{task_id}")
+        assert detail.status_code == 200
+        detailed = detail.json()
+
+        assert detailed["task_name"] == created["task_name"]
+        assert detailed["devices"] == created["devices"]
+        assert detailed["targets"] == created["targets"]
+        assert detailed["run_at"] == normalized_run_at
+        assert detailed["error"] is None
+
+
 def test_duplicate_submit_with_same_idempotency_key_returns_same_task(tmp_path: Path):
     reset_task_controller_for_tests()
     db_path = tmp_path / "tasks_idempotency_duplicate_submit_test.db"
@@ -311,6 +367,7 @@ def test_idempotency_key_dedupes_running_task_across_controller_restart(tmp_path
         created = first_controller.submit_with_retry(
             payload={"task": "anonymous", "steps": []},
             devices=[1],
+            targets=None,
             ai_type="volc",
             max_retries=1,
             retry_backoff_seconds=1,
@@ -330,6 +387,7 @@ def test_idempotency_key_dedupes_running_task_across_controller_restart(tmp_path
         duplicate = restarted_controller.submit_with_retry(
             payload={"task": "anonymous", "steps": []},
             devices=[1],
+            targets=None,
             ai_type="volc",
             max_retries=1,
             retry_backoff_seconds=1,
@@ -362,6 +420,7 @@ def test_idempotency_key_dedupes_retry_scheduled_task_across_controller_restart(
         created = first_controller.submit_with_retry(
             payload={"task": "anonymous", "steps": []},
             devices=[1],
+            targets=None,
             ai_type="volc",
             max_retries=2,
             retry_backoff_seconds=60,
@@ -385,6 +444,7 @@ def test_idempotency_key_dedupes_retry_scheduled_task_across_controller_restart(
         duplicate = restarted_controller.submit_with_retry(
             payload={"task": "anonymous", "steps": []},
             devices=[1],
+            targets=None,
             ai_type="volc",
             max_retries=2,
             retry_backoff_seconds=60,
@@ -420,6 +480,7 @@ def test_stale_running_task_recovered_and_requeued_on_controller_start(tmp_path:
         created = first_controller.submit_with_retry(
             payload={"task": "anonymous", "steps": []},
             devices=[1],
+            targets=None,
             ai_type="volc",
             max_retries=0,
             retry_backoff_seconds=0,
@@ -463,7 +524,7 @@ def test_stale_running_task_recovered_and_requeued_on_controller_start(tmp_path:
 
 
 class _ImmediateSuccessRunner:
-    def run(self, script_payload, should_cancel=None):
+    def run(self, script_payload, should_cancel=None, runtime=None):
         return {"ok": True, "status": "completed", "message": "done"}
 
 
