@@ -2,84 +2,17 @@ from __future__ import annotations
 
 import json
 import time
-from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException, Query, Response
 from fastapi.responses import StreamingResponse
 
+from api.mappers.task_mapper import to_task_detail_response, to_task_response
 from core.task_control import get_task_controller
-from models.task import TaskDetailResponse, TaskMetricsResponse, TaskRequest, TaskResponse, TaskStatus, TaskTarget, TaskType
+from models.task import TaskDetailResponse, TaskMetricsResponse, TaskRequest, TaskResponse, TaskStatus
 
 
 router = APIRouter()
-
-
-def _parse_datetime(value: str | None) -> datetime | None:
-    if value is None:
-        return None
-    try:
-        if "+" in value or value.endswith("Z"):
-            return datetime.fromisoformat(value.replace("Z", "+00:00"))
-        return datetime.fromisoformat(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _extract_targets(record: Any) -> list[TaskTarget]:
-    raw_targets = record.payload.get("_dispatch_targets") if isinstance(record.payload, dict) else []
-    targets: list[TaskTarget] = []
-    if isinstance(raw_targets, list):
-        for item in raw_targets:
-            if not isinstance(item, dict):
-                continue
-            try:
-                targets.append(TaskTarget.model_validate(item))
-            except Exception:
-                continue
-    return targets
-
-
-def _to_task_response(record: Any) -> TaskResponse:
-    return TaskResponse(
-        task_id=record.task_id,
-        task_type=TaskType.SCRIPT,
-        task_name=str(record.payload.get("task") or "anonymous") if isinstance(record.payload, dict) else "anonymous",
-        devices=record.devices,
-        targets=_extract_targets(record),
-        ai_type=record.ai_type,
-        idempotency_key=record.idempotency_key,
-        status=TaskStatus(record.status),
-        created_at=_parse_datetime(record.created_at) or datetime.now(timezone.utc),
-        retry_count=record.retry_count,
-        max_retries=record.max_retries,
-        retry_backoff_seconds=record.retry_backoff_seconds,
-        next_retry_at=_parse_datetime(record.next_retry_at),
-        priority=record.priority,
-        run_at=_parse_datetime(record.run_at),
-    )
-
-
-def _to_task_detail(record: Any) -> TaskDetailResponse:
-    return TaskDetailResponse(
-        task_id=record.task_id,
-        task_type=TaskType.SCRIPT,
-        task_name=str(record.payload.get("task") or "anonymous") if isinstance(record.payload, dict) else "anonymous",
-        devices=record.devices,
-        targets=_extract_targets(record),
-        ai_type=record.ai_type,
-        idempotency_key=record.idempotency_key,
-        status=TaskStatus(record.status),
-        created_at=_parse_datetime(record.created_at) or datetime.now(timezone.utc),
-        retry_count=record.retry_count,
-        max_retries=record.max_retries,
-        retry_backoff_seconds=record.retry_backoff_seconds,
-        next_retry_at=_parse_datetime(record.next_retry_at),
-        priority=record.priority,
-        run_at=_parse_datetime(record.run_at),
-        result=record.result,
-        error=record.error,
-    )
 
 
 @router.post("/", response_model=TaskResponse)
@@ -97,21 +30,28 @@ def create_task(request: TaskRequest, x_idempotency_key: str | None = Header(def
             script_payload.update(request.payload)
 
     targets: list[dict[str, int]] = []
+    device_ids: list[int] = []
+    seen_device_ids: set[int] = set()
     if request.targets:
         for target in request.targets:
-            targets.append({"device_id": int(target.device_id), "cloud_id": int(target.cloud_id)})
+            normalized_target = {"device_id": int(target.device_id), "cloud_id": int(target.cloud_id)}
+            targets.append(normalized_target)
+            device_id = normalized_target["device_id"]
+            if device_id not in seen_device_ids:
+                seen_device_ids.add(device_id)
+                device_ids.append(device_id)
     elif request.devices:
         for device_id in request.devices:
-            targets.append({"device_id": int(device_id), "cloud_id": 1})
-
-    if targets:
-        script_payload["_dispatch_targets"] = targets
-
-    device_ids = sorted({int(item["device_id"]) for item in targets}) if targets else list(request.devices)
+            normalized_device_id = int(device_id)
+            if normalized_device_id not in seen_device_ids:
+                seen_device_ids.add(normalized_device_id)
+                device_ids.append(normalized_device_id)
+            targets.append({"device_id": normalized_device_id, "cloud_id": 1})
 
     record = controller.submit_with_retry(
         payload=script_payload,
         devices=device_ids,
+        targets=targets,
         ai_type=request.ai_type,
         max_retries=request.max_retries,
         retry_backoff_seconds=request.retry_backoff_seconds,
@@ -119,13 +59,13 @@ def create_task(request: TaskRequest, x_idempotency_key: str | None = Header(def
         run_at=request.run_at.isoformat() if request.run_at is not None else None,
         idempotency_key=idempotency_key,
     )
-    return _to_task_response(record)
+    return to_task_response(record)
 
 
 @router.get("/", response_model=list[TaskResponse])
 def list_tasks(limit: int = Query(default=100, ge=1, le=500)):
     controller = get_task_controller()
-    return [_to_task_response(item) for item in controller.list(limit=limit)]
+    return [to_task_response(item) for item in controller.list(limit=limit)]
 
 
 @router.delete("/")
@@ -203,7 +143,7 @@ def get_task(task_id: str):
     record = controller.get(task_id)
     if record is None:
         raise HTTPException(status_code=404, detail="task not found")
-    return _to_task_detail(record)
+    return to_task_detail_response(record)
 
 
 @router.post("/{task_id}/cancel")
