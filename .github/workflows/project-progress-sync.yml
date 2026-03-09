@@ -13,14 +13,121 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
+      - name: Install doc guardrail dependencies
+        run: python -m pip install pyyaml
+
+      - name: Determine changed paths and guardrail scope
+        id: scope
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base_sha="${{ github.event.pull_request.base.sha }}"
+            head_sha="${{ github.event.pull_request.head.sha }}"
+          elif [ -n "${{ github.event.before }}" ] && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
+            base_sha="${{ github.event.before }}"
+            head_sha="${{ github.sha }}"
+          else
+            base_sha="$(git rev-parse HEAD^)"
+            head_sha="${{ github.sha }}"
+          fi
+
+          git diff --name-only "$base_sha" "$head_sha" > .github/changed-paths.txt
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+
+          changed = [
+              line.strip()
+              for line in Path('.github/changed-paths.txt').read_text(encoding='utf-8').splitlines()
+              if line.strip()
+          ]
+
+          canonical_docs = {
+              'README.md',
+              'docs/project_progress.md',
+              'docs/current_main_status.md',
+              'docs/HANDOFF.md',
+              'docs/README.md',
+              'config/doc_claims.yaml',
+          }
+          docs_tools = {
+              'tools/update_project_progress.py',
+              'tools/check_doc_claims.py',
+              'tools/check_evidence_chain.py',
+              'tools/report_doc_claim_impact.py',
+          }
+          evidence_prefix = '.sisyphus/evidence/'
+
+          docs_tool_changed = any(path in docs_tools for path in changed)
+          evidence_changed = any(path.startswith(evidence_prefix) for path in changed)
+          claims_inventory_changed = 'config/doc_claims.yaml' in changed
+          canonical_doc_changed = any(path in canonical_docs for path in changed)
+          advisory_code_changed = any(
+              not (
+                  path in canonical_docs
+                  or path in docs_tools
+                  or path.startswith('docs/')
+                  or path.startswith(evidence_prefix)
+                  or path.startswith('.github/workflows/')
+              )
+              for path in changed
+          )
+
+          claim_mode = 'skip'
+          if docs_tool_changed or evidence_changed or claims_inventory_changed:
+              claim_mode = 'full'
+          elif canonical_doc_changed:
+              claim_mode = 'scoped'
+
+          evidence_mode = 'full' if docs_tool_changed or evidence_changed else 'skip'
+
+          output_path = Path(os.environ['GITHUB_OUTPUT'])
+          with output_path.open('a', encoding='utf-8') as output:
+              output.write(f'claim_mode={claim_mode}\n')
+              output.write(f'evidence_mode={evidence_mode}\n')
+              output.write(f'advisory_code_changed={str(advisory_code_changed).lower()}\n')
+          PY
+
       - name: Refresh project progress snapshot
         run: python tools/update_project_progress.py
 
       - name: Verify progress doc is up-to-date
         run: git diff --exit-code -- docs/project_progress.md
+
+      - name: Validate canonical doc claims (full)
+        if: steps.scope.outputs.claim_mode == 'full'
+        run: python tools/check_doc_claims.py
+
+      - name: Validate canonical doc claims (scoped)
+        if: steps.scope.outputs.claim_mode == 'scoped'
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          import sys
+
+          changed = [
+              line.strip()
+              for line in Path('.github/changed-paths.txt').read_text(encoding='utf-8').splitlines()
+              if line.strip()
+          ]
+          raise SystemExit(subprocess.run([sys.executable, 'tools/check_doc_claims.py', *changed], check=False).returncode)
+          PY
+
+      - name: Validate evidence chain (full)
+        if: steps.scope.outputs.evidence_mode == 'full'
+        run: python tools/check_evidence_chain.py
+
+      - name: Report impacted doc claims for changed code (advisory)
+        if: steps.scope.outputs.advisory_code_changed == 'true'
+        continue-on-error: true
+        run: python tools/report_doc_claim_impact.py --changed-paths-file .github/changed-paths.txt
