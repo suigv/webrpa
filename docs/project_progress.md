@@ -5,15 +5,16 @@
 
 ## 1. 当前阶段
 
-- 阶段：**UIStateService unified rollout completed and documented**
-- 核心状态：API、任务系统、插件执行、账号池、Web 控制台、配置管理、原生/RPC 与浏览器观察链路均可用；`UIStateService` 已作为统一只读状态契约落地，并完成插件迁移与验证收口
+- 阶段：**Workflow-roadmap executor wave landed on top of the UIStateService baseline**
+- 核心状态：API、任务系统、插件执行、账号池、Web 控制台、配置管理、原生/RPC 与浏览器观察链路均可用；`UIStateService` 统一只读状态契约仍是当前基线，其上又补齐了 `wait_until` 轮询语义、`ExecutionContext.session.defaults`、扩展 UI-state 观察覆盖，以及有界 `ui.navigate_to` / `ui.fill_form` 页面级 helper
 - 最近重点：
-  - 完成 `UIStateService` 统一契约，收敛原生端与浏览器端的状态识别结果形状，同时保留各自证据细节
-  - 完成 native/mobile 与 browser/web 双适配器接线，保持旧行为兼容，不把 recovery 或 fallback 逻辑塞进 service
-  - 完成 thin action wrapper 与动作注册接线，保留 legacy action 兼容面，工作流侧可经统一状态边界消费能力
-  - 完成 interpreter / condition 集成，沿用现有 YAML 模型与 cleanup 语义，不引入新的 DSL
-  - 完成 `x_mobile_login`、`dm_reply`、`nurture` 定向迁移，并对 `profile_clone` 做了目标明确的状态观察收口
-  - 完成 rollout 验证波次，覆盖 service、native adapter、browser adapter、state actions、插件运行时、全量 `pytest tests -q`、`check_no_legacy_imports.py`、`MYT_ENABLE_RPC=0` 启动与 `/health`
+  - 保留 `UIStateService` rollout 基线，继续沿用统一状态结果形状与 thin action wrapper，不把 recovery 或 fallback 逻辑塞进 service
+  - 收紧 `wait_until` 轮询语义，并补齐 success-before-timeout、timeout 文案、`on_timeout goto`、`on_fail` fallback、取消返回与动态重轮询回归覆盖
+  - 落地 `ExecutionContext.session.defaults` 最小任务级接缝，明确覆盖顺序为显式 action 参数优先，其次 session defaults，最后才回退到原始 payload
+  - 保守扩展 UI-state 观察覆盖，新增 `timeline_candidates`、`follow_targets` 绑定与集合首项别名，不改顶层观察结果形状
+  - 补齐有界页面级 composite helper，`ui.navigate_to` 与 `ui.fill_form` 现在用于导航和表单驱动，不把它们写成工作流级恢复系统
+  - 保留此前 `home` / `x_mobile_login` 工作流迁移基线，其中 `x_mobile_login` 已验证可通过 manifest 或 `_target` session defaults 省去重复 `device_ip` / `package` 接线，同时不改变状态与消息契约
+  - 最新验证波次已覆盖定向登录工作流测试、运行时接线 smoke，以及既有 `pytest tests -q`、`check_no_legacy_imports.py`、`MYT_ENABLE_RPC=0` 启动与 `/health` 验证结论
   - 既有 RPA/RPC remediation、`sdk_actions` facade + helper 分层、`/api/runtime/execute` debug/internal-only 契约、监控接线文档与 stale-running 调优文档仍保持有效
 
 ## 2. 已实现功能清单
@@ -30,16 +31,18 @@
 ### 2.2 引擎与插件
 
 - Runner + Interpreter 工作流执行（`engine/runner.py`, `engine/interpreter.py`）
-- 条件、跳转、等待、失败策略，且已接入 `UIStateService` 支持统一状态观察与等待（`engine/conditions.py`, `engine/models/*`）
+- 条件、跳转、等待、失败策略，且已接入 `UIStateService` 支持统一状态观察与等待；`wait_until` 已补齐动态重轮询、超时分支、失败回退与取消语义回归（`engine/conditions.py`, `engine/models/*`）
 - 插件扫描与加载（`engine/plugin_loader.py`）
-- 已内置插件：`x_mobile_login`、`mytos_device_setup`、`device_reboot`、`device_soft_reset`、`blogger_scrape`、`profile_clone` 及互动类插件，其中 `x_mobile_login`、`dm_reply`、`nurture` 已完成 UIStateService 定向迁移
+- 已内置插件：`x_mobile_login`、`mytos_device_setup`、`device_reboot`、`device_soft_reset`、`blogger_scrape`、`profile_clone` 及互动类插件；此前 `home` / `x_mobile_login` 迁移基线仍有效，其中 `x_mobile_login` 已完成 session-defaults 接线压缩验证
 
 ### 2.3 适配器与动作
 
 - 浏览器动作：open/input/click/exists/wait/check_html/close（`engine/actions/browser_actions.py`）
 - 账号凭据动作：`credentials.load`（`engine/actions/credential_actions.py`）
 - UI/RPC 动作：点击、滑动、输入、按键、截图、节点查询等（`engine/actions/ui_actions.py`）
-- `UIStateService` 统一状态契约、native/browser adapters、thin wrappers 与兼容动作入口已落地（相关实现位于 `engine/actions/` 与 `engine/conditions.py`）
+- `UIStateService` 统一状态契约、native/browser adapters、thin wrappers 与兼容动作入口已落地，且新增 `timeline_candidates` / `follow_targets` 观察绑定与集合首项别名（相关实现位于 `engine/actions/` 与 `engine/conditions.py`）
+- `ExecutionContext.session.defaults` 已作为最小任务级默认值接缝落地，RPC / package / credentials 消费侧可按显式参数 → session defaults → payload 的顺序取值
+- 有界 composite helper `ui.navigate_to` 与 `ui.fill_form` 已可用于页面导航和表单驱动，范围仍限定在页面级封装
 - SDK 动作绑定 facade + `sdk_*_support.py` helper 分层（`engine/actions/sdk_actions.py`）
 - BrowserClient 拟人化与降级兜底（`hardware_adapters/browser_client.py`）
 - MytRpc 跨平台动态库选择（`hardware_adapters/mytRpc.py`）
@@ -67,8 +70,8 @@
 | App-level route decorators (`api/server.py`) | 5 |
 | Plugin count (`plugins/*/manifest.yaml`) | 12 |
 | SDK action bindings (`engine/actions/sdk_actions.py`) | 131 |
-| Test files (`tests/test_*.py`) | 54 |
-| Test functions (`def test_*`) | 207 |
+| Test files (`tests/test_*.py`) | 58 |
+| Test functions (`def test_*`) | 262 |
 <!-- AUTO_PROGRESS_SNAPSHOT:END -->
 
 ## 4. 维护方式（实时更新建议）
@@ -87,7 +90,8 @@
 
 ## 5. 下一步建议（滚动）
 
-1. 保持 `UIStateService` rollout 后观察，重点看新增插件是否继续复用统一状态边界，而不是回退到重复的插件内状态梯子。
-2. 将 `docs/monitoring_rollout.md` 和 `config/monitoring/rendered/single-node-example/` 落到真实环境，完成外部 Prometheus / Alertmanager 联调。
-3. 按 `docs/stale_running_recovery_tuning.md` 在真实部署里校准 `MYT_TASK_STALE_RUNNING_SECONDS`，补齐常态值与演练值证据。
-4. 持续复查 `docs/reference/sdk_actions_followup_assessment.md`、`docs/reference/shared_json_store_watchpoint.md`、`docs/reference/x_mobile_login_compression_watchpoint.md` 等 watchpoint 是否触发新的拆分或收口条件。
+1. 保持 `UIStateService` rollout 后观察，重点看新增插件以及既有 `home` / `x_mobile_login` 路线是否继续复用统一状态边界和 session defaults，而不是回退到重复的插件内状态梯子。
+2. 将工作流级保守恢复明确维持在 **deferred**，继续观察是否真的在多个工作流里反复出现同一有界有序恢复链，再决定是否上提为共享策略。
+3. 将 `docs/monitoring_rollout.md` 和 `config/monitoring/rendered/single-node-example/` 落到真实环境，完成外部 Prometheus / Alertmanager 联调。
+4. 按 `docs/stale_running_recovery_tuning.md` 在真实部署里校准 `MYT_TASK_STALE_RUNNING_SECONDS`，补齐常态值与演练值证据。
+5. 持续复查 `docs/reference/sdk_actions_followup_assessment.md`、`docs/reference/shared_json_store_watchpoint.md`、`docs/reference/x_mobile_login_compression_watchpoint.md` 等 watchpoint 是否触发新的拆分或收口条件。

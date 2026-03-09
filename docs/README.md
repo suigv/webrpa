@@ -2,9 +2,9 @@
 
 ## Active
 
-- `project_progress.md` - Current capability snapshot, completed UIStateService rollout, and rolling next steps
-- `current_main_status.md` - Current main branch completed vs pending status after the UIStateService rollout
-- `HANDOFF.md` - Cross-session handoff, latest rollout snapshot, and post-rollout next-step checklist
+- `project_progress.md` - Current capability snapshot, the workflow-roadmap executor wave layered on the UIStateService baseline, and rolling next steps
+- `current_main_status.md` - Current main branch completed vs pending status after the latest workflow-roadmap docs sync
+- `HANDOFF.md` - Cross-session handoff, latest rollout snapshot, evidence chain, and next-step checklist
 - `atomic_features.md` - Acceptance checklist for current external capabilities
 - `plugin_input_contract.md` - Runtime payload validation and rollout policy
 - `PLUGIN_CONTRACT.md` - Plugin manifest/workflow schema and authoring contract

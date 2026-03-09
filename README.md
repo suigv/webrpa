@@ -44,13 +44,17 @@
 - `Runner` 支持匿名脚本与命名任务分发
 - YAML 插件通过 `engine/plugin_loader.py` 加载并交给解释器执行
 - 内置动作注册器（浏览器动作、凭据动作等）
+- `wait_until` 已补齐 success-before-timeout、`on_timeout goto`、`on_fail`、取消态与动态重轮询语义
+- `ExecutionContext.session.defaults` 已作为最小任务级默认值接缝落地，保持显式 action 参数优先，其次 session defaults，最后回退到原始 payload
 
 ### 5) 浏览器拟人化能力
 
 - `models/humanized.py` 提供强类型配置（移动、点击、输入、fallback 策略）
 - BrowserClient 集成几何感知目标点、节奏控制与降级回退
+- UI 状态观察覆盖已扩展到 `timeline_candidates`、`follow_targets` 与集合首项别名，不改变顶层结果形状
+- 有界 helper `ui.navigate_to` 与 `ui.fill_form` 可用于页面级导航和表单驱动，未上提为工作流级恢复系统
 
-### 5) RPA/RPC 控制层（已完成 remediation）
+### 6) RPA/RPC 控制层（已完成 remediation）
 
 - `engine/actions/ui_actions.py` 与 `engine/actions/state_actions.py` 保持稳定 facade，对外动作名与常见错误码契约不变
 - 共享 RPC 启动/关闭逻辑已收敛到 `engine/actions/_rpc_bootstrap.py`
@@ -58,11 +62,12 @@
 - `core/task_control.py` 中的账号反馈策略已下沉到 `core/account_feedback.py`
 - `hardware_adapters/mytRpc.py` 已补齐 pointer ownership / timeout / failure-safe 处理，且 `MYT_ENABLE_RPC=0` 启动路径已验证
 
-### 6) 已内置插件示例
+### 7) 已内置插件示例
 
 - `plugins/x_mobile_login`
   - 当前主分支内置的 X/Twitter 移动端登录工作流
   - 负责登录阶段状态判定与运行时接线验证
+  - 已验证可通过 manifest 或 `_target` session defaults 省去重复 `device_ip` / `package` 接线，同时保持既有 status / message 契约
 - `plugins/hezi_sdk_probe`
   - SDK 能力探测与基础连通性验证
 - `plugins/mytos_device_setup`
