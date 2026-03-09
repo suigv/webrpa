@@ -152,4 +152,6 @@ def test_browser_ui_state_adapter_returns_unavailable_error_without_caching_brow
     assert result.code == "browser_unavailable"
     assert result.status == "unknown"
     assert result.message == "browser runtime missing"
+    assert result.timing.attempt == 0
+    assert result.timing.samples == 0
     assert context.browser is None

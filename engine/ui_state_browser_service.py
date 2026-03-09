@@ -10,11 +10,18 @@ from typing import Optional, Protocol, cast
 from engine.models.runtime import ExecutionContext
 from engine.models.ui_state import (
     UIStateEvidence,
-    UIStateIdentity,
     UIStateObservationResult,
+    UIStateOperation,
     UIStatePlatform,
     UIStateTiming,
     UIStateTransition,
+)
+from engine.ui_state_helpers import (
+    build_error_result,
+    build_timing,
+    build_transition,
+    copy_result,
+    poll_until_result,
 )
 from engine.ui_state_service import UIStateService
 
@@ -86,6 +93,8 @@ class BrowserUIStateService(UIStateService):
                     started_at=started_at,
                     started_tick=started_tick,
                     timeout_ms=timeout_ms,
+                    attempt=1,
+                    samples=1,
                     raw_details={"state_id": state_id, "error": str(exc)},
                 )
             observations.append(current.raw_details)
@@ -136,12 +145,8 @@ class BrowserUIStateService(UIStateService):
 
         assert browser is not None
         url_spec = self._single_url_spec(expected_ids)
-        attempts = 0
-        samples = 0
 
         if url_spec is not None:
-            attempts = 1
-            samples = 1
             if browser.wait_url_contains(url_spec.value, timeout_seconds=max(1, int(timeout_ms / 1000))):
                 current_url = self._safe_current_url(browser)
                 return UIStateObservationResult.matched(
@@ -161,8 +166,8 @@ class BrowserUIStateService(UIStateService):
                         started_tick=started_tick,
                         timeout_ms=timeout_ms,
                         interval_ms=interval_ms,
-                        attempt=attempts,
-                        samples=samples,
+                        attempt=1,
+                        samples=1,
                     ),
                     raw_details={"observations": [{"kind": "url", "target": url_spec.value, "current_url": current_url}]},
                 )
@@ -182,64 +187,41 @@ class BrowserUIStateService(UIStateService):
                     started_tick=started_tick,
                     timeout_ms=timeout_ms,
                     interval_ms=interval_ms,
-                    attempt=attempts,
-                    samples=samples,
+                    attempt=1,
+                    samples=1,
                 ),
                 raw_details={"observations": [{"kind": "url", "target": url_spec.value, "current_url": self._safe_current_url(browser)}]},
             )
 
-        deadline = started_tick + max(0, timeout_ms) / 1000.0
-        last_result: Optional[UIStateObservationResult] = None
-        while True:
-            attempts += 1
-            last_result = self.match_state(context, expected_state_ids=expected_ids, timeout_ms=timeout_ms)
-            samples += 1
-            if last_result.ok:
-                return self._copy_result(
-                    last_result,
-                    operation="wait_until",
-                    timing=self._timing(
-                        started_at=started_at,
-                        started_tick=started_tick,
-                        timeout_ms=timeout_ms,
-                        interval_ms=interval_ms,
-                        attempt=attempts,
-                        samples=samples,
-                    ),
-                )
-            if last_result.code not in {"no_match"}:
-                return self._copy_result(
-                    last_result,
-                    operation="wait_until",
-                    timing=self._timing(
-                        started_at=started_at,
-                        started_tick=started_tick,
-                        timeout_ms=timeout_ms,
-                        interval_ms=interval_ms,
-                        attempt=attempts,
-                        samples=samples,
-                    ),
-                )
-            if time.monotonic() >= deadline:
-                break
-            time.sleep(max(0, interval_ms) / 1000.0)
-
-        assert last_result is not None
+        poll_outcome = poll_until_result(
+            observe=lambda: self.match_state(context, expected_state_ids=expected_ids, timeout_ms=timeout_ms),
+            timeout_ms=timeout_ms,
+            interval_ms=interval_ms,
+            monotonic_now=time.monotonic,
+            sleep=time.sleep,
+        )
+        timed_result = self._timing(
+            started_at=started_at,
+            started_tick=started_tick,
+            timeout_ms=timeout_ms,
+            interval_ms=interval_ms,
+            attempt=poll_outcome.attempts,
+            samples=poll_outcome.samples,
+        )
+        if not poll_outcome.timed_out:
+            return self._copy_result(
+                poll_outcome.result,
+                operation="wait_until",
+                timing=timed_result,
+            )
         return UIStateObservationResult.timeout(
             operation="wait_until",
             platform=self.platform,
             expected_state_ids=expected_ids,
             message="timed out waiting for browser state",
-            evidence=last_result.evidence,
-            timing=self._timing(
-                started_at=started_at,
-                started_tick=started_tick,
-                timeout_ms=timeout_ms,
-                interval_ms=interval_ms,
-                attempt=attempts,
-                samples=samples,
-            ),
-            raw_details=last_result.raw_details,
+            evidence=poll_outcome.result.evidence,
+            timing=timed_result,
+            raw_details=poll_outcome.result.raw_details,
         )
 
     def observe_transition(
@@ -268,7 +250,7 @@ class BrowserUIStateService(UIStateService):
                         attempt=1,
                         samples=1,
                     ),
-                    transition=UIStateTransition(changed=False),
+                    transition=build_transition(changed=False),
                 )
 
         if not to_state_ids:
@@ -281,12 +263,14 @@ class BrowserUIStateService(UIStateService):
                 started_tick=started_tick,
                 timeout_ms=timeout_ms,
                 interval_ms=interval_ms,
+                attempt=0,
+                samples=0,
                 raw_details={},
             )
 
         to_result = self.wait_until(context, expected_state_ids=to_state_ids, timeout_ms=timeout_ms, interval_ms=interval_ms)
-        transition = UIStateTransition(
-            from_state=(from_result.state if from_result is not None else UIStateIdentity()),
+        transition = build_transition(
+            from_state=(from_result.state if from_result is not None else None),
             to_state=to_result.state,
             changed=to_result.ok,
         )
@@ -323,6 +307,8 @@ class BrowserUIStateService(UIStateService):
                     code=getattr(browser, "error_code", "browser_unavailable") or "browser_unavailable",
                     message=getattr(browser, "error", "browser adapter unavailable") or "browser adapter unavailable",
                     expected_state_ids=expected_state_ids,
+                    attempt=0,
+                    samples=0,
                     raw_details={
                         "available": False,
                         "error_code": getattr(browser, "error_code", ""),
@@ -340,6 +326,8 @@ class BrowserUIStateService(UIStateService):
                 code="browser_adapter_unavailable",
                 message=str(exc),
                 expected_state_ids=expected_state_ids,
+                attempt=0,
+                samples=0,
                 raw_details={"available": False, "error": str(exc)},
             )
 
@@ -349,6 +337,8 @@ class BrowserUIStateService(UIStateService):
                 code=getattr(candidate, "error_code", "browser_unavailable") or "browser_unavailable",
                 message=getattr(candidate, "error", "browser adapter unavailable") or "browser adapter unavailable",
                 expected_state_ids=expected_state_ids,
+                attempt=0,
+                samples=0,
                 raw_details={
                     "available": False,
                     "error_code": getattr(candidate, "error_code", ""),
@@ -449,29 +439,16 @@ class BrowserUIStateService(UIStateService):
         self,
         result: UIStateObservationResult,
         *,
-        operation: str,
+        operation: UIStateOperation,
         timing: UIStateTiming,
         transition: Optional[UIStateTransition] = None,
     ) -> UIStateObservationResult:
-        return UIStateObservationResult(
-            ok=result.ok,
-            code=result.code,
-            message=result.message,
-            operation=cast("object", operation),
-            status=result.status,
-            platform=result.platform,
-            state=result.state,
-            expected_state_ids=result.expected_state_ids,
-            evidence=result.evidence,
-            timing=timing,
-            raw_details=result.raw_details,
-            transition=transition if transition is not None else result.transition,
-        )
+        return copy_result(result, operation=operation, timing=timing, transition=transition)
 
     def _error_result(
         self,
         *,
-        operation: str,
+        operation: UIStateOperation,
         code: str,
         message: str,
         expected_state_ids: Sequence[str],
@@ -479,28 +456,27 @@ class BrowserUIStateService(UIStateService):
         started_tick: Optional[float] = None,
         timeout_ms: Optional[int] = None,
         interval_ms: Optional[int] = None,
+        attempt: int = 0,
+        samples: int = 0,
         raw_details: Optional[dict[str, object]] = None,
     ) -> UIStateObservationResult:
         if started_at is None:
             started_at = time.time()
         if started_tick is None:
             started_tick = time.monotonic()
-        return UIStateObservationResult(
-            ok=False,
+        return build_error_result(
+            operation=operation,
             code=code,
             message=message,
-            operation=cast("object", operation),
-            status="unknown",
             platform=self.platform,
-            expected_state_ids=list(expected_state_ids),
-            evidence=UIStateEvidence(summary=message),
+            expected_state_ids=expected_state_ids,
             timing=self._timing(
                 started_at=started_at,
                 started_tick=started_tick,
                 timeout_ms=timeout_ms,
                 interval_ms=interval_ms,
-                attempt=1,
-                samples=1,
+                attempt=attempt,
+                samples=samples,
             ),
             raw_details=dict(raw_details or {}),
         )
@@ -516,11 +492,12 @@ class BrowserUIStateService(UIStateService):
         samples: int,
     ) -> UIStateTiming:
         finished_at = time.time()
-        elapsed_ms = max(0, int((time.monotonic() - started_tick) * 1000))
-        return UIStateTiming(
+        finished_tick = time.monotonic()
+        return build_timing(
             started_at=started_at,
+            started_tick=started_tick,
             finished_at=finished_at,
-            elapsed_ms=elapsed_ms,
+            finished_tick=finished_tick,
             timeout_ms=timeout_ms,
             interval_ms=interval_ms,
             attempt=attempt,

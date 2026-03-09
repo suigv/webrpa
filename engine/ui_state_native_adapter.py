@@ -4,155 +4,21 @@ from __future__ import annotations
 
 import time
 from collections.abc import Sequence
-from dataclasses import dataclass
-from typing import Callable, cast
+from typing import cast
 
-from engine.actions import state_actions
 from engine.models.runtime import ActionResult, ExecutionContext
 from engine.models.ui_state import (
-    X_LOGIN_STAGE_VALUES,
     UIStateEvidence,
     UIStateObservationResult,
+    UIStateOperation,
     UIStateTiming,
-    UIStateTransition,
-    normalize_x_login_stage,
 )
-@dataclass(frozen=True)
-class NativeStateBinding:
-    binding_id: str
-    display_name: str
-    state_noun: str
-    supported_state_ids: tuple[str, ...]
-    normalize_state_id: Callable[[str], str]
-    state_id_from_action_result: Callable[[ActionResult], str]
-    match_action: Callable[[dict[str, object], ExecutionContext], ActionResult]
-    wait_action: Callable[[dict[str, object], ExecutionContext], ActionResult] | None = None
-
-
-def _normalize_supported_state(state_id: str, supported_state_ids: Sequence[str]) -> str:
-    candidate = str(state_id or "unknown").strip() or "unknown"
-    return candidate if candidate in supported_state_ids else "unknown"
-
-
-def _extract_x_login_state_id(action_result: ActionResult) -> str:
-    return normalize_x_login_stage(str(action_result.data.get("stage", "unknown") or "unknown"))
-
-
-def _extract_presence_state_id(*, present_state_id: str, missing_codes: Sequence[str]) -> Callable[[ActionResult], str]:
-    missing_code_set = {str(code).strip() for code in missing_codes if str(code).strip()}
-
-    def _extract(action_result: ActionResult) -> str:
-        if action_result.ok:
-            return present_state_id
-        if action_result.code in missing_code_set:
-            return "missing"
-        return "unknown"
-
-    return _extract
-
-
-def _is_presence_style_binding(binding: NativeStateBinding) -> bool:
-    return "available" in binding.supported_state_ids and "missing" in binding.supported_state_ids
-
-
-_X_LOGIN_BINDING = NativeStateBinding(
-    binding_id="x_login",
-    display_name="X login",
-    state_noun="stage",
-    supported_state_ids=X_LOGIN_STAGE_VALUES,
-    normalize_state_id=normalize_x_login_stage,
-    state_id_from_action_result=_extract_x_login_state_id,
-    match_action=state_actions.detect_x_login_stage,
-    wait_action=state_actions.wait_x_login_stage,
+from engine.ui_state_helpers import build_error_result, build_timing, build_transition
+from engine.ui_state_native_bindings import (
+    NativeStateBinding,
+    is_presence_style_binding,
+    resolve_native_state_binding,
 )
-
-_DM_UNREAD_BINDING = NativeStateBinding(
-    binding_id="dm_unread",
-    display_name="DM unread conversation",
-    state_noun="state",
-    supported_state_ids=("available", "missing", "unknown"),
-    normalize_state_id=lambda state_id: _normalize_supported_state(state_id, ("available", "missing", "unknown")),
-    state_id_from_action_result=_extract_presence_state_id(
-        present_state_id="available",
-        missing_codes=("unread_dm_missing",),
-    ),
-    match_action=state_actions.extract_unread_dm_targets,
-)
-
-_DM_LAST_MESSAGE_BINDING = NativeStateBinding(
-    binding_id="dm_last_message",
-    display_name="DM last message",
-    state_noun="state",
-    supported_state_ids=("available", "missing", "unknown"),
-    normalize_state_id=lambda state_id: _normalize_supported_state(state_id, ("available", "missing", "unknown")),
-    state_id_from_action_result=_extract_presence_state_id(
-        present_state_id="available",
-        missing_codes=("dm_message_missing",),
-    ),
-    match_action=state_actions.extract_dm_last_message,
-)
-
-_DM_LAST_OUTBOUND_BINDING = NativeStateBinding(
-    binding_id="dm_last_outbound_message",
-    display_name="DM last outbound message",
-    state_noun="state",
-    supported_state_ids=("available", "missing", "unknown"),
-    normalize_state_id=lambda state_id: _normalize_supported_state(state_id, ("available", "missing", "unknown")),
-    state_id_from_action_result=_extract_presence_state_id(
-        present_state_id="available",
-        missing_codes=("dm_outbound_message_missing",),
-    ),
-    match_action=state_actions.extract_dm_last_outbound_message,
-)
-
-_SEARCH_CANDIDATES_BINDING = NativeStateBinding(
-    binding_id="search_candidates",
-    display_name="search candidates",
-    state_noun="state",
-    supported_state_ids=("available", "missing", "unknown"),
-    normalize_state_id=lambda state_id: _normalize_supported_state(state_id, ("available", "missing", "unknown")),
-    state_id_from_action_result=_extract_presence_state_id(
-        present_state_id="available",
-        missing_codes=("no_candidates",),
-    ),
-    match_action=state_actions.extract_search_candidates,
-)
-
-_TIMELINE_CANDIDATES_BINDING = NativeStateBinding(
-    binding_id="timeline_candidates",
-    display_name="timeline candidates",
-    state_noun="state",
-    supported_state_ids=("available", "missing", "unknown"),
-    normalize_state_id=lambda state_id: _normalize_supported_state(state_id, ("available", "missing", "unknown")),
-    state_id_from_action_result=_extract_presence_state_id(
-        present_state_id="available",
-        missing_codes=("no_candidates",),
-    ),
-    match_action=state_actions.extract_timeline_candidates,
-)
-
-_FOLLOW_TARGETS_BINDING = NativeStateBinding(
-    binding_id="follow_targets",
-    display_name="follow targets",
-    state_noun="state",
-    supported_state_ids=("available", "missing", "unknown"),
-    normalize_state_id=lambda state_id: _normalize_supported_state(state_id, ("available", "missing", "unknown")),
-    state_id_from_action_result=_extract_presence_state_id(
-        present_state_id="available",
-        missing_codes=("follow_targets_missing",),
-    ),
-    match_action=state_actions.extract_follow_targets,
-)
-
-_BINDINGS: dict[str, NativeStateBinding] = {
-    _X_LOGIN_BINDING.binding_id: _X_LOGIN_BINDING,
-    _DM_UNREAD_BINDING.binding_id: _DM_UNREAD_BINDING,
-    _DM_LAST_MESSAGE_BINDING.binding_id: _DM_LAST_MESSAGE_BINDING,
-    _DM_LAST_OUTBOUND_BINDING.binding_id: _DM_LAST_OUTBOUND_BINDING,
-    _SEARCH_CANDIDATES_BINDING.binding_id: _SEARCH_CANDIDATES_BINDING,
-    _TIMELINE_CANDIDATES_BINDING.binding_id: _TIMELINE_CANDIDATES_BINDING,
-    _FOLLOW_TARGETS_BINDING.binding_id: _FOLLOW_TARGETS_BINDING,
-}
 
 
 class NativeUIStateAdapter:
@@ -160,10 +26,7 @@ class NativeUIStateAdapter:
         self._binding: NativeStateBinding
         self._action_params: dict[str, object]
         self._action_params = dict(action_params or {})
-        try:
-            self._binding = _BINDINGS[binding_id]
-        except KeyError as exc:
-            raise ValueError(f"unsupported native ui-state binding: {binding_id}") from exc
+        self._binding = resolve_native_state_binding(binding_id)
 
     def match_state(
         self,
@@ -206,6 +69,7 @@ class NativeUIStateAdapter:
                 state_id=state_id,
                 expected_state_ids=normalized_expected,
                 timing=timing,
+                raw_details=raw_details,
             )
 
         if state_id in normalized_expected:
@@ -395,6 +259,11 @@ class NativeUIStateAdapter:
                         missing=[state for state in normalized_to if state != current_state],
                         confidence=1.0 if current_state != "unknown" else 0.0,
                     )
+                    transition = build_transition(
+                        from_state={"state_id": previous_state},
+                        to_state={"state_id": current_state},
+                        changed=True,
+                    )
                     return UIStateObservationResult(
                         ok=True,
                         code="ok",
@@ -415,11 +284,7 @@ class NativeUIStateAdapter:
                             "from_state_ids": list(normalized_from),
                             "to_state_ids": list(normalized_to),
                         },
-                        transition=UIStateTransition(
-                            from_state={"state_id": previous_state},
-                            to_state={"state_id": current_state},
-                            changed=True,
-                        ),
+                        transition=transition,
                     )
 
             previous_state = current_state
@@ -523,27 +388,25 @@ class NativeUIStateAdapter:
         return raw_details
 
     def _is_observed_presence_state(self, state_id: str, expected_state_ids: Sequence[str]) -> bool:
-        return _is_presence_style_binding(self._binding) and state_id == "missing" and state_id in expected_state_ids
+        return is_presence_style_binding(self._binding) and state_id == "missing" and state_id in expected_state_ids
 
     def _error_result(
         self,
         *,
-        operation: str,
+        operation: UIStateOperation,
         action_result: ActionResult,
         state_id: str,
         expected_state_ids: Sequence[str],
         timing: UIStateTiming,
         raw_details: dict[str, object] | None = None,
     ) -> UIStateObservationResult:
-        return UIStateObservationResult(
-            ok=False,
+        return build_error_result(
+            operation=operation,
             code=action_result.code,
             message=action_result.message,
-            operation=operation,
-            status="unknown",
             platform="native",
-            state={"state_id": state_id},
-            expected_state_ids=list(expected_state_ids),
+            state_id=state_id,
+            expected_state_ids=expected_state_ids,
             evidence=UIStateEvidence(
                 summary=action_result.message or action_result.code,
                 text=state_id,
@@ -562,7 +425,7 @@ class NativeUIStateAdapter:
     def _invalid_params_result(
         self,
         *,
-        operation: str,
+        operation: UIStateOperation,
         message: str,
         expected_state_ids: Sequence[str],
         timeout_ms: int | None,
@@ -570,22 +433,20 @@ class NativeUIStateAdapter:
     ) -> UIStateObservationResult:
         started_at = time.monotonic()
         finished_at = time.monotonic()
-        return UIStateObservationResult(
-            ok=False,
+        timing = self._timing(
+            started_at=started_at,
+            finished_at=finished_at,
+            timeout_ms=timeout_ms,
+            interval_ms=interval_ms,
+        )
+        return build_error_result(
+            operation=operation,
             code="invalid_params",
             message=message,
-            operation=operation,
-            status="unknown",
             platform="native",
-            state={"state_id": "unknown"},
-            expected_state_ids=list(expected_state_ids),
+            expected_state_ids=expected_state_ids,
             evidence=UIStateEvidence(summary=message, matched=[], missing=list(expected_state_ids), confidence=0.0),
-            timing=self._timing(
-                started_at=started_at,
-                finished_at=finished_at,
-                timeout_ms=timeout_ms,
-                interval_ms=interval_ms,
-            ),
+            timing=timing,
             raw_details={
                 "binding_id": self._binding.binding_id,
                 "binding_name": self._binding.display_name,
@@ -609,15 +470,16 @@ class NativeUIStateAdapter:
         samples: int = 0,
         elapsed_ms: int | None = None,
     ) -> UIStateTiming:
-        elapsed = elapsed_ms if elapsed_ms is not None else int(max(0.0, finished_at - started_at) * 1000)
-        return UIStateTiming(
+        return build_timing(
             started_at=started_at,
+            started_tick=started_at,
             finished_at=finished_at,
-            elapsed_ms=max(0, elapsed),
+            finished_tick=finished_at,
             timeout_ms=timeout_ms,
             interval_ms=interval_ms,
             attempt=attempt,
             samples=samples,
+            elapsed_ms=elapsed_ms,
         )
 
     def _match_action_params(self, *, timeout_ms: int | None) -> dict[str, object]:
