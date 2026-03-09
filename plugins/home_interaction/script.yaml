@@ -25,20 +25,6 @@ steps:
           equals: empty_target
     then: empty_target
 
-  - label: load_home_scheme
-    kind: action
-    action: core.load_ui_scheme
-    params:
-      key: "home"
-    save_as: home_scheme
-
-  - label: load_home_nav_selector
-    kind: action
-    action: core.load_ui_selector
-    params:
-      key: "home.nav_home"
-    save_as: home_nav_selector
-
   - label: load_post_like_desc_selector
     kind: action
     action: core.load_ui_selector
@@ -62,31 +48,13 @@ steps:
 
   - label: go_home_timeline
     kind: action
-    action: device.exec
-    params:
-      device_ip: "${payload.device_ip}"
-      command: "${vars.home_scheme.command}"
-    on_fail:
-      strategy: goto
-      goto: open_app_home_fallback
-
-  - label: open_app_home_fallback
-    kind: action
-    action: app.open
+    action: ui.navigate_to
     params:
       device_ip: "${payload.device_ip}"
       package: "${payload.package:-com.twitter.android}"
-
-  - label: click_home_tab_en
-    kind: action
-    action: ui.selector_click_one
-    params:
-      device_ip: "${payload.device_ip}"
-      type: "${vars.home_nav_selector.type}"
-      mode: "${vars.home_nav_selector.mode}"
-      value: "${vars.home_nav_selector.value}"
+      target: "home_timeline"
     on_fail:
-      strategy: skip
+      strategy: abort
 
   - label: extract_timeline_candidates
     kind: action
