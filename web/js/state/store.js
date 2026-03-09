@@ -1,13 +1,8 @@
 export class Store {
     constructor() {
         this.state = {
-            apiStatus: false,
-            devices: [],
-            tasks: [],
-            config: {},
-            accounts: [],
-            logs: [],
-            currentTab: 'tab-monitor'
+            currentTab: 'tab-main',
+            currentUnitLogTarget: '',
         };
         this.listeners = new Set();
     }

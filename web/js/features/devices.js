@@ -2,13 +2,38 @@ import { fetchJson } from '../utils/api.js';
 import { toast } from '../ui/toast.js';
 import { renderCommonFields } from '../utils/ui_utils.js';
 import { sysLog } from './logs.js';
-import { getTaskCatalog, apiSubmitTask } from './task_service.js';
+import { getTaskCatalog, apiSubmitTask, buildTaskRequest, collectTaskPayload } from './task_service.js';
+import { store } from '../state/store.js';
 
 const $ = (id) => document.getElementById(id);
 
-let selectedUnits = new Set(); 
+let selectedUnits = new Set();
 let currentCatalog = [];
 let currentUnitsById = new Map();
+
+function clearElement(element) {
+    if (element) {
+        element.replaceChildren();
+    }
+}
+
+function buildUnitLogTarget(unit) {
+    return `Unit #${unit.parent_id}-${unit.cloud_id}`;
+}
+
+function createTextBlock(label, value, valueStyle = '') {
+    const row = document.createElement('div');
+    const labelSpan = document.createElement('span');
+    labelSpan.className = 'text-muted';
+    labelSpan.textContent = `${label}: `;
+    const valueSpan = document.createElement('span');
+    valueSpan.textContent = value;
+    if (valueStyle) {
+        valueSpan.style.cssText = valueStyle;
+    }
+    row.append(labelSpan, valueSpan);
+    return row;
+}
 
 export function initDevices() {
     const clearBtn = $("clearSelection");
@@ -35,10 +60,20 @@ export function initDevices() {
             showMoreBtn.textContent = isHidden ? '收起可选参数' : '配置高级属性';
         };
     }
-    
+
+    const toggleAdvancedBtn = $('toggleUnitAdvancedBtn');
+    if (toggleAdvancedBtn) {
+        toggleAdvancedBtn.onclick = () => {
+            const advanced = $('unitAdvanced');
+            if (advanced) {
+                advanced.style.display = advanced.style.display === 'block' ? 'none' : 'block';
+            }
+        };
+    }
+
     loadDevices();
-    loadPluginCatalog(); 
-    setInterval(loadDevices, 5000); 
+    loadPluginCatalog();
+    setInterval(loadDevices, 5000);
 }
 
 async function loadPluginCatalog() {
@@ -56,7 +91,7 @@ function renderGroupedSelect(select, tasks) {
         if (!grouped[cat]) grouped[cat] = [];
         grouped[cat].push(t);
     });
-    select.innerHTML = "";
+    clearElement(select);
     Object.keys(grouped).forEach(cat => {
         const groupEl = document.createElement("optgroup");
         groupEl.label = cat;
@@ -81,7 +116,7 @@ export async function scanDevices() {
     btn.disabled = true;
     const oldText = btn.textContent;
     btn.textContent = "正在扫描...";
-    
+
     sysLog("已在后台启动局域网发现...");
     toast.info("已在后台启动局域网发现...");
 
@@ -94,20 +129,20 @@ export async function scanDevices() {
             const fastSync = setInterval(async () => {
                 await loadDevices();
                 ticks++;
-                if (ticks >= 4) clearInterval(fastSync); 
+                if (ticks >= 4) clearInterval(fastSync);
             }, 2000);
         } else {
             sysLog(`发现失败: ${r.status}`, "error");
         }
-    } catch (e) { 
+    } catch (e) {
         sysLog("扫描请求异常", "error");
-    } finally { 
-        setTimeout(() => { 
+    } finally {
+        setTimeout(() => {
             if(btn) {
-                btn.disabled = false; 
-                btn.textContent = oldText; 
+                btn.disabled = false;
+                btn.textContent = oldText;
             }
-        }, 3000); 
+        }, 3000);
     }
 }
 
@@ -115,11 +150,11 @@ function renderUnits(devices) {
     const list = $("devicesList");
     const detailView = $("unitDetailView");
     if (!list || (detailView && detailView.style.display === "flex")) return;
-    
+
     const onlineUnits = [];
     const offlineUnits = [];
     currentUnitsById = new Map();
-    
+
     devices.forEach(d => {
         (d.cloud_machines || []).forEach(u => {
             const unit = { ...u, parent_ip: d.ip, parent_id: d.device_id, ai_type: d.ai_type };
@@ -128,8 +163,8 @@ function renderUnits(devices) {
             else offlineUnits.push(unit);
         });
     });
-    
-    list.innerHTML = "";
+
+    clearElement(list);
     if (onlineUnits.length > 0) {
         renderHeader(list, `可用节点 (${onlineUnits.length})`);
         onlineUnits.forEach(u => renderUnitCard(list, u));
@@ -153,29 +188,53 @@ function renderUnitCard(container, u) {
     const card = document.createElement("div");
     card.className = `device-card ${selectedUnits.has(unitId) ? 'selected' : ''}`;
     card.style.opacity = isOnline ? "1" : "0.5";
-    
+
     const modelName = u.machine_model_name || "标准型";
     const aiType = u.ai_type || "volc";
 
-    card.innerHTML = `
-        <div class="device-card-header">
-            <span class="device-id">云机 #${unitId}</span>
-            <span class="badge badge-sm">${aiType}</span>
-            <label class="checkbox-container" style="padding-left:18px; margin:0;" onclick="event.stopPropagation()">
-                <input type="checkbox" ${selectedUnits.has(unitId) ? 'checked' : ''} ${!isOnline ? 'disabled' : ''} class="unit-checkbox">
-                <span class="checkmark" style="top:0;"></span>
-            </label>
-        </div>
-        <div class="device-meta">
-            <div><span class="text-muted">型号:</span> <span style="color:var(--text-main)">${modelName}</span></div>
-            <div><span class="text-muted">路由:</span> ${u.parent_ip}:${u.rpa_port}</div>
-            <div style="color:${isOnline ? 'var(--success)' : 'var(--error)'}; font-weight: 500;">
-                ${isOnline ? '就绪' : '连接中断'}
-            </div>
-        </div>
-    `;
-    const cb = card.querySelector(".unit-checkbox");
-    if(cb) cb.onchange = (e) => { toggleSelection(unitId, cb.checked); };
+    const header = document.createElement('div');
+    header.className = 'device-card-header';
+
+    const title = document.createElement('span');
+    title.className = 'device-id';
+    title.textContent = `云机 #${unitId}`;
+
+    const badge = document.createElement('span');
+    badge.className = 'badge badge-sm';
+    badge.textContent = aiType;
+
+    const label = document.createElement('label');
+    label.className = 'checkbox-container';
+    label.style.cssText = 'padding-left:18px; margin:0;';
+    label.onclick = (event) => event.stopPropagation();
+
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = selectedUnits.has(unitId);
+    checkbox.disabled = !isOnline;
+    checkbox.className = 'unit-checkbox';
+
+    const checkmark = document.createElement('span');
+    checkmark.className = 'checkmark';
+    checkmark.style.top = '0';
+
+    label.append(checkbox, checkmark);
+    header.append(title, badge, label);
+
+    const meta = document.createElement('div');
+    meta.className = 'device-meta';
+    meta.append(
+        createTextBlock('型号', modelName, 'color:var(--text-main);'),
+        createTextBlock('路由', `${u.parent_ip}:${u.rpa_port}`),
+    );
+
+    const status = document.createElement('div');
+    status.style.cssText = `color:${isOnline ? 'var(--success)' : 'var(--error)'}; font-weight: 500;`;
+    status.textContent = isOnline ? '就绪' : '连接中断';
+    meta.appendChild(status);
+
+    card.append(header, meta);
+    checkbox.onchange = () => { toggleSelection(unitId, checkbox.checked); };
     card.onclick = () => { if (isOnline) openUnitDetail(u); else toast.warn("该节点当前无法连接"); };
     container.appendChild(card);
 }
@@ -211,18 +270,24 @@ function openUnitDetail(unit) {
     if(view) view.style.display = "flex";
     const title = $("detailUnitTitle");
     if(title) title.textContent = `云机 #${unit.parent_id}-${unit.cloud_id}`;
+    const logBox = $("unitLogBox");
+    clearElement(logBox);
+    store.setState({ currentUnitLogTarget: buildUnitLogTarget(unit) });
     renderUnitPluginFields();
     const btn = $("submitSingleTask");
     if(btn) btn.onclick = () => submitUnitTask(unit);
     window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
-function closeDetail() {
+export function closeDetail(restoreMainTab = true) {
     const view = $("unitDetailView");
     if(view) view.style.display = "none";
-    const tabMain = $("tab-main");
-    if(tabMain) tabMain.classList.add("active");
-    loadDevices();
+    if (restoreMainTab) {
+        const tabMain = $("tab-main");
+        if(tabMain) tabMain.classList.add("active");
+        loadDevices();
+    }
+    store.setState({ currentUnitLogTarget: '' });
 }
 
 async function submitUnitTask(unit) {
@@ -230,18 +295,15 @@ async function submitUnitTask(unit) {
     const container = $("unitPluginFields");
     if(!select || !container) return;
 
-    const fields = container.querySelectorAll("[data-payload-key]");
-    const p = {}; fields.forEach(i => { p[i.dataset.payloadKey] = i.value; });
-
-    const taskData = { 
-        task: select.value, 
-        payload: p, 
+    const taskData = buildTaskRequest({
+        task: select.value,
+        payload: collectTaskPayload(container),
         targets: [{ device_id: unit.parent_id, cloud_id: unit.cloud_id }],
-        priority: Number($("unitTaskPriority")?.value || 50),
-        max_retries: Number($("unitTaskMaxRetries")?.value || 0),
-        run_at: $("unitTaskRunAt")?.value || null
-    };
-    
+        priority: $("unitTaskPriority")?.value || 50,
+        maxRetries: $("unitTaskMaxRetries")?.value || 0,
+        runAt: $("unitTaskRunAt")?.value || null,
+    });
+
     await apiSubmitTask(taskData);
 }
 
@@ -251,15 +313,15 @@ async function runBulkTasks() {
     const plugin = select.value;
     const count = selectedUnits.size;
     if(!confirm(`即将对选中的 ${count} 个节点执行该操作，是否继续？`)) return;
-    
+
     sysLog(`开始集群派发任务: ${plugin}, 目标数量: ${count}`);
     for (const id of selectedUnits) {
         const [dId, cId] = id.split("-");
-        const taskData = { 
-            task: plugin, 
-            payload: {}, 
-            targets: [{ device_id: parseInt(dId), cloud_id: parseInt(cId) }] 
-        };
+        const taskData = buildTaskRequest({
+            task: plugin,
+            payload: {},
+            targets: [{ device_id: parseInt(dId, 10), cloud_id: parseInt(cId, 10) }],
+        });
         await apiSubmitTask(taskData);
     }
     toast.success("集群任务分发完成");

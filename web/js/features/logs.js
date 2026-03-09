@@ -1,23 +1,52 @@
-import { toast } from '../ui/toast.js';
+import { store } from '../state/store.js';
 
 const unitLogBox = document.getElementById("unitLogBox");
 const globalLogBox = document.getElementById("globalLogBox");
 
 let socket = null;
 
+function clearElement(element) {
+    if (element) {
+        element.replaceChildren();
+    }
+}
+
+function appendSegments(container, segments, level = 'info') {
+    if (!container) return;
+    const line = document.createElement('div');
+    segments.forEach(segment => {
+        const span = document.createElement('span');
+        span.textContent = segment.text;
+        if (segment.color) {
+            span.style.color = segment.color;
+        }
+        line.appendChild(span);
+    });
+    if (level === 'error') {
+        line.style.color = 'var(--error)';
+    }
+    container.appendChild(line);
+    container.scrollTop = container.scrollHeight;
+}
+
 export function sysLog(msg, level = "info") {
     if (!globalLogBox) return;
     const ts = new Date().toLocaleTimeString();
-    const line = document.createElement("div");
-    line.innerHTML = `<span style="color:var(--text-muted)">[${ts}]</span> <span style="color:var(--info)">[SYS]</span> ${msg}`;
-    if (level === "error") line.style.color = "var(--error)";
-    globalLogBox.appendChild(line);
-    globalLogBox.scrollTop = globalLogBox.scrollHeight;
+    appendSegments(globalLogBox, [
+        { text: `[${ts}] `, color: 'var(--text-muted)' },
+        { text: '[SYS] ', color: 'var(--info)' },
+        { text: String(msg ?? '') },
+    ], level);
 }
 
 export function initLogs() {
     connectLogs();
-    
+
+    const clearLogBtn = document.getElementById('clearGlobalLogBtn');
+    if (clearLogBtn) {
+        clearLogBtn.onclick = () => clearElement(globalLogBox);
+    }
+
     // 允许通过控制台开启全局调试日志
     window.showDebug = () => {
         if(globalLogBox) globalLogBox.style.display = "block";
@@ -58,13 +87,13 @@ function appendDetailedLog(log) {
         globalLogBox.scrollTop = globalLogBox.scrollHeight;
     }
 
-    const viewTitle = document.getElementById("viewTitle");
-    if (unitLogBox && viewTitle && viewTitle.textContent.includes(target)) {
-        const line = document.createElement("div");
-        line.style.marginBottom = "4px";
-        line.innerHTML = `<span style="color:var(--text-muted)">${ts}</span> <span style="color:var(--primary)">${msg}</span>`;
-        unitLogBox.appendChild(line);
-        unitLogBox.scrollTop = unitLogBox.scrollHeight;
+    const currentUnitLogTarget = store.getState().currentUnitLogTarget;
+    if (unitLogBox && currentUnitLogTarget && currentUnitLogTarget === target) {
+        appendSegments(unitLogBox, [
+            { text: `${ts} `, color: 'var(--text-muted)' },
+            { text: String(msg ?? ''), color: 'var(--primary)' },
+        ], level);
+        if (unitLogBox.children.length > 200) unitLogBox.removeChild(unitLogBox.firstChild);
     }
 }
 
