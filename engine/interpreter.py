@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 
 from engine.action_registry import get_registry, register_defaults
 from engine.conditions import browser_condition_state_id, evaluate as eval_condition
+from engine.models.manifest import PluginInput
 from engine.models.runtime import ActionResult, ExecutionContext
 from engine.models.workflow import (
     ActionStep,
@@ -54,13 +55,17 @@ class Interpreter:
         self,
         script: WorkflowScript,
         payload: Dict[str, Any],
+        plugin_inputs: List[PluginInput] | None = None,
         should_cancel: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """Execute a workflow script with the given payload.
 
         Returns a result dict with ok, status, message, and workflow metadata.
         """
-        context = ExecutionContext(payload=payload)
+        context = ExecutionContext(
+            payload=payload,
+            session={"defaults": self._build_session_defaults(payload, plugin_inputs or [])},
+        )
         context.should_cancel = should_cancel
         # Merge script-level vars (with interpolation from payload)
         if script.vars:
@@ -373,3 +378,33 @@ class Interpreter:
             return
 
         raise InterpreterError(message)
+
+    def _build_session_defaults(
+        self,
+        payload: Dict[str, Any],
+        plugin_inputs: List[PluginInput],
+    ) -> Dict[str, Any]:
+        payload_dict = dict(payload) if isinstance(payload, dict) else {}
+        target_obj = payload_dict.get("_target")
+        target = target_obj if isinstance(target_obj, dict) else {}
+        defaults: Dict[str, Any] = {}
+
+        for plugin_input in plugin_inputs:
+            value = payload_dict.get(plugin_input.name)
+            if value is not None:
+                defaults[plugin_input.name] = value
+            elif plugin_input.default is not None:
+                defaults[plugin_input.name] = plugin_input.default
+
+        connection_defaults = {
+            "device_ip": payload_dict.get("device_ip") or target.get("device_ip"),
+            "rpa_port": payload_dict.get("rpa_port") or target.get("rpa_port"),
+            "cloud_index": payload_dict.get("cloud_index") or target.get("cloud_id"),
+            "device_index": payload_dict.get("device_index") or target.get("device_id"),
+            "cloud_machines_per_device": payload_dict.get("cloud_machines_per_device"),
+        }
+        for key, value in connection_defaults.items():
+            if value is not None:
+                defaults[key] = value
+
+        return defaults

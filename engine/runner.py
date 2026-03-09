@@ -85,7 +85,12 @@ class Runner:
             if action_error is not None:
                 return self._dispatch_error(task_name=task_name, **action_error)
 
-            result = self._interpreter.execute(script, payload, should_cancel=should_cancel)
+            result = self._interpreter.execute(
+                script,
+                payload,
+                plugin_inputs=plugin.manifest.inputs,
+                should_cancel=should_cancel,
+            )
             result.setdefault("task", task_name)
             result.setdefault("timestamp", datetime.now(timezone.utc).isoformat())
             return result

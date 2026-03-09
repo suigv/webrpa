@@ -7,7 +7,7 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Callable, Dict
 from unittest.mock import MagicMock
 
 import pytest  # pyright: ignore[reportMissingImports]
@@ -252,6 +252,20 @@ class TestCredentialAction:
         assert result.ok is False
         assert result.code == "missing_ref"
 
+    def test_credentials_load_uses_session_default_ref(self, tmp_path: Path, monkeypatch):
+        cred_file = tmp_path / "creds.json"
+        cred_file.write_text(
+            json.dumps({"username_or_email": "u@test.com", "password": "pw"}),
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("MYT_CREDENTIAL_ALLOWLIST", str(tmp_path))
+        ctx = ExecutionContext(payload={}, session={"defaults": {"credentials_ref": str(cred_file)}})
+
+        result = credentials_load({}, ctx)
+
+        assert result.ok is True
+        assert ctx.vars["creds"]["username_or_email"] == "u@test.com"
+
 
 # ============================================================
 # Condition evaluator tests
@@ -373,6 +387,21 @@ class TestConditionEvaluator:
 class TestInterpreter:
     def _make_interpreter(self):
         return Interpreter()
+
+    class _FakeWaitClock:
+        def __init__(self):
+            self.now = 0.0
+            self.sleep_calls = 0
+            self.after_sleep: Callable[["TestInterpreter._FakeWaitClock"], None] | None = None
+
+        def monotonic(self):
+            return self.now
+
+        def sleep(self, seconds):
+            self.sleep_calls += 1
+            self.now += seconds
+            if self.after_sleep is not None:
+                self.after_sleep(self)
 
     def test_linear_execution_stop_success(self):
         script = WorkflowScript.model_validate({
@@ -576,6 +605,49 @@ class TestInterpreter:
         result = interp.execute(script, {"url": "https://x.com"})
         assert result["ok"] is True
 
+    def test_plugin_inputs_become_session_defaults_without_leaking_into_vars(self):
+        reg = get_registry()
+        captured: dict[str, Any] = {}
+
+        def capture_defaults(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
+            captured["package"] = context.get_session_default("package")
+            captured["device_ip"] = context.get_session_default("device_ip")
+            captured["vars"] = dict(context.vars)
+            return ActionResult(ok=True)
+
+        reg.register("core.capture_session_defaults", capture_defaults)
+
+        script = WorkflowScript.model_validate({
+            "version": "v1",
+            "workflow": "test",
+            "steps": [
+                {"kind": "action", "action": "core.capture_session_defaults", "params": {}},
+                {"kind": "stop", "status": "success", "message": "ok"},
+            ],
+        })
+        manifest = PluginManifest.model_validate({
+            "api_version": "v1",
+            "kind": "plugin",
+            "name": "test_plugin",
+            "version": "1.0.0",
+            "display_name": "Test Plugin",
+            "inputs": [
+                {"name": "device_ip", "type": "string", "required": True},
+                {"name": "package", "type": "string", "required": False, "default": "com.demo.app"},
+            ],
+        })
+
+        result = self._make_interpreter().execute(
+            script,
+            {"device_ip": "192.168.1.20"},
+            plugin_inputs=manifest.inputs,
+        )
+
+        assert result["ok"] is True
+        assert captured["device_ip"] == "192.168.1.20"
+        assert captured["package"] == "com.demo.app"
+        assert captured["vars"] == {}
+
     def test_falls_through_without_stop(self):
         reg = get_registry()
         reg.register("test.ok", lambda p, c: ActionResult(ok=True))
@@ -691,6 +763,228 @@ class TestInterpreter:
         assert result["ok"] is False
         assert "wait_until timed out" in result["message"]
         mock_browser.close.assert_called_once()
+
+    def test_wait_until_succeeds_before_timeout_during_polling(self, monkeypatch):
+        reg = get_registry()
+        seen: dict[str, ExecutionContext] = {}
+        clock = self._FakeWaitClock()
+
+        def bind_context(params, context):
+            seen["context"] = context
+            context.vars["ready"] = False
+            return ActionResult(ok=True)
+
+        def flip_ready(_clock):
+            seen["context"].vars["ready"] = True
+            _clock.after_sleep = None
+
+        clock.after_sleep = flip_ready
+        reg.register("test.bind_wait_context", bind_context)
+        monkeypatch.setattr("engine.interpreter.time.monotonic", clock.monotonic)
+        monkeypatch.setattr("engine.interpreter.time.sleep", clock.sleep)
+
+        script = WorkflowScript.model_validate({
+            "version": "v1",
+            "workflow": "test",
+            "steps": [
+                {"kind": "action", "action": "test.bind_wait_context", "params": {}},
+                {"kind": "wait_until", "check": {"all": [{"type": "var_equals", "var": "ready", "equals": True}]}, "timeout_ms": 1200, "interval_ms": 200},
+                {"kind": "stop", "status": "success", "message": "ready"},
+            ],
+        })
+
+        result = self._make_interpreter().execute(script, {})
+
+        assert result["ok"] is True
+        assert result["message"] == "ready"
+        assert clock.sleep_calls == 1
+
+    def test_wait_until_timeout_returns_error_without_fallback(self, monkeypatch):
+        clock = self._FakeWaitClock()
+        monkeypatch.setattr("engine.interpreter.time.monotonic", clock.monotonic)
+        monkeypatch.setattr("engine.interpreter.time.sleep", clock.sleep)
+
+        script = WorkflowScript.model_validate({
+            "version": "v1",
+            "workflow": "test",
+            "steps": [
+                {"kind": "wait_until", "label": "wait_here", "check": {"all": [{"type": "var_truthy", "var": "never"}]}, "timeout_ms": 600, "interval_ms": 200},
+            ],
+        })
+
+        result = self._make_interpreter().execute(script, {})
+
+        assert result["ok"] is False
+        assert result["status"] == "failed"
+        assert result["message"] == "wait_until timed out after 0.6s at step 0 (wait_here)"
+
+    def test_wait_until_on_timeout_goto_jumps_to_handler(self, monkeypatch):
+        clock = self._FakeWaitClock()
+        monkeypatch.setattr("engine.interpreter.time.monotonic", clock.monotonic)
+        monkeypatch.setattr("engine.interpreter.time.sleep", clock.sleep)
+
+        script = WorkflowScript.model_validate({
+            "version": "v1",
+            "workflow": "test",
+            "steps": [
+                {"kind": "wait_until", "check": {"all": [{"type": "var_truthy", "var": "never"}]}, "timeout_ms": 400, "interval_ms": 100, "on_timeout": {"strategy": "goto", "goto": "timed_out"}},
+                {"kind": "stop", "status": "failed", "message": "should not reach"},
+                {"label": "timed_out", "kind": "stop", "status": "success", "message": "handled timeout"},
+            ],
+        })
+
+        result = self._make_interpreter().execute(script, {})
+
+        assert result["ok"] is True
+        assert result["message"] == "handled timeout"
+
+    def test_wait_until_on_fail_is_used_when_on_timeout_missing(self, monkeypatch):
+        clock = self._FakeWaitClock()
+        monkeypatch.setattr("engine.interpreter.time.monotonic", clock.monotonic)
+        monkeypatch.setattr("engine.interpreter.time.sleep", clock.sleep)
+
+        script = WorkflowScript.model_validate({
+            "version": "v1",
+            "workflow": "test",
+            "steps": [
+                {"kind": "wait_until", "check": {"all": [{"type": "var_truthy", "var": "never"}]}, "timeout_ms": 400, "interval_ms": 100, "on_fail": {"strategy": "goto", "goto": "fallback"}},
+                {"kind": "stop", "status": "failed", "message": "should not reach"},
+                {"label": "fallback", "kind": "stop", "status": "success", "message": "handled fallback"},
+            ],
+        })
+
+        result = self._make_interpreter().execute(script, {})
+
+        assert result["ok"] is True
+        assert result["message"] == "handled fallback"
+
+    def test_wait_until_cancellation_during_polling_returns_cancelled(self, monkeypatch):
+        clock = self._FakeWaitClock()
+        cancel_state = {"cancelled": False}
+
+        def request_cancel(_clock):
+            cancel_state["cancelled"] = True
+            _clock.after_sleep = None
+
+        clock.after_sleep = request_cancel
+        monkeypatch.setattr("engine.interpreter.time.monotonic", clock.monotonic)
+        monkeypatch.setattr("engine.interpreter.time.sleep", clock.sleep)
+
+        script = WorkflowScript.model_validate({
+            "version": "v1",
+            "workflow": "test",
+            "steps": [
+                {"kind": "wait_until", "check": {"all": [{"type": "var_truthy", "var": "never"}]}, "timeout_ms": 1000, "interval_ms": 200},
+            ],
+        })
+
+        result = self._make_interpreter().execute(script, {}, should_cancel=lambda: cancel_state["cancelled"])
+
+        assert result["ok"] is False
+        assert result["status"] == "cancelled"
+        assert result["message"] == "task cancelled by user"
+
+    def test_wait_until_rechecks_vars_that_change_between_polls(self, monkeypatch):
+        reg = get_registry()
+        seen: dict[str, ExecutionContext] = {}
+        clock = self._FakeWaitClock()
+
+        def bind_context(params, context):
+            seen["context"] = context
+            context.vars["status"] = "pending"
+            return ActionResult(ok=True)
+
+        def update_vars(_clock):
+            seen["context"].vars["status"] = "ready"
+            _clock.after_sleep = None
+
+        clock.after_sleep = update_vars
+        reg.register("test.bind_wait_vars", bind_context)
+        monkeypatch.setattr("engine.interpreter.time.monotonic", clock.monotonic)
+        monkeypatch.setattr("engine.interpreter.time.sleep", clock.sleep)
+
+        script = WorkflowScript.model_validate({
+            "version": "v1",
+            "workflow": "test",
+            "steps": [
+                {"kind": "action", "action": "test.bind_wait_vars", "params": {}},
+                {"kind": "wait_until", "check": {"all": [{"type": "var_equals", "var": "status", "equals": "ready"}]}, "timeout_ms": 800, "interval_ms": 200},
+                {"kind": "stop", "status": "success", "message": "vars updated"},
+            ],
+        })
+
+        result = self._make_interpreter().execute(script, {})
+
+        assert result["ok"] is True
+        assert result["message"] == "vars updated"
+
+    def test_wait_until_rechecks_last_result_that_changes_between_polls(self, monkeypatch):
+        reg = get_registry()
+        seen: dict[str, ExecutionContext] = {}
+        clock = self._FakeWaitClock()
+
+        def bind_context(params, context):
+            seen["context"] = context
+            return ActionResult(ok=False, code="not_ready")
+
+        def update_last_result(_clock):
+            seen["context"].last_result = ActionResult(ok=True)
+            _clock.after_sleep = None
+
+        clock.after_sleep = update_last_result
+        reg.register("test.bind_last_result", bind_context)
+        monkeypatch.setattr("engine.interpreter.time.monotonic", clock.monotonic)
+        monkeypatch.setattr("engine.interpreter.time.sleep", clock.sleep)
+
+        script = WorkflowScript.model_validate({
+            "version": "v1",
+            "workflow": "test",
+            "steps": [
+                {"kind": "action", "action": "test.bind_last_result", "params": {}, "on_fail": {"strategy": "skip"}},
+                {"kind": "wait_until", "check": {"any": [{"type": "result_ok"}]}, "timeout_ms": 800, "interval_ms": 200},
+                {"kind": "stop", "status": "success", "message": "result updated"},
+            ],
+        })
+
+        result = self._make_interpreter().execute(script, {})
+
+        assert result["ok"] is True
+        assert result["message"] == "result updated"
+
+    def test_wait_until_rechecks_action_produced_data_between_polls(self, monkeypatch):
+        reg = get_registry()
+        seen: dict[str, ExecutionContext] = {}
+        clock = self._FakeWaitClock()
+
+        def produce_data(params, context):
+            job = {"status": "pending"}
+            context.vars["job"] = job
+            seen["context"] = context
+            return ActionResult(ok=True, data=job)
+
+        def update_action_data(_clock):
+            seen["context"].vars["job"]["status"] = "ready"
+            _clock.after_sleep = None
+
+        clock.after_sleep = update_action_data
+        reg.register("test.produce_wait_data", produce_data)
+        monkeypatch.setattr("engine.interpreter.time.monotonic", clock.monotonic)
+        monkeypatch.setattr("engine.interpreter.time.sleep", clock.sleep)
+
+        script = WorkflowScript.model_validate({
+            "version": "v1",
+            "workflow": "test",
+            "steps": [
+                {"kind": "action", "action": "test.produce_wait_data", "params": {}, "save_as": "job"},
+                {"kind": "wait_until", "check": {"all": [{"type": "var_equals", "var": "job.status", "equals": "ready"}]}, "timeout_ms": 800, "interval_ms": 200},
+                {"kind": "stop", "status": "success", "message": "action data updated"},
+            ],
+        })
+
+        result = self._make_interpreter().execute(script, {})
+
+        assert result["ok"] is True
+        assert result["message"] == "action data updated"
 
     def test_browser_cleanup_in_finally(self):
         """Browser should be closed even if an error occurs."""

@@ -28,7 +28,7 @@ def _serialize_credentials(creds: Any) -> dict[str, Any]:
 
 def credentials_load(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
     """从引用或 JSON 字符串加载凭据。"""
-    credentials_ref = str(params.get("credentials_ref", ""))
+    credentials_ref = str(params.get("credentials_ref") or context.get_session_default("credentials_ref") or "")
     save_as = str(params.get("save_as", "creds"))
 
     if not credentials_ref:
