@@ -16,6 +16,7 @@ from api.routes import websocket as websocket_route
 from core.device_manager import DeviceManager
 from core.lan_discovery import LanDeviceDiscovery
 from core.task_control import get_task_controller
+from engine.actions._rpc_bootstrap import is_rpc_enabled
 from engine.runner import Runner, strict_plugin_unknown_inputs_enabled
 from hardware_adapters.browser_client import BrowserClient
 
@@ -71,7 +72,7 @@ def web_index():
 
 @app.get("/health")
 def health():
-    rpc_enabled = os.environ.get("MYT_ENABLE_RPC", "0") == "1"
+    rpc_enabled = is_rpc_enabled()
     return {
         "status": "ok",
         "runtime": "skeleton",

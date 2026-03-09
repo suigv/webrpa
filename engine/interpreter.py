@@ -399,10 +399,10 @@ class Interpreter:
                 defaults[plugin_input.name] = plugin_input.default
 
         connection_defaults = {
-            "device_ip": payload_dict.get("device_ip") or target.get("device_ip"),
-            "rpa_port": payload_dict.get("rpa_port") or target.get("rpa_port"),
-            "cloud_index": payload_dict.get("cloud_index") or target.get("cloud_id"),
-            "device_index": payload_dict.get("device_index") or target.get("device_id"),
+            "device_ip": target.get("device_ip") or payload_dict.get("device_ip"),
+            "rpa_port": target.get("rpa_port") or payload_dict.get("rpa_port"),
+            "cloud_index": target.get("cloud_id") or payload_dict.get("cloud_index"),
+            "device_index": target.get("device_id") or payload_dict.get("device_index"),
             "cloud_machines_per_device": payload_dict.get("cloud_machines_per_device"),
         }
         for key, value in connection_defaults.items():
