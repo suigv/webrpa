@@ -56,7 +56,8 @@ class Interpreter:
         script: WorkflowScript,
         payload: Dict[str, Any],
         plugin_inputs: List[PluginInput] | None = None,
-        should_cancel: Optional[Any] = None,
+        should_cancel: Any = None,
+        runtime: Dict[str, Any] | None = None,
     ) -> Dict[str, Any]:
         """Execute a workflow script with the given payload.
 
@@ -64,7 +65,8 @@ class Interpreter:
         """
         context = ExecutionContext(
             payload=payload,
-            session={"defaults": self._build_session_defaults(payload, plugin_inputs or [])},
+            session={"defaults": self._build_session_defaults(payload, plugin_inputs or [], runtime)},
+            runtime=runtime,
         )
         context.should_cancel = should_cancel
         # Merge script-level vars (with interpolation from payload)
@@ -383,10 +385,10 @@ class Interpreter:
         self,
         payload: Dict[str, Any],
         plugin_inputs: List[PluginInput],
+        runtime: Dict[str, Any] | None = None,
     ) -> Dict[str, Any]:
         payload_dict = dict(payload) if isinstance(payload, dict) else {}
-        target_obj = payload_dict.get("_target")
-        target = target_obj if isinstance(target_obj, dict) else {}
+        target = runtime.get("target") if isinstance(runtime, dict) and isinstance(runtime.get("target"), dict) else {}
         defaults: Dict[str, Any] = {}
 
         for plugin_input in plugin_inputs:

@@ -31,7 +31,7 @@ from engine.models.workflow import (
     WorkflowScript,
 )
 from engine.parser import interpolate, interpolate_params, parse_manifest, parse_script
-from engine.plugin_loader import PluginLoader, build_scanned_plugin_loader, clear_shared_plugin_loader_cache, get_shared_plugin_loader
+from engine.plugin_loader import PluginLoader, clear_shared_plugin_loader_cache, get_shared_plugin_loader
 from engine.models.ui_state import UIStateObservationResult
 
 
@@ -1138,8 +1138,11 @@ class TestPluginLoader:
         assert loader.has("my_plugin")
         assert "my_plugin" in loader.names
 
-    def test_build_scanned_plugin_loader_returns_isolated_plugin_map(self, tmp_path: Path):
+    def test_shared_plugin_loader_refresh_updates_existing_references(self, tmp_path: Path):
         clear_shared_plugin_loader_cache()
+
+        first = get_shared_plugin_loader(plugins_root=tmp_path, refresh=True)
+        assert first.names == []
 
         plugin_dir = tmp_path / "my_plugin"
         plugin_dir.mkdir()
@@ -1152,11 +1155,12 @@ class TestPluginLoader:
             encoding="utf-8",
         )
 
-        first = build_scanned_plugin_loader(plugins_root=tmp_path, refresh=True)
-        second = build_scanned_plugin_loader(plugins_root=tmp_path)
+        second = get_shared_plugin_loader(plugins_root=tmp_path)
+        refreshed = get_shared_plugin_loader(plugins_root=tmp_path, refresh=True)
 
-        first._plugins.clear()
-
+        assert second is first
+        assert refreshed is first
+        assert first.has("my_plugin")
         assert second.has("my_plugin")
 
     def test_scan_skips_invalid_manifest(self, tmp_path: Path):

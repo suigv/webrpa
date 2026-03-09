@@ -10,7 +10,7 @@ from engine.interpreter import Interpreter
 from engine.models.manifest import InputType, PluginInput
 from engine.models.workflow import ActionStep, WorkflowScript
 from engine.parser import ScriptParser, parse_script
-from engine.plugin_loader import build_scanned_plugin_loader
+from engine.plugin_loader import get_shared_plugin_loader
 
 logger = logging.getLogger(__name__)
 
@@ -25,13 +25,14 @@ def strict_plugin_unknown_inputs_enabled() -> bool:
 class Runner:
     def __init__(self) -> None:
         self._parser = ScriptParser()
-        self._plugin_loader = build_scanned_plugin_loader()
+        self._plugin_loader = get_shared_plugin_loader()
         self._interpreter = Interpreter()
 
     def run(
         self,
         script_payload: Dict[str, Any],
         should_cancel: Callable[[], bool] | None = None,
+        runtime: Dict[str, Any] | None = None,
     ) -> Dict[str, Any]:
         plan = self._parser.parse(script_payload)
         task_name = str(plan.get("task") or "")
@@ -49,7 +50,7 @@ class Runner:
         # Try YAML plugin first
         plugin = self._plugin_loader.get(task_name)
         if plugin is not None:
-            return self._run_yaml_plugin(task_name, script_payload, plugin, should_cancel)
+            return self._run_yaml_plugin(task_name, script_payload, plugin, should_cancel, runtime)
 
         # Unknown named task
         if task_name and task_name != "anonymous":
@@ -74,6 +75,7 @@ class Runner:
         payload: Dict[str, Any],
         plugin: Any,
         should_cancel: Callable[[], bool] | None = None,
+        runtime: Dict[str, Any] | None = None,
     ) -> Dict[str, Any]:
         try:
             script = parse_script(plugin.script_path)
@@ -90,6 +92,7 @@ class Runner:
                 payload,
                 plugin_inputs=plugin.manifest.inputs,
                 should_cancel=should_cancel,
+                runtime=runtime,
             )
             result.setdefault("task", task_name)
             result.setdefault("timestamp", datetime.now(timezone.utc).isoformat())

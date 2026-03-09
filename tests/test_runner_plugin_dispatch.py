@@ -1,11 +1,20 @@
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from engine.action_registry import get_registry
 from engine.models.manifest import PluginManifest
 from engine.models.runtime import ActionResult, ExecutionContext
-from engine.plugin_loader import PluginEntry
+from engine.plugin_loader import PluginEntry, PluginLoader, clear_shared_plugin_loader_cache
 from engine.runner import Runner
+
+
+@pytest.fixture(autouse=True)
+def reset_shared_plugin_loader_cache():
+    clear_shared_plugin_loader_cache()
+    yield
+    clear_shared_plugin_loader_cache()
 
 
 def test_runner_yaml_plugin_dispatch_to_mobile_plugin_requires_device_ip():
@@ -45,6 +54,12 @@ def _make_plugin_entry(tmp_path: Path, manifest_payload: dict[str, Any], script_
     return PluginEntry(manifest=manifest, plugin_dir=plugin_dir)
 
 
+def _attach_plugin_entry(runner: Runner, tmp_path: Path, entry: PluginEntry) -> None:
+    loader = PluginLoader(plugins_root=tmp_path)
+    loader._plugins = {entry.manifest.name: entry}
+    runner._plugin_loader = loader
+
+
 def test_runner_plugin_missing_required_input_fails_early(tmp_path: Path):
     manifest_payload = {
         "api_version": "v1",
@@ -60,7 +75,7 @@ def test_runner_plugin_missing_required_input_fails_early(tmp_path: Path):
         "version: v1\nworkflow: secure_plugin\nsteps:\n  - kind: stop\n    status: success\n    message: ok\n",
     )
     runner = Runner()
-    runner._plugin_loader._plugins = {"secure_plugin": entry}
+    _attach_plugin_entry(runner, tmp_path, entry)
 
     result = runner.run({"task": "secure_plugin"})
 
@@ -86,7 +101,7 @@ def test_runner_plugin_invalid_input_type_fails_early(tmp_path: Path):
         "version: v1\nworkflow: secure_plugin\nsteps:\n  - kind: stop\n    status: success\n    message: ok\n",
     )
     runner = Runner()
-    runner._plugin_loader._plugins = {"secure_plugin": entry}
+    _attach_plugin_entry(runner, tmp_path, entry)
 
     result = runner.run({"task": "secure_plugin", "device_ip": 123})
 
@@ -110,7 +125,7 @@ def test_runner_plugin_unknown_input_fails_early(tmp_path: Path):
         "version: v1\nworkflow: secure_plugin\nsteps:\n  - kind: stop\n    status: success\n    message: ok\n",
     )
     runner = Runner()
-    runner._plugin_loader._plugins = {"secure_plugin": entry}
+    _attach_plugin_entry(runner, tmp_path, entry)
 
     result = runner.run({"task": "secure_plugin", "device_ip": "192.168.1.2", "unexpected": "x"})
 
@@ -137,7 +152,7 @@ def test_runner_plugin_task_key_not_treated_as_unknown_input(tmp_path: Path):
         "version: v1\nworkflow: secure_plugin\nsteps:\n  - kind: stop\n    status: success\n    message: ok\n",
     )
     runner = Runner()
-    runner._plugin_loader._plugins = {"secure_plugin": entry}
+    _attach_plugin_entry(runner, tmp_path, entry)
 
     result = runner.run({"task": "secure_plugin", "device_ip": "192.168.1.2"})
 
@@ -160,7 +175,7 @@ def test_runner_plugin_unknown_input_check_can_be_disabled_by_env(tmp_path: Path
         "version: v1\nworkflow: secure_plugin\nsteps:\n  - kind: stop\n    status: success\n    message: ok\n",
     )
     runner = Runner()
-    runner._plugin_loader._plugins = {"secure_plugin": entry}
+    _attach_plugin_entry(runner, tmp_path, entry)
     monkeypatch.setenv("MYT_STRICT_PLUGIN_UNKNOWN_INPUTS", "0")
 
     result = runner.run({"task": "secure_plugin", "device_ip": "192.168.1.2", "unexpected": "x"})
@@ -193,7 +208,7 @@ def test_runner_plugin_action_outside_allowed_namespace_is_denied(tmp_path: Path
         ),
     )
     runner = Runner()
-    runner._plugin_loader._plugins = {"secure_plugin": entry}
+    _attach_plugin_entry(runner, tmp_path, entry)
 
     registry = get_registry()
     previous_actions = dict(registry._actions)
@@ -238,7 +253,7 @@ def test_runner_plugin_manifest_default_package_reaches_action_when_step_omits_i
         ),
     )
     runner = Runner()
-    runner._plugin_loader._plugins = {"secure_plugin": entry}
+    _attach_plugin_entry(runner, tmp_path, entry)
 
     calls: list[tuple[str, int, int]] = []
     packages: list[str] = []
@@ -295,7 +310,7 @@ def test_runner_plugin_session_defaults_do_not_leak_into_vars_and_explicit_param
         ),
     )
     runner = Runner()
-    runner._plugin_loader._plugins = {"secure_plugin": entry}
+    _attach_plugin_entry(runner, tmp_path, entry)
 
     captured: dict[str, object] = {}
 
@@ -351,7 +366,7 @@ def test_runner_plugin_explicit_package_param_overrides_manifest_default(tmp_pat
         ),
     )
     runner = Runner()
-    runner._plugin_loader._plugins = {"secure_plugin": entry}
+    _attach_plugin_entry(runner, tmp_path, entry)
 
     packages: list[str] = []
 
@@ -403,7 +418,7 @@ def test_runner_plugin_target_device_ip_reaches_action_when_payload_omits_runtim
         ),
     )
     runner = Runner()
-    runner._plugin_loader._plugins = {"secure_plugin": entry}
+    _attach_plugin_entry(runner, tmp_path, entry)
 
     calls: list[tuple[str, int, int]] = []
     packages: list[str] = []
@@ -422,10 +437,12 @@ def test_runner_plugin_target_device_ip_reaches_action_when_payload_omits_runtim
 
     monkeypatch.setattr("engine.actions.ui_actions.MytRpc", _RecordingRpc)
 
-    result = runner.run({
-        "task": "secure_plugin",
-        "_target": {"device_ip": "10.0.0.5", "rpa_port": 39002},
-    })
+    result = runner.run(
+        {
+            "task": "secure_plugin",
+        },
+        runtime={"target": {"device_ip": "10.0.0.5", "rpa_port": 39002}},
+    )
 
     assert result["ok"] is True
     assert result["status"] == "success"

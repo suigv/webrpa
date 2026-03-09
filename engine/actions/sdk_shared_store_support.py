@@ -87,9 +87,11 @@ def resolve_shared_key(params: dict[str, Any], context: ExecutionContext | None)
         if scope == "device":
             scope_value = str(payload.get("device_ip") or "").strip()
         elif scope == "task":
-            scope_value = str(payload.get("_task_id") or "").strip()
+            scope_value = context.task_id if context is not None else ""
         elif scope == "cloud":
-            scope_value = str(payload.get("_cloud_target") or payload.get("name") or "").strip()
+            scope_value = (
+                context.cloud_target_label if context is not None else str(payload.get("name") or "").strip()
+            )
 
     if not scope_value:
         return key

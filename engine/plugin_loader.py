@@ -37,9 +37,10 @@ class PluginLoader:
 
     def scan(self) -> None:
         """Scan plugins directory and load all valid manifests."""
-        self._plugins.clear()
+        scanned_plugins: Dict[str, PluginEntry] = {}
         if not self._root.is_dir():
             logger.warning("plugins directory not found: %s", self._root)
+            self._plugins = scanned_plugins
             return
 
         for child in sorted(self._root.iterdir()):
@@ -58,10 +59,11 @@ class PluginLoader:
                         entry.script_path,
                     )
                     continue
-                self._plugins[manifest.name] = entry
+                scanned_plugins[manifest.name] = entry
                 logger.info("loaded plugin: %s (v%s)", manifest.name, manifest.version)
             except Exception as exc:
                 logger.warning("failed to load plugin from %s: %s", child, exc)
+        self._plugins = scanned_plugins
 
     def get(self, name: str) -> Optional[PluginEntry]:
         return self._plugins.get(name)
@@ -98,10 +100,3 @@ def get_shared_plugin_loader(plugins_root: Optional[Path] = None, *, refresh: bo
         elif refresh:
             loader.scan()
         return loader
-
-
-def build_scanned_plugin_loader(plugins_root: Optional[Path] = None, *, refresh: bool = False) -> PluginLoader:
-    shared = get_shared_plugin_loader(plugins_root=plugins_root, refresh=refresh)
-    loader = PluginLoader(plugins_root=shared._root)
-    loader._plugins = dict(shared._plugins)
-    return loader

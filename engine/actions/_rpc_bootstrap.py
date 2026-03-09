@@ -16,8 +16,7 @@ def is_rpc_enabled() -> bool:
 
 def resolve_connection_params(params: Dict[str, Any], context: ExecutionContext) -> tuple[str, int]:
     payload: Dict[str, Any] = dict(context.payload) if isinstance(context.payload, dict) else {}
-    target_obj = payload.get("_target")
-    target: Dict[str, Any] = target_obj if isinstance(target_obj, dict) else {}
+    target: Dict[str, Any] = context.target
     session_defaults = context.session_defaults
 
     device_ip = str(

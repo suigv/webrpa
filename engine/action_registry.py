@@ -32,11 +32,12 @@ class ActionRegistry:
 # Global registry instance
 _registry = ActionRegistry()
 _defaults_registered = False
+_DEFAULT_SENTINEL_ACTION = "ui.focus_and_input_with_shell_fallback"
 
 
 def _ensure_defaults_registered() -> None:
     global _defaults_registered
-    if _defaults_registered:
+    if _defaults_registered and _registry.has(_DEFAULT_SENTINEL_ACTION):
         return
     register_defaults()
     _defaults_registered = True
@@ -45,6 +46,12 @@ def _ensure_defaults_registered() -> None:
 def get_registry() -> ActionRegistry:
     _ensure_defaults_registered()
     return _registry
+
+
+def reset_registry() -> None:
+    global _registry, _defaults_registered
+    _registry = ActionRegistry()
+    _defaults_registered = False
 
 
 def register_action(name: str, handler: ActionCallable) -> None:
