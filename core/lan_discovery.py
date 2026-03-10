@@ -36,7 +36,8 @@ class LanDeviceDiscovery:
         if thread is not None and thread.is_alive():
             return
         self._stop_event.clear()
-        self.scan_now()
+        # Initial scan removed from here to avoid blocking server startup.
+        # It will be performed in the first iteration of _loop.
         self._thread = threading.Thread(target=self._loop, name="lan-device-discovery", daemon=True)
         self._thread.start()
 

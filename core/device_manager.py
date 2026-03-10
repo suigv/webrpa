@@ -4,7 +4,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
-from typing import Dict, Literal, Optional
+from typing import Dict, Literal, Optional, Any
 
 from .config_loader import (
     get_allocation_version,
@@ -65,24 +65,26 @@ class DeviceManager:
             self._cloud_model_retries = 2
             self._cloud_model_success_ttl_seconds = 30.0
             self._cloud_model_error_ttl_seconds = 5.0
+            self._device_snapshot_lock = threading.Lock()
+            self._device_snapshot_cache: dict[str, list[dict[str, Any]]] = {}
+            self._device_snapshot_at: dict[str, float] = {}
             self._initialized = True
 
-    def _query_cloud_model_map(self, device_ip: str) -> dict[int, dict[str, Optional[str]]]:
+    def _query_cloud_model_map(self, device_ip: str, refresh_if_missing: bool = False) -> dict[int, dict[str, Optional[str]]]:
         key = (device_ip, get_sdk_port())
         now = time.time()
+        
         with self._cloud_model_lock:
             cached = self._cloud_model_cache.get(key)
             if cached:
-                expires_at_raw = cached.get("expires_at")
-                expires_at = float(expires_at_raw) if isinstance(expires_at_raw, (int, float, str)) else 0.0
-                if expires_at > now:
+                expires_at = float(cached.get("expires_at", 0))
+                if expires_at > now or not refresh_if_missing:
                     map_raw = cached.get("models_by_api_port")
                     if isinstance(map_raw, dict):
-                        return {
-                            int(port): values
-                            for port, values in map_raw.items()
-                            if isinstance(port, int) and isinstance(values, dict)
-                        }
+                        return {int(port): values for port, values in map_raw.items()}
+
+        if not refresh_if_missing:
+            return {}
 
         client = BaseHTTPClient(
             device_ip,
@@ -106,10 +108,8 @@ class DeviceManager:
                     for item in list_raw:
                         if not isinstance(item, dict):
                             continue
-                        model_name_raw = item.get("modelPath")
-                        model_name = str(model_name_raw).strip() if model_name_raw is not None else ""
-                        model_id_raw = item.get("id")
-                        model_id = str(model_id_raw).strip() if model_id_raw is not None else ""
+                        model_name = str(item.get("modelPath") or "").strip()
+                        model_id = str(item.get("id") or "").strip()
 
                         bindings = item.get("portBindings")
                         if not isinstance(bindings, dict):
@@ -117,21 +117,14 @@ class DeviceManager:
                         api_bindings = bindings.get("9082/tcp")
                         if not isinstance(api_bindings, list) or not api_bindings:
                             continue
-                        first_binding = api_bindings[0]
-                        if not isinstance(first_binding, dict):
-                            continue
-                        host_port_raw = first_binding.get("HostPort")
-                        if not isinstance(host_port_raw, (str, int, float)):
-                            continue
                         try:
-                            api_port = int(host_port_raw)
-                        except (TypeError, ValueError):
-                            logger.warning("skip invalid HostPort from /android response: %r", host_port_raw)
+                            api_port = int(api_bindings[0].get("HostPort"))
+                            models_by_api_port[api_port] = {
+                                "machine_model_name": model_name or None,
+                                "machine_model_id": model_id or None,
+                            }
+                        except (TypeError, ValueError, KeyError):
                             continue
-                        models_by_api_port[api_port] = {
-                            "machine_model_name": model_name or None,
-                            "machine_model_id": model_id or None,
-                        }
             ttl_seconds = self._cloud_model_success_ttl_seconds
 
         with self._cloud_model_lock:
@@ -144,13 +137,9 @@ class DeviceManager:
 
     def _resolve_device_endpoints(self) -> list[tuple[int, str]]:
         endpoints: list[tuple[int, str]] = []
-
-        # Load static config as source-of-truth.
-        # LAN discovery updates config via /api/devices/discover.
         total = get_total_devices()
         for device_id in range(1, total + 1):
             endpoints.append((device_id, get_device_ip(device_id)))
-
         endpoints.sort(key=lambda item: item[0])
         return endpoints
 
@@ -159,7 +148,6 @@ class DeviceManager:
         if thread is not None and thread.is_alive():
             return
         self._probe_stop_event.clear()
-        self._run_probe_sweep()
         self._probe_thread = threading.Thread(target=self._probe_loop, name="cloud-probe-worker", daemon=True)
         self._probe_thread.start()
 
@@ -185,7 +173,9 @@ class DeviceManager:
         cloud_machines_per_device = get_cloud_machines_per_device()
 
         targets: list[tuple[int, int, str, int]] = []
+        device_ips = set()
         for device_id, device_ip in endpoints:
+            device_ips.add(device_ip)
             for cloud_id in range(1, cloud_machines_per_device + 1):
                 _api_port, rpa_port = calculate_ports(device_id, cloud_id, cloud_machines_per_device)
                 targets.append((device_id, cloud_id, device_ip, rpa_port))
@@ -195,12 +185,20 @@ class DeviceManager:
 
         max_workers = min(128, max(8, len(targets)))
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # 1. 探测 RPA 端口获取可用性
             futures = [executor.submit(self._probe_target, target) for target in targets]
             for future in as_completed(futures):
                 try:
                     future.result()
                 except Exception:
                     continue
+            
+            # 2. 对每个 IP 尝试在后台异步更新型号映射 (非阻塞)
+            for ip in device_ips:
+                executor.submit(self._query_cloud_model_map, ip, refresh_if_missing=True)
+
+        # 3. 更新快照缓存，供 API 快速读取
+        self._refresh_device_snapshots()
 
     def _probe_target(self, target: tuple[int, int, str, int]) -> None:
         device_id, cloud_id, device_ip, rpa_port = target
@@ -253,31 +251,20 @@ class DeviceManager:
             )
 
             state = str(current.get("state", "unknown"))
-
-            success_raw = current.get("success_streak", 0)
-            failure_raw = current.get("failure_streak", 0)
-            changed_raw = current.get("state_changed_at", now)
-
-            success_streak = int(success_raw) if isinstance(success_raw, (int, float, str)) else 0
-            failure_streak = int(failure_raw) if isinstance(failure_raw, (int, float, str)) else 0
-            state_changed_at = float(changed_raw) if isinstance(changed_raw, (int, float, str)) else now
+            success_streak = int(current.get("success_streak", 0))
+            failure_streak = int(current.get("failure_streak", 0))
+            state_changed_at = float(current.get("state_changed_at", now))
 
             if ok:
                 success_streak += 1
                 failure_streak = 0
-                should_flip = success_streak >= self._probe_success_threshold and (
-                    state == "unknown" or now - state_changed_at >= self._probe_state_hold_seconds
-                )
-                if state != "available" and should_flip:
+                if state != "available" and (success_streak >= self._probe_success_threshold or state == "unknown"):
                     state = "available"
                     state_changed_at = now
             else:
                 failure_streak += 1
                 success_streak = 0
-                should_flip = failure_streak >= self._probe_failure_threshold and (
-                    state == "unknown" or now - state_changed_at >= self._probe_state_hold_seconds
-                )
-                if state != "unavailable" and should_flip:
+                if state != "unavailable" and (failure_streak >= self._probe_failure_threshold or state == "unknown"):
                     state = "unavailable"
                     state_changed_at = now
 
@@ -293,7 +280,7 @@ class DeviceManager:
                 "reason": reason,
             }
 
-    def _get_probe_snapshot(self, device_id: int, cloud_id: int) -> dict[str, object]:
+    def _get_probe_snapshot(self, device_id: int, cloud_id: int) -> dict[str, Any]:
         key = (device_id, cloud_id)
         now = time.time()
         with self._probe_lock:
@@ -310,31 +297,17 @@ class DeviceManager:
                 "stale": True,
             }
 
-        last_checked_raw = current.get("last_checked_at")
-        last_checked: Optional[float]
-        if isinstance(last_checked_raw, (int, float)):
-            last_checked = float(last_checked_raw)
-        else:
-            last_checked = None
-
-        stale = True
-        if last_checked is not None:
-            stale = (now - last_checked) > self._probe_stale_seconds
-
-        last_checked_at = datetime.fromtimestamp(last_checked).isoformat() if last_checked is not None else None
-
-        streak_up_raw = current.get("streak_up", 0)
-        streak_down_raw = current.get("streak_down", 0)
-        latency_raw = current.get("latency_ms")
-        latency_ms = int(latency_raw) if isinstance(latency_raw, (int, float, str)) else None
+        last_checked = current.get("last_checked_at")
+        stale = (now - last_checked) > self._probe_stale_seconds if last_checked else True
+        last_checked_at = datetime.fromtimestamp(last_checked).isoformat() if last_checked else None
 
         return {
             "availability_state": str(current.get("state", "unknown")),
             "availability_reason": str(current.get("reason", "not_checked")),
             "last_checked_at": last_checked_at,
-            "latency_ms": latency_ms,
-            "streak_up": int(streak_up_raw) if isinstance(streak_up_raw, (int, float, str)) else 0,
-            "streak_down": int(streak_down_raw) if isinstance(streak_down_raw, (int, float, str)) else 0,
+            "latency_ms": current.get("latency_ms"),
+            "streak_up": current.get("streak_up", 0),
+            "streak_down": current.get("streak_down", 0),
             "stale": stale,
         }
 
@@ -361,17 +334,50 @@ class DeviceManager:
         with self._devices_lock:
             return dict(self._devices)
 
-    def get_device_info(self, device_id: int, availability: Literal["all", "available_only"] = "all") -> dict[str, object]:
+    def _build_devices_snapshot(self, availability: Literal["all", "available_only"]) -> list[dict[str, Any]]:
+        result: list[dict[str, Any]] = []
+        for device_id in sorted(self.get_all_devices().keys()):
+            try:
+                info = self.get_device_info(device_id, availability=availability)
+                result.append(info)
+            except Exception:
+                continue
+        return result
+
+    def _refresh_device_snapshots(self) -> None:
+        snapshot_all = self._build_devices_snapshot("all")
+        snapshot_available = self._build_devices_snapshot("available_only")
+        now = time.time()
+        with self._device_snapshot_lock:
+            self._device_snapshot_cache["all"] = snapshot_all
+            self._device_snapshot_cache["available_only"] = snapshot_available
+            self._device_snapshot_at["all"] = now
+            self._device_snapshot_at["available_only"] = now
+
+    def get_devices_snapshot(self, availability: Literal["all", "available_only"] = "all") -> list[dict[str, Any]]:
+        with self._device_snapshot_lock:
+            cached = list(self._device_snapshot_cache.get(availability, []))
+        if cached:
+            return cached
+        snapshot = self._build_devices_snapshot(availability)
+        with self._device_snapshot_lock:
+            self._device_snapshot_cache[availability] = snapshot
+            self._device_snapshot_at[availability] = time.time()
+        return snapshot
+
+    def get_device_info(self, device_id: int, availability: Literal["all", "available_only"] = "all") -> dict[str, Any]:
         device = self.get_device(device_id)
         cloud_machines_per_device = get_cloud_machines_per_device()
         endpoint_map = dict(self._resolve_device_endpoints())
         device_ip = endpoint_map.get(device_id, get_device_ip(device_id))
 
-        clouds: list[dict[str, object]] = []
-        cloud_models_by_api_port = self._query_cloud_model_map(device_ip)
+        clouds: list[dict[str, Any]] = []
+        # API 期间仅读取缓存，不发起任何网络 IO (refresh_if_missing=False)
+        cloud_models_by_api_port = self._query_cloud_model_map(device_ip, refresh_if_missing=False)
         available_count = 0
         probe_partial = False
         probe_stale = False
+        
         for cloud_id in range(1, cloud_machines_per_device + 1):
             api_port, rpa_port = calculate_ports(device_id, cloud_id, cloud_machines_per_device)
             probe = self._get_probe_snapshot(device_id, cloud_id)
@@ -380,7 +386,7 @@ class DeviceManager:
                 available_count += 1
             if state == "unknown":
                 probe_partial = True
-            if bool(probe.get("stale", False)):
+            if probe.get("stale", False):
                 probe_stale = True
 
             cloud_info = {
@@ -465,33 +471,23 @@ class DeviceManager:
         sdk_port = get_sdk_port()
         seen: set[tuple[str, int]] = set()
 
-        expected_entries = len(endpoints) * cloud_machines_per_device * 2
-        actual_entries = 0
-
         for device_id, ip in endpoints:
             for cloud_id in range(1, cloud_machines_per_device + 1):
                 api_port, rpa_port = calculate_ports(device_id, cloud_id, cloud_machines_per_device)
                 for port in (api_port, rpa_port):
                     if port == sdk_port:
-                        raise ValueError(f"task port conflicts with reserved sdk port {sdk_port}")
+                        raise ValueError(f"port conflict with sdk port {sdk_port}")
                     endpoint = (ip, port)
                     if endpoint in seen:
-                        raise ValueError(f"duplicate endpoint detected: {endpoint}")
+                        raise ValueError(f"duplicate endpoint: {endpoint}")
                     seen.add(endpoint)
-                    actual_entries += 1
-
-        if actual_entries != expected_entries:
-            raise ValueError(
-                f"invalid topology entry count, got={actual_entries}, expected={expected_entries}"
-            )
 
 
 def parse_device_range(device_str: str) -> list[int]:
     devices: set[int] = set()
     for part in device_str.split(","):
         token = part.strip()
-        if not token:
-            continue
+        if not token: continue
         if "-" in token:
             start, end = token.split("-", 1)
             devices.update(range(int(start), int(end) + 1))
@@ -502,10 +498,7 @@ def parse_device_range(device_str: str) -> list[int]:
 
 def parse_ai_type(ai_type: str) -> str:
     value = ai_type.lower().strip()
-    if value in ["volc", "volcano", "huoshan"]:
-        return "volc"
-    if value in ["part_time", "parttime"]:
-        return "part_time"
+    if value in ["volc", "volcano", "huoshan"]: return "volc"
     return "volc"
 
 

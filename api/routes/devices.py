@@ -53,11 +53,9 @@ def _to_device_info(info: dict[str, object]) -> DeviceInfo:
 
 @router.get("/", response_model=List[DeviceInfo])
 def list_devices(availability: Literal["all", "available_only"] = "all"):
-    result = []
-    for device_id in sorted(device_manager.get_all_devices().keys()):
-        info = device_manager.get_device_info(device_id, availability=availability)
-        result.append(_to_device_info(info))
-    return result
+    # Return snapshot cache to keep UI fast; background probe worker refreshes it.
+    snapshot = device_manager.get_devices_snapshot(availability=availability)
+    return [_to_device_info(info) for info in snapshot if isinstance(info, dict)]
 
 
 @router.post("/discover")
