@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Dict
 
 from engine.action_registry import get_registry
+from engine.gpt_executor import GptExecutorRuntime
 from engine.interpreter import Interpreter
 from engine.models.manifest import InputType, PluginInput
 from engine.models.workflow import ActionStep, WorkflowScript
@@ -23,10 +24,11 @@ def strict_plugin_unknown_inputs_enabled() -> bool:
 
 
 class Runner:
-    def __init__(self) -> None:
+    def __init__(self, *, gpt_executor_runtime: GptExecutorRuntime | None = None) -> None:
         self._parser = ScriptParser()
         self._plugin_loader = get_shared_plugin_loader()
         self._interpreter = Interpreter()
+        self._gpt_executor_runtime = gpt_executor_runtime or GptExecutorRuntime()
 
     def run(
         self,
@@ -46,6 +48,9 @@ class Runner:
                 "message": "task cancelled by user",
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
+
+        if task_name == self._gpt_executor_runtime.task_name:
+            return self._gpt_executor_runtime.run(script_payload, should_cancel=should_cancel, runtime=runtime)
 
         # Try YAML plugin first
         plugin = self._plugin_loader.get(task_name)
