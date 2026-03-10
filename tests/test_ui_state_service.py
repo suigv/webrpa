@@ -2,6 +2,7 @@ from engine.models.runtime import ActionResult, ExecutionContext
 from engine.models.ui_state import (
     X_LOGIN_STAGE_VALUES,
     UIStateEvidence,
+    UIStateIdentity,
     UIStateObservationResult,
     UIStateTiming,
     UIStateTransition,
@@ -112,8 +113,12 @@ def test_ui_state_service_transition_shape_is_shared():
         operation="observe_transition",
         status="transition_observed",
         platform="browser",
-        state={"state_id": "home"},
-        transition=UIStateTransition(from_state={"state_id": "account"}, to_state={"state_id": "home"}, changed=True),
+        state=UIStateIdentity(state_id="home"),
+        transition=UIStateTransition(
+            from_state=UIStateIdentity(state_id="account"),
+            to_state=UIStateIdentity(state_id="home"),
+            changed=True,
+        ),
     )
 
     assert result.transition is not None
@@ -128,3 +133,12 @@ def test_ui_state_service_protocol_method_names_are_stable():
 
     ctx = ExecutionContext(payload={})
     assert ctx.payload == {}
+
+
+def test_ui_state_service_protocol_stays_observation_only_and_structured_state_first():
+    method_names = {name for name in UIStateService.__dict__ if not name.startswith("_")}
+
+    assert method_names == {"match_state", "wait_until", "observe_transition"}
+    assert UIStateService.match_state.__annotations__["return"] == "UIStateObservationResult"
+    assert UIStateService.wait_until.__annotations__["return"] == "UIStateObservationResult"
+    assert UIStateService.observe_transition.__annotations__["return"] == "UIStateObservationResult"
