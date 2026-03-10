@@ -184,7 +184,7 @@ def register_defaults() -> None:
         open_first_unread_dm,
         wait_x_login_stage,
     )
-    from .actions.ai_actions import llm_evaluate, vlm_evaluate
+    from .actions.ai_actions import llm_evaluate, vlm_evaluate, locate_point
 
     _registry.register("browser.open", browser_open)
     _registry.register("browser.input", browser_input)
@@ -238,6 +238,7 @@ def register_defaults() -> None:
     _registry.register("core.follow_visible_targets", follow_visible_targets)
     _registry.register("ai.llm_evaluate", llm_evaluate)
     _registry.register("ai.vlm_evaluate", vlm_evaluate)
+    _registry.register("ai.locate_point", locate_point)
     _registry.register("ui.click", click)
     _registry.register("ui.match_state", ui_match_state)
     _registry.register("ui.touch_down", touch_down)

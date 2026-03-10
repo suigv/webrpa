@@ -1,0 +1,9 @@
+{
+  "llm": {
+    "provider": "openai",
+    "base_url": "http://38.47.125.57:8317/v1",
+    "api_key": "sk-IUgW8fcn4JuMBiKbV",
+    "model": "gpt-5.4",
+    "timeout_seconds": 120
+  }
+}

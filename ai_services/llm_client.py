@@ -102,6 +102,8 @@ class LLMRequest:
     system_prompt: str = ""
     provider: str = ""
     model: str = ""
+    api_key: str = ""
+    base_url: str = ""
     request_id: str = ""
     metadata: JSONDict = field(default_factory=dict)
     options: JSONDict = field(default_factory=dict)
@@ -118,6 +120,8 @@ class ResolvedLLMRequest(LLMRequest):
     provider: str = DEFAULT_LLM_PROVIDER
     model: str = DEFAULT_LLM_MODEL
     request_id: str = ""
+    api_key: str = ""
+    base_url: str = ""
 
 
 @dataclass(slots=True)
@@ -193,7 +197,8 @@ class OpenAIResponsesProvider:
         self._transport: Callable[[str, JSONDict, dict[str, str], float | None], JSONDict] = transport or self._http_transport
 
     def invoke(self, request: ResolvedLLMRequest) -> JSONDict:
-        if not self._api_key:
+        api_key = request.api_key.strip() or self._api_key
+        if not api_key:
             raise ProviderInvocationError(
                 code="provider_not_configured",
                 message="Missing OpenAI API key",
@@ -201,13 +206,14 @@ class OpenAIResponsesProvider:
                 details={"provider": self.provider_name},
             )
 
+        base_url = request.base_url.strip() or self._base_url
         payload = self._build_payload(request)
         headers = {
-            "Authorization": f"Bearer {self._api_key}",
+            "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
             "X-Request-Id": request.request_id,
         }
-        raw = self._transport(f"{self._base_url}/responses", payload, headers, request.timeout_seconds)
+        raw = self._transport(f"{base_url}/responses", payload, headers, request.timeout_seconds)
         return self._normalize_response(request, raw)
 
     def _build_payload(self, request: ResolvedLLMRequest) -> JSONDict:
@@ -432,6 +438,18 @@ class LLMClient:
             or str(config.get("model") or "").strip()
             or DEFAULT_LLM_MODEL
         )
+        api_key = (
+            request.api_key.strip()
+            or str(runtime_llm.get("api_key") or runtime_llm.get("apikey") or "").strip()
+            or os.getenv("MYT_LLM_API_KEY", "").strip()
+            or str(config.get("api_key") or "").strip()
+        )
+        base_url = (
+            request.base_url.strip()
+            or str(runtime_llm.get("base_url") or runtime_llm.get("api_base_url") or "").strip()
+            or os.getenv("MYT_LLM_API_BASE_URL", "").strip()
+            or str(config.get("base_url") or "").strip()
+        )
         request_id = request.request_id.strip() or self._request_id_factory()
 
         return ResolvedLLMRequest(
@@ -439,6 +457,8 @@ class LLMClient:
             system_prompt=request.system_prompt,
             provider=provider,
             model=model,
+            api_key=api_key,
+            base_url=base_url,
             request_id=request_id,
             metadata=_as_dict(request.metadata),
             options=_as_dict(request.options),

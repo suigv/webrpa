@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from collections.abc import Mapping
 from typing import Any, Callable, Protocol
 
 from ai_services.llm_client import LLMClient, LLMRequest
+from ai_services.vlm_client import VLMClient
 from core.model_trace_store import ModelTraceContext, ModelTraceStore
+from core.paths import traces_dir
 from engine.action_registry import ActionRegistry, get_registry
 from engine.models.runtime import ExecutionContext
 
@@ -42,6 +46,17 @@ def _json_safe(value: object, *, string_limit: int = 4000) -> object:
     return value
 
 
+_SAFE_PART_RE = re.compile(r"[^a-zA-Z0-9._-]+")
+
+
+def _safe_path_part(value: object, *, default: str) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return default
+    sanitized = _SAFE_PART_RE.sub("-", raw).strip("-._")
+    return sanitized or default
+
+
 def _string_list(value: object) -> list[str]:
     if isinstance(value, str):
         item = value.strip()
@@ -69,6 +84,23 @@ def _int_in_range(value: object, *, default: int, minimum: int, maximum: int) ->
 
 def _stable_fingerprint(value: object) -> str:
     return json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(",", ":"), default=str)
+
+
+def _vlm_allowed_action_types(allowed_actions: list[str]) -> set[str]:
+    mapping = {
+        "ui.click": "click",
+        "ui.input_text": "type",
+        "ui.swipe": "scroll",
+        "ui.long_click": "long_press",
+        "ui.key_press": "key",
+    }
+    allowed: set[str] = set()
+    for action in allowed_actions:
+        mapped = mapping.get(action)
+        if mapped:
+            allowed.add(mapped)
+    allowed.add("finished")
+    return allowed
 
 
 @dataclass(frozen=True)
@@ -109,7 +141,7 @@ class GptExecutorRuntime:
         if config_error is not None:
             return self._result(ok=False, status="failed_config_error", checkpoint="dispatch", **config_error)
 
-        config = self._parse_config(payload)
+        config = self._parse_config(payload, runtime=runtime)
         context = ExecutionContext(payload=dict(payload), runtime=dict(runtime or {}))
         context.should_cancel = should_cancel
         llm_client = self._llm_client_factory()
@@ -163,7 +195,16 @@ class GptExecutorRuntime:
             observation_fingerprint = _stable_fingerprint(observation_state)
             observation_modality = self._observation_modality(observation_state)
             observed_state_ids = self._observed_state_ids(observation_state)
-            fallback_evidence = self._collect_fallback_evidence(context, observation_state) if not observation.ok else {}
+            fallback_evidence = (
+                self._collect_fallback_evidence(
+                    context,
+                    observation_state,
+                    trace_context=trace_context,
+                    step_index=step_index,
+                )
+                if not observation.ok
+                else {}
+            )
             last_observation = {
                 "data": observation_state if isinstance(observation_state, dict) else {},
                 "ok": bool(observation.ok),
@@ -433,7 +474,7 @@ class GptExecutorRuntime:
             return {"code": "invalid_params", "message": str(exc)}
         return None
 
-    def _parse_config(self, payload: Mapping[str, object]) -> GptExecutorConfig:
+    def _parse_config(self, payload: Mapping[str, object], *, runtime: Mapping[str, object] | None = None) -> GptExecutorConfig:
         goal = str(payload.get("goal") or "").strip()
         if not goal:
             raise ValueError("gpt_executor requires non-empty goal")
@@ -456,6 +497,10 @@ class GptExecutorRuntime:
         _ = observation_params.pop("expected_state_ids", None)
         _ = observation_params.pop("state_ids", None)
 
+        runtime_llm = _json_dict(runtime.get("llm")) if isinstance(runtime, Mapping) else {}
+        payload_llm = _json_dict(payload.get("llm"))
+        llm_runtime = {**runtime_llm, **payload_llm} if runtime_llm or payload_llm else {}
+
         return GptExecutorConfig(
             goal=goal,
             expected_state_ids=expected_state_ids,
@@ -463,7 +508,7 @@ class GptExecutorRuntime:
             max_steps=_int_in_range(payload.get("max_steps"), default=8, minimum=1, maximum=100),
             stagnant_limit=_int_in_range(payload.get("stagnant_limit"), default=2, minimum=1, maximum=20),
             system_prompt=str(payload.get("system_prompt") or "").strip(),
-            llm_runtime=_json_dict(payload.get("llm")),
+            llm_runtime=llm_runtime,
             fallback_modalities=_string_list(payload.get("fallback_modalities")),
             observation_params=observation_params,
         )
@@ -480,22 +525,62 @@ class GptExecutorRuntime:
         fallback_evidence: dict[str, object],
     ) -> dict[str, object]:
         fallback_reason = self._fallback_reason(observation_ok=not fallback_enabled)
+        vlm_attempt: dict[str, object] | None = None
+        if fallback_enabled and self._wants_vlm(config.fallback_modalities):
+            vlm_plan = self._plan_next_step_vlm(
+                config=config,
+                step_index=step_index,
+                last_action=last_action,
+                fallback_reason=fallback_reason,
+                fallback_evidence=fallback_evidence,
+            )
+            if bool(vlm_plan.get("ok")):
+                if bool(vlm_plan.get("done")):
+                    return vlm_plan
+                action_name = str(vlm_plan.get("action") or "").strip()
+                if action_name and action_name in config.allowed_actions:
+                    return vlm_plan
+                vlm_attempt = {
+                    "ok": False,
+                    "code": "vlm_action_not_allowed" if action_name else "vlm_action_missing",
+                    "message": (
+                        "vlm selected action outside allowed set"
+                        if action_name
+                        else "vlm returned empty action"
+                    ),
+                    "action": action_name,
+                    "request": _json_dict(vlm_plan.get("request")),
+                    "response": _json_dict(vlm_plan.get("response")),
+                }
+            else:
+                vlm_attempt = {
+                    "ok": False,
+                    "code": str(vlm_plan.get("code") or "vlm_error"),
+                    "message": str(vlm_plan.get("message") or "vlm planning failed"),
+                    "request": _json_dict(vlm_plan.get("request")),
+                    "response": _json_dict(vlm_plan.get("response")),
+                }
+
+        prompt_payload: dict[str, object] = {
+            "goal": config.goal,
+            "step_index": step_index,
+            "allowed_actions": config.allowed_actions,
+            "observation": observation,
+            "fallback_evidence": fallback_evidence if fallback_enabled else {},
+            "last_action": last_action,
+            "response_contract": {
+                "done": "boolean",
+                "action": "string",
+                "params": "object",
+                "message": "string",
+            },
+        }
+        if vlm_attempt is not None:
+            prompt_payload["vlm_attempt"] = vlm_attempt
+
         request = LLMRequest(
             prompt=json.dumps(
-                {
-                    "goal": config.goal,
-                    "step_index": step_index,
-                    "allowed_actions": config.allowed_actions,
-                    "observation": observation,
-                    "fallback_evidence": fallback_evidence if fallback_enabled else {},
-                    "last_action": last_action,
-                    "response_contract": {
-                        "done": "boolean",
-                        "action": "string",
-                        "params": "object",
-                        "message": "string",
-                    },
-                },
+                prompt_payload,
                 ensure_ascii=False,
             ),
             system_prompt=(
@@ -567,6 +652,190 @@ class GptExecutorRuntime:
             "planned_at": planned_at,
             "fallback_reason": fallback_reason,
         }
+
+    def _plan_next_step_vlm(
+        self,
+        *,
+        config: GptExecutorConfig,
+        step_index: int,
+        last_action: dict[str, object] | None,
+        fallback_reason: str,
+        fallback_evidence: dict[str, object],
+    ) -> dict[str, object]:
+        planned_at = _timestamp()
+        image_ref, screen_meta = self._vlm_screen_capture_ref(fallback_evidence)
+        if not image_ref:
+            return {
+                "ok": False,
+                "code": "vlm_missing_screenshot",
+                "message": "fallback evidence missing screen capture save_path",
+                "planned_at": planned_at,
+                "fallback_reason": fallback_reason,
+            }
+        if not Path(image_ref).exists():
+            return {
+                "ok": False,
+                "code": "vlm_screenshot_missing",
+                "message": f"screenshot not found at {image_ref}",
+                "planned_at": planned_at,
+                "fallback_reason": fallback_reason,
+            }
+
+        prompt = self._vlm_prompt(config=config, step_index=step_index, last_action=last_action)
+        request_id = f"vlm-{planned_at}"
+        request_trace = {
+            "prompt": prompt,
+            "system_prompt": "",
+            "provider": "uitars",
+            "model": "",
+            "request_id": request_id,
+            "image_ref": image_ref,
+            "screen_meta": screen_meta,
+            "fallback_reason": fallback_reason,
+        }
+        try:
+            client = self._vlm_client(config)
+            request_trace["system_prompt"] = client.system_prompt
+            request_trace["model"] = client.model
+            action = client.predict(image_ref, prompt)
+            response_trace = {
+                "ok": True,
+                "output_text": action.raw_text,
+                "parsed_action": action.to_dict(),
+                "image_ref": image_ref,
+            }
+        except Exception as exc:
+            return {
+                "ok": False,
+                "code": "vlm_error",
+                "message": str(exc),
+                "request": request_trace,
+                "response": {"ok": False, "error": str(exc), "image_ref": image_ref},
+                "planned_at": planned_at,
+                "fallback_reason": fallback_reason,
+            }
+
+        raw_action = str(action.raw_action or "").strip().lower()
+        normalized_action = str(action.action or "").strip()
+        if raw_action in {"finished", "finish", "done"} or normalized_action in {"task.finished", "task.complete"}:
+            return {
+                "ok": True,
+                "done": True,
+                "action": "",
+                "params": {},
+                "message": "vlm indicated task completion",
+                "request_id": request_id,
+                "provider": "uitars",
+                "model": str(client.model),
+                "request": request_trace,
+                "response": response_trace,
+                "planned_at": planned_at,
+                "fallback_reason": fallback_reason,
+            }
+
+        if not normalized_action:
+            return {
+                "ok": False,
+                "code": "vlm_empty_action",
+                "message": "vlm returned empty action",
+                "request": request_trace,
+                "response": response_trace,
+                "planned_at": planned_at,
+                "fallback_reason": fallback_reason,
+            }
+
+        return {
+            "ok": True,
+            "done": False,
+            "action": normalized_action,
+            "params": dict(action.params),
+            "message": "vlm predicted next action",
+            "request_id": request_id,
+            "provider": "uitars",
+            "model": str(client.model),
+            "request": request_trace,
+            "response": response_trace,
+            "planned_at": planned_at,
+            "fallback_reason": fallback_reason,
+        }
+
+    @staticmethod
+    def _wants_vlm(modalities: list[str]) -> bool:
+        normalized = {item.strip().lower() for item in modalities if str(item).strip()}
+        return bool(normalized.intersection({"vlm", "vision", "uitars", "ui-tars"}))
+
+    @staticmethod
+    def _vlm_screen_capture_ref(fallback_evidence: dict[str, object]) -> tuple[str, dict[str, object]]:
+        screen_capture = _json_dict(fallback_evidence.get("screen_capture"))
+        metadata = _json_dict(screen_capture.get("metadata"))
+        save_path = str(metadata.get("save_path") or "").strip()
+        return save_path, metadata
+
+    @staticmethod
+    def _vlm_prompt(
+        *,
+        config: GptExecutorConfig,
+        step_index: int,
+        last_action: dict[str, object] | None,
+    ) -> str:
+        lines = [
+            f"Task: {config.goal}",
+            f"Step: {step_index}",
+        ]
+        if last_action:
+            action_name = str(last_action.get("action") or "").strip()
+            if action_name:
+                lines.append(f"Last action: {action_name}")
+        allowed = _vlm_allowed_action_types(config.allowed_actions)
+        if allowed:
+            lines.append(f"Allowed action types: {', '.join(sorted(allowed))}")
+        lines.append("Respond with exactly one action in UI-TARS format.")
+        lines.append("If the task is complete, respond with: Action: finished()")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _vlm_client(config: GptExecutorConfig) -> VLMClient:
+        runtime_config = dict(config.llm_runtime)
+        vlm_config = {}
+        for key in ("vlm", "uitars"):
+            value = runtime_config.get(key)
+            if isinstance(value, Mapping):
+                vlm_config = _json_dict(value)
+                break
+
+        def _read_str(keys: list[str]) -> str:
+            for item in keys:
+                raw = vlm_config.get(item) if item in vlm_config else runtime_config.get(item)
+                if raw is not None:
+                    text = str(raw).strip()
+                    if text:
+                        return text
+            return ""
+
+        def _read_float(keys: list[str]) -> float | None:
+            for item in keys:
+                raw = vlm_config.get(item) if item in vlm_config else runtime_config.get(item)
+                if raw is None:
+                    continue
+                try:
+                    return float(raw)
+                except (TypeError, ValueError):
+                    continue
+            return None
+
+        base_url = _read_str(["base_url", "vlm_base_url", "uitars_base_url"])
+        model = _read_str(["model", "vlm_model", "uitars_model"])
+        api_key = _read_str(["api_key", "vlm_api_key", "uitars_api_key"])
+        system_prompt = _read_str(["system_prompt", "vlm_system_prompt", "uitars_system_prompt"])
+        timeout = _read_float(["timeout", "timeout_seconds", "vlm_timeout"])
+
+        return VLMClient(
+            base_url=base_url or None,
+            model=model or None,
+            api_key=api_key or None,
+            system_prompt=system_prompt or None,
+            timeout=timeout or 60.0,
+        )
 
     def _cancelled(self, *, step_index: int, history: list[dict[str, object]]) -> dict[str, Any]:
         return self._result(
@@ -671,6 +940,9 @@ class GptExecutorRuntime:
         self,
         context: ExecutionContext,
         observation_payload: object,
+        *,
+        trace_context: ModelTraceContext | None = None,
+        step_index: int | None = None,
     ) -> dict[str, object]:
         observation = _json_dict(observation_payload)
         platform = str(observation.get("platform") or "").strip().lower()
@@ -684,7 +956,11 @@ class GptExecutorRuntime:
         native_xml = self._collect_native_xml(context)
         if native_xml:
             evidence["ui_xml"] = native_xml
-        screenshot = self._collect_native_capture(context)
+        screenshot = self._collect_native_capture(
+            context,
+            trace_context=trace_context,
+            step_index=step_index,
+        )
         if screenshot:
             evidence["screen_capture"] = screenshot
         return evidence
@@ -727,19 +1003,48 @@ class GptExecutorRuntime:
             "message": str(failure.get("message") or ""),
         }
 
-    def _collect_native_capture(self, context: ExecutionContext) -> dict[str, object]:
-        preferred = self._call_optional_action("device.capture_compressed", {}, context)
+    def _collect_native_capture(
+        self,
+        context: ExecutionContext,
+        *,
+        trace_context: ModelTraceContext | None = None,
+        step_index: int | None = None,
+    ) -> dict[str, object]:
+        save_path = ""
+        if trace_context is not None:
+            task_part = _safe_path_part(trace_context.task_id, default="task")
+            run_part = _safe_path_part(trace_context.run_id, default="run")
+            target_part = _safe_path_part(trace_context.target_label, default="target")
+            step_part = f"step-{int(step_index) if step_index is not None else 0}"
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+            screens_dir = traces_dir() / task_part / run_part / "screens" / target_part
+            screens_dir.mkdir(parents=True, exist_ok=True)
+            save_path = str(screens_dir / f"{step_part}-{timestamp}.png")
+
+        preferred_params: dict[str, object] = {}
+        if save_path:
+            preferred_params["save_path"] = save_path
+        preferred = self._call_optional_action("device.capture_compressed", preferred_params, context)
         if bool(preferred.get("ok")):
+            data = _json_dict(_json_safe(preferred.get("data")))
+            if save_path:
+                data["save_path"] = save_path
             return {
                 "source": "device.capture_compressed",
-                "metadata": _json_dict(_json_safe(preferred.get("data"))),
+                "metadata": data,
             }
 
-        fallback = self._call_optional_action("device.screenshot", {}, context)
+        fallback_params: dict[str, object] = {}
+        if save_path:
+            fallback_params["save_path"] = save_path
+        fallback = self._call_optional_action("device.screenshot", fallback_params, context)
         if bool(fallback.get("ok")):
+            data = _json_dict(_json_safe(fallback.get("data")))
+            if save_path:
+                data["save_path"] = save_path
             return {
                 "source": "device.screenshot",
-                "metadata": _json_dict(_json_safe(fallback.get("data"))),
+                "metadata": data,
             }
 
         failure = _json_dict(preferred or fallback)
@@ -833,6 +1138,7 @@ class GptExecutorRuntime:
 
     @staticmethod
     def _llm_request_trace(request: LLMRequest, *, runtime_config: dict[str, object]) -> dict[str, object]:
+        sanitized_runtime = _redact_runtime_config(runtime_config)
         return {
             "prompt": request.prompt,
             "system_prompt": request.system_prompt,
@@ -845,7 +1151,7 @@ class GptExecutorRuntime:
             "planning": dict(request.planning),
             "modality": request.modality,
             "fallback_modalities": list(request.fallback_modalities),
-            "runtime_config": dict(runtime_config),
+            "runtime_config": sanitized_runtime,
         }
 
     @staticmethod
@@ -866,3 +1172,17 @@ class GptExecutorRuntime:
             "error": getattr(getattr(response, "error", None), "to_dict", lambda: None)(),
             "raw": dict(getattr(response, "raw", {}) or {}),
         }
+
+
+def _redact_runtime_config(runtime_config: dict[str, object]) -> dict[str, object]:
+    redacted: dict[str, object] = {}
+    for key, value in runtime_config.items():
+        if isinstance(value, dict):
+            redacted[key] = _redact_runtime_config(value)
+            continue
+        key_lower = str(key).lower()
+        if "api_key" in key_lower or "apikey" in key_lower or "authorization" in key_lower or "token" in key_lower:
+            redacted[key] = "***"
+        else:
+            redacted[key] = value
+    return redacted

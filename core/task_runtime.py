@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from core.task_store import TaskRecord
+from core.runtime_profiles import load_runtime_profile
 
 
 def normalize_dispatch_targets(raw_targets: Any, devices: list[int]) -> list[dict[str, int]]:
@@ -151,6 +152,7 @@ class TaskDispatchRuntimeResolver:
         targets: list[dict[str, int]] | None = None,
     ) -> list[PreparedTaskTarget]:
         payload_for_run = dict(payload)
+        runtime_overrides = _resolve_runtime_overrides(payload_for_run)
         dispatch_targets = normalize_dispatch_targets(targets, devices)
         should_resolve_target = (os.getenv("MYT_ENABLE_RPC", "1") != "0") and self._plugin_loader.has(task_name)
 
@@ -168,6 +170,8 @@ class TaskDispatchRuntimeResolver:
                 "cloud_target": f"Unit #{target.get('device_id')}-{target.get('cloud_id')}",
                 "target": runtime_target,
             }
+            if runtime_overrides:
+                runtime.update(runtime_overrides)
 
             prepared_targets.append(
                 PreparedTaskTarget(
@@ -178,3 +182,49 @@ class TaskDispatchRuntimeResolver:
                 )
             )
         return prepared_targets
+
+
+def _resolve_runtime_overrides(payload: dict[str, Any]) -> dict[str, Any]:
+    runtime_overrides: dict[str, Any] = {}
+
+    profile_name = str(payload.pop("_runtime_profile", "") or payload.pop("_profile", "") or "").strip()
+    if not profile_name:
+        profile_name = os.getenv("MYT_RUNTIME_PROFILE", "").strip()
+    if profile_name:
+        runtime_overrides.update(_extract_runtime_section(load_runtime_profile(profile_name)))
+
+    runtime_payload = payload.pop("_runtime", None)
+    if isinstance(runtime_payload, dict):
+        runtime_overrides.update(_extract_runtime_section(runtime_payload))
+
+    for key, runtime_key in (
+        ("_llm", "llm"),
+        ("_ai", "ai"),
+        ("_vlm", "vlm"),
+        ("_uitars", "uitars"),
+    ):
+        value = payload.pop(key, None)
+        if isinstance(value, dict):
+            runtime_overrides[runtime_key] = dict(value)
+
+    return runtime_overrides
+
+
+def _extract_runtime_section(source: Any) -> dict[str, Any]:
+    if not isinstance(source, dict):
+        return {}
+    section = source.get("runtime") if isinstance(source.get("runtime"), dict) else source
+    if not isinstance(section, dict):
+        return {}
+    runtime: dict[str, Any] = {}
+    if "llm" in section and isinstance(section.get("llm"), dict):
+        runtime["llm"] = dict(section["llm"])
+    if "ai" in section and isinstance(section.get("ai"), dict):
+        runtime["ai"] = dict(section["ai"])
+    if "vlm" in section and isinstance(section.get("vlm"), dict):
+        runtime["vlm"] = dict(section["vlm"])
+    if "uitars" in section and isinstance(section.get("uitars"), dict):
+        runtime["uitars"] = dict(section["uitars"])
+    if "llm" not in runtime and isinstance(section.get("gpt"), dict):
+        runtime["llm"] = dict(section["gpt"])
+    return runtime

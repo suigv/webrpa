@@ -172,7 +172,15 @@ class GoldenRunDistiller:
                     details={"reason": "missing_action_params", "step_index": index},
                 )
             observation = record.get("observation")
-            if not isinstance(observation, dict) or not isinstance(observation.get("data"), dict):
+            if not isinstance(observation, dict):
+                raise GoldenRunDistillationError(
+                    code="bad_golden_run",
+                    message="golden run step is missing observation payload",
+                    details={"reason": "missing_observation", "step_index": index},
+                )
+            data = observation.get("data")
+            modality = str(observation.get("modality") or "").strip().lower()
+            if not isinstance(data, dict) and modality not in {"vision", "vlm", "uitars", "ui-tars"}:
                 raise GoldenRunDistillationError(
                     code="bad_golden_run",
                     message="golden run step is missing structured observation data",
