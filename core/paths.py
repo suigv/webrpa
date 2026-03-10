@@ -21,5 +21,11 @@ def data_dir() -> Path:
     return path
 
 
+def traces_dir() -> Path:
+    path = data_dir() / "traces"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def task_db_path() -> Path:
     return data_dir() / "tasks.db"
