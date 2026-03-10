@@ -8,6 +8,13 @@
 - 阶段：**Workflow-roadmap executor wave landed on top of the UIStateService baseline**
 - 核心状态：API、任务系统、插件执行、账号池、`/web` 静态控制台入口、配置管理、原生/RPC 与浏览器观察链路均可用；`UIStateService` 统一只读状态契约仍是当前基线，其上又补齐了 `wait_until` 轮询语义、`ExecutionContext.session.defaults`、扩展 UI-state 观察覆盖，以及有界 `ui.navigate_to` / `ui.fill_form` 页面级 helper
 - 最近重点：
+  - GPT executor MVP 已接到现有 `/api/tasks` 托管链路，任务名为 `gpt_executor`，继续走既有创建、取消、重试、SSE 事件与终态规则
+  - 当前 MVP 观察策略是 structured-state-first，优先消费 `ui.match_state` 的结构化状态；只有主观察不足时才记录并使用 XML tree、截图或 browser HTML 等 fallback 模态
+  - GPT 执行环的 circuit breaker 是 MVP 硬要求，不是可选优化：必须限制 step budget，并在结构化状态连续停滞时显式中止
+  - 原始模型轨迹已单独落到 `config/data/traces/` append-only JSONL，和任务 lifecycle events 分开，供后续 Golden Run 蒸馏读取
+  - Golden Run MVP 蒸馏保持离线工具路径，当前从一条成功轨迹生成可审阅的 `manifest.yaml` + `script.yaml` 草稿，目标是 reviewable draft，不会自动写入 `plugins/`
+  - 当前 usability gate 已定死为 parse + replay smoke。蒸馏草稿只有在现有 parser、manifest input 检查、PluginLoader 和 Runner replay smoke 都通过后才算 usable
+  - SoM overlays、shadow healing、multi-run consensus extraction 和更广的恢复系统仍明确留在 v1 之外
   - 保留 `UIStateService` rollout 基线，继续沿用统一状态结果形状与 thin action wrapper，不把 recovery 或 fallback 逻辑塞进 service
   - 收紧 `wait_until` 轮询语义，并补齐 success-before-timeout、timeout 文案、`on_timeout goto`、`on_fail` fallback、取消返回与动态重轮询回归覆盖
   - 收口 `UIStateService` 共享语义：结果构造、timing 与 browser polling 改走共享 helper，native binding 注册拆到独立模块，减少 browser/native 的平行演化面
@@ -33,8 +40,10 @@
 ### 2.2 引擎与插件
 
 - Runner + Interpreter 工作流执行（`engine/runner.py`, `engine/interpreter.py`）
+- 托管 `gpt_executor` 运行时（`engine/gpt_executor.py`）已复用现有 task/runtime seam，按 structured-state-first 规划动作，并在需要时记录 fallback 模态
 - 条件、跳转、等待、失败策略，且已接入 `UIStateService` 支持统一状态观察与等待；`wait_until` 已补齐动态重轮询、超时分支、失败回退与取消语义回归（`engine/conditions.py`, `engine/models/*`）
 - 插件扫描与加载（`engine/plugin_loader.py`）
+- 离线 Golden Run 蒸馏（`core/golden_run_distillation.py`, `tools/distill_golden_run.py`）会基于成功 JSONL 轨迹产出 reviewable YAML draft，并对 payload literals 做参数化映射
 - 已内置插件：`x_mobile_login`、`mytos_device_setup`、`device_reboot`、`device_soft_reset`、`blogger_scrape`、`profile_clone` 及互动类插件；此前 `home` / `x_mobile_login` 迁移基线仍有效，其中 `x_mobile_login` 已完成 session-defaults 接线压缩验证
 
 ### 2.3 适配器与动作
@@ -61,6 +70,7 @@
 
 - 关键门禁脚本：`tools/check_no_legacy_imports.py`
 - 测试覆盖：API、任务、配置迁移、插件、适配器、Web smoke、跨平台库选择，以及 `/api/runtime/execute` 非托管任务语义回归（`tests/`）
+- GPT executor MVP 文档门禁已覆盖 `tools/check_doc_claims.py` 与 `tests/test_doc_claim_guard.py`；distilled draft 的可用性回归由 `tests/test_gpt_distillation.py` 里的 parse + replay smoke gate 约束
 
 ## 3. 自动统计快照
 
@@ -98,3 +108,4 @@
 3. 将 `docs/monitoring_rollout.md` 和 `config/monitoring/rendered/single-node-example/` 落到真实环境，完成外部 Prometheus / Alertmanager 联调。
 4. 按 `docs/stale_running_recovery_tuning.md` 在真实部署里校准 `MYT_TASK_STALE_RUNNING_SECONDS`，补齐常态值与演练值证据。
 5. 持续复查 `docs/reference/sdk_actions_followup_assessment.md`、`docs/reference/shared_json_store_watchpoint.md`、`docs/reference/x_mobile_login_compression_watchpoint.md` 等 watchpoint 是否触发新的拆分或收口条件。
+6. GPT executor 后续增强保持为 deferred，先不要把 SoM overlays、shadow healing、multi-run consensus extraction 或更广恢复系统写成 v1 已完成项。

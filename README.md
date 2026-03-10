@@ -27,6 +27,7 @@
 ### 3) 任务系统（`/api/tasks`）
 
 - 创建任务（支持 `priority` / `run_at` / `max_retries` / `retry_backoff_seconds`）
+- 新增托管 `gpt_executor` 任务模式，继续复用同一 `/api/tasks` 创建、重试、取消、SSE 事件与指标链路
 - 查询任务列表/详情
 - 取消任务
 - 任务目录：`GET /api/tasks/catalog`
@@ -35,6 +36,7 @@
 - 任务控制面内部已拆分为 façade + service：`core/task_control.py` 只保留入口编排，执行循环在 `core/task_execution.py`，终态/重试规则在 `core/task_finalizer.py`，指标聚合与导出在 `core/task_metrics.py`
 - `api/mappers/task_mapper.py` 统一承接 `TaskRecord` -> API DTO 映射，避免在 route 中散落时间/targets 转换逻辑
 - 显式 target 已成为任务控制面的正式字段：route / store / mapper / execution / runtime 统一围绕 `targets` 工作，不再依赖把控制面元数据塞回 `payload`
+- `gpt_executor` 采用 structured-state-first 观察，只有主观察不足时才显式回退到 XML、截图或 browser HTML 等补充模态；执行环必须带 step budget、stagnant-state circuit breaker，并把完整模型轨迹单独追加到 `config/data/traces/` JSONL，而不是塞进任务生命周期事件
 
 #### 3.1) 任务请求/响应契约摘要
 
@@ -112,6 +114,7 @@
 - YAML 插件通过 `engine/plugin_loader.py` 加载并交给解释器执行
 - 运行时与 `GET /api/tasks/catalog` 共用同一插件缓存视图；catalog 的显式 refresh 会同步更新现有 runtime 视图
 - 内置动作注册器（浏览器动作、凭据动作等）
+- Golden Run 离线蒸馏工具 `tools/distill_golden_run.py` 会从一条成功轨迹生成可审阅的 `manifest.yaml` + `script.yaml` 草稿，要求保留参数化输入；草稿不会自动安装到 `plugins/`，只有通过 parse + replay smoke 后才算可用
 - `wait_until` 已补齐 success-before-timeout、`on_timeout goto`、`on_fail`、取消态与动态重轮询语义
 - `ExecutionContext.session.defaults` 已作为最小任务级默认值接缝落地，保持显式 action 参数优先，其次 session defaults，最后回退到原始 payload
 - `ExecutionContext.runtime` 已承接任务运行时信封；target / task_id / cloud_target_label 等控制面信息不再通过 payload 私有字段注入

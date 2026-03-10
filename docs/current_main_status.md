@@ -1,10 +1,15 @@
 # Current Main Status
 
-更新时间：2026-03-09
+更新时间：2026-03-10
 
 ## 已完成
 
 - `wait_until` 轮询语义已收紧，并补齐 success-before-timeout、超时文本、`on_timeout goto`、`on_fail`、取消态与动态重轮询回归覆盖
+- 托管 `gpt_executor` 任务模式已接到既有 `/api/tasks` 控制面，继续沿用现有创建、取消、重试、SSE 事件和终态语义
+- GPT executor MVP 当前按 structured-state-first 观察运行，只有主观察不足时才显式回退到 XML tree、截图或 browser HTML 等补充模态
+- GPT executor 的 step budget、stagnant-state circuit breaker 和 distillation parameterization 都是 MVP 硬要求，不是后补优化
+- 原始模型轨迹已独立持久化到 `config/data/traces/` append-only JSONL，和 task events 分离
+- Golden Run 目前只支持离线蒸馏成可审阅 YAML 草稿，不会自动安装到 `plugins/`；草稿只有通过 parse + replay smoke 后才算 usable
 - `ExecutionContext.session.defaults` 已作为最小任务级接缝落地，运行时连接值可来自 payload、`_target` 与 manifest 默认值，同时保持显式 action 参数优先
 - UI 状态观察覆盖已保守扩展到 `timeline_candidates`、`follow_targets` 与集合首项别名，不改变顶层观察结果形状
 - `UIStateService` 的共享结果构造、timing 与 browser polling helper 已落地，browser 前置不可用错误改为 `attempt=0/samples=0`，native bindings 也已拆出独立 registry
@@ -16,6 +21,7 @@
 ## 部分完成
 
 - `sdk_actions` 拆分后的体量与职责边界仍值得继续观察，但不属于当前阻塞项
+- GPT executor MVP 已完成最小闭环，但 SoM overlays、shadow healing、multi-run consensus extraction 与更广恢复系统仍是 deferred watchpoint，不在 v1
 
 ## 下一步优先级
 
@@ -24,6 +30,7 @@
 3. 将 `docs/monitoring_rollout.md` 与渲染监控配置落到外部 Prometheus / Alertmanager 环境
 4. 按 `docs/stale_running_recovery_tuning.md` 在真实部署里校准 `MYT_TASK_STALE_RUNNING_SECONDS`
 5. 继续观察 `sdk_actions`、shared JSON store 与相关插件 watchpoint 的触发条件
+6. 继续把 GPT executor 增强限制在 deferred watchpoint，等真实运行证据证明需要时，再评估 SoM overlays、shadow healing、multi-run consensus extraction 或更广恢复系统是否该上提。
 
 ## 参考文档
 
