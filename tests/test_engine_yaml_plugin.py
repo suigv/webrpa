@@ -33,6 +33,7 @@ from engine.models.workflow import (
 from engine.parser import interpolate, interpolate_params, parse_manifest, parse_script
 from engine.plugin_loader import PluginLoader, clear_shared_plugin_loader_cache, get_shared_plugin_loader
 from engine.models.ui_state import UIStateObservationResult
+from engine.runner import Runner
 
 
 # ============================================================
@@ -1205,6 +1206,47 @@ class TestPluginLoader:
         assert entry is not None
         assert entry.manifest.name == "p"
         assert entry.script_path == plugin_dir / "script.yaml"
+
+
+class TestFeasibilityReplaySmoke:
+    def test_yaml_acceptance_can_use_existing_parse_and_replay_contracts(self, tmp_path: Path, monkeypatch):
+        plugin_dir = tmp_path / "replay_smoke"
+        plugin_dir.mkdir()
+        manifest_path = plugin_dir / "manifest.yaml"
+        script_path = plugin_dir / "script.yaml"
+        manifest_path.write_text(
+            "api_version: v1\nkind: plugin\nname: replay_smoke\nversion: '1.0'\ndisplay_name: Replay Smoke\n",
+            encoding="utf-8",
+        )
+        script_path.write_text(
+            "version: v1\nworkflow: replay_smoke\nsteps:\n  - kind: action\n    action: core.record_replay_smoke\n    params:\n      value: ok\n  - kind: stop\n    status: success\n    message: replay ok\n",
+            encoding="utf-8",
+        )
+
+        manifest = parse_manifest(manifest_path)
+        script = parse_script(script_path)
+        assert manifest.name == "replay_smoke"
+        assert script.workflow == "replay_smoke"
+
+        loader = PluginLoader(plugins_root=tmp_path)
+        loader.scan()
+        assert loader.has("replay_smoke")
+
+        captured: list[dict[str, object]] = []
+
+        def record_replay_smoke(params: dict[str, object], context: ExecutionContext) -> ActionResult:
+            captured.append({"params": dict(params), "payload": dict(context.payload)})
+            return ActionResult(ok=True, code="ok", data={"value": params.get("value")})
+
+        monkeypatch.setattr("engine.runner.get_shared_plugin_loader", lambda: loader)
+        get_registry().register("core.record_replay_smoke", record_replay_smoke)
+
+        result = Runner().run({"task": "replay_smoke"})
+
+        assert result["ok"] is True
+        assert result["status"] == "success"
+        assert result["message"] == "replay ok"
+        assert captured == [{"params": {"value": "ok"}, "payload": {"task": "replay_smoke"}}]
 
 
 # ============================================================

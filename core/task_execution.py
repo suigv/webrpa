@@ -135,10 +135,19 @@ class TaskExecutionService:
                         first_failure = prepared.error
                     continue
 
+                runtime = dict(prepared.runtime)
+                if task_name == "gpt_executor":
+                    runtime.update(
+                        {
+                            "retry_count": record.retry_count,
+                            "attempt_number": record.retry_count + 1,
+                            "run_id": f"{task_id}-run-{record.retry_count + 1}",
+                        }
+                    )
                 single_result = self._runner.run(
                     prepared.payload,
                     should_cancel=lambda task_id=task_id: self._store.is_cancel_requested(task_id),
-                    runtime=prepared.runtime,
+                    runtime=runtime,
                 )
                 target_results.append({"target": prepared.target, "result": single_result})
                 if not bool(single_result.get("ok")) and first_failure is None:

@@ -1,9 +1,13 @@
 # pyright: reportMissingImports=false
 import json
 import os
+import socket
+import subprocess
+import sys
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib import request as urllib_request
 
 from fastapi.testclient import TestClient
 
@@ -12,6 +16,11 @@ from core.task_control import TaskController, override_task_controller_for_tests
 from core.task_events import TaskEventStore
 from core.task_queue import InMemoryTaskQueue
 from core.task_store import ManagedTaskStateClearBlocked, TaskStore
+from engine.action_registry import ActionRegistry
+from engine.gpt_executor import GptExecutorRuntime
+from engine.models.runtime import ActionResult
+from engine.runner import Runner
+from ai_services.llm_client import LLMResponse
 
 
 def _wait_status(client: TestClient, task_id: str, timeout_s: float = 3.0) -> str:
@@ -24,6 +33,60 @@ def _wait_status(client: TestClient, task_id: str, timeout_s: float = 3.0) -> st
             return status
         time.sleep(0.05)
     return "timeout"
+
+
+def _find_free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+class _SequencedLLMClient:
+    def __init__(self, responses: list[LLMResponse]):
+        self._responses = list(responses)
+        self.calls: list[dict[str, object]] = []
+
+    def evaluate(self, request, *, runtime_config=None):
+        self.calls.append({"request": request, "runtime_config": runtime_config})
+        if self._responses:
+            return self._responses.pop(0)
+        return LLMResponse(
+            ok=True,
+            request_id="req-default",
+            provider="openai",
+            model="gpt-5.4",
+            output_text=json.dumps({"done": True, "message": "default complete"}),
+        )
+
+
+def _build_gpt_executor_runner(*, llm_client: _SequencedLLMClient, stagnant_state_id: str = "account") -> Runner:
+    registry = ActionRegistry()
+
+    def _ui_match_state(params, context):
+        _ = (params, context)
+        return ActionResult(
+            ok=True,
+            code="ok",
+            data={
+                "operation": "match_state",
+                "status": "matched",
+                "state": {"state_id": stagnant_state_id},
+                "expected_state_ids": [stagnant_state_id],
+            },
+        )
+
+    def _ui_click(params, context):
+        _ = context
+        return ActionResult(ok=True, code="ok", data={"clicked": params})
+
+    registry.register("ui.match_state", _ui_match_state)
+    registry.register("ui.click", _ui_click)
+    return Runner(
+        gpt_executor_runtime=GptExecutorRuntime(
+            registry=registry,
+            llm_client_factory=lambda: llm_client,
+        )
+    )
 
 
 def test_task_control_plane_success_flow():
@@ -49,6 +112,329 @@ def test_task_control_plane_success_flow():
         payload = detail.json()
         assert payload["status"] == "completed"
         assert payload["result"]["ok"] is True
+
+
+def test_task_control_plane_gpt_executor_managed_lifecycle_and_cancel_support(tmp_path: Path):
+    reset_task_controller_for_tests()
+    db_path = tmp_path / "tasks_gpt_executor_control_plane_test.db"
+    if db_path.exists():
+        db_path.unlink()
+
+    llm_client = _SequencedLLMClient(
+        responses=[
+            LLMResponse(
+                ok=True,
+                request_id="req-1",
+                provider="openai",
+                model="gpt-5.4",
+                output_text=json.dumps({"done": False, "action": "ui.click", "params": {"selector": "#continue"}}),
+            ),
+            LLMResponse(
+                ok=True,
+                request_id="req-2",
+                provider="openai",
+                model="gpt-5.4",
+                output_text=json.dumps({"done": True, "message": "executor completed"}),
+            ),
+        ]
+    )
+    controller = TaskController(
+        store=TaskStore(db_path=db_path),
+        queue_backend=InMemoryTaskQueue(),
+        runner=_build_gpt_executor_runner(llm_client=llm_client),
+        event_store=TaskEventStore(db_path=db_path),
+    )
+    override_task_controller_for_tests(controller)
+
+    try:
+        with TestClient(app) as client:
+            create = client.post(
+                "/api/tasks/",
+                json={
+                    "task": "gpt_executor",
+                    "payload": {
+                        "goal": "dismiss login interstitial",
+                        "expected_state_ids": ["account"],
+                        "allowed_actions": ["ui.click"],
+                        "max_steps": 4,
+                    },
+                    "targets": [{"device_id": 7, "cloud_id": 2}],
+                    "ai_type": "volc",
+                },
+            )
+            assert create.status_code == 200
+            created = create.json()
+            task_id = created["task_id"]
+            assert created["task_name"] == "gpt_executor"
+
+            listing = client.get("/api/tasks/?limit=50")
+            assert listing.status_code == 200
+            assert any(item["task_id"] == task_id for item in listing.json())
+
+            assert _wait_status(client, task_id, timeout_s=3.0) == "completed"
+
+            detail = client.get(f"/api/tasks/{task_id}")
+            assert detail.status_code == 200
+            payload = detail.json()
+            assert payload["status"] == "completed"
+            assert payload["result"]["ok"] is True
+            assert payload["result"]["task"] == "gpt_executor"
+            target_result = payload["result"]["targets"][0]["result"]
+            assert target_result["step_count"] == 1
+            assert target_result["history"][0]["action"] == "ui.click"
+
+            event_types = [event.event_type for event in controller.list_events(task_id)]
+            assert event_types[:5] == [
+                "task.created",
+                "task.started",
+                "task.dispatching",
+                "task.dispatch_result",
+                "task.completed",
+            ]
+
+            cancel_create = client.post(
+                "/api/tasks/",
+                json={
+                    "task": "gpt_executor",
+                    "payload": {
+                        "goal": "wait for later",
+                        "expected_state_ids": ["account"],
+                        "allowed_actions": ["ui.click"],
+                    },
+                    "targets": [{"device_id": 7, "cloud_id": 2}],
+                    "ai_type": "volc",
+                    "run_at": "2999-01-01T00:00:00+00:00",
+                },
+            )
+            assert cancel_create.status_code == 200
+            cancel_task_id = cancel_create.json()["task_id"]
+
+            cancel = client.post(f"/api/tasks/{cancel_task_id}/cancel")
+            assert cancel.status_code == 200
+            assert cancel.json()["cancelled"] is True
+
+            cancelled_detail = client.get(f"/api/tasks/{cancel_task_id}")
+            assert cancelled_detail.status_code == 200
+            assert cancelled_detail.json()["status"] == "cancelled"
+
+            cancel_event_types = [event.event_type for event in controller.list_events(cancel_task_id)]
+            assert cancel_event_types == ["task.created", "task.cancel_requested", "task.cancelled"]
+    finally:
+        reset_task_controller_for_tests()
+        if db_path.exists():
+            db_path.unlink()
+
+
+def test_invalid_gpt_executor_payload_fails_with_machine_readable_error(tmp_path: Path):
+    reset_task_controller_for_tests()
+    db_path = tmp_path / "tasks_invalid_gpt_executor_control_plane_test.db"
+    if db_path.exists():
+        db_path.unlink()
+
+    llm_client = _SequencedLLMClient(responses=[])
+    controller = TaskController(
+        store=TaskStore(db_path=db_path),
+        queue_backend=InMemoryTaskQueue(),
+        runner=_build_gpt_executor_runner(llm_client=llm_client),
+        event_store=TaskEventStore(db_path=db_path),
+    )
+    override_task_controller_for_tests(controller)
+
+    try:
+        with TestClient(app) as client:
+            create = client.post(
+                "/api/tasks/",
+                json={
+                    "task": "gpt_executor",
+                    "payload": {
+                        "goal": "missing action contract",
+                        "expected_state_ids": ["account"],
+                    },
+                    "targets": [{"device_id": 7, "cloud_id": 2}],
+                    "ai_type": "volc",
+                    "max_retries": 0,
+                    "retry_backoff_seconds": 0,
+                },
+            )
+            assert create.status_code == 200
+            task_id = create.json()["task_id"]
+
+            assert _wait_status(client, task_id, timeout_s=3.0) == "failed"
+
+            detail = client.get(f"/api/tasks/{task_id}")
+            assert detail.status_code == 200
+            payload = detail.json()
+            assert payload["status"] == "failed"
+            assert payload["error"] == "gpt_executor requires allowed_actions"
+            assert payload["result"]["ok"] is False
+            assert payload["result"]["status"] == "failed_config_error"
+            target_result = payload["result"]["targets"][0]["result"]
+            assert target_result["code"] == "invalid_params"
+            assert target_result["checkpoint"] == "dispatch"
+    finally:
+        reset_task_controller_for_tests()
+        if db_path.exists():
+            db_path.unlink()
+
+
+def test_gpt_executor_live_uvicorn_tasks_path_uses_default_runner_wiring() -> None:
+    reset_task_controller_for_tests()
+    project_root = Path(__file__).resolve().parents[1]
+    port = _find_free_port()
+    proc = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "uvicorn",
+            "api.server:app",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(port),
+        ],
+        cwd=project_root,
+        env={**os.environ, "MYT_ENABLE_RPC": "0"},
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+    try:
+        health_url = f"http://127.0.0.1:{port}/health"
+        for _ in range(50):
+            if proc.poll() is not None:
+                stdout, stderr = proc.communicate(timeout=5)
+                raise AssertionError(f"uvicorn exited early\nstdout:\n{stdout}\nstderr:\n{stderr}")
+            try:
+                live = urllib_request.urlopen(health_url, timeout=1)
+                try:
+                    if live.status == 200:
+                        break
+                finally:
+                    live.close()
+            except Exception:
+                time.sleep(0.1)
+        else:
+            proc.terminate()
+            stdout, stderr = proc.communicate(timeout=5)
+            raise AssertionError(f"uvicorn did not become healthy\nstdout:\n{stdout}\nstderr:\n{stderr}")
+
+        create_request = urllib_request.Request(
+            f"http://127.0.0.1:{port}/api/tasks/",
+            data=json.dumps(
+                {
+                    "task": "gpt_executor",
+                    "payload": {
+                        "goal": "exercise live default wiring",
+                        "expected_state_ids": ["account"],
+                    },
+                    "targets": [{"device_id": 1, "cloud_id": 1}],
+                    "ai_type": "volc",
+                    "max_retries": 0,
+                    "retry_backoff_seconds": 0,
+                }
+            ).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        create_response = urllib_request.urlopen(create_request, timeout=10)
+        try:
+            created = json.loads(create_response.read().decode("utf-8"))
+        finally:
+            create_response.close()
+
+        task_id = created["task_id"]
+        detail_payload: dict[str, object] = {}
+        deadline = time.time() + 5.0
+        while time.time() < deadline:
+            detail_response = urllib_request.urlopen(f"http://127.0.0.1:{port}/api/tasks/{task_id}", timeout=10)
+            try:
+                detail_payload = json.loads(detail_response.read().decode("utf-8"))
+            finally:
+                detail_response.close()
+            if detail_payload.get("status") in {"completed", "failed", "cancelled"}:
+                break
+            time.sleep(0.1)
+
+        assert detail_payload["status"] == "failed"
+        assert detail_payload["task_name"] == "gpt_executor"
+        assert detail_payload["error"] == "gpt_executor requires allowed_actions"
+
+        result_payload = detail_payload["result"]
+        assert isinstance(result_payload, dict)
+        assert result_payload["status"] == "failed_config_error"
+        assert "unsupported task: gpt_executor" not in json.dumps(detail_payload, ensure_ascii=False)
+    finally:
+        reset_task_controller_for_tests()
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                _ = proc.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                _ = proc.communicate(timeout=5)
+
+
+class _RecordingManagedRunner:
+    def __init__(self):
+        self.calls = []
+
+    def run(self, script_payload, should_cancel=None, runtime=None):
+        self.calls.append({"script_payload": dict(script_payload), "runtime": dict(runtime or {})})
+        return {"ok": True, "status": "completed", "message": "done", "runtime": runtime or {}}
+
+
+def test_managed_task_submission_uses_api_surface_and_managed_execution_lifecycle(tmp_path: Path):
+    reset_task_controller_for_tests()
+    db_path = tmp_path / "tasks_managed_lifecycle_test.db"
+    if db_path.exists():
+        db_path.unlink()
+
+    runner = _RecordingManagedRunner()
+    controller = TaskController(
+        store=TaskStore(db_path=db_path),
+        queue_backend=InMemoryTaskQueue(),
+        runner=runner,
+        event_store=TaskEventStore(db_path=db_path),
+    )
+    override_task_controller_for_tests(controller)
+
+    try:
+        with TestClient(app) as client:
+            create = client.post(
+                "/api/tasks/",
+                json={
+                    "task": "anonymous",
+                    "payload": {"foo": "bar"},
+                    "targets": [{"device_id": 7, "cloud_id": 2}],
+                    "ai_type": "volc",
+                },
+            )
+            assert create.status_code == 200
+            task_id = create.json()["task_id"]
+
+            assert _wait_status(client, task_id, timeout_s=3.0) == "completed"
+
+            assert len(runner.calls) == 1
+            assert runner.calls[0]["script_payload"] == {"task": "anonymous", "foo": "bar"}
+            assert runner.calls[0]["runtime"] == {
+                "task_id": task_id,
+                "cloud_target": "Unit #7-2",
+                "target": {"device_id": 7, "cloud_id": 2},
+            }
+
+            event_types = [event.event_type for event in controller.list_events(task_id)]
+            assert event_types[:5] == [
+                "task.created",
+                "task.started",
+                "task.dispatching",
+                "task.dispatch_result",
+                "task.completed",
+            ]
+    finally:
+        reset_task_controller_for_tests()
+        if db_path.exists():
+            db_path.unlink()
 
 
 def test_task_control_plane_failed_flow():
