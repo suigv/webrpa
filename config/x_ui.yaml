@@ -20,7 +20,7 @@ selectors:
   login.entry_login_btn:
     type: text
     mode: match
-    value: "^(Log in|登录|登入|ログイン)$"
+    value: "^(Log in|Sign in|Sign In|登录|登入|ログイン)$"
 
   login.entry_existing_account:
     type: text
@@ -35,7 +35,7 @@ selectors:
   login.btn_next:
     type: text
     mode: match
-    value: "^(Next|下一步|次へ)$"
+    value: "^(Next|Continue|继续|下一步|次へ)$"
 
   login.input_password:
     type: id
@@ -45,7 +45,7 @@ selectors:
   login.btn_submit_login:
     type: text
     mode: match
-    value: "^(Log in|登录|登入|ログイン)$"
+    value: "^(Log in|Sign in|Sign In|登录|登入|ログイン)$"
 
   login.input_2fa:
     type: id

@@ -106,11 +106,34 @@ def swipe(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
         x1 = int(params.get("x1", 0))
         y1 = int(params.get("y1", 0))
         duration = int(params.get("duration", 300))
-        ok = rpc.swipe(finger_id, x0, y0, x1, y1, duration) if rpc is not None else False
+        raw_result = rpc.swipe(finger_id, x0, y0, x1, y1, duration) if rpc is not None else False
+        assumed_ok = False
+        if isinstance(raw_result, bool):
+            ok = raw_result
+            raw_code = int(raw_result)
+        else:
+            try:
+                raw_code = int(raw_result)
+            except Exception:
+                raw_code = 1 if raw_result else 0
+            if raw_code == 0:
+                ok = True
+                assumed_ok = True
+            else:
+                ok = raw_code > 0
         return ActionResult(
             ok=bool(ok),
             code="ok" if ok else "swipe_failed",
-            data={"finger_id": finger_id, "x0": x0, "y0": y0, "x1": x1, "y1": y1, "duration": duration},
+            data={
+                "finger_id": finger_id,
+                "x0": x0,
+                "y0": y0,
+                "x1": x1,
+                "y1": y1,
+                "duration": duration,
+                "raw_ret": raw_code,
+                "assumed_ok": assumed_ok,
+            },
         )
     finally:
         _close_rpc(rpc)

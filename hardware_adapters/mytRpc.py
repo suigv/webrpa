@@ -525,7 +525,11 @@ class MytRpc:
                 ctypes.c_bool,
             ]
             self._rpc.swipe.restype = ctypes.c_int
-            return bool(self._rpc.swipe(self._handle, finger_id, x0, y0, x1, y1, elapse_ms, False))
+            ret = self._rpc.swipe(self._handle, finger_id, x0, y0, x1, y1, elapse_ms, False)
+            try:
+                return int(ret)
+            except Exception:
+                return 1 if ret else 0
         except Exception:
             return False
 
