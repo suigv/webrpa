@@ -3,18 +3,29 @@ import { toast } from '../ui/toast.js';
 import { sysLog } from './logs.js';
 
 let catalogCache = null;
+let catalogPromise = null;
 
 /**
  * 获取插件目录（单例缓存）
  */
 export async function getTaskCatalog() {
     if (catalogCache) return catalogCache;
-    const r = await fetchJson("/api/tasks/catalog");
-    if (r.ok) {
-        catalogCache = r.data.tasks || [];
-        return catalogCache;
-    }
-    return [];
+    if (catalogPromise) return catalogPromise;
+
+    catalogPromise = (async () => {
+        try {
+            const r = await fetchJson("/api/tasks/catalog");
+            if (r.ok) {
+                catalogCache = r.data.tasks || [];
+                return catalogCache;
+            }
+            return [];
+        } finally {
+            catalogPromise = null;
+        }
+    })();
+
+    return catalogPromise;
 }
 
 export function collectTaskPayload(container) {

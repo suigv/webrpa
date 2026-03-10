@@ -10,6 +10,7 @@ const $ = (id) => document.getElementById(id);
 let selectedUnits = new Set();
 let currentCatalog = [];
 let currentUnitsById = new Map();
+let currentUnitDetail = null;
 
 function clearElement(element) {
     if (element) {
@@ -41,12 +42,29 @@ export function initDevices() {
     const bulkBtn = $("bulkRunBtn");
     const scanBtn = $("scanDevices");
     const initAllBtn = $("initializeAllDevices");
+    const openAiBtn = $("openUnitAiDialog");
+    const closeAiBtn = $("closeUnitAiModal");
+    const cancelAiBtn = $("cancelUnitAiTask");
+    const submitAiBtn = $("submitUnitAiTask");
+    const toggleAiAdvancedBtn = $("toggleUnitAiAdvancedBtn");
 
     if (clearBtn) clearBtn.onclick = clearSelection;
     if (closeBtn) closeBtn.onclick = closeDetail;
     if (bulkBtn) bulkBtn.onclick = runBulkTasks;
     if (scanBtn) scanBtn.onclick = scanDevices;
     if (initAllBtn) initAllBtn.onclick = initializeAllDevices;
+    if (openAiBtn) openAiBtn.onclick = () => openUnitAiDialog(currentUnitDetail);
+    if (closeAiBtn) closeAiBtn.onclick = closeUnitAiDialog;
+    if (cancelAiBtn) cancelAiBtn.onclick = closeUnitAiDialog;
+    if (submitAiBtn) submitAiBtn.onclick = submitUnitAiTask;
+    if (toggleAiAdvancedBtn) {
+        toggleAiAdvancedBtn.onclick = () => {
+            const advanced = $("unitAiAdvanced");
+            if (advanced) {
+                advanced.style.display = advanced.style.display === "block" ? "none" : "block";
+            }
+        };
+    }
 
     const unitPluginSelect = $("unitPluginSelect");
     if (unitPluginSelect) unitPluginSelect.onchange = renderUnitPluginFields;
@@ -285,6 +303,7 @@ function openUnitDetail(unit) {
     if(view) view.style.display = "flex";
     const title = $("detailUnitTitle");
     if(title) title.textContent = `云机 #${unit.parent_id}-${unit.cloud_id}`;
+    currentUnitDetail = unit;
     const logBox = $("unitLogBox");
     clearElement(logBox);
     store.setState({ currentUnitLogTarget: buildUnitLogTarget(unit) });
@@ -297,6 +316,8 @@ function openUnitDetail(unit) {
 export function closeDetail(restoreMainTab = true) {
     const view = $("unitDetailView");
     if(view) view.style.display = "none";
+    closeUnitAiDialog();
+    currentUnitDetail = null;
     if (restoreMainTab) {
         const tabMain = $("tab-main");
         if(tabMain) tabMain.classList.add("active");
@@ -418,4 +439,120 @@ async function initializeAllDevices() {
         await apiSubmitTask(taskData, { notify: false, log: false });
     }
     toast.success("全量初始化指令已分发");
+}
+
+function parseCommaList(value) {
+    return String(value || "")
+        .split(",")
+        .map(item => item.trim())
+        .filter(Boolean);
+}
+
+function openUnitAiDialog(unit) {
+    if (!unit) return;
+    const modal = $("unitAiModal");
+    if (modal) modal.style.display = "flex";
+
+    const title = $("unitAiModalTitle");
+    if (title) title.textContent = `AI 对话 - 云机 #${unit.parent_id}-${unit.cloud_id}`;
+
+    const goalInput = $("unitAiGoal");
+    if (goalInput) goalInput.value = "";
+
+    const profileInput = $("unitAiProfile");
+    if (profileInput) profileInput.value = "x_mobile_login_gpt";
+
+    const stateInput = $("unitAiStateIds");
+    if (stateInput) stateInput.value = "home,account,password,captcha,two_factor,unknown";
+
+    const actionsInput = $("unitAiActions");
+    if (actionsInput) actionsInput.value = "ai.locate_point,input.text,input.enter,swipe.up,swipe.down";
+
+    const appInput = $("unitAiApp");
+    if (appInput) appInput.value = "com.twitter.android";
+
+    const bindingInput = $("unitAiBindingId");
+    if (bindingInput) bindingInput.value = "tw";
+
+    const systemPrompt = $("unitAiSystemPrompt");
+    if (systemPrompt) {
+        systemPrompt.value = "你是云机自动化助手，只能使用 allowed_actions。需要点击/输入时先调用 ai.locate_point 获取坐标。";
+    }
+
+    const useUitars = $("unitAiUseUitars");
+    if (useUitars) useUitars.checked = false;
+}
+
+function closeUnitAiDialog() {
+    const modal = $("unitAiModal");
+    if (modal) modal.style.display = "none";
+    const advanced = $("unitAiAdvanced");
+    if (advanced) advanced.style.display = "none";
+}
+
+async function submitUnitAiTask() {
+    if (!currentUnitDetail) return;
+
+    const goal = String($("unitAiGoal")?.value || "").trim();
+    if (!goal) {
+        toast.warn("请填写任务描述");
+        return;
+    }
+
+    const expectedStateIds = parseCommaList($("unitAiStateIds")?.value || "");
+    if (expectedStateIds.length === 0) {
+        toast.warn("预期状态 IDs 不能为空");
+        return;
+    }
+
+    const allowedActions = parseCommaList($("unitAiActions")?.value || "");
+    if (allowedActions.length === 0) {
+        toast.warn("允许动作列表不能为空");
+        return;
+    }
+
+    const appPackage = String($("unitAiApp")?.value || "").trim();
+    const bindingId = String($("unitAiBindingId")?.value || "").trim();
+    const systemPrompt = String($("unitAiSystemPrompt")?.value || "").trim();
+    const profileName = String($("unitAiProfile")?.value || "").trim();
+    const useUitars = $("unitAiUseUitars")?.checked || false;
+
+    const payload = {
+        device_ip: currentUnitDetail.parent_ip,
+        goal,
+        observation: {
+            expected_state_ids: expectedStateIds,
+            allowed_actions: allowedActions,
+        }
+    };
+
+    if (appPackage) {
+        payload.observation.app_package = appPackage;
+    }
+    if (bindingId) {
+        payload.observation.binding_id = bindingId;
+    }
+    if (systemPrompt) {
+        payload.system_prompt = systemPrompt;
+    }
+    if (profileName) {
+        payload._runtime_profile = profileName;
+    }
+    if (useUitars) {
+        payload.fallback_modalities = ["uitars"];
+    }
+
+    const taskData = buildTaskRequest({
+        task: "gpt_executor",
+        payload,
+        targets: [{ device_id: currentUnitDetail.parent_id, cloud_id: currentUnitDetail.cloud_id }],
+    });
+
+    const res = await apiSubmitTask(taskData);
+    if (res.ok) {
+        unitLog(">>> AI 对话任务已下发");
+        closeUnitAiDialog();
+    } else {
+        unitLog("❌ AI 对话任务提交失败", "error");
+    }
 }

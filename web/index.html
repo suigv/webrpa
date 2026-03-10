@@ -4,7 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <title>WebRPA</title>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body class="dark-theme">
@@ -260,9 +259,20 @@
       <div class="layer-content max-w-screen-lg mx-auto py-8 px-4">
         <div class="two-col-layout">
           <div class="panel">
-            <div class="panel-header"><h3>独立注入指令</h3></div>
+            <div class="panel-header">
+              <h3>独立注入指令</h3>
+              <button id="openUnitAiDialog" class="btn btn-secondary btn-sm">AI 对话</button>
+            </div>
             <div class="panel-body">
               <div class="form-group"><label>选择驱动</label><select id="unitPluginSelect"></select></div>
+              <div class="form-group">
+                <label>账号池</label>
+                <div class="flex gap-2">
+                  <select id="unitAccountSelect" class="flex-1"></select>
+                  <button id="unitAccountRefresh" class="btn btn-secondary btn-sm">刷新</button>
+                </div>
+                <div id="unitAccountHint" class="text-muted" style="font-size:12px; margin-top:6px;"></div>
+              </div>
               <div id="unitPluginFields" class="form-grid mt-6"></div>
               <button id="showMoreUnitFields" class="btn btn-text text-muted mt-2 px-0">配置高级属性</button>
               
@@ -285,6 +295,68 @@
             </div>
           </div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 云机 AI 对话框 -->
+  <div id="unitAiModal" class="modal-overlay" style="display: none;">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="unitAiModalTitle">AI 对话</h3>
+        <button class="btn btn-text text-muted px-2" id="closeUnitAiModal">Esc</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>任务描述（自然语言）</label>
+          <textarea id="unitAiGoal" rows="4" placeholder="例如：打开登录页面，输入账号密码并点击登录"></textarea>
+        </div>
+        <div class="form-group">
+          <label>运行时配置（runtime profile）</label>
+          <input id="unitAiProfile" type="text" placeholder="x_mobile_login_gpt">
+          <div class="text-muted" style="font-size:12px; margin-top:6px;">读取 config/&lt;name&gt;.json 的 llm 配置</div>
+        </div>
+        <div class="form-group">
+          <label>预期状态 IDs（逗号分隔）</label>
+          <input id="unitAiStateIds" type="text" placeholder="home,account,password,captcha,two_factor,unknown">
+        </div>
+
+        <div class="divider mt-6 mb-4"></div>
+        <button id="toggleUnitAiAdvancedBtn" class="btn btn-text text-muted px-0">高级参数</button>
+        <div id="unitAiAdvanced" class="collapsible-section mt-4">
+          <div class="form-grid columns-2">
+            <div class="form-group">
+              <label>绑定 ID</label>
+              <input id="unitAiBindingId" type="text" placeholder="x_login">
+            </div>
+            <div class="form-group">
+              <label>最大步数</label>
+              <input id="unitAiMaxSteps" type="number" value="8">
+            </div>
+            <div class="form-group">
+              <label>停滞阈值</label>
+              <input id="unitAiStagnantLimit" type="number" value="2">
+            </div>
+            <div class="form-group col-span-2">
+              <label>允许动作（逗号分隔）</label>
+              <input id="unitAiActions" type="text" placeholder="ai.locate_point,ui.click,ui.input_text,ui.key_press,ui.swipe">
+            </div>
+            <div class="form-group col-span-2">
+              <label>System Prompt</label>
+              <textarea id="unitAiSystemPrompt" rows="3" placeholder="仅允许使用 allowed_actions 规划下一步"></textarea>
+            </div>
+            <div class="form-group col-span-2">
+              <label class="flex items-center gap-2">
+                <input id="unitAiUseUitars" type="checkbox">
+                启用 UI-TARS 回退（structured state 不可用时）
+              </label>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="p-4 border-t bg-panel flex gap-3">
+        <button id="submitUnitAiTask" class="btn btn-primary flex-1">下发任务</button>
+        <button class="btn btn-secondary flex-1" id="cancelUnitAiTask">取消</button>
       </div>
     </div>
   </div>

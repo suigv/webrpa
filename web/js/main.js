@@ -29,13 +29,15 @@ async function init() {
 
     setupNavigation();
 
+    // 核心初始化顺序
     initDevices();
     initLogs();
     initTasks();
     initConfig();
     initAccounts();
 
-    await loadHealth();
+    // 异步执行健康检查，不阻塞
+    loadHealth();
 
     const refreshBtn = $("refreshAll");
     if(refreshBtn) {
