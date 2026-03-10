@@ -2,7 +2,7 @@ api_version: v1
 kind: plugin
 name: dm_reply
 version: "1.0.0"
-display_name: "DM Reply"
+display_name: "私信自动回复"
 category: "互动与增长"
 description: "DM reply workflow contract"
 entry_script: script.yaml

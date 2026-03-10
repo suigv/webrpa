@@ -67,10 +67,12 @@ export function initTasks() {
     const submitBtn = $('submitTask');
     const refreshBtn = $('refreshTasks');
     const clearBtn = $('clearTasks');
+    const stopAllBtn = $('stopAllTasks');
 
     if (submitBtn) submitBtn.onclick = submitTask;
     if (refreshBtn) refreshBtn.onclick = loadTasks;
     if (clearBtn) clearBtn.onclick = clearAllTasks;
+    if (stopAllBtn) stopAllBtn.onclick = stopAllTasks;
 
     const toggleBtn = $('toggleTasksAdvancedBtn');
     if (toggleBtn) {
@@ -100,13 +102,52 @@ async function clearAllTasks() {
     try {
         const r = await fetchJson('/api/tasks/', { method: 'DELETE', silentErrors: true });
         if (r.ok) {
-            toast.success('托管任务状态已清空');
+            toast.success('任务历史已清理');
             clearElement($('tasksList'));
             await loadTasks();
             return;
         }
-        toast.error(r.data?.detail || '清空托管任务状态失败');
+        toast.error(r.data?.detail || '清理任务历史失败');
     } finally { if (btn) btn.disabled = false; }
+}
+
+async function stopAllTasks() {
+    if (!confirm('确定要停止所有正在运行或等待中的任务吗？')) return;
+    const btn = $('stopAllTasks');
+    if (btn) btn.disabled = true;
+
+    try {
+        const r = await fetchJson('/api/tasks/');
+        if (!r.ok) return;
+        const tasks = r.data;
+        const activeTasks = tasks.filter(t => t.status === 'pending' || t.status === 'running');
+        
+        if (activeTasks.length === 0) {
+            toast.info('当前没有需要停止的任务');
+            return;
+        }
+
+        let successCount = 0;
+        for (const t of activeTasks) {
+            const res = await fetchJson(`/api/tasks/${t.task_id}/cancel`, { method: 'POST', silentErrors: true });
+            if (res.ok) successCount++;
+        }
+        
+        toast.success(`正在强制终止任务: ${successCount}/${activeTasks.length}`);
+        await loadTasks();
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+
+async function cancelTask(taskId) {
+    const res = await fetchJson(`/api/tasks/${taskId}/cancel`, { method: 'POST', silentErrors: true });
+    if (res.ok) {
+        toast.success('正在停止任务并回收资源...');
+        await loadTasks();
+    } else {
+        toast.error('任务停止失败');
+    }
 }
 
 async function initPluginSelector() {
@@ -166,20 +207,45 @@ function renderTasksList(tasks) {
 
         const title = document.createElement('span');
         title.className = 'list-item-title';
-        title.textContent = t.task_name || t.task || 'anonymous';
+        
+        // 1. 优先使用后端返回的 display_name
+        // 2. 其次尝试从本地插件目录缓存匹配
+        // 3. 最后使用 task_name 或 '未知任务'
+        let finalName = t.display_name;
+        if (!finalName && pluginCatalog.length > 0) {
+            const matched = pluginCatalog.find(p => p.task === t.task_name);
+            if (matched) finalName = matched.display_name;
+        }
+        
+        title.textContent = finalName || t.task_name || '未知任务';
 
         const meta = document.createElement('span');
         meta.className = 'list-item-meta';
-        meta.textContent = `ID: ${t.task_id} | ${t.status} | ${formatTargetText(t.targets)} | ${t.created_at}`;
+        meta.textContent = `ID: ${t.task_id} | ${t.status} | ${formatTargetText(t.targets)}`;
 
         content.append(title, meta);
 
-        const button = document.createElement('button');
-        button.className = 'btn btn-secondary btn-sm';
-        button.textContent = '详情';
-        button.onclick = () => loadTaskDetail(t.task_id);
+        const buttonGroup = document.createElement('div');
+        buttonGroup.className = 'flex gap-2';
 
-        item.append(content, button);
+        const detailBtn = document.createElement('button');
+        detailBtn.className = 'btn btn-secondary btn-sm';
+        detailBtn.textContent = '详情';
+        detailBtn.onclick = () => loadTaskDetail(t.task_id);
+        buttonGroup.appendChild(detailBtn);
+
+        if (t.status === 'pending' || t.status === 'running') {
+            const cancelBtn = document.createElement('button');
+            cancelBtn.className = 'btn btn-danger btn-sm';
+            cancelBtn.textContent = '停止';
+            cancelBtn.onclick = (e) => {
+                e.stopPropagation();
+                cancelTask(t.task_id);
+            };
+            buttonGroup.appendChild(cancelBtn);
+        }
+
+        item.append(content, buttonGroup);
         list.appendChild(item);
     });
 }
@@ -194,23 +260,39 @@ async function loadTaskDetail(taskId) {
     if (body) {
         clearElement(body);
 
+        const STATUS_LABELS = {
+            'pending': '⏳ 等待中',
+            'running': '⚙️ 运行中',
+            'completed': '✅ 任务成功',
+            'failed': '❌ 执行失败',
+            'cancelled': '⏹️ 已取消'
+        };
+
         const infoGrid = document.createElement('div');
         infoGrid.className = 'info-grid';
+        
+        // 查找中文任务名
+        let finalName = t.display_name;
+        if (!finalName && pluginCatalog.length > 0) {
+            const matched = pluginCatalog.find(p => p.task === t.task_name);
+            if (matched) finalName = matched.display_name;
+        }
+
         infoGrid.append(
             createInfoRow('任务 ID', t.task_id),
-            createInfoRow('任务名称', t.task_name || t.task || 'anonymous'),
-            createInfoRow('当前状态', t.status),
-            createInfoRow('目标设备', formatTargetText(t.targets)),
+            createInfoRow('驱动程序', finalName || t.task_name || '未知插件'),
+            createInfoRow('实时状态', STATUS_LABELS[t.status] || t.status),
+            createInfoRow('指派节点', formatTargetText(t.targets)),
         );
         body.appendChild(infoGrid);
 
-        if (t.result !== undefined) {
+        if (t.result !== undefined && t.result !== null) {
             const wrapper = document.createElement('div');
             wrapper.className = 'mt-4';
 
             const label = document.createElement('div');
             label.className = 'info-label mb-2';
-            label.textContent = '执行结果';
+            label.textContent = '详细执行报告 (JSON)';
 
             const code = document.createElement('div');
             code.className = 'code-block';
@@ -221,10 +303,20 @@ async function loadTaskDetail(taskId) {
         }
 
         if (t.error) {
+            const errorWrapper = document.createElement('div');
+            errorWrapper.className = 'mt-4';
+            
+            const errLabel = document.createElement('div');
+            errLabel.className = 'info-label mb-2 text-error';
+            errLabel.textContent = '异常错误摘要';
+
             const error = document.createElement('div');
-            error.className = 'mt-4 p-3 bg-app rounded border border-error text-error text-xs';
+            error.className = 'p-3 bg-app rounded border border-error text-error text-xs';
+            error.style.whiteSpace = 'pre-wrap';
             error.textContent = t.error;
-            body.appendChild(error);
+            
+            errorWrapper.append(errLabel, error);
+            body.appendChild(errorWrapper);
         }
     }
 }

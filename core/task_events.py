@@ -36,7 +36,21 @@ class TaskEventStore:
     def __init__(self, db_path: Path | None = None) -> None:
         self._db_path = db_path or _db_path()
         self._lock = threading.RLock()
+        self._observers: list[Callable[[TaskEvent], None]] = []
         self._init_schema()
+
+    def subscribe(self, observer: Callable[[TaskEvent], None]) -> None:
+        """订阅新事件 (覆盖式，防止热重载产生重复订阅)"""
+        with self._lock:
+            # 每次订阅直接覆盖之前的观察者列表，确保只有一个活跃的广播器
+            self._observers = [observer]
+
+    def _notify(self, event: TaskEvent) -> None:
+        for observer in self._observers:
+            try:
+                observer(event)
+            except Exception:
+                pass
 
     def _connect(self) -> sqlite3.Connection:
         return sqlite3.connect(str(self._db_path), timeout=30)
@@ -79,7 +93,9 @@ class TaskEventStore:
                         (task_id, event_type, json.dumps(payload, ensure_ascii=False), now),
                     )
                     tx_conn.commit()
-                    return int(cur.lastrowid or 0)
+                    event_id = int(cur.lastrowid or 0)
+                    self._notify(TaskEvent(event_id, task_id, event_type, payload, now))
+                    return event_id
         cur = conn.execute(
             """
             INSERT INTO task_events (task_id, event_type, payload_json, created_at)
@@ -87,7 +103,9 @@ class TaskEventStore:
             """,
             (task_id, event_type, json.dumps(payload, ensure_ascii=False), now),
         )
-        return int(cur.lastrowid or 0)
+        event_id = int(cur.lastrowid or 0)
+        self._notify(TaskEvent(event_id, task_id, event_type, payload, now))
+        return event_id
 
     def list_events(self, task_id: str, after_event_id: int = 0, limit: int = 200) -> list[TaskEvent]:
         with self._lock:

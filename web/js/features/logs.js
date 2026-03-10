@@ -39,6 +39,18 @@ export function sysLog(msg, level = "info") {
     ], level);
 }
 
+/**
+ * 向当前单机接管视图插入即时日志
+ */
+export function unitLog(msg, level = "info") {
+    if (!unitLogBox) return;
+    const ts = new Date().toLocaleTimeString();
+    appendSegments(unitLogBox, [
+        { text: `${ts} `, color: 'var(--text-muted)' },
+        { text: String(msg ?? ''), color: 'var(--primary)' },
+    ], level);
+}
+
 export function initLogs() {
     connectLogs();
 
@@ -73,27 +85,59 @@ function connectLogs() {
 }
 
 function appendDetailedLog(log) {
-    const ts = log.timestamp || "";
+    const eventType = log.event_type;
+    const now = new Date();
+    const ts = now.getHours().toString().padStart(2, '0') + ':' + 
+               now.getMinutes().toString().padStart(2, '0') + ':' + 
+               now.getSeconds().toString().padStart(2, '0');
+
+    const data = log.data || {};
     const target = log.target || "SYS";
     const msg = log.message || "";
     const level = log.level || "info";
 
-    if (globalLogBox) {
+    // --- 核心修复：绝对互斥逻辑 ---
+    
+    // 情况 A：这是结构化的任务步骤结果
+    if (eventType === "task.action_result") {
+        if (unitLogBox) {
+            const stepNum = data.step || "?";
+            const label = data.label || "未知动作";
+            const isOk = data.ok;
+            
+            // 统一使用最直观的 [步骤 X] 格式
+            const mainMsg = `[步骤 ${stepNum}] ${label}: ${isOk ? '✅ 成功' : '❌ 失败'}`;
+            const errorMsg = isOk ? "" : ` (${data.message || '未知错误'})`;
+            
+            appendSegments(unitLogBox, [
+                { text: `${ts} `, color: 'var(--text-muted)' },
+                { text: mainMsg, color: isOk ? 'var(--success)' : 'var(--error)' },
+                { text: errorMsg, color: '#666' }
+            ]);
+        }
+        return; // 强制截断，绝不向下执行
+    }
+
+    // 情况 B：普通文本日志（如：业务已启动、同步环境等）
+    if (msg) {
+        // 如果后端发出了冗余的包含 event_type 的字符串日志，直接丢弃
+        if (msg.includes("[task.action_result]")) return;
         const debugLine = document.createElement("div");
-        debugLine.textContent = `[${ts}] [${target}] ${msg}`;
-        if (level === "error") debugLine.style.color = "#f87171";
+        debugLine.style.fontSize = "0.75rem";
+        debugLine.innerHTML = `<span style="color:var(--text-muted)">[${ts}]</span> <span style="color:var(--info)">[${target}]</span> ${msg}`;
+        if (level === "error") debugLine.style.color = "var(--error)";
         globalLogBox.appendChild(debugLine);
-        if (globalLogBox.children.length > 200) globalLogBox.removeChild(globalLogBox.firstChild);
+        if (globalLogBox.children.length > 300) globalLogBox.removeChild(globalLogBox.firstChild);
         globalLogBox.scrollTop = globalLogBox.scrollHeight;
     }
 
+    // 将不属于任务步骤的系统反馈也显示在云机窗口中
     const currentUnitLogTarget = store.getState().currentUnitLogTarget;
     if (unitLogBox && currentUnitLogTarget && currentUnitLogTarget === target) {
         appendSegments(unitLogBox, [
             { text: `${ts} `, color: 'var(--text-muted)' },
-            { text: String(msg ?? ''), color: 'var(--primary)' },
+            { text: String(msg), color: 'var(--primary)' },
         ], level);
-        if (unitLogBox.children.length > 200) unitLogBox.removeChild(unitLogBox.firstChild);
     }
 }
 

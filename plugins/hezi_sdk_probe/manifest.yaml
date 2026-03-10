@@ -2,7 +2,7 @@ api_version: v1
 kind: plugin
 name: hezi_sdk_probe
 version: "1.0.0"
-display_name: "盒子 SDK 探针"
+display_name: "盒子 SDK 探测"
 category: "设备诊断"
 description: "Read-only probe for core heziSDKAPI endpoints through sdk.* atomic actions"
 entry_script: script.yaml

@@ -24,5 +24,534 @@
       "profile": ""
     }
   ],
-  "device:192.168.1.2:blogger_scrape_count": 36
+  "device:192.168.1.2:blogger_scrape_count": 38,
+  "task:bfccc5a1-b60d-4864-9905-b2478da3e588:home_last_candidate": {
+    "text": "想查看 X 上有哪些认识的人？ | 查看你的联系人。 | 开始使用 | 广告 | 来自 instax.jp | 已发布 | ·",
+    "desc": "主页时间线列表 | 开始使用 | 忽略 | INSTAX“チェキ”公式 @fujifilmjp_ck 已认证.    ゲームの世界をチェキプリント™に！\n集めるたびに楽しさ広がる！\n© Nintendo.  视频。 キャラチェキしよ！. instax.jp. .          推荐.  5天前.  3 条回复.  25 转帖.  220 个喜欢.  2590083 认证查看次数. | 视频，。访问 キャラチェキしよ！ | 视频 | 取消隐藏音频 | deazyed @deazyed_ 已认证.    so cute🪷🩷.            14小时前.  248 条回复.  325 转帖.  3704 个喜欢.  1733005 认证查看次数.",
+    "resource_id": "com.twitter.android:id/view_pager",
+    "class_name": "androidx.viewpager.widget.ViewPager",
+    "package": "com.twitter.android",
+    "bound": {
+      "left": 0,
+      "top": 337,
+      "right": 1080,
+      "bottom": 1920
+    },
+    "height": 1583,
+    "has_media": true
+  },
+  "task:bfccc5a1-b60d-4864-9905-b2478da3e588:home_last_interaction": {
+    "action": "like",
+    "candidate": {
+      "text": "想查看 X 上有哪些认识的人？ | 查看你的联系人。 | 开始使用 | 广告 | 来自 instax.jp | 已发布 | ·",
+      "desc": "主页时间线列表 | 开始使用 | 忽略 | INSTAX“チェキ”公式 @fujifilmjp_ck 已认证.    ゲームの世界をチェキプリント™に！\n集めるたびに楽しさ広がる！\n© Nintendo.  视频。 キャラチェキしよ！. instax.jp. .          推荐.  5天前.  3 条回复.  25 转帖.  220 个喜欢.  2590083 认证查看次数. | 视频，。访问 キャラチェキしよ！ | 视频 | 取消隐藏音频 | deazyed @deazyed_ 已认证.    so cute🪷🩷.            14小时前.  248 条回复.  325 转帖.  3704 个喜欢.  1733005 认证查看次数.",
+      "resource_id": "com.twitter.android:id/view_pager",
+      "class_name": "androidx.viewpager.widget.ViewPager",
+      "package": "com.twitter.android",
+      "bound": {
+        "left": 0,
+        "top": 337,
+        "right": 1080,
+        "bottom": 1920
+      },
+      "height": 1583,
+      "has_media": true
+    }
+  },
+  "device:192.168.1.214:home_interaction_count": 16,
+  "task:d6cab77c-c966-425d-9bee-95734d89334f:home_last_candidate": {
+    "text": "想查看 X 上有哪些认识的人？ | 查看你的联系人。 | 开始使用 | 广告 | 来自 instax.jp | 已发布 | ·",
+    "desc": "主页时间线列表 | 开始使用 | 忽略 | INSTAX“チェキ”公式 @fujifilmjp_ck 已认证.    ゲームの世界をチェキプリント™に！\n集めるたびに楽しさ広がる！\n© Nintendo.  视频。 キャラチェキしよ！. instax.jp. .          推荐.  5天前.  3 条回复.  25 转帖.  225 个喜欢.  2635964 认证查看次数. | 视频，。访问 キャラチェキしよ！ | 视频 | 取消隐藏音频 | deazyed @deazyed_ 已认证.    so cute🪷🩷.            15小时前.  261 条回复.  365 转帖.  3913 个喜欢.  1861177 认证查看次数.",
+    "resource_id": "com.twitter.android:id/view_pager",
+    "class_name": "androidx.viewpager.widget.ViewPager",
+    "package": "com.twitter.android",
+    "bound": {
+      "left": 0,
+      "top": 337,
+      "right": 1080,
+      "bottom": 1920
+    },
+    "height": 1583,
+    "has_media": true
+  },
+  "task:d6cab77c-c966-425d-9bee-95734d89334f:home_last_interaction": {
+    "action": "like",
+    "candidate": {
+      "text": "想查看 X 上有哪些认识的人？ | 查看你的联系人。 | 开始使用 | 广告 | 来自 instax.jp | 已发布 | ·",
+      "desc": "主页时间线列表 | 开始使用 | 忽略 | INSTAX“チェキ”公式 @fujifilmjp_ck 已认证.    ゲームの世界をチェキプリント™に！\n集めるたびに楽しさ広がる！\n© Nintendo.  视频。 キャラチェキしよ！. instax.jp. .          推荐.  5天前.  3 条回复.  25 转帖.  225 个喜欢.  2635964 认证查看次数. | 视频，。访问 キャラチェキしよ！ | 视频 | 取消隐藏音频 | deazyed @deazyed_ 已认证.    so cute🪷🩷.            15小时前.  261 条回复.  365 转帖.  3913 个喜欢.  1861177 认证查看次数.",
+      "resource_id": "com.twitter.android:id/view_pager",
+      "class_name": "androidx.viewpager.widget.ViewPager",
+      "package": "com.twitter.android",
+      "bound": {
+        "left": 0,
+        "top": 337,
+        "right": 1080,
+        "bottom": 1920
+      },
+      "height": 1583,
+      "has_media": true
+    }
+  },
+  "task:59c375e0-c05c-4ec7-a5cd-228be0513cec:home_last_candidate": {
+    "text": "想查看 X 上有哪些认识的人？ | 查看你的联系人。 | 开始使用 | 广告 | 来自 instax.jp | 已发布 | ·",
+    "desc": "主页时间线列表 | 开始使用 | 忽略 | INSTAX“チェキ”公式 @fujifilmjp_ck 已认证.    ゲームの世界をチェキプリント™に！\n集めるたびに楽しさ広がる！\n© Nintendo.  视频。 キャラチェキしよ！. instax.jp. .          推荐.  5天前.  3 条回复.  25 转帖.  225 个喜欢.  2637303 认证查看次数. | 视频，。访问 キャラチェキしよ！ | 视频 | 取消隐藏音频 | deazyed @deazyed_ 已认证.    so cute🪷🩷.            15小时前.  264 条回复.  367 转帖.  3924 个喜欢.  1869131 认证查看次数.",
+    "resource_id": "com.twitter.android:id/view_pager",
+    "class_name": "androidx.viewpager.widget.ViewPager",
+    "package": "com.twitter.android",
+    "bound": {
+      "left": 0,
+      "top": 337,
+      "right": 1080,
+      "bottom": 1920
+    },
+    "height": 1583,
+    "has_media": true
+  },
+  "task:59c375e0-c05c-4ec7-a5cd-228be0513cec:home_last_interaction": {
+    "action": "like",
+    "candidate": {
+      "text": "想查看 X 上有哪些认识的人？ | 查看你的联系人。 | 开始使用 | 广告 | 来自 instax.jp | 已发布 | ·",
+      "desc": "主页时间线列表 | 开始使用 | 忽略 | INSTAX“チェキ”公式 @fujifilmjp_ck 已认证.    ゲームの世界をチェキプリント™に！\n集めるたびに楽しさ広がる！\n© Nintendo.  视频。 キャラチェキしよ！. instax.jp. .          推荐.  5天前.  3 条回复.  25 转帖.  225 个喜欢.  2637303 认证查看次数. | 视频，。访问 キャラチェキしよ！ | 视频 | 取消隐藏音频 | deazyed @deazyed_ 已认证.    so cute🪷🩷.            15小时前.  264 条回复.  367 转帖.  3924 个喜欢.  1869131 认证查看次数.",
+      "resource_id": "com.twitter.android:id/view_pager",
+      "class_name": "androidx.viewpager.widget.ViewPager",
+      "package": "com.twitter.android",
+      "bound": {
+        "left": 0,
+        "top": 337,
+        "right": 1080,
+        "bottom": 1920
+      },
+      "height": 1583,
+      "has_media": true
+    }
+  },
+  "task:2a66329f-464d-409e-a014-de11ae317336:home_last_candidate": {
+    "text": "想查看 X 上有哪些认识的人？ | 查看你的联系人。 | 开始使用 | 广告 | 来自 instax.jp | 已发布 | ·",
+    "desc": "主页时间线列表 | 开始使用 | 忽略 | INSTAX“チェキ”公式 @fujifilmjp_ck 已认证.    ゲームの世界をチェキプリント™に！\n集めるたびに楽しさ広がる！\n© Nintendo.  视频。 キャラチェキしよ！. instax.jp. .          推荐.  5天前.  3 条回复.  25 转帖.  225 个喜欢.  2637832 认证查看次数. | 视频，。访问 キャラチェキしよ！ | 视频 | 取消隐藏音频 | deazyed @deazyed_ 已认证.    so cute🪷🩷.            15小时前.  264 条回复.  369 转帖.  3944 个喜欢.  1877254 认证查看次数.",
+    "resource_id": "com.twitter.android:id/view_pager",
+    "class_name": "androidx.viewpager.widget.ViewPager",
+    "package": "com.twitter.android",
+    "bound": {
+      "left": 0,
+      "top": 337,
+      "right": 1080,
+      "bottom": 1920
+    },
+    "height": 1583,
+    "has_media": true
+  },
+  "task:2a66329f-464d-409e-a014-de11ae317336:home_last_interaction": {
+    "action": "like",
+    "candidate": {
+      "text": "想查看 X 上有哪些认识的人？ | 查看你的联系人。 | 开始使用 | 广告 | 来自 instax.jp | 已发布 | ·",
+      "desc": "主页时间线列表 | 开始使用 | 忽略 | INSTAX“チェキ”公式 @fujifilmjp_ck 已认证.    ゲームの世界をチェキプリント™に！\n集めるたびに楽しさ広がる！\n© Nintendo.  视频。 キャラチェキしよ！. instax.jp. .          推荐.  5天前.  3 条回复.  25 转帖.  225 个喜欢.  2637832 认证查看次数. | 视频，。访问 キャラチェキしよ！ | 视频 | 取消隐藏音频 | deazyed @deazyed_ 已认证.    so cute🪷🩷.            15小时前.  264 条回复.  369 转帖.  3944 个喜欢.  1877254 认证查看次数.",
+      "resource_id": "com.twitter.android:id/view_pager",
+      "class_name": "androidx.viewpager.widget.ViewPager",
+      "package": "com.twitter.android",
+      "bound": {
+        "left": 0,
+        "top": 337,
+        "right": 1080,
+        "bottom": 1920
+      },
+      "height": 1583,
+      "has_media": true
+    }
+  },
+  "task:be80c045-2f65-4d84-a9d3-9aaa325390a7:home_last_candidate": {
+    "text": "想查看 X 上有哪些认识的人？ | 查看你的联系人。 | 开始使用 | 广告 | 来自 instax.jp | 已发布 | ·",
+    "desc": "主页时间线列表 | 开始使用 | 忽略 | INSTAX“チェキ”公式 @fujifilmjp_ck 已认证.    ゲームの世界をチェキプリント™に！\n集めるたびに楽しさ広がる！\n© Nintendo.  视频。 キャラチェキしよ！. instax.jp. .          推荐.  5天前.  3 条回复.  25 转帖.  225 个喜欢.  2639412 认证查看次数. | 视频，。访问 キャラチェキしよ！ | 视频 | 取消隐藏音频 | deazyed @deazyed_ 已认证.    so cute🪷🩷.            15小时前.  265 条回复.  369 转帖.  3960 个喜欢.  1885469 认证查看次数.",
+    "resource_id": "com.twitter.android:id/view_pager",
+    "class_name": "androidx.viewpager.widget.ViewPager",
+    "package": "com.twitter.android",
+    "bound": {
+      "left": 0,
+      "top": 337,
+      "right": 1080,
+      "bottom": 1920
+    },
+    "height": 1583,
+    "has_media": true
+  },
+  "task:be80c045-2f65-4d84-a9d3-9aaa325390a7:home_last_interaction": {
+    "action": "like",
+    "candidate": {
+      "text": "想查看 X 上有哪些认识的人？ | 查看你的联系人。 | 开始使用 | 广告 | 来自 instax.jp | 已发布 | ·",
+      "desc": "主页时间线列表 | 开始使用 | 忽略 | INSTAX“チェキ”公式 @fujifilmjp_ck 已认证.    ゲームの世界をチェキプリント™に！\n集めるたびに楽しさ広がる！\n© Nintendo.  视频。 キャラチェキしよ！. instax.jp. .          推荐.  5天前.  3 条回复.  25 转帖.  225 个喜欢.  2639412 认证查看次数. | 视频，。访问 キャラチェキしよ！ | 视频 | 取消隐藏音频 | deazyed @deazyed_ 已认证.    so cute🪷🩷.            15小时前.  265 条回复.  369 转帖.  3960 个喜欢.  1885469 认证查看次数.",
+      "resource_id": "com.twitter.android:id/view_pager",
+      "class_name": "androidx.viewpager.widget.ViewPager",
+      "package": "com.twitter.android",
+      "bound": {
+        "left": 0,
+        "top": 337,
+        "right": 1080,
+        "bottom": 1920
+      },
+      "height": 1583,
+      "has_media": true
+    }
+  },
+  "task:4b96c826-c318-4b13-bb40-337775386362:home_last_candidate": {
+    "text": "想查看 X 上有哪些认识的人？ | 查看你的联系人。 | 开始使用 | 广告 | 来自 instax.jp | 已发布 | ·",
+    "desc": "主页时间线列表 | 开始使用 | 忽略 | INSTAX“チェキ”公式 @fujifilmjp_ck 已认证.    ゲームの世界をチェキプリント™に！\n集めるたびに楽しさ広がる！\n© Nintendo.  视频。 キャラチェキしよ！. instax.jp. .          推荐.  5天前.  3 条回复.  25 转帖.  225 个喜欢.  2640904 认证查看次数. | 视频，。访问 キャラチェキしよ！ | 视频 | 取消隐藏音频 | deazyed @deazyed_ 已认证.    so cute🪷🩷.            15小时前.  278 条回复.  389 转帖.  4073 个喜欢.  1947822 认证查看次数.",
+    "resource_id": "com.twitter.android:id/view_pager",
+    "class_name": "androidx.viewpager.widget.ViewPager",
+    "package": "com.twitter.android",
+    "bound": {
+      "left": 0,
+      "top": 337,
+      "right": 1080,
+      "bottom": 1920
+    },
+    "height": 1583,
+    "has_media": true
+  },
+  "task:4b96c826-c318-4b13-bb40-337775386362:home_last_interaction": {
+    "action": "like",
+    "candidate": {
+      "text": "想查看 X 上有哪些认识的人？ | 查看你的联系人。 | 开始使用 | 广告 | 来自 instax.jp | 已发布 | ·",
+      "desc": "主页时间线列表 | 开始使用 | 忽略 | INSTAX“チェキ”公式 @fujifilmjp_ck 已认证.    ゲームの世界をチェキプリント™に！\n集めるたびに楽しさ広がる！\n© Nintendo.  视频。 キャラチェキしよ！. instax.jp. .          推荐.  5天前.  3 条回复.  25 转帖.  225 个喜欢.  2640904 认证查看次数. | 视频，。访问 キャラチェキしよ！ | 视频 | 取消隐藏音频 | deazyed @deazyed_ 已认证.    so cute🪷🩷.            15小时前.  278 条回复.  389 转帖.  4073 个喜欢.  1947822 认证查看次数.",
+      "resource_id": "com.twitter.android:id/view_pager",
+      "class_name": "androidx.viewpager.widget.ViewPager",
+      "package": "com.twitter.android",
+      "bound": {
+        "left": 0,
+        "top": 337,
+        "right": 1080,
+        "bottom": 1920
+      },
+      "height": 1583,
+      "has_media": true
+    }
+  },
+  "task:15c7326b-5b30-48f4-895b-b52a8ba73cf6:home_last_candidate": {
+    "text": "想查看 X 上有哪些认识的人？ | 查看你的联系人。 | 开始使用 | 广告 | 来自 instax.jp | 已发布 | ·",
+    "desc": "主页时间线列表 | 开始使用 | 忽略 | INSTAX“チェキ”公式 @fujifilmjp_ck 已认证.    ゲームの世界をチェキプリント™に！\n集めるたびに楽しさ広がる！\n© Nintendo.  视频。 キャラチェキしよ！. instax.jp. .          推荐.  5天前.  3 条回复.  25 转帖.  226 个喜欢.  2650486 认证查看次数. | 视频，。访问 キャラチェキしよ！ | 视频 | 取消隐藏音频 | deazyed @deazyed_ 已认证.    so cute🪷🩷.            15小时前.  282 条回复.  394 转帖.  4126 个喜欢.  1974753 认证查看次数.",
+    "resource_id": "com.twitter.android:id/view_pager",
+    "class_name": "androidx.viewpager.widget.ViewPager",
+    "package": "com.twitter.android",
+    "bound": {
+      "left": 0,
+      "top": 337,
+      "right": 1080,
+      "bottom": 1920
+    },
+    "height": 1583,
+    "has_media": true
+  },
+  "task:15c7326b-5b30-48f4-895b-b52a8ba73cf6:home_last_interaction": {
+    "action": "like",
+    "candidate": {
+      "text": "想查看 X 上有哪些认识的人？ | 查看你的联系人。 | 开始使用 | 广告 | 来自 instax.jp | 已发布 | ·",
+      "desc": "主页时间线列表 | 开始使用 | 忽略 | INSTAX“チェキ”公式 @fujifilmjp_ck 已认证.    ゲームの世界をチェキプリント™に！\n集めるたびに楽しさ広がる！\n© Nintendo.  视频。 キャラチェキしよ！. instax.jp. .          推荐.  5天前.  3 条回复.  25 转帖.  226 个喜欢.  2650486 认证查看次数. | 视频，。访问 キャラチェキしよ！ | 视频 | 取消隐藏音频 | deazyed @deazyed_ 已认证.    so cute🪷🩷.            15小时前.  282 条回复.  394 转帖.  4126 个喜欢.  1974753 认证查看次数.",
+      "resource_id": "com.twitter.android:id/view_pager",
+      "class_name": "androidx.viewpager.widget.ViewPager",
+      "package": "com.twitter.android",
+      "bound": {
+        "left": 0,
+        "top": 337,
+        "right": 1080,
+        "bottom": 1920
+      },
+      "height": 1583,
+      "has_media": true
+    }
+  },
+  "task:cb9c659a-5af2-4b61-aef3-9cb079e9a52c:home_last_candidate": {
+    "text": "想查看 X 上有哪些认识的人？ | 查看你的联系人。 | 开始使用 | 广告 | 来自 instax.jp | 已发布 | ·",
+    "desc": "主页时间线列表 | 开始使用 | 忽略 | INSTAX“チェキ”公式 @fujifilmjp_ck 已认证.    ゲームの世界をチェキプリント™に！\n集めるたびに楽しさ広がる！\n© Nintendo.  视频。 キャラチェキしよ！. instax.jp. .          推荐.  5天前.  3 条回复.  25 转帖.  226 个喜欢.  2651454 认证查看次数. | 视频，。访问 キャラチェキしよ！ | 视频 | 取消隐藏音频 | deazyed @deazyed_ 已认证.    so cute🪷🩷.            15小时前.  286 条回复.  395 转帖.  4134 个喜欢.  1981068 认证查看次数.",
+    "resource_id": "com.twitter.android:id/view_pager",
+    "class_name": "androidx.viewpager.widget.ViewPager",
+    "package": "com.twitter.android",
+    "bound": {
+      "left": 0,
+      "top": 337,
+      "right": 1080,
+      "bottom": 1920
+    },
+    "height": 1583,
+    "has_media": true
+  },
+  "task:cb9c659a-5af2-4b61-aef3-9cb079e9a52c:home_last_interaction": {
+    "action": "like",
+    "candidate": {
+      "text": "想查看 X 上有哪些认识的人？ | 查看你的联系人。 | 开始使用 | 广告 | 来自 instax.jp | 已发布 | ·",
+      "desc": "主页时间线列表 | 开始使用 | 忽略 | INSTAX“チェキ”公式 @fujifilmjp_ck 已认证.    ゲームの世界をチェキプリント™に！\n集めるたびに楽しさ広がる！\n© Nintendo.  视频。 キャラチェキしよ！. instax.jp. .          推荐.  5天前.  3 条回复.  25 转帖.  226 个喜欢.  2651454 认证查看次数. | 视频，。访问 キャラチェキしよ！ | 视频 | 取消隐藏音频 | deazyed @deazyed_ 已认证.    so cute🪷🩷.            15小时前.  286 条回复.  395 转帖.  4134 个喜欢.  1981068 认证查看次数.",
+      "resource_id": "com.twitter.android:id/view_pager",
+      "class_name": "androidx.viewpager.widget.ViewPager",
+      "package": "com.twitter.android",
+      "bound": {
+        "left": 0,
+        "top": 337,
+        "right": 1080,
+        "bottom": 1920
+      },
+      "height": 1583,
+      "has_media": true
+    }
+  },
+  "task:61954e27-6344-446b-b21f-d7ff58b874d8:home_last_candidate": {
+    "text": "想查看 X 上有哪些认识的人？ | 查看你的联系人。 | 开始使用 | 广告 | 来自 instax.jp | 已发布 | ·",
+    "desc": "主页时间线列表 | 开始使用 | 忽略 | INSTAX“チェキ”公式 @fujifilmjp_ck 已认证.    ゲームの世界をチェキプリント™に！\n集めるたびに楽しさ広がる！\n© Nintendo.  视频。 キャラチェキしよ！. instax.jp. .          推荐.  5天前.  3 条回复.  25 转帖.  226 个喜欢.  2651693 认证查看次数. | 视频，。访问 キャラチェキしよ！ | 视频 | 取消隐藏音频 | deazyed @deazyed_ 已认证.    so cute🪷🩷.            15小时前.  290 条回复.  399 转帖.  4160 个喜欢.  2000776 认证查看次数.",
+    "resource_id": "com.twitter.android:id/view_pager",
+    "class_name": "androidx.viewpager.widget.ViewPager",
+    "package": "com.twitter.android",
+    "bound": {
+      "left": 0,
+      "top": 337,
+      "right": 1080,
+      "bottom": 1920
+    },
+    "height": 1583,
+    "has_media": true
+  },
+  "task:61954e27-6344-446b-b21f-d7ff58b874d8:home_last_interaction": {
+    "action": "like",
+    "candidate": {
+      "text": "想查看 X 上有哪些认识的人？ | 查看你的联系人。 | 开始使用 | 广告 | 来自 instax.jp | 已发布 | ·",
+      "desc": "主页时间线列表 | 开始使用 | 忽略 | INSTAX“チェキ”公式 @fujifilmjp_ck 已认证.    ゲームの世界をチェキプリント™に！\n集めるたびに楽しさ広がる！\n© Nintendo.  视频。 キャラチェキしよ！. instax.jp. .          推荐.  5天前.  3 条回复.  25 转帖.  226 个喜欢.  2651693 认证查看次数. | 视频，。访问 キャラチェキしよ！ | 视频 | 取消隐藏音频 | deazyed @deazyed_ 已认证.    so cute🪷🩷.            15小时前.  290 条回复.  399 转帖.  4160 个喜欢.  2000776 认证查看次数.",
+      "resource_id": "com.twitter.android:id/view_pager",
+      "class_name": "androidx.viewpager.widget.ViewPager",
+      "package": "com.twitter.android",
+      "bound": {
+        "left": 0,
+        "top": 337,
+        "right": 1080,
+        "bottom": 1920
+      },
+      "height": 1583,
+      "has_media": true
+    }
+  },
+  "task:549c65cc-e315-494d-bdc1-d5a31da909af:home_last_candidate": {
+    "text": "想查看 X 上有哪些认识的人？ | 查看你的联系人。 | 开始使用 | 广告 | 来自 instax.jp | 已发布 | ·",
+    "desc": "主页时间线列表 | 开始使用 | 忽略 | INSTAX“チェキ”公式 @fujifilmjp_ck 已认证.    ゲームの世界をチェキプリント™に！\n集めるたびに楽しさ広がる！\n© Nintendo.  视频。 キャラチェキしよ！. instax.jp. .          推荐.  5天前.  3 条回复.  25 转帖.  226 个喜欢.  2652614 认证查看次数. | 视频，。访问 キャラチェキしよ！ | 视频 | 取消隐藏音频 | deazyed @deazyed_ 已认证.    so cute🪷🩷.            16小时前.  305 条回复.  419 转帖.  4349 个喜欢.  2090902 认证查看次数.",
+    "resource_id": "com.twitter.android:id/view_pager",
+    "class_name": "androidx.viewpager.widget.ViewPager",
+    "package": "com.twitter.android",
+    "bound": {
+      "left": 0,
+      "top": 337,
+      "right": 1080,
+      "bottom": 1920
+    },
+    "height": 1583,
+    "has_media": true
+  },
+  "task:549c65cc-e315-494d-bdc1-d5a31da909af:home_last_interaction": {
+    "action": "like",
+    "candidate": {
+      "text": "想查看 X 上有哪些认识的人？ | 查看你的联系人。 | 开始使用 | 广告 | 来自 instax.jp | 已发布 | ·",
+      "desc": "主页时间线列表 | 开始使用 | 忽略 | INSTAX“チェキ”公式 @fujifilmjp_ck 已认证.    ゲームの世界をチェキプリント™に！\n集めるたびに楽しさ広がる！\n© Nintendo.  视频。 キャラチェキしよ！. instax.jp. .          推荐.  5天前.  3 条回复.  25 转帖.  226 个喜欢.  2652614 认证查看次数. | 视频，。访问 キャラチェキしよ！ | 视频 | 取消隐藏音频 | deazyed @deazyed_ 已认证.    so cute🪷🩷.            16小时前.  305 条回复.  419 转帖.  4349 个喜欢.  2090902 认证查看次数.",
+      "resource_id": "com.twitter.android:id/view_pager",
+      "class_name": "androidx.viewpager.widget.ViewPager",
+      "package": "com.twitter.android",
+      "bound": {
+        "left": 0,
+        "top": 337,
+        "right": 1080,
+        "bottom": 1920
+      },
+      "height": 1583,
+      "has_media": true
+    }
+  },
+  "task:0522a44e-f67d-4119-962b-d5eb1169f64d:home_last_candidate": {
+    "text": "想查看 X 上有哪些认识的人？ | 查看你的联系人。 | 开始使用 | 广告 | 来自 instax.jp | 已发布 | ·",
+    "desc": "主页时间线列表 | 开始使用 | 忽略 | INSTAX“チェキ”公式 @fujifilmjp_ck 已认证.    ゲームの世界をチェキプリント™に！\n集めるたびに楽しさ広がる！\n© Nintendo.  视频。 キャラチェキしよ！. instax.jp. .          推荐.  5天前.  3 条回复.  25 转帖.  228 个喜欢.  2664559 认证查看次数. | 视频，。访问 キャラチェキしよ！ | 视频 | 取消隐藏音频 | deazyed @deazyed_ 已认证.    so cute🪷🩷.            16小时前.  305 条回复.  419 转帖.  4390 个喜欢.  2109560 认证查看次数.",
+    "resource_id": "com.twitter.android:id/view_pager",
+    "class_name": "androidx.viewpager.widget.ViewPager",
+    "package": "com.twitter.android",
+    "bound": {
+      "left": 0,
+      "top": 337,
+      "right": 1080,
+      "bottom": 1920
+    },
+    "height": 1583,
+    "has_media": true
+  },
+  "task:0522a44e-f67d-4119-962b-d5eb1169f64d:home_last_interaction": {
+    "action": "like",
+    "candidate": {
+      "text": "想查看 X 上有哪些认识的人？ | 查看你的联系人。 | 开始使用 | 广告 | 来自 instax.jp | 已发布 | ·",
+      "desc": "主页时间线列表 | 开始使用 | 忽略 | INSTAX“チェキ”公式 @fujifilmjp_ck 已认证.    ゲームの世界をチェキプリント™に！\n集めるたびに楽しさ広がる！\n© Nintendo.  视频。 キャラチェキしよ！. instax.jp. .          推荐.  5天前.  3 条回复.  25 转帖.  228 个喜欢.  2664559 认证查看次数. | 视频，。访问 キャラチェキしよ！ | 视频 | 取消隐藏音频 | deazyed @deazyed_ 已认证.    so cute🪷🩷.            16小时前.  305 条回复.  419 转帖.  4390 个喜欢.  2109560 认证查看次数.",
+      "resource_id": "com.twitter.android:id/view_pager",
+      "class_name": "androidx.viewpager.widget.ViewPager",
+      "package": "com.twitter.android",
+      "bound": {
+        "left": 0,
+        "top": 337,
+        "right": 1080,
+        "bottom": 1920
+      },
+      "height": 1583,
+      "has_media": true
+    }
+  },
+  "task:b4a87115-2d53-4629-8368-b2b19daeec66:home_last_candidate": {
+    "text": "想查看 X 上有哪些认识的人？ | 查看你的联系人。 | 开始使用 | 广告 | 来自 instax.jp | 已发布 | ·",
+    "desc": "主页时间线列表 | 开始使用 | 忽略 | INSTAX“チェキ”公式 @fujifilmjp_ck 已认证.    ゲームの世界をチェキプリント™に！\n集めるたびに楽しさ広がる！\n© Nintendo.  视频。 キャラチェキしよ！. instax.jp. .          推荐.  5天前.  3 条回复.  25 转帖.  228 个喜欢.  2666590 认证查看次数. | 视频，。访问 キャラチェキしよ！ | 视频 | 取消隐藏音频 | deazyed @deazyed_ 已认证.    so cute🪷🩷.            16小时前.  305 条回复.  427 转帖.  4402 个喜欢.  2112745 认证查看次数.",
+    "resource_id": "com.twitter.android:id/view_pager",
+    "class_name": "androidx.viewpager.widget.ViewPager",
+    "package": "com.twitter.android",
+    "bound": {
+      "left": 0,
+      "top": 337,
+      "right": 1080,
+      "bottom": 1920
+    },
+    "height": 1583,
+    "has_media": true
+  },
+  "task:b4a87115-2d53-4629-8368-b2b19daeec66:home_last_interaction": {
+    "action": "like",
+    "candidate": {
+      "text": "想查看 X 上有哪些认识的人？ | 查看你的联系人。 | 开始使用 | 广告 | 来自 instax.jp | 已发布 | ·",
+      "desc": "主页时间线列表 | 开始使用 | 忽略 | INSTAX“チェキ”公式 @fujifilmjp_ck 已认证.    ゲームの世界をチェキプリント™に！\n集めるたびに楽しさ広がる！\n© Nintendo.  视频。 キャラチェキしよ！. instax.jp. .          推荐.  5天前.  3 条回复.  25 转帖.  228 个喜欢.  2666590 认证查看次数. | 视频，。访问 キャラチェキしよ！ | 视频 | 取消隐藏音频 | deazyed @deazyed_ 已认证.    so cute🪷🩷.            16小时前.  305 条回复.  427 转帖.  4402 个喜欢.  2112745 认证查看次数.",
+      "resource_id": "com.twitter.android:id/view_pager",
+      "class_name": "androidx.viewpager.widget.ViewPager",
+      "package": "com.twitter.android",
+      "bound": {
+        "left": 0,
+        "top": 337,
+        "right": 1080,
+        "bottom": 1920
+      },
+      "height": 1583,
+      "has_media": true
+    }
+  },
+  "task:993ec5f1-24d4-48f4-8950-f76ee318890e:home_last_candidate": {
+    "text": "想查看 X 上有哪些认识的人？ | 查看你的联系人。 | 开始使用 | 广告 | 来自 instax.jp | 已发布 | ·",
+    "desc": "主页时间线列表 | 开始使用 | 忽略 | INSTAX“チェキ”公式 @fujifilmjp_ck 已认证.    ゲームの世界をチェキプリント™に！\n集めるたびに楽しさ広がる！\n© Nintendo.  视频。 キャラチェキしよ！. instax.jp. .          推荐.  5天前.  3 条回复.  25 转帖.  228 个喜欢.  2667056 认证查看次数. | 视频，。访问 キャラチェキしよ！ | 视频 | 取消隐藏音频 | deazyed @deazyed_ 已认证.    so cute🪷🩷.            16小时前.  305 条回复.  428 转帖.  4402 个喜欢.  2112745 认证查看次数.",
+    "resource_id": "com.twitter.android:id/view_pager",
+    "class_name": "androidx.viewpager.widget.ViewPager",
+    "package": "com.twitter.android",
+    "bound": {
+      "left": 0,
+      "top": 337,
+      "right": 1080,
+      "bottom": 1920
+    },
+    "height": 1583,
+    "has_media": true
+  },
+  "task:993ec5f1-24d4-48f4-8950-f76ee318890e:home_last_interaction": {
+    "action": "like",
+    "candidate": {
+      "text": "想查看 X 上有哪些认识的人？ | 查看你的联系人。 | 开始使用 | 广告 | 来自 instax.jp | 已发布 | ·",
+      "desc": "主页时间线列表 | 开始使用 | 忽略 | INSTAX“チェキ”公式 @fujifilmjp_ck 已认证.    ゲームの世界をチェキプリント™に！\n集めるたびに楽しさ広がる！\n© Nintendo.  视频。 キャラチェキしよ！. instax.jp. .          推荐.  5天前.  3 条回复.  25 转帖.  228 个喜欢.  2667056 认证查看次数. | 视频，。访问 キャラチェキしよ！ | 视频 | 取消隐藏音频 | deazyed @deazyed_ 已认证.    so cute🪷🩷.            16小时前.  305 条回复.  428 转帖.  4402 个喜欢.  2112745 认证查看次数.",
+      "resource_id": "com.twitter.android:id/view_pager",
+      "class_name": "androidx.viewpager.widget.ViewPager",
+      "package": "com.twitter.android",
+      "bound": {
+        "left": 0,
+        "top": 337,
+        "right": 1080,
+        "bottom": 1920
+      },
+      "height": 1583,
+      "has_media": true
+    }
+  },
+  "task:20beb6d9-face-4f08-abe3-7fc90e078000:home_last_candidate": {
+    "text": "想查看 X 上有哪些认识的人？ | 查看你的联系人。 | 开始使用 | 广告 | 来自 instax.jp | 已发布 | ·",
+    "desc": "主页时间线列表 | 开始使用 | 忽略 | INSTAX“チェキ”公式 @fujifilmjp_ck 已认证.    ゲームの世界をチェキプリント™に！\n集めるたびに楽しさ広がる！\n© Nintendo.  视频。 キャラチェキしよ！. instax.jp. .          推荐.  5天前.  3 条回复.  25 转帖.  228 个喜欢.  2667603 认证查看次数. | 视频，。访问 キャラチェキしよ！ | 视频 | 取消隐藏音频 | deazyed @deazyed_ 已认证.    so cute🪷🩷.            16小时前.  310 条回复.  428 转帖.  4418 个喜欢.  2118889 认证查看次数.",
+    "resource_id": "com.twitter.android:id/view_pager",
+    "class_name": "androidx.viewpager.widget.ViewPager",
+    "package": "com.twitter.android",
+    "bound": {
+      "left": 0,
+      "top": 337,
+      "right": 1080,
+      "bottom": 1920
+    },
+    "height": 1583,
+    "has_media": true
+  },
+  "task:20beb6d9-face-4f08-abe3-7fc90e078000:home_last_interaction": {
+    "action": "like",
+    "candidate": {
+      "text": "想查看 X 上有哪些认识的人？ | 查看你的联系人。 | 开始使用 | 广告 | 来自 instax.jp | 已发布 | ·",
+      "desc": "主页时间线列表 | 开始使用 | 忽略 | INSTAX“チェキ”公式 @fujifilmjp_ck 已认证.    ゲームの世界をチェキプリント™に！\n集めるたびに楽しさ広がる！\n© Nintendo.  视频。 キャラチェキしよ！. instax.jp. .          推荐.  5天前.  3 条回复.  25 转帖.  228 个喜欢.  2667603 认证查看次数. | 视频，。访问 キャラチェキしよ！ | 视频 | 取消隐藏音频 | deazyed @deazyed_ 已认证.    so cute🪷🩷.            16小时前.  310 条回复.  428 转帖.  4418 个喜欢.  2118889 认证查看次数.",
+      "resource_id": "com.twitter.android:id/view_pager",
+      "class_name": "androidx.viewpager.widget.ViewPager",
+      "package": "com.twitter.android",
+      "bound": {
+        "left": 0,
+        "top": 337,
+        "right": 1080,
+        "bottom": 1920
+      },
+      "height": 1583,
+      "has_media": true
+    }
+  },
+  "task:f3d396d4-fdcf-4138-9765-7e26d96c0088:home_last_candidate": {
+    "text": "想查看 X 上有哪些认识的人？ | 查看你的联系人。 | 开始使用 | 广告 | 来自 instax.jp | 已发布 | ·",
+    "desc": "主页时间线列表 | 开始使用 | 忽略 | INSTAX“チェキ”公式 @fujifilmjp_ck 已认证.    ゲームの世界をチェキプリント™に！\n集めるたびに楽しさ広がる！\n© Nintendo.  视频。 キャラチェキしよ！. instax.jp. .          推荐.  5天前.  3 条回复.  25 转帖.  228 个喜欢.  2668994 认证查看次数. | 视频，。访问 キャラチェキしよ！ | 视频 | 取消隐藏音频 | deazyed @deazyed_ 已认证.    so cute🪷🩷.            16小时前.  310 条回复.  428 转帖.  4427 个喜欢.  2126451 认证查看次数.",
+    "resource_id": "com.twitter.android:id/view_pager",
+    "class_name": "androidx.viewpager.widget.ViewPager",
+    "package": "com.twitter.android",
+    "bound": {
+      "left": 0,
+      "top": 337,
+      "right": 1080,
+      "bottom": 1920
+    },
+    "height": 1583,
+    "has_media": true
+  },
+  "task:f3d396d4-fdcf-4138-9765-7e26d96c0088:home_last_interaction": {
+    "action": "like",
+    "candidate": {
+      "text": "想查看 X 上有哪些认识的人？ | 查看你的联系人。 | 开始使用 | 广告 | 来自 instax.jp | 已发布 | ·",
+      "desc": "主页时间线列表 | 开始使用 | 忽略 | INSTAX“チェキ”公式 @fujifilmjp_ck 已认证.    ゲームの世界をチェキプリント™に！\n集めるたびに楽しさ広がる！\n© Nintendo.  视频。 キャラチェキしよ！. instax.jp. .          推荐.  5天前.  3 条回复.  25 转帖.  228 个喜欢.  2668994 认证查看次数. | 视频，。访问 キャラチェキしよ！ | 视频 | 取消隐藏音频 | deazyed @deazyed_ 已认证.    so cute🪷🩷.            16小时前.  310 条回复.  428 转帖.  4427 个喜欢.  2126451 认证查看次数.",
+      "resource_id": "com.twitter.android:id/view_pager",
+      "class_name": "androidx.viewpager.widget.ViewPager",
+      "package": "com.twitter.android",
+      "bound": {
+        "left": 0,
+        "top": 337,
+        "right": 1080,
+        "bottom": 1920
+      },
+      "height": 1583,
+      "has_media": true
+    }
+  },
+  "task:f921c114-796e-4aa5-aa2b-58dd0cf00951:home_last_candidate": {
+    "text": "想查看 X 上有哪些认识的人？ | 查看你的联系人。 | 开始使用 | 广告 | 来自 instax.jp | 已发布 | ·",
+    "desc": "主页时间线列表 | 开始使用 | 忽略 | INSTAX“チェキ”公式 @fujifilmjp_ck 已认证.    ゲームの世界をチェキプリント™に！\n集めるたびに楽しさ広がる！\n© Nintendo.  视频。 キャラチェキしよ！. instax.jp. .          推荐.  5天前.  3 条回复.  25 转帖.  229 个喜欢.  2672355 认证查看次数. | 视频，。访问 キャラチェキしよ！ | 视频 | 取消隐藏音频 | deazyed @deazyed_ 已认证.    so cute🪷🩷.            16小时前.  310 条回复.  428 转帖.  4427 个喜欢.  2126451 认证查看次数.",
+    "resource_id": "com.twitter.android:id/view_pager",
+    "class_name": "androidx.viewpager.widget.ViewPager",
+    "package": "com.twitter.android",
+    "bound": {
+      "left": 0,
+      "top": 337,
+      "right": 1080,
+      "bottom": 1920
+    },
+    "height": 1583,
+    "has_media": true
+  },
+  "task:f921c114-796e-4aa5-aa2b-58dd0cf00951:home_last_interaction": {
+    "action": "like",
+    "candidate": {
+      "text": "想查看 X 上有哪些认识的人？ | 查看你的联系人。 | 开始使用 | 广告 | 来自 instax.jp | 已发布 | ·",
+      "desc": "主页时间线列表 | 开始使用 | 忽略 | INSTAX“チェキ”公式 @fujifilmjp_ck 已认证.    ゲームの世界をチェキプリント™に！\n集めるたびに楽しさ広がる！\n© Nintendo.  视频。 キャラチェキしよ！. instax.jp. .          推荐.  5天前.  3 条回复.  25 转帖.  229 个喜欢.  2672355 认证查看次数. | 视频，。访问 キャラチェキしよ！ | 视频 | 取消隐藏音频 | deazyed @deazyed_ 已认证.    so cute🪷🩷.            16小时前.  310 条回复.  428 转帖.  4427 个喜欢.  2126451 认证查看次数.",
+      "resource_id": "com.twitter.android:id/view_pager",
+      "class_name": "androidx.viewpager.widget.ViewPager",
+      "package": "com.twitter.android",
+      "bound": {
+        "left": 0,
+        "top": 337,
+        "right": 1080,
+        "bottom": 1920
+      },
+      "height": 1583,
+      "has_media": true
+    }
+  }
 }

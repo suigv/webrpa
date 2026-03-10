@@ -38,6 +38,7 @@ class Runner:
     ) -> Dict[str, Any]:
         plan = self._parser.parse(script_payload)
         task_name = str(plan.get("task") or "")
+        emit_event = runtime.get("emit_event") if runtime else None
 
         if should_cancel is not None and should_cancel():
             return {
@@ -55,7 +56,7 @@ class Runner:
         # Try YAML plugin first
         plugin = self._plugin_loader.get(task_name)
         if plugin is not None:
-            return self._run_yaml_plugin(task_name, script_payload, plugin, should_cancel, runtime)
+            return self._run_yaml_plugin(task_name, script_payload, plugin, should_cancel, runtime, emit_event)
 
         # Unknown named task
         if task_name and task_name != "anonymous":
@@ -81,6 +82,7 @@ class Runner:
         plugin: Any,
         should_cancel: Callable[[], bool] | None = None,
         runtime: Dict[str, Any] | None = None,
+        emit_event: Optional[Callable[[str, Dict[str, Any]], None]] = None,
     ) -> Dict[str, Any]:
         try:
             script = parse_script(plugin.script_path)
@@ -98,6 +100,7 @@ class Runner:
                 plugin_inputs=plugin.manifest.inputs,
                 should_cancel=should_cancel,
                 runtime=runtime,
+                emit_event=emit_event,
             )
             result.setdefault("task", task_name)
             result.setdefault("timestamp", datetime.now(timezone.utc).isoformat())

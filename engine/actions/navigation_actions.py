@@ -229,14 +229,45 @@ def navigate_to(params: dict[str, object], context: ExecutionContext) -> ActionR
     if route is None:
         return ActionResult(ok=False, code="target_unreachable", message=f"unsupported navigation target: {target or 'unknown'}")
 
+    # --- 增强：启发式识别与自愈逻辑 ---
     current_route = _resolve_current_route(params, context)
+    
+    # 如果第一次识别失败，尝试启动“清道夫”自愈一次
     if current_route["route_id"] is None:
+        if context.emit_event:
+            context.emit_event("task.action_result", {
+                "step": "自愈",
+                "label": "当前页面状态模糊，正在尝试自动排除环境干扰...",
+                "ok": True
+            })
+
+        from engine.actions import state_actions
+        rpc, _ = state_actions._connect_rpc(params, context)
+        if rpc:
+            from engine.actions import _state_detection_support
+            cleaned = _state_detection_support.auto_clean_interstitials(rpc, context=context)
+            state_actions._close_rpc(rpc)
+            if cleaned > 0:
+                # 清理后重新探测
+                current_route = _resolve_current_route(params, context)
+
+    if current_route["route_id"] is None:
+        # 如果依然失败，尝试通过“核心锚点”进行兜底判定
+        current_route = _resolve_by_anchors(params, context)
+
+    if current_route["route_id"] is None:
+        # 在报错前，尝试向日志推送详细的失败诊断
+        from engine.actions import ui_actions
+        probes = current_route.get("probes", {})
+        diag_msg = " | ".join([f"{k}:{v.get('state_id','?')}" for k,v in probes.items()])
+        
         return ActionResult(
             ok=False,
             code="unknown_current_state",
-            message="unable to determine current navigation state",
-            data={"target": target, "probes": current_route["probes"]},
+            message=f"无法确定当前状态。探测详情: {diag_msg}",
+            data={"target": target, "probes": probes},
         )
+    # --- 增强结束 ---
 
     current_id = str(current_route["route_id"])
     if current_id == target:
@@ -294,6 +325,50 @@ def _resolve_current_route(params: dict[str, object], context: ExecutionContext)
     if len(matched_routes) == 1:
         return {"route_id": matched_routes[0], "probes": probes}
     return {"route_id": None, "probes": probes}
+
+
+def _resolve_by_anchors(params: dict[str, object], context: ExecutionContext) -> dict[str, object]:
+    """
+    通过核心锚点（如导航栏）进行强行判定，无视页面中间的干扰。
+    """
+    from engine.actions import state_actions
+    rpc, _ = state_actions._connect_rpc(params, context)
+    if not rpc:
+        return {"route_id": None, "probes": {}}
+    
+    try:
+        # 定义锚点语义匹配规则 (匹配文字, 对应的页面)
+        ANCHOR_PATTERNS = [
+            (["主页", "Home", "ホーム"], "home_timeline"),
+            (["搜索", "Search", "探索", "Explore"], "search_results"),
+            (["私信", "Messages", "聊天"], "messages_inbox"),
+        ]
+        
+        # 抓取当前所有选中的节点
+        xml_text = rpc.dump_node_xml(False)
+        if not xml_text:
+            return {"route_id": None, "probes": {}}
+            
+        import xml.etree.ElementTree as ET
+        root = ET.fromstring(xml_text)
+        
+        for node in root.iter("node"):
+            # 只有处于 selected 状态的导航按钮才作为判定锚点
+            # 修正：从 node.attrib 中读取属性，而非 getattr
+            if node.attrib.get("selected") == "true":
+                desc = str(node.attrib.get("content-desc") or "").strip()
+                text = str(node.attrib.get("text") or "").strip()
+                combined = f"{desc} {text}"
+                
+                for markers, route_id in ANCHOR_PATTERNS:
+                    if any(m in combined for m in markers):
+                        return {"route_id": route_id, "probes": {"anchor_semantic": "matched"}}
+    except Exception as e:
+        print(f"DEBUG: 锚点判定过程出现异常: {e}")
+    finally:
+        state_actions._close_rpc(rpc)
+        
+    return {"route_id": None, "probes": {}}
 
 
 def _probe_route(

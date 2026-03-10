@@ -10,6 +10,7 @@ class Logger:
     _instance = None
     _initialized = False
     _ws_broadcast = None
+    _main_loop = None
 
     def __new__(cls):
         if cls._instance is None:
@@ -36,6 +37,10 @@ class Logger:
 
     def set_ws_broadcast(self, broadcast_func):
         self._ws_broadcast = broadcast_func
+        try:
+            self._main_loop = asyncio.get_running_loop()
+        except Exception:
+            self._main_loop = None
 
     def log(self, message: str, level: str = "info", task_id: str = "", target: str = "") -> None:
         """
@@ -55,7 +60,7 @@ class Logger:
             self.logger.info(console_msg)
 
         # 2. WebSocket Broadcasting (Structured JSON)
-        if self._ws_broadcast:
+        if self._ws_broadcast and self._main_loop:
             log_entry = {
                 "timestamp": timestamp,
                 "level": level,
@@ -64,11 +69,13 @@ class Logger:
                 "target": target or "System"
             }
             try:
-                # Use a fire-and-forget approach for broadcasting
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    asyncio.ensure_future(self._ws_broadcast(json.dumps(log_entry, ensure_ascii=False)))
-            except Exception:
+                # 跨线程安全调度：任务往往在 ThreadPoolExecutor 的 worker 线程中运行
+                # 所以必须使用 run_coroutine_threadsafe
+                asyncio.run_coroutine_threadsafe(
+                    self._ws_broadcast(json.dumps(log_entry, ensure_ascii=False)), 
+                    self._main_loop
+                )
+            except Exception as e:
                 pass
 
 

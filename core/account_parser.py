@@ -162,6 +162,11 @@ def parse_accounts_advanced(
 
         account_obj = _build_account_obj(account=acc, password=pwd, twofa=entry.get("twofa", ""))
         
+        # Merge other fields from entry into account_obj (token, email, etc.)
+        for field, value in entry.items():
+            if field not in ["account", "password", "twofa"]:
+                account_obj[field] = value
+        
         accounts.append(account_obj)
         normalized_json_lines.append(json.dumps(account_obj, ensure_ascii=False))
 

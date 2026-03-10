@@ -5,14 +5,28 @@
 
 ## 1. 当前阶段
 
-- 阶段：**Workflow-roadmap executor wave landed on top of the UIStateService baseline**
-- 核心状态：API、任务系统、插件执行、账号池、`/web` 静态控制台入口、配置管理、原生/RPC 与浏览器观察链路均可用；`UIStateService` 统一只读状态契约仍是当前基线，其上又补齐了 `wait_until` 轮询语义、`ExecutionContext.session.defaults`、扩展 UI-state 观察覆盖，以及有界 `ui.navigate_to` / `ui.fill_form` 页面级 helper
+- 阶段：**Web Console Productization & Navigation Engine Hardening**
+- 核心状态：API、任务系统、插件执行、账号池全面可用；Web 控制台完成产品化改造，支持全生命周期任务与账号管理；导航引擎引入“自愈”与“锚点”机制，具备极强的环境噪声抗性；实时日志流打通 Action 级反馈链路
 - 最近重点：
+  - **Web 控制台产品化 (2026-03-10)**：
+    - 实时显示 `MYT_ENABLE_RPC` 运行状态（开启/关闭/未知）。
+    - 资源仓库支持账号**全字段编辑**（含 Token、邮箱等）及**状态一键重置**接口。
+    - 任务流水支持**全局停止**、清空历史及单任务精准控制；前端渲染优先使用中文 `display_name`。
+    - 设备集群支持**单机/全量初始化**，并植入“高危操作风险说明”、“二次确认”与“手动输入验证”逻辑。
+  - **反馈与监控体系升级**：
+    - 全系统反馈语重构，由生硬的技术术语转向业务化的产品描述。
+    - 实时执行日志流实现**跨线程 WebSocket 异步广播**，Action 执行结果（✅成功/❌失败）即时可视化。
+  - **导航引擎鲁棒性强化 (ISA 兼容)**：
+    - 引入 **“UI 清道夫” (Global Interstitial Handler)**，底层自动识别并静默排除同步联系人、升级引导等干扰项。
+    - 引入 **“语义锚点判定” (Anchor-Based Navigation)**，支持在 ID 缺失或变更环境下通过底部导航选中态进行多语言定位。
+    - 建立自愈轨迹记录，确保引擎层介入的自救动作在日志中透明，为后续视觉模型任务蒸馏保留高质量的噪声处理轨迹。
+  - **参数自动剥离与注入**：
+    - UI 自动剥离 `device_ip`、`package` 等冗余参数，下发任务时自动从选中的云机节点实时注入，实现业务参数与环境参数解耦。
   - GPT executor MVP 已接到现有 `/api/tasks` 托管链路，任务名为 `gpt_executor`，继续走既有创建、取消、重试、SSE 事件与终态规则
   - 当前 MVP 观察策略是 structured-state-first，优先消费 `ui.match_state` 的结构化状态；只有主观察不足时才记录并使用 XML tree、截图或 browser HTML 等 fallback 模态
   - GPT 执行环的 circuit breaker 是 MVP 硬要求，不是可选优化：必须限制 step budget，并在结构化状态连续停滞时显式中止
   - 原始模型轨迹已单独落到 `config/data/traces/` append-only JSONL，和任务 lifecycle events 分开，供后续 Golden Run 蒸馏读取
-  - Golden Run MVP 蒸馏保持离线工具路径，当前从一条成功轨迹生成可审阅的 `manifest.yaml` + `script.yaml` 草稿，目标是 reviewable draft，不会自动写入 `plugins/`
+  - Golden Run MVP 蒸馏保持离线工具路径，当前从一条成功的 `gpt_executor` JSONL 轨迹生成可审阅的 `manifest.yaml` + `script.yaml` 草稿；实际使用链路是先通过 `/api/tasks` 跑出成功 trace，再用 `tools/distill_golden_run.py --task-id --run-id --target-label --attempt-number --output-dir` 生成草稿，且不会自动写入 `plugins/`
   - 当前 usability gate 已定死为 parse + replay smoke。蒸馏草稿只有在现有 parser、manifest input 检查、PluginLoader 和 Runner replay smoke 都通过后才算 usable
   - SoM overlays、shadow healing、multi-run consensus extraction 和更广的恢复系统仍明确留在 v1 之外
   - 保留 `UIStateService` rollout 基线，继续沿用统一状态结果形状与 thin action wrapper，不把 recovery 或 fallback 逻辑塞进 service

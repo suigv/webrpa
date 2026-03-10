@@ -34,6 +34,9 @@ function placeholderForValue(val) {
     return "";
 }
 
+// 定义需要从 UI 中隐藏的环境类参数，这些参数将由系统自动注入
+const SYSTEM_AUTO_FIELDS = ['device_ip', 'package', 'sdk_port'];
+
 export function renderCommonFields(container, task, showOptional = false) {
     if (!container || !task) return;
     const payload = task.example_payload || {};
@@ -41,6 +44,11 @@ export function renderCommonFields(container, task, showOptional = false) {
     container.replaceChildren();
 
     Object.keys(payload).forEach(key => {
+        // 如果是系统自动处理的字段，则不在 UI 中显示
+        if (SYSTEM_AUTO_FIELDS.includes(key)) {
+            return;
+        }
+
         const isReq = requiredKeys.includes(key);
         const value = localizeValue(payload[key]);
         const placeholder = placeholderForValue(payload[key]);

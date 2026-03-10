@@ -2,7 +2,7 @@ api_version: v1
 kind: plugin
 name: device_soft_reset
 version: "1.0.0"
-display_name: "设备软件重置"
+display_name: "设备软件复位"
 category: "系统维护"
 description: >
   Perform lightweight app-level reset and optional cloud restart.

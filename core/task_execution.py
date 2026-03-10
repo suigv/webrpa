@@ -135,7 +135,22 @@ class TaskExecutionService:
                         first_failure = prepared.error
                     continue
 
+                def emit_event(event_type: str, data: Dict[str, Any]):
+                    try:
+                        # 1. 存入数据库（持久化）
+                        target_label = prepared.runtime.get("cloud_target")
+                        data["target"] = target_label
+                        self._events.append_event(task_id, event_type, data)
+                        
+                        # 直接推送到实时日志流
+                        # 我们已经通过 TaskEventStore 的订阅机制实现了 WebSocket 广播，
+                        # 这里不需要手动调用 log_manager.log，避免重复。
+                    except Exception:
+                        pass
+
                 runtime = dict(prepared.runtime)
+                runtime["emit_event"] = emit_event
+                
                 if task_name == "gpt_executor":
                     runtime.update(
                         {

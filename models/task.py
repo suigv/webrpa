@@ -48,6 +48,7 @@ class TaskResponse(BaseModel):
     task_id: str
     task_type: TaskType
     task_name: str = "anonymous"
+    display_name: Optional[str] = None
     devices: List[int]
     targets: List[TaskTarget] = Field(default_factory=list)
     ai_type: str

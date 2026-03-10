@@ -58,6 +58,7 @@ class Interpreter:
         plugin_inputs: List[PluginInput] | None = None,
         should_cancel: Any = None,
         runtime: Dict[str, Any] | None = None,
+        emit_event: Optional[Callable[[str, Dict[str, Any]], None]] = None,
     ) -> Dict[str, Any]:
         """Execute a workflow script with the given payload.
 
@@ -69,6 +70,7 @@ class Interpreter:
             runtime=runtime,
         )
         context.should_cancel = should_cancel
+        context.emit_event = emit_event
         # Merge script-level vars (with interpolation from payload)
         if script.vars:
             interp_ctx = {"payload": payload, "vars": context.vars}
@@ -164,6 +166,17 @@ class Interpreter:
             label_map,
         )
         context.last_result = result
+
+        # 实时推送动作执行结果
+        if context.emit_event:
+            # 这里的 label 是我们在 yaml 脚本里写的中文，如“前往首页”
+            display_label = str(step.label or step.action)
+            context.emit_event("task.action_result", {
+                "step": context.pc + 1,
+                "label": display_label,
+                "ok": result.ok,
+                "message": result.message,
+            })
 
         if step.save_as:
             context.vars[step.save_as] = result.data if result.data else {

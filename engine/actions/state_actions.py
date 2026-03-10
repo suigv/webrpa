@@ -171,7 +171,8 @@ def wait_x_login_stage(params: Dict[str, Any], context: ExecutionContext) -> Act
 
 
 def extract_timeline_candidates(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
-    return _extract_candidates_action(params, context, row_id_contains=":id/row")
+    # 优先匹配通用的 list 标识，不再硬编码 :id/row
+    return _extract_candidates_action(params, context, row_id_contains=":id/")
 
 
 def extract_search_candidates(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:

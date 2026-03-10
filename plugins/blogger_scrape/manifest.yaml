@@ -3,7 +3,7 @@ kind: plugin
 name: blogger_scrape
 version: "1.0.0"
 display_name: "博主资料采集"
-category: "数据采集"
+category: "业务互动"
 description: "Prepare scrape output payload for downstream clone workflow"
 entry_script: script.yaml
 inputs:

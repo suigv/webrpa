@@ -7,6 +7,52 @@ from typing import Any, Iterable
 from engine.models.runtime import ActionResult, ExecutionContext
 
 
+# 定义全局已知的 UI 干扰项及其处理方式（多语言适配）
+# 结构：[(特征文字列表, 响应按钮的 ID 或文字)]
+INTERSTITIALS = [
+    # 1. “同步联系人”引导 (修正关闭按钮为 caret)
+    (["想查看 X 上有哪些认识的人", "Sync contacts", "联系人"], "com.twitter.android:id/caret"),
+    # 2. “Premium 升级”横幅
+    (["升级", "Upgrade", "Premium"], "com.twitter.android:id/caret"),
+    # 3. “评价应用”弹窗
+    (["评价", "Rate us", "Like X?"], "暂不"),
+]
+
+def auto_clean_interstitials(rpc: Any, context: ExecutionContext | None = None) -> int:
+    """
+    自动识别并清理屏幕上的干扰项。
+    """
+    cleaned_count = 0
+    for markers, action in INTERSTITIALS:
+        if query_any_text_contains(rpc, markers):
+            try:
+                # 构造业务友好的描述
+                marker_str = markers[0]
+                msg = f"检测到‘{marker_str}’类弹窗，正在自动排除..."
+                
+                # 如果有 context 且有 emit_event，则推送到前端
+                if context and context.emit_event:
+                    context.emit_event("task.action_result", {
+                        "step": "自愈",
+                        "label": msg,
+                        "ok": True,
+                        "message": "已点击清理按钮"
+                    })
+
+                if ":" in str(action):
+                    selector = rpc.create_selector()
+                    rpc.addQuery_ResourceId(selector, action)
+                    node = rpc.execQueryOne(selector)
+                    if node:
+                        rpc.click_node(node)
+                        cleaned_count += 1
+                    rpc.free_selector(selector)
+                else:
+                    pass
+            except Exception:
+                continue
+    return cleaned_count
+
 def query_any_text_contains(rpc: Any, texts: Iterable[str], timeout_ms: int = 900) -> bool:
     _ = timeout_ms
     selector = rpc.create_selector()
@@ -57,7 +103,7 @@ def detect_x_login_stage_with_rpc(rpc: Any) -> str:
         ],
     ):
         return "account"
-    if query_any_text_contains(rpc, ["home", "主页", "for you", "关注"]):
+    if query_any_text_contains(rpc, ["home", "主页", "主頁", "ホーム", "for you", "关注", "Following"]):
         return "home"
     return "unknown"
 
@@ -163,8 +209,20 @@ def extract_candidates_from_xml(
 
     for node in root.iter("node"):
         resource_id = str(node.attrib.get("resource-id") or "")
-        if row_id_contains and row_id_contains not in resource_id:
+        class_name = str(node.attrib.get("class") or "")
+        content_desc = str(node.attrib.get("content-desc") or "")
+        
+        # 匹配逻辑优化：
+        # 1. 符合指定的 row_id_contains
+        # 2. 或者 Resource ID 是通用的 android:id/list
+        # 3. 或者类名是 RecyclerView 且包含主页描述
+        is_match = (row_id_contains and row_id_contains in resource_id) or \
+                   (resource_id == "android:id/list") or \
+                   ("RecyclerView" in class_name and ("主页" in content_desc or "Home" in content_desc))
+        
+        if not is_match:
             continue
+            
         candidate = candidate_from_element(node)
         if candidate is None or not accept(candidate):
             continue

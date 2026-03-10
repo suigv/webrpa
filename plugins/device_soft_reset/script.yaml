@@ -1,84 +1,28 @@
-version: v1
+version: "v1"
 workflow: device_soft_reset
-
 steps:
-  - label: stop_app
+  - label: 强制停止目标应用
     kind: action
     action: app.stop
     params:
       device_ip: "${payload.device_ip}"
       package: "${payload.package:-com.twitter.android}"
-    on_fail:
-      strategy: skip
 
-  - label: dismiss_popups
+  - label: 清理应用缓存数据
     kind: action
-    action: app.dismiss_popups
+    action: app.clear_data
     params:
       device_ip: "${payload.device_ip}"
-      back_presses: 2
-      delay_ms: 150
-    on_fail:
-      strategy: skip
+      package: "${payload.package:-com.twitter.android}"
 
-  - label: force_stop_shell
+  - label: 重新启动应用
     kind: action
-    action: device.exec
+    action: app.start
     params:
       device_ip: "${payload.device_ip}"
-      command: "am force-stop ${payload.package:-com.twitter.android}"
-    on_fail:
-      strategy: skip
+      package: "${payload.package:-com.twitter.android}"
 
-  - label: clear_app_data
-    kind: action
-    action: device.exec
-    params:
-      device_ip: "${payload.device_ip}"
-      command: "pm clear ${payload.package:-com.twitter.android}"
-    on_fail:
-      strategy: skip
-
-  - label: cleanup_app_storage
-    kind: action
-    action: device.exec
-    params:
-      device_ip: "${payload.device_ip}"
-      command: "rm -rf /sdcard/Android/data/${payload.package:-com.twitter.android} /sdcard/Twitter /sdcard/.Twitter"
-    on_fail:
-      strategy: skip
-
-  - label: cleanup_media_storage
-    kind: action
-    action: device.exec
-    params:
-      device_ip: "${payload.device_ip}"
-      command: "rm -rf /sdcard/DCIM/* /sdcard/Pictures/* /sdcard/Download/* /sdcard/Movies/*"
-    on_fail:
-      strategy: skip
-
-  - label: restart_cloud
-    kind: action
-    action: sdk.restart_android
-    params:
-      device_ip: "${payload.device_ip}"
-      name: "${payload.name}"
-    on_fail:
-      strategy: abort
-
-  - label: wait_recovered
-    kind: action
-    action: sdk.wait_cloud_status
-    params:
-      device_ip: "${payload.device_ip}"
-      name: "${payload.name}"
-      target_status: "running"
-      timeout_ms: 180000
-      interval_ms: 5000
-    on_fail:
-      strategy: abort
-
-  - label: done
+  - label: 软件复位完成
     kind: stop
     status: success
-    message: "device soft reset completed"
+    message: "Soft reset completed"

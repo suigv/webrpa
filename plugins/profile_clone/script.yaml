@@ -1,234 +1,65 @@
-version: v1
+version: "v1"
 workflow: profile_clone
-
-vars:
-  device_ip: "${payload.device_ip:-}"
-  package: "${payload.package:-com.twitter.android}"
-  source_key: "${payload.source_key:-scrape_profile}"
-  scope: "${payload.scope:-device}"
-
 steps:
-  - label: load_profile_nav_selector
-    kind: action
-    action: core.load_ui_selector
-    params:
-      key: "profile.nav_profile"
-    save_as: profile_nav_selector
-
-  - label: load_profile_edit_selector
-    kind: action
-    action: core.load_ui_selector
-    params:
-      key: "profile.edit_button"
-    save_as: profile_edit_selector
-
-  - label: load_profile_name_selector
-    kind: action
-    action: core.load_ui_selector
-    params:
-      key: "profile.name_input"
-    save_as: profile_name_selector
-
-  - label: load_profile_bio_selector
-    kind: action
-    action: core.load_ui_selector
-    params:
-      key: "profile.bio_input"
-    save_as: profile_bio_selector
-
-  - label: load_profile_save_selector
-    kind: action
-    action: core.load_ui_selector
-    params:
-      key: "profile.save_button"
-    save_as: profile_save_selector
-
-  - label: load_profile_save_text_selector
-    kind: action
-    action: core.load_ui_selector
-    params:
-      key: "profile.save_button_text"
-    save_as: profile_save_text_selector
-
-  - label: load_scrape_output
-    kind: action
-    action: core.load_shared_required
-    params:
-      key: "${vars.source_key}"
-      scope: "${vars.scope}"
-    save_as: scrape_payload
-    on_fail:
-      strategy: goto
-      goto: missing_source
-
-  - label: ensure_device_ip
-    kind: if
-    when:
-      all:
-        - type: var_truthy
-          var: device_ip
-    then: ensure_clone_fields
-    otherwise: missing_device_ip
-
-  - label: ensure_clone_fields
-    kind: if
-    when:
-      any:
-        - type: var_truthy
-          var: scrape_payload.value.display_name
-        - type: var_truthy
-          var: scrape_payload.value.profile
-    then: ensure_running
-    otherwise: missing_clone_fields
-
-  - label: ensure_running
+  - label: 确保应用运行中
     kind: action
     action: app.ensure_running
     params:
-      device_ip: "${vars.device_ip}"
-      package: "${vars.package}"
-    on_fail:
-      strategy: abort
+      device_ip: "${payload.device_ip}"
+      package: "${payload.package:-com.twitter.android}"
 
-  - label: open_profile_tab_en
+  - label: 读取被克隆数据
     kind: action
-    action: ui.selector_click_one
+    action: core.load_shared
     params:
-      device_ip: "${vars.device_ip}"
-      type: "${vars.profile_nav_selector.type}"
-      mode: "${vars.profile_nav_selector.mode}"
-      value: "${vars.profile_nav_selector.value}"
-    on_fail:
-      strategy: skip
+      key: "scrape_profile"
+      scope: device
+    save_as: source_data
 
-  - label: click_edit_profile_en
+  - label: 进入资料编辑页
     kind: action
-    action: ui.selector_click_one
+    action: ui.navigate_to
     params:
-      device_ip: "${vars.device_ip}"
-      type: "${vars.profile_edit_selector.type}"
-      mode: "${vars.profile_edit_selector.mode}"
-      value: "${vars.profile_edit_selector.value}"
-    on_fail:
-      strategy: abort
+      device_ip: "${payload.device_ip}"
+      target: "profile_edit"
 
-  - label: check_display_name
-    kind: if
-    when:
-      all:
-        - type: var_truthy
-          var: scrape_payload.value.display_name
-    then: focus_name_field
-    otherwise: check_bio
-
-  - label: focus_name_field
+  - label: 同步修改昵称
     kind: action
-    action: ui.selector_click_one
+    action: ui.input
     params:
-      device_ip: "${vars.device_ip}"
-      type: "${vars.profile_name_selector.type}"
-      mode: "${vars.profile_name_selector.mode}"
-      value: "${vars.profile_name_selector.value}"
-    on_fail:
-      strategy: goto
-      goto: check_bio
+      device_ip: "${payload.device_ip}"
+      selector:
+        type: "resource-id"
+        value: "com.twitter.android:id/edit_name"
+      text: "${vars.source_data.value.display_name}"
 
-  - label: clear_name_field
+  - label: 同步修改简介
     kind: action
-    action: device.exec
+    action: ui.input
     params:
-      device_ip: "${vars.device_ip}"
-      command: "input keyevent 123; for i in $(seq 1 80); do input keyevent 67; done"
-    on_fail:
-      strategy: skip
+      device_ip: "${payload.device_ip}"
+      selector:
+        type: "resource-id"
+        value: "com.twitter.android:id/edit_bio"
+      text: "${vars.source_data.value.description}"
 
-  - label: input_name_field
+  - label: 上传新头像
     kind: action
-    action: ui.input_text
+    action: sdk.upload_media
     params:
-      device_ip: "${vars.device_ip}"
-      text: "${vars.scrape_payload.value.display_name}"
-    on_fail:
-      strategy: abort
+      device_ip: "${payload.device_ip}"
+      type: "avatar"
 
-  - label: check_bio
-    kind: if
-    when:
-      all:
-        - type: var_truthy
-          var: scrape_payload.value.profile
-    then: focus_bio_field
-    otherwise: click_save_id
-
-  - label: focus_bio_field
+  - label: 保存所有更改
     kind: action
-    action: ui.selector_click_one
+    action: ui.click
     params:
-      device_ip: "${vars.device_ip}"
-      type: "${vars.profile_bio_selector.type}"
-      mode: "${vars.profile_bio_selector.mode}"
-      value: "${vars.profile_bio_selector.value}"
-    on_fail:
-      strategy: goto
-      goto: click_save_id
+      device_ip: "${payload.device_ip}"
+      selector:
+        type: "resource-id"
+        value: "com.twitter.android:id/save_button"
 
-  - label: clear_bio_field
-    kind: action
-    action: device.exec
-    params:
-      device_ip: "${vars.device_ip}"
-      command: "input keyevent 123; for i in $(seq 1 120); do input keyevent 67; done"
-    on_fail:
-      strategy: skip
-
-  - label: input_bio_field
-    kind: action
-    action: ui.input_text
-    params:
-      device_ip: "${vars.device_ip}"
-      text: "${vars.scrape_payload.value.profile}"
-    on_fail:
-      strategy: abort
-
-  - label: click_save_id
-    kind: action
-    action: ui.selector_click_one
-    params:
-      device_ip: "${vars.device_ip}"
-      type: "${vars.profile_save_selector.type}"
-      mode: "${vars.profile_save_selector.mode}"
-      value: "${vars.profile_save_selector.value}"
-    on_fail:
-      strategy: goto
-      goto: click_save_text_en
-
-  - label: click_save_text_en
-    kind: action
-    action: ui.selector_click_one
-    params:
-      device_ip: "${vars.device_ip}"
-      type: "${vars.profile_save_text_selector.type}"
-      mode: "${vars.profile_save_text_selector.mode}"
-      value: "${vars.profile_save_text_selector.value}"
-    on_fail:
-      strategy: abort
-
-  - label: clone_success
+  - label: 克隆任务成功
     kind: stop
     status: success
-    message: "clone completed from scrape payload"
-
-  - label: missing_source
-    kind: stop
-    status: failed
-    message: "missing_source_data"
-
-  - label: missing_device_ip
-    kind: stop
-    status: failed
-    message: "missing_device_ip"
-
-  - label: missing_clone_fields
-    kind: stop
-    status: failed
-    message: "missing_clone_fields"
+    message: "Profile cloned successfully"

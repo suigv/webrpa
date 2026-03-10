@@ -68,19 +68,22 @@ export async function apiSubmitTask(taskData, options = {}) {
 
     if (r.ok) {
         if (notify) {
-            toast.success("指令已送达执行池");
+            toast.success("任务已提交，节点正在启动...");
         }
         if (log) {
-            sysLog(`[指令] ${taskData.task} -> ${describeTargets(taskData)}`);
+            // 尝试从缓存中查找中文名
+            const taskObj = (catalogCache || []).find(x => x.task === taskData.task);
+            const taskDisplayName = taskObj ? taskObj.display_name : taskData.task;
+            sysLog(`[任务] ${taskDisplayName} 已分配至云机 ${describeTargets(taskData)}`);
         }
         return { ok: true, data: r.data };
     }
 
     if (notify) {
-        toast.error("指令下发熔断");
+        toast.error("任务下发失败，请检查设备连通性");
     }
     if (log) {
-        sysLog(`[错误] 任务下发失败: ${taskData.task}`, "error");
+        sysLog(`[异常] 任务提交失败: ${taskData.task}`, "error");
     }
     return { ok: false, data: r.data };
 }

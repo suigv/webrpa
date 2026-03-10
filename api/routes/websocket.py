@@ -1,6 +1,7 @@
 import json
 import logging
-from typing import Dict, Any
+import asyncio
+from typing import Dict, Any, Callable
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
@@ -9,6 +10,30 @@ from common.logger import log_manager
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+# --- 任务事件桥接逻辑 ---
+def get_event_broadcaster() -> Callable[[Any], None]:
+    """返回一个将任务事件转发到 WebSocket 的回调函数"""
+    loop = asyncio.get_event_loop()
+
+    def _on_event(event):
+        # 构造纯净的结构化数据
+        payload = {
+            "event_type": event.event_type,
+            "task_id": event.task_id,
+            "timestamp": event.created_at,
+            "data": event.payload,
+            "target": event.payload.get("target", "SYS"),
+            "level": "info"
+        }
+        json_str = json.dumps(payload, ensure_ascii=False)
+        
+        # 由于事件可能在后台线程产生，需要安全地调度到主循环
+        if loop.is_running():
+            asyncio.run_coroutine_threadsafe(_broadcast(json_str), loop)
+
+    return _on_event
+# --- 桥接逻辑结束 ---
 
 # Track active WebSocket clients and their optional filters
 # _clients[websocket] = {"filter_target": "Unit #1-1", "filter_task": "..."}

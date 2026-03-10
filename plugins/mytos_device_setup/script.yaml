@@ -1,87 +1,37 @@
-version: v1
+version: "v1"
 workflow: mytos_device_setup
-
 steps:
-  - label: query_adb_state
+  - label: 检查 root 权限
     kind: action
-    action: mytos.query_adb_permission
+    action: sdk.check_root
     params:
       device_ip: "${payload.device_ip}"
-      sdk_port: "${payload.sdk_port:-8000}"
-    on_fail:
-      strategy: skip
 
-  - label: enable_adb
+  - label: 配置系统语言
     kind: action
-    action: mytos.switch_adb_permission
+    action: sdk.set_language
     params:
       device_ip: "${payload.device_ip}"
-      sdk_port: "${payload.sdk_port:-8000}"
-      enabled: true
-    on_fail:
-      strategy: abort
+      language: "${payload.language}"
+      country: "${payload.country}"
 
-  - label: set_locale
+  - label: 开启应用自启动
     kind: action
-    action: mytos.set_language_country
+    action: sdk.set_app_bootstart
     params:
       device_ip: "${payload.device_ip}"
-      sdk_port: "${payload.sdk_port:-8000}"
-      language: "${payload.language:-en}"
-      country: "${payload.country:-US}"
-    on_fail:
-      strategy: abort
-
-  - label: list_bootstart
-    kind: action
-    action: mytos.get_app_bootstart_list
-    params:
-      device_ip: "${payload.device_ip}"
-      sdk_port: "${payload.sdk_port:-8000}"
-    on_fail:
-      strategy: skip
-
-  - label: set_bootstart
-    kind: action
-    action: mytos.set_app_bootstart
-    params:
-      device_ip: "${payload.device_ip}"
-      sdk_port: "${payload.sdk_port:-8000}"
       package: "${payload.package}"
-      enabled: "${payload.enable_app_bootstart:-true}"
-    on_fail:
-      strategy: abort
+      enabled: "${payload.enable_app_bootstart}"
 
-  - label: query_root_allowlist
+  - label: 注入全局配置
     kind: action
-    action: mytos.get_root_allowed_apps
+    action: sdk.set_global_config
     params:
       device_ip: "${payload.device_ip}"
-      sdk_port: "${payload.sdk_port:-8000}"
-    on_fail:
-      strategy: skip
+      config:
+        allow_root: "${payload.allow_root}"
 
-  - label: set_root_for_package
-    kind: action
-    action: mytos.set_root_allowed_app
-    params:
-      device_ip: "${payload.device_ip}"
-      sdk_port: "${payload.sdk_port:-8000}"
-      package: "${payload.package}"
-      allowed: "${payload.allow_root:-true}"
-    on_fail:
-      strategy: abort
-
-  - label: fetch_container_info
-    kind: action
-    action: mytos.get_container_info
-    params:
-      device_ip: "${payload.device_ip}"
-      sdk_port: "${payload.sdk_port:-8000}"
-    on_fail:
-      strategy: skip
-
-  - label: done
+  - label: 初始化完成
     kind: stop
     status: success
-    message: "mytos device setup completed"
+    message: "Device setup completed"

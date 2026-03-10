@@ -32,6 +32,7 @@ class ExecutionContext:
         self.transitions: int = 0
         self.jumped: bool = False
         self.should_cancel: Optional[Callable[[], bool]] = None
+        self.emit_event: Optional[Callable[[str, Dict[str, Any]], None]] = None
 
     @property
     def session_defaults(self) -> Dict[str, Any]:

@@ -1,7 +1,7 @@
 import { fetchJson } from '../utils/api.js';
 import { toast } from '../ui/toast.js';
 import { renderCommonFields } from '../utils/ui_utils.js';
-import { sysLog } from './logs.js';
+import { sysLog, unitLog } from './logs.js';
 import { getTaskCatalog, apiSubmitTask, buildTaskRequest, collectTaskPayload } from './task_service.js';
 import { store } from '../state/store.js';
 
@@ -40,11 +40,13 @@ export function initDevices() {
     const closeBtn = $("closeDetail");
     const bulkBtn = $("bulkRunBtn");
     const scanBtn = $("scanDevices");
+    const initAllBtn = $("initializeAllDevices");
 
     if (clearBtn) clearBtn.onclick = clearSelection;
     if (closeBtn) closeBtn.onclick = closeDetail;
     if (bulkBtn) bulkBtn.onclick = runBulkTasks;
     if (scanBtn) scanBtn.onclick = scanDevices;
+    if (initAllBtn) initAllBtn.onclick = initializeAllDevices;
 
     const unitPluginSelect = $("unitPluginSelect");
     if (unitPluginSelect) unitPluginSelect.onchange = renderUnitPluginFields;
@@ -233,7 +235,20 @@ function renderUnitCard(container, u) {
     status.textContent = isOnline ? '就绪' : '连接中断';
     meta.appendChild(status);
 
-    card.append(header, meta);
+    const actions = document.createElement('div');
+    actions.className = 'mt-4 pt-4 border-t flex gap-2';
+    
+    const initBtn = document.createElement('button');
+    initBtn.className = 'btn btn-secondary btn-sm flex-1';
+    initBtn.textContent = '设备初始化';
+    initBtn.disabled = !isOnline;
+    initBtn.onclick = (e) => {
+        e.stopPropagation();
+        initializeDevice(u);
+    };
+    
+    actions.appendChild(initBtn);
+    card.append(header, meta, actions);
     checkbox.onchange = () => { toggleSelection(unitId, checkbox.checked); };
     card.onclick = () => { if (isOnline) openUnitDetail(u); else toast.warn("该节点当前无法连接"); };
     container.appendChild(card);
@@ -295,16 +310,30 @@ async function submitUnitTask(unit) {
     const container = $("unitPluginFields");
     if(!select || !container) return;
 
+    // 自动合并已知参数，如 device_ip
+    const payload = collectTaskPayload(container);
+    payload.device_ip = unit.parent_ip;
+
     const taskData = buildTaskRequest({
         task: select.value,
-        payload: collectTaskPayload(container),
+        payload: payload,
         targets: [{ device_id: unit.parent_id, cloud_id: unit.cloud_id }],
         priority: $("unitTaskPriority")?.value || 50,
         maxRetries: $("unitTaskMaxRetries")?.value || 0,
         runAt: $("unitTaskRunAt")?.value || null,
     });
 
-    await apiSubmitTask(taskData);
+    const res = await apiSubmitTask(taskData);
+    if (res.ok) {
+        const taskName = select.value;
+        const taskObj = currentCatalog.find(t => t.task === taskName);
+        const displayName = taskObj ? taskObj.display_name : taskName;
+        
+        unitLog(`>>> 业务已启动: ${displayName}`);
+        unitLog(`>>> 正在建立连接并同步运行环境...`);
+    } else {
+        unitLog(`❌ 任务部署失败，请检查网络或设备状态`, "error");
+    }
 }
 
 async function runBulkTasks() {
@@ -317,13 +346,76 @@ async function runBulkTasks() {
     sysLog(`开始集群派发任务: ${plugin}, 目标数量: ${count}`);
     for (const id of selectedUnits) {
         const [dId, cId] = id.split("-");
+        const unit = currentUnitsById.get(id);
+        
+        const payload = {};
+        // 自动注入环境参数
+        if (unit) {
+            payload.device_ip = unit.parent_ip;
+            // 如果是常用的包名，则自动注入
+            payload.package = "com.twitter.android";
+        }
+
         const taskData = buildTaskRequest({
             task: plugin,
-            payload: {},
+            payload: payload,
             targets: [{ device_id: parseInt(dId, 10), cloud_id: parseInt(cId, 10) }],
         });
-        await apiSubmitTask(taskData);
+        await apiSubmitTask(taskData, { notify: false, log: false });
     }
     toast.success("集群任务分发完成");
     clearSelection();
+}
+
+async function initializeDevice(unit) {
+    const warning = `【高危操作警告】\n\n您确定要初始化云机 #${unit.parent_id}-${unit.cloud_id} 吗？\n\n后果如下：\n1. 强制终止该设备上所有正在运行的任务\n2. 清理 APP 数据与系统缓存\n3. 重置系统语言与地区设置\n\n确定要继续吗？`;
+    if(!confirm(warning)) return;
+    
+    const taskData = buildTaskRequest({
+        task: 'mytos_device_setup',
+        payload: {
+            device_ip: unit.parent_ip,
+            package: "com.twitter.android", // 默认设置
+            language: "en",
+            country: "US"
+        },
+        targets: [{ device_id: unit.parent_id, cloud_id: unit.cloud_id }],
+    });
+    
+    const res = await apiSubmitTask(taskData);
+    if(res.ok) {
+        toast.success(`云机 #${unit.parent_id}-${unit.cloud_id} 初始化任务已提交`);
+    }
+}
+
+async function initializeAllDevices() {
+    const onlineUnits = Array.from(currentUnitsById.values()).filter(u => u.availability_state === "available");
+    if(onlineUnits.length === 0) return toast.warn("当前没有在线的云机");
+    
+    const bulkWarning = `【全局高危操作！！】\n\n即将对所有 ${onlineUnits.length} 个在线节点执行系统初始化！\n\n严重后果：\n1. 全局所有正在运行的任务将被强制中断\n2. 所有设备的 App 登录信息将被清除\n3. 系统环境将恢复至初始状态\n\n该操作不可撤销，确定要继续吗？`;
+    if(!confirm(bulkWarning)) return;
+
+    // 二次确认逻辑：手动输入“确认”验证
+    const input = prompt(`【最终严正确认】\n\n即将对这 ${onlineUnits.length} 台设备执行“全量初始化”。\n该操作将导致所有已登录账号被迫退出！\n\n若确定执行，请在下方输入“确认”：`);
+    
+    if (input !== "确认") {
+        toast.info("操作已取消");
+        return;
+    }
+    
+    sysLog(`开始全量设备初始化, 目标数量: ${onlineUnits.length}`);
+    for (const u of onlineUnits) {
+        const taskData = buildTaskRequest({
+            task: 'mytos_device_setup',
+            payload: {
+                device_ip: u.parent_ip,
+                package: "com.twitter.android",
+                language: "en",
+                country: "US"
+            },
+            targets: [{ device_id: u.parent_id, cloud_id: u.cloud_id }],
+        });
+        await apiSubmitTask(taskData, { notify: false, log: false });
+    }
+    toast.success("全量初始化指令已分发");
 }

@@ -10,6 +10,7 @@ Canonical status surfaces live in `docs/project_progress.md` and `docs/current_m
 - `project_progress.md` - Current capability snapshot, the workflow-roadmap executor wave layered on the UIStateService baseline, and rolling next steps
 - `current_main_status.md` - Current main branch completed vs pending status after the latest workflow-roadmap docs sync
 - `HANDOFF.md` - Cross-session handoff, latest rollout snapshot, evidence chain, and next-step checklist
+- `ai_workflow_design_checklist.md` - Working checklist for the target AI workflow from vision-led exploration to YAML plugin distillation
 - `atomic_features.md` - Acceptance checklist for current external capabilities
 - `plugin_input_contract.md` - Runtime payload validation and rollout policy
 - `PLUGIN_CONTRACT.md` - Plugin manifest/workflow schema and authoring contract

@@ -51,6 +51,11 @@
   - Runtime/control-plane targeted tests: pass
   - RPC-disabled startup + `/health`: pass
   - Workflow-level conservative recovery extraction: **DEFERRED**, keep as watchpoint only
+- Golden Run distillation operator flow (current implementation):
+  1. Submit a managed `gpt_executor` task through `POST /api/tasks/` and wait for one successful run so the executor writes a JSONL trace under `config/data/traces/`.
+  2. Identify the trace by `task_id`, `run_id`, `target_label`, and `attempt_number`; the store path shape is `config/data/traces/<task_id>/<run_id>/<target_label>.attempt-<attempt_number>.jsonl`.
+  3. Run the offline distillation CLI: `./.venv/bin/python tools/distill_golden_run.py --task-id <task_id> --run-id <run_id> --target-label <target_label> --attempt-number <attempt_number> --output-dir <output_dir>`.
+  4. Treat the generated `manifest.yaml` + `script.yaml` as reviewable draft artifacts only; they are not auto-installed into `plugins/` and stay usable only after parse + manifest-input/loadability checks + replay smoke through the current `Runner` path.
 - Additional 2026-03-09 cleanup-batch status:
   - Managed-task/frontend cleanup batch is closed for this round: shared task submission now sends `Content-Type: application/json`, task/log/store boundaries are aligned, and docs/ignore rules match the current control-plane contract
   - Focused validation for this cleanup batch passed: `tests/test_task_control_plane.py`, `tests/test_task_cancellation.py`, `tests/test_task_scheduling_events.py`

@@ -1,81 +1,155 @@
-# AI 项目指南（独立版 ``）
+# AI 项目指南（webrpa）
 
-## 1）项目定位
+## 1）文档定位
 
-`` 是可独立复制与运行的基线工程。
+本文档说明 `webrpa` 当前 AI 相关架构、职责边界、目标方向与约束。
 
-设计目标：
-- 保留可复用基础能力（API / core / models / adapters）
-- 移除历史任务实现耦合
-- 运行时保持插件化架构
-- 支持仅复制 `` 即可独立开发
+文档分工：
 
-## 2）运行时总览
+- `README.md`：入口说明与项目摘要。
+- `docs/project_progress.md`：canonical capability / progress ledger。
+- `docs/current_main_status.md`：canonical short status ledger。
+- `docs/HANDOFF.md`：continuation / runbook / evidence workflow。
+- `docs/ai_workflow_design_checklist.md`：AI 目标工作流的持续更新清单。
 
-请求链路：
-1. `api/server.py` 启动 FastAPI 并挂载基础路由。
-2. `api/server.py` 在 `/web` 提供控制台页面。
-3. 配置/数据/设备路由调用 `core/*`。
-4. `/api/runtime/execute` 调用 `engine/runner.py`。
-5. `Runner` 结合 `engine/parser.py` 处理脚本并返回结构化结果。
-6. 可选 RPC 能力由 `hardware_adapters/myt_client.py` 提供。
-7. 可选浏览器能力由 `hardware_adapters/browser_client.py`（vendored DrissionPage）提供。
+## 2）项目定位
 
-## 3）模块职责（按目录）
+`webrpa` 是可独立运行的 Web/RPA 自动化平台。
 
-### 根目录
-- `README.md`：人类开发者使用说明（安装、启动、验证）
-- `AI_PROJECT_GUIDE.md`：本 AI 架构与职责说明
-- `requirements.txt`：独立依赖清单
+AI 在当前项目中的定位不是替代插件体系，而是：
 
-### API 层
-- `api/server.py`：应用入口、中间件、路由注册、`/health`
-- `api/routes/config.py`：配置读写
-- `api/routes/data.py`：业务数据读写
-- `api/routes/devices.py`：设备状态与基础控制
-- `api/routes/websocket.py`：日志 websocket（`/ws/logs`）
-- `web/*`：控制台静态资源
+1. 作为受控执行辅助层，帮助规划、观察、记录与蒸馏。
+2. 为未来的新任务探索与插件生成提供支持。
+3. 最终服务于稳定、可重放、可维护的插件化工作流。
 
-### Core 层
-- `core/config_loader.py`：配置加载与更新
-- `core/data_store.py`：`config/data` 下 JSON 存储
-- `core/device_manager.py`：设备状态管理
-- `core/port_calc.py`：端口计算逻辑
+## 3）当前 AI 基线
 
-### Model 层
-- `models/config.py`：配置模型
-- `models/device.py`：设备模型
-- `models/task.py`：任务请求/响应模型
-- `models/judge.py`：执行判定模型
+当前 main 分支的 AI 基线是一个**受控、边界清晰的 MVP**：
 
-### 引擎层
-- `engine/parser.py`：脚本归一化解析
-- `engine/runner.py`：执行编排
-- `engine/action_registry.py`：动作注册/解析
-- `engine/actions/*`：动作实现（browser / credential / ui / sdk）
-- `engine/plugin_loader.py`：插件发现与加载
+- 托管 `gpt_executor` 通过既有 `/api/tasks` 控制面运行。
+- 主观察策略是 structured-state-first。
+- 当前 AI 基线仍然是 bounded、structured-state-first，不是视觉主导执行。
+- fallback 模态是辅助证据，不是默认主路径。
+- 模型轨迹单独记录到 `config/data/traces/`。
+- Golden Run 目前只支持离线蒸馏为 reviewable YAML draft。
+- draft 默认不会自动安装到 `plugins/`。
 
-### 适配器层
-- `hardware_adapters/myt_client.py`：SDK/MYTOS HTTP 客户端（含回退兼容）
-- `hardware_adapters/mytRpc.py`：RPA 原生库封装（惰性加载 + failure-safe）
-- `hardware_adapters/browser_client.py`：浏览器能力适配
+这意味着当前 AI 设计更接近：
 
-### 其他
-- `plugins/`：业务插件
-- `config/`：配置与数据
-- `tests/`：测试集
-- `tools/check_no_legacy_imports.py`：旧依赖静态门禁
-- `docs/`：迁移矩阵、接口矩阵、功能可用性文档
+**bounded executor + trace producer + offline draft distillation**
 
-## 4）质量门禁与自动化
+而不是：
+
+**fully autonomous workflow authoring and promotion**
+
+## 4）当前 AI 运行链路
+
+### 4.1 控制面与运行时
+
+1. `api/server.py` 提供 API 入口与 `/web`。
+2. `/api/tasks` 进入任务控制面。
+3. `core/task_control.py`、`core/task_execution.py`、`core/task_finalizer.py`、`core/task_metrics.py` 共同负责托管任务生命周期。
+4. `engine/runner.py` 负责分发插件任务与 `gpt_executor` 运行时。
+
+### 4.2 AI 执行边界
+
+- `ai_services/llm_client.py`
+  - 统一 LLM 请求、provider/model 解析、错误归一与响应标准化。
+- `engine/gpt_executor.py`
+  - 负责受控 planner loop：观察、规划、执行、记录、停止。
+- `engine/actions/ai_actions.py`
+  - 提供 `ai.llm_evaluate` 与 `ai.vlm_evaluate` 动作边界。
+- `core/model_trace_store.py`
+  - 负责 append-only JSONL 模型轨迹落盘。
+- `core/golden_run_distillation.py`
+  - 负责从成功轨迹生成 reviewable YAML draft。
+- `tools/distill_golden_run.py`
+  - 负责手工/离线触发蒸馏。
+
+## 5）核心设计原则
+
+### 5.1 插件优先，AI 不替代插件
+
+项目的 durable workflow boundary 仍然是 `plugins/`。
+AI 的职责是帮助探索、规划、沉淀和生成更稳定的插件，而不是让运行时永久停留在自由生成状态。
+
+### 5.2 优先复用现有接口
+
+AI 相关能力应尽量复用：
+
+- 已注册 action
+- 既有 runtime seam
+- `/api/tasks` 控制面
+- 当前观察接口
+- 浏览器 / native / sdk 既有适配器
+
+### 5.3 轨迹是产品资产
+
+模型轨迹和执行证据不只是调试信息。
+它们是后续 distillation、回放验证、问题归因和插件生成的重要输入。
+
+### 5.4 单次成功不等于稳定工作流
+
+一次成功运行可以成为 draft 输入，但不能自动等同于稳定插件。
+稳定插件需要更强的参数化、验证与重放证据。
+
+## 6）目标方向（待持续推进）
+
+当前已记录的目标方向是：
+
+1. 遇到新任务时，由 strong GUI-recognition and GUI-understanding visual model 主导探索执行。
+2. 多轮执行中充分利用项目既有接口和动作。
+3. 生成足够支撑沉淀蒸馏的日志与样本。
+4. 通过日志样本处理，生成最终可落地的 YAML 插件。
+
+补充约束：
+
+- model selection remains capability-first and still open，不锁定到某个已命名 checkpoint。
+- current AI development is cloud-machine-first。
+- browser support remains supported but secondary for this wave。
+
+对应的目标工作流见：`docs/ai_workflow_design_checklist.md`
+
+## 7）对“视觉模型”的当前判断
+
+视觉能力对目标方向是重要的，但当前仓库里它还不是主路径。
+
+- 现在主执行链仍然是 structured-state-first。
+- 仓库里已有视觉相关配置入口，但当前 VLM 接线仍然很轻，不能写成成熟 dedicated stack。
+- `ai.vlm_evaluate` 已作为动作边界存在，但当前视觉能力还不是成熟的一等公民执行器。
+- 因此，若未来走 vision-led exploration，应被视为**目标方向扩展**，不是当前已完成能力。
+- 当前这一波 AI 开发以云机为先，浏览器仍保持兼容支持，但不是当前主 AI 设计驱动面。
+
+## 8）当前限制与已知差距
+
+以下能力当前仍然不足或尚未形成完整产品路径：
+
+- vision-led multi-run exploration executor
+- 多轮样本聚合后的稳定路径抽取
+- 基于多样本而不是单次 golden run 的 distillation
+- draft 到插件的在线 promotion pipeline
+- 更强的 workflow stability / consensus extraction
+
+## 9）Deferred / 不应误写为已完成
+
+在当前 repo 语境下，这些能力不应被表述为已完成：
+
+- SoM overlays
+- shadow healing
+- multi-run consensus extraction
+- broader workflow-level recovery system
+- fully automatic plugin promotion
+
+## 10）质量门禁
 
 最低要求：
+
 - 静态门禁通过
 - 全量测试通过
 - RPC 禁用模式可启动
 - `/health` 返回 200
 
-建议命令（项目父目录执行）：
+常用命令：
 
 ```bash
 ./.venv/bin/python tools/check_no_legacy_imports.py
@@ -84,15 +158,17 @@ MYT_ENABLE_RPC=0 ./.venv/bin/python -m uvicorn api.server:app --host 127.0.0.1 -
 curl http://127.0.0.1:8001/health
 ```
 
-## 5）开发建议顺序
+## 11）开发提醒
 
-1. 优先在 `engine/` 补齐动作与编排能力。
-2. 新业务流程优先放在 `plugins/`，避免路由耦合业务。
-3. 适配器功能保持“可选、可降级、可恢复”。
-4. 每次能力扩展都补测试（单测 + 集成校验）。
+1. 新能力优先沿 `engine/`、`core/`、`plugins/` 的现有边界扩展。
+2. 不要把 AI 目标方向直接写成当前已交付能力。
+3. 不要把生成草稿等同于安全上线插件。
+4. 任何 AI 扩展都应保留验证、回放与证据链。
+5. 文档进度请持续更新 `docs/ai_workflow_design_checklist.md`，而不是把 working notes 塞进 canonical status docs。
 
-## 6）硬约束（请持续遵守）
+## 12）硬约束
 
 - 禁止重新引入 `tasks` / `app.*` 历史依赖。
 - 数据文件必须落在 `config/data`。
 - 路由保持薄层，核心逻辑下沉到 `core/` 与 `engine/`。
+- 新业务工作流仍优先收敛到插件，而不是长期停留在自由探索执行状态。

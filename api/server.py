@@ -25,6 +25,10 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(level
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    # 注册 WebSocket 日志广播桥接
+    from api.routes.websocket import get_event_broadcaster
+    get_task_controller()._events.subscribe(get_event_broadcaster())
+
     device_manager = DeviceManager()
     discovery = LanDeviceDiscovery()
     discovery.start()

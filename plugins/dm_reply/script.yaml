@@ -1,370 +1,65 @@
-version: v1
+version: "v1"
 workflow: dm_reply
-
-vars:
-  status_hint: "${payload.status_hint:-runtime}"
-  package: "${payload.package:-com.twitter.android}"
-  ai_type: "${payload.ai_type:-default}"
-  reply_text: "${payload.reply_text:-}"
-  conversation_url: "${payload.conversation_url:-}"
-  last_message_key: "${payload.last_message_key:-dm_last_message}"
-  sent_message_key: "${payload.sent_message_key:-dm_last_sent_message}"
-
 steps:
-  - label: check_forced_success
-    kind: if
-    when:
-      all:
-        - type: var_equals
-          var: status_hint
-          equals: success
-    then: success
-
-  - label: load_messages_scheme
-    kind: action
-    action: core.load_ui_scheme
-    params:
-      key: "messages"
-    save_as: messages_scheme
-
-  - label: load_dm_nav_selector
-    kind: action
-    action: core.load_ui_selector
-    params:
-      key: "dm.nav_messages"
-    save_as: dm_nav_selector
-
-  - label: load_dm_reply_box_desc_selector
-    kind: action
-    action: core.load_ui_selector
-    params:
-      key: "dm.reply_box_desc"
-    save_as: dm_reply_box_desc_selector
-
-  - label: load_dm_reply_box_text_selector
-    kind: action
-    action: core.load_ui_selector
-    params:
-      key: "dm.reply_box_text"
-    save_as: dm_reply_box_text_selector
-
-  - label: load_dm_send_selector
-    kind: action
-    action: core.load_ui_selector
-    params:
-      key: "dm.send_button"
-    save_as: dm_send_selector
-
-  - label: ensure_running
+  - label: 确保应用正在运行
     kind: action
     action: app.ensure_running
     params:
       device_ip: "${payload.device_ip}"
-      package: "${vars.package}"
-    on_fail:
-      strategy: abort
+      package: "${payload.package:-com.twitter.android}"
 
-  - label: check_no_message
-    kind: if
-    when:
-      all:
-        - type: var_equals
-          var: status_hint
-          equals: empty_target
-    then: empty_target
-
-  - label: maybe_open_conversation
-    kind: if
-    when:
-      all:
-        - type: var_truthy
-          var: conversation_url
-    then: open_conversation
-    otherwise: open_messages_tab_en
-
-  - label: open_conversation
+  - label: 导航至私信收件箱
     kind: action
-    action: device.exec
+    action: ui.navigate_to
     params:
       device_ip: "${payload.device_ip}"
-      command: "am start -a android.intent.action.VIEW -d \"${vars.conversation_url}\" &"
-    on_fail:
-      strategy: goto
-      goto: open_messages_tab_en
+      target: "messages_inbox"
 
-  - label: open_messages_tab_en
-    kind: action
-    action: device.exec
-    params:
-      device_ip: "${payload.device_ip}"
-      command: "${vars.messages_scheme.command}"
-    on_fail:
-      strategy: goto
-      goto: open_messages_tab_fallback
-
-  - label: open_messages_tab_fallback
-    kind: action
-    action: ui.selector_click_one
-    params:
-      device_ip: "${payload.device_ip}"
-      type: "${vars.dm_nav_selector.type}"
-      mode: "${vars.dm_nav_selector.mode}"
-      value: "${vars.dm_nav_selector.value}"
-    on_fail:
-      strategy: abort
-
-  - label: observe_unread_dm_target
+  - label: 采集待回复列表
     kind: action
     action: ui.match_state
     params:
-      platform: native
-      binding_id: dm_unread
       device_ip: "${payload.device_ip}"
-      package: "${vars.package}"
-      expected_state_ids:
-        - available
-        - missing
-    save_as: unread_dm_observation
-    on_fail:
-      strategy: skip
+      binding_id: "message_candidates"
+    save_as: message_state
 
-  - label: check_unread_dm_available
-    kind: if
-    when:
-      all:
-        - type: var_equals
-          var: unread_dm_observation.state.state_id
-          equals: available
-    then: open_first_unread_dm
-    otherwise: observe_last_dm_message
+  - label: 挑选回复目标
+    kind: action
+    action: core.pick_candidate
+    params:
+      candidates: "${vars.message_state.data.candidates}"
+    save_as: selected_message
 
-  - label: open_first_unread_dm
+  - label: 进入私信会话
     kind: action
     action: core.open_candidate
     params:
       device_ip: "${payload.device_ip}"
-      candidate: "${vars.unread_dm_observation.raw_details.target}"
-    save_as: unread_dm_target
-    on_fail:
-      strategy: skip
+      candidate: "${vars.selected_message.candidate}"
 
-  - label: goto_observe_last_dm_message
-    kind: goto
-    target: observe_last_dm_message
-
-  - label: observe_last_dm_message
+  - label: 输入回复内容
     kind: action
-    action: ui.match_state
-    params:
-      platform: native
-      binding_id: dm_last_message
-      device_ip: "${payload.device_ip}"
-      package: "${vars.package}"
-      expected_state_ids:
-        - available
-        - missing
-    save_as: last_dm_message
-    on_fail:
-      strategy: skip
-
-  - label: check_last_dm_message_available
-    kind: if
-    when:
-      all:
-        - type: var_equals
-          var: last_dm_message.state.state_id
-          equals: available
-    then: save_last_dm_message
-    otherwise: ensure_reply_text
-
-  - label: save_last_dm_message
-    kind: action
-    action: core.save_shared
-    params:
-      key: "${vars.last_message_key}"
-      scope: task
-      value:
-        message: "${vars.last_dm_message.raw_details.message}"
-        raw: "${vars.last_dm_message.raw_details.raw}"
-        bound: "${vars.last_dm_message.raw_details.bound}"
-    on_fail:
-      strategy: skip
-
-  - label: ensure_reply_text
-    kind: if
-    when:
-      all:
-        - type: var_truthy
-          var: reply_text
-    then: focus_reply_box_desc
-    otherwise: generate_reply_text
-
-  - label: generate_reply_text
-    kind: action
-    action: core.generate_dm_reply
-    params:
-      ai_type: "${vars.ai_type}"
-      last_message: "${vars.last_dm_message.raw_details.message:-}"
-    save_as: generated_reply
-    on_fail:
-      strategy: goto
-      goto: missing_reply_text
-
-  - label: goto_generated_reply_focus
-    kind: goto
-    target: focus_generated_reply_box_desc
-
-  - label: focus_reply_box_desc
-    kind: action
-    action: ui.selector_click_one
+    action: ui.input
     params:
       device_ip: "${payload.device_ip}"
-      type: "${vars.dm_reply_box_desc_selector.type}"
-      mode: "${vars.dm_reply_box_desc_selector.mode}"
-      value: "${vars.dm_reply_box_desc_selector.value}"
-    on_fail:
-      strategy: goto
-      goto: focus_reply_box_text
+      text: "${payload.text}"
 
-  - label: focus_reply_box_text
+  - label: 发送私信
     kind: action
-    action: ui.selector_click_one
+    action: ui.click
     params:
       device_ip: "${payload.device_ip}"
-      type: "${vars.dm_reply_box_text_selector.type}"
-      mode: "${vars.dm_reply_box_text_selector.mode}"
-      value: "${vars.dm_reply_box_text_selector.value}"
-    on_fail:
-      strategy: abort
+      selector:
+        type: "resource-id"
+        value: "com.twitter.android:id/dm_send_button"
 
-  - label: input_reply
+  - label: 记录回复状态
     kind: action
-    action: ui.input_text
+    action: core.set_vars
     params:
-      device_ip: "${payload.device_ip}"
-      text: "${vars.reply_text}"
-    on_fail:
-      strategy: abort
+      last_dm_target: "${vars.selected_message.candidate.text}"
 
-  - label: goto_click_send_from_reply
-    kind: goto
-    target: click_send_en
-
-  - label: focus_generated_reply_box_desc
-    kind: action
-    action: ui.selector_click_one
-    params:
-      device_ip: "${payload.device_ip}"
-      type: "${vars.dm_reply_box_desc_selector.type}"
-      mode: "${vars.dm_reply_box_desc_selector.mode}"
-      value: "${vars.dm_reply_box_desc_selector.value}"
-    on_fail:
-      strategy: goto
-      goto: focus_generated_reply_box_text
-
-  - label: focus_generated_reply_box_text
-    kind: action
-    action: ui.selector_click_one
-    params:
-      device_ip: "${payload.device_ip}"
-      type: "${vars.dm_reply_box_text_selector.type}"
-      mode: "${vars.dm_reply_box_text_selector.mode}"
-      value: "${vars.dm_reply_box_text_selector.value}"
-    on_fail:
-      strategy: abort
-
-  - label: input_generated_reply
-    kind: action
-    action: ui.input_text
-    params:
-      device_ip: "${payload.device_ip}"
-      text: "${vars.generated_reply.reply_text}"
-    on_fail:
-      strategy: abort
-
-  - label: goto_click_send_from_generated_reply
-    kind: goto
-    target: click_send_en
-
-  - label: click_send_en
-    kind: action
-    action: ui.selector_click_one
-    params:
-      device_ip: "${payload.device_ip}"
-      type: "${vars.dm_send_selector.type}"
-      mode: "${vars.dm_send_selector.mode}"
-      value: "${vars.dm_send_selector.value}"
-    on_fail:
-      strategy: goto
-      goto: send_with_enter
-
-  - label: after_send_button
-    kind: goto
-    target: observe_last_sent_dm_message
-
-  - label: send_with_enter
-    kind: action
-    action: mytos.keypress
-    params:
-      device_ip: "${payload.device_ip}"
-      code: "KEYCODE_ENTER"
-    on_fail:
-      strategy: abort
-
-  - label: goto_verify_after_enter
-    kind: goto
-    target: observe_last_sent_dm_message
-
-  - label: observe_last_sent_dm_message
-    kind: action
-    action: ui.match_state
-    params:
-      platform: native
-      binding_id: dm_last_outbound_message
-      device_ip: "${payload.device_ip}"
-      package: "${vars.package}"
-      expected_state_ids:
-        - available
-        - missing
-    save_as: last_sent_dm_message
-    on_fail:
-      strategy: goto
-      goto: success
-
-  - label: check_last_sent_dm_message_available
-    kind: if
-    when:
-      all:
-        - type: var_equals
-          var: last_sent_dm_message.state.state_id
-          equals: available
-    then: save_last_sent_dm_message
-    otherwise: success
-
-  - label: save_last_sent_dm_message
-    kind: action
-    action: core.save_shared
-    params:
-      key: "${vars.sent_message_key}"
-      scope: task
-      value:
-        message: "${vars.last_sent_dm_message.raw_details.message}"
-        raw: "${vars.last_sent_dm_message.raw_details.raw}"
-        bound: "${vars.last_sent_dm_message.raw_details.bound}"
-    on_fail:
-      strategy: skip
-
-  - label: success
+  - label: 回复成功退出
     kind: stop
     status: success
-    message: "dm reply completed"
-
-  - label: missing_reply_text
-    kind: stop
-    status: failed
-    message: "missing_reply_text"
-
-  - label: empty_target
-    kind: stop
-    status: failed
-    message: "empty_target"
+    message: "DM reply sent"

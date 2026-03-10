@@ -98,12 +98,36 @@ function setupNavigation() {
 }
 
 async function loadHealth() {
-    const r = await fetchJson("/health");
-    const ok = r.ok;
-    const el = $("apiStatus");
-    if(el) {
-        el.className = `badge ${ok ? "badge-ok" : "badge-error"}`;
-        el.textContent = ok ? "服务在线" : "连接中断";
+    try {
+        const r = await fetchJson("/health");
+        const apiEl = $("apiStatus");
+        const rpcEl = $("rpcStatus");
+
+        if (r.ok && r.data) {
+            if (apiEl) {
+                apiEl.className = "status-badge status-ok";
+                apiEl.innerHTML = '<span class="dot"></span> 已连接';
+            }
+
+            if (rpcEl) {
+                const enabled = r.data.rpc_enabled;
+                rpcEl.className = `status-badge ${enabled ? "status-ok" : "status-warning"}`;
+                rpcEl.innerHTML = `<span class="dot"></span> RPC ${enabled ? "开启" : "关闭"}`;
+            }
+        } else {
+            throw new Error("API responded with error");
+        }
+    } catch (e) {
+        const apiEl = $("apiStatus");
+        if (apiEl) {
+            apiEl.className = "status-badge status-error";
+            apiEl.innerHTML = '<span class="dot"></span> 连接中断';
+        }
+        const rpcEl = $("rpcStatus");
+        if (rpcEl) {
+            rpcEl.className = "status-badge status-error";
+            rpcEl.innerHTML = `<span class="dot"></span> RPC 未知`;
+        }
     }
 }
 

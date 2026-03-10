@@ -1,225 +1,49 @@
-version: v1
+version: "v1"
 workflow: follow_interaction
-
-vars:
-  status_hint: "${payload.status_hint:-runtime}"
-  target_username: "${payload.target_username}"
-  target_follow_count: "${payload.target_follow_count:-5}"
-  follow_result_key: "${payload.follow_result_key:-follow_last_result}"
-
 steps:
-  - label: check_rate_limit
-    kind: if
-    when:
-      all:
-        - type: var_equals
-          var: status_hint
-          equals: rate_limit
-    then: rate_limit
-
-  - label: check_empty_target
-    kind: if
-    when:
-      all:
-        - type: var_equals
-          var: status_hint
-          equals: empty_target
-    then: empty_target
-
-  - label: load_profile_scheme
-    kind: action
-    action: core.load_ui_scheme
-    params:
-      key: "profile"
-      kwargs:
-        screen_name: "${vars.target_username}"
-    save_as: profile_scheme
-
-  - label: load_follow_native_scheme
-    kind: action
-    action: core.load_ui_scheme
-    params:
-      key: "follow_intent_native"
-      kwargs:
-        screen_name: "${vars.target_username}"
-    save_as: follow_native_scheme
-
-  - label: load_followers_scheme
-    kind: action
-    action: core.load_ui_scheme
-    params:
-      key: "followers"
-      kwargs:
-        screen_name: "${vars.target_username}"
-    save_as: followers_scheme
-
-  - label: load_follow_web_scheme
-    kind: action
-    action: core.load_ui_scheme
-    params:
-      key: "follow_intent_web"
-      kwargs:
-        screen_name: "${vars.target_username}"
-    save_as: follow_web_scheme
-
-  - label: ensure_target_username
-    kind: if
-    when:
-      all:
-        - type: var_truthy
-          var: target_username
-    then: plan_follow_rounds
-    otherwise: empty_target
-
-  - label: plan_follow_rounds
-    kind: action
-    action: core.plan_follow_rounds
-    params:
-      target_follow_count: "${vars.target_follow_count}"
-    save_as: follow_plan
-    on_fail:
-      strategy: abort
-
-  - label: ensure_running
+  - label: 确保应用运行中
     kind: action
     action: app.ensure_running
     params:
       device_ip: "${payload.device_ip}"
       package: "${payload.package:-com.twitter.android}"
-    on_fail:
-      strategy: skip
 
-  - label: open_target_profile
+  - label: 导航至关注列表
     kind: action
-    action: device.exec
+    action: ui.navigate_to
     params:
       device_ip: "${payload.device_ip}"
-      command: "${vars.profile_scheme.command}"
-    on_fail:
-      strategy: skip
+      target: "following_list"
 
-  - label: open_followers_page
+  - label: 采集待互动目标
     kind: action
-    action: device.exec
+    action: ui.match_state
     params:
       device_ip: "${payload.device_ip}"
-      command: "${vars.followers_scheme.command}"
-    on_fail:
-      strategy: goto
-      goto: trigger_follow_intent
+      binding_id: "follow_targets"
+    save_as: target_state
 
-  - label: follow_visible_round_one
+  - label: 随机挑选目标
     kind: action
-    action: core.follow_visible_targets
+    action: core.pick_candidate
+    params:
+      candidates: "${vars.target_state.data.candidates}"
+    save_as: selected_target
+
+  - label: 执行关注动作
+    kind: action
+    action: core.open_candidate
     params:
       device_ip: "${payload.device_ip}"
-      package: "${payload.package:-com.twitter.android}"
-      max_clicks: "${vars.follow_plan.round_one}"
-      min_top: 350
-      delay_ms: 900
-    save_as: follow_round_one
-    on_fail:
-      strategy: skip
+      candidate: "${vars.selected_target.candidate}"
 
-  - label: increment_follow_counter_round_one
+  - label: 记录互动结果
     kind: action
-    action: core.increment_shared_counter
+    action: core.set_vars
     params:
-      key: "follow_interaction_count"
-      scope: device
-      amount: "${vars.follow_round_one.clicked_count:-0}"
-      start: 0
-    on_fail:
-      strategy: skip
+      last_followed: "${vars.selected_target.candidate.text}"
 
-  - label: swipe_followers_once
-    kind: action
-    action: device.exec
-    params:
-      device_ip: "${payload.device_ip}"
-      command: "input swipe 540 1700 540 760 450"
-    on_fail:
-      strategy: skip
-
-  - label: follow_visible_round_two
-    kind: action
-    action: core.follow_visible_targets
-    params:
-      device_ip: "${payload.device_ip}"
-      package: "${payload.package:-com.twitter.android}"
-      max_clicks: "${vars.follow_plan.round_two}"
-      min_top: 350
-      delay_ms: 900
-    save_as: follow_round_two
-    on_fail:
-      strategy: skip
-
-  - label: increment_follow_counter_round_two
-    kind: action
-    action: core.increment_shared_counter
-    params:
-      key: "follow_interaction_count"
-      scope: device
-      amount: "${vars.follow_round_two.clicked_count:-0}"
-      start: 0
-    on_fail:
-      strategy: skip
-
-  - label: save_follow_result
-    kind: action
-    action: core.save_shared
-    params:
-      key: "${vars.follow_result_key}"
-      scope: task
-      value:
-        target_username: "${vars.target_username}"
-        requested: "${vars.follow_plan.target_follow_count}"
-        round_one: "${vars.follow_round_one.clicked_count:-0}"
-        round_two: "${vars.follow_round_two.clicked_count:-0}"
-    on_fail:
-      strategy: skip
-
-  - label: check_followed_visible_targets
-    kind: if
-    when:
-      any:
-        - type: var_truthy
-          var: follow_round_one.clicked_count
-        - type: var_truthy
-          var: follow_round_two.clicked_count
-    then: success
-    otherwise: trigger_follow_intent
-
-  - label: trigger_follow_intent
-    kind: action
-    action: device.exec
-    params:
-      device_ip: "${payload.device_ip}"
-      command: "${vars.follow_native_scheme.command}"
-    on_fail:
-      strategy: goto
-      goto: trigger_follow_intent_web_fallback
-
-  - label: trigger_follow_intent_web_fallback
-    kind: action
-    action: device.exec
-    params:
-      device_ip: "${payload.device_ip}"
-      command: "${vars.follow_web_scheme.command}"
-    on_fail:
-      strategy: skip
-
-  - label: success
+  - label: 关注任务完成
     kind: stop
     status: success
-    message: "follow interaction completed"
-
-  - label: rate_limit
-    kind: stop
-    status: failed
-    message: "rate_limit"
-
-  - label: empty_target
-    kind: stop
-    status: failed
-    message: "empty_target"
+    message: "Follow interaction completed"

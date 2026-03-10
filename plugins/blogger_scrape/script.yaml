@@ -1,175 +1,45 @@
-version: v1
+version: "v1"
 workflow: blogger_scrape
-
-vars:
-  device_ip: "${payload.device_ip:-}"
-  package: "${payload.package:-com.twitter.android}"
-  source_key: "${payload.source_key:-scrape_profile}"
-  pool_key: "${payload.pool_key:-blogger_pool}"
-  counter_key: "${payload.counter_key:-blogger_scrape_count}"
-  scope: "${payload.scope:-device}"
-  ai_type: "${payload.ai_type:-volc}"
-
 steps:
-  - label: choose_runtime_or_payload_path
-    kind: if
-    when:
-      all:
-        - type: var_truthy
-          var: device_ip
-    then: choose_search_query
-    otherwise: save_scrape_output_from_payload
-
-  - label: choose_search_query
-    kind: action
-    action: core.choose_blogger_search_query
-    params:
-      ai_type: "${vars.ai_type}"
-      override: "${payload.search_query:-}"
-    save_as: scrape_query
-    on_fail:
-      strategy: goto
-      goto: save_scrape_output_from_payload
-
-  - label: load_search_scheme
-    kind: action
-    action: core.load_ui_scheme
-    params:
-      key: "search_query"
-      kwargs:
-        query: "${vars.scrape_query.query}"
-    save_as: search_scheme
-    on_fail:
-      strategy: goto
-      goto: save_scrape_output_from_payload
-
-  - label: ensure_running
+  - label: 确保应用运行中
     kind: action
     action: app.ensure_running
     params:
       device_ip: "${payload.device_ip}"
-      package: "${vars.package}"
-    on_fail:
-      strategy: goto
-      goto: save_scrape_output_from_payload
+      package: "${payload.package:-com.twitter.android}"
 
-  - label: open_search_results
+  - label: 导航至博主主页
     kind: action
-    action: device.exec
+    action: ui.navigate_to
     params:
       device_ip: "${payload.device_ip}"
-      command: "${vars.search_scheme.command}"
-    on_fail:
-      strategy: goto
-      goto: save_scrape_output_from_payload
+      target: "profile_view"
+      username: "${payload.username}"
 
-  - label: collect_search_candidates
+  - label: 采集主页元数据
     kind: action
-    action: core.collect_blogger_candidates
+    action: ui.match_state
     params:
       device_ip: "${payload.device_ip}"
-      package: "${vars.package}"
-      max_candidates: "${payload.max_candidates:-10}"
-      max_rounds: "${payload.max_rounds:-3}"
-      settle_ms: "${payload.settle_ms:-900}"
-    save_as: collected_candidates
-    on_fail:
-      strategy: goto
-      goto: save_scrape_output_from_payload
+      binding_id: "profile_metadata"
+    save_as: scrape_result
 
-  - label: pick_search_candidate
+  - label: 提取头像与封面
     kind: action
-    action: core.pick_candidate
+    action: sdk.extract_media
     params:
-      candidates: "${vars.collected_candidates.candidates}"
-      ai_type: "${vars.ai_type}"
-      strategy: best
-    save_as: selected_candidate
-    on_fail:
-      strategy: goto
-      goto: save_scrape_output_from_payload
+      device_ip: "${payload.device_ip}"
+      type: "images"
 
-  - label: derive_profile_from_candidate
-    kind: action
-    action: core.derive_blogger_profile
-    params:
-      candidate: "${vars.selected_candidate.candidate}"
-      fallback_username: "${payload.username:-demo_blogger}"
-      fallback_display_name: "${payload.display_name:-Demo Blogger}"
-      fallback_profile: "${payload.profile:-}"
-    save_as: derived_profile
-    on_fail:
-      strategy: goto
-      goto: save_scrape_output_from_payload
-
-  - label: save_scrape_output_runtime
+  - label: 保存采集数据
     kind: action
     action: core.save_shared
     params:
-      key: "${vars.source_key}"
-      scope: "${vars.scope}"
-      value:
-        username: "${vars.derived_profile.username}"
-        display_name: "${vars.derived_profile.display_name}"
-        profile: "${vars.derived_profile.profile}"
-    on_fail:
-      strategy: abort
+      key: "scrape_profile"
+      scope: device
+      value: "${vars.scrape_result.data}"
 
-  - label: append_to_pool_runtime
-    kind: action
-    action: core.save_blogger_candidates
-    params:
-      key: "${vars.pool_key}"
-      scope: "${vars.scope}"
-      identity_field: "username"
-      candidates: "${vars.collected_candidates.candidates}"
-      fallback_profile: "${payload.profile:-}"
-    on_fail:
-      strategy: abort
-
-  - label: goto_increment_counter
-    kind: goto
-    target: increment_scrape_counter
-
-  - label: save_scrape_output_from_payload
-    kind: action
-    action: core.save_shared
-    params:
-      key: "${vars.source_key}"
-      scope: "${vars.scope}"
-      value:
-        username: "${payload.username:-demo_blogger}"
-        display_name: "${payload.display_name:-Demo Blogger}"
-        profile: "${payload.profile:-}"
-    on_fail:
-      strategy: abort
-
-  - label: append_to_pool_from_payload
-    kind: action
-    action: core.save_blogger_candidate
-    params:
-      key: "${vars.pool_key}"
-      scope: "${vars.scope}"
-      identity_field: "username"
-      candidate:
-        username: "${payload.username:-demo_blogger}"
-        display_name: "${payload.display_name:-Demo Blogger}"
-        profile: "${payload.profile:-}"
-    on_fail:
-      strategy: abort
-
-  - label: increment_scrape_counter
-    kind: action
-    action: core.increment_shared_counter
-    params:
-      key: "${vars.counter_key}"
-      scope: "${vars.scope}"
-      amount: 1
-      start: 0
-    on_fail:
-      strategy: abort
-
-  - label: done
+  - label: 采集任务成功
     kind: stop
     status: success
-    message: "scrape output saved and pooled"
+    message: "Blogger data scraped"

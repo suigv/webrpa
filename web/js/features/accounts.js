@@ -14,6 +14,18 @@ const statReady = document.getElementById("statReady");
 const statProgress = document.getElementById("statProgress");
 const statError = document.getElementById("statError");
 
+const accountModal = document.getElementById("accountModal");
+const saveAccountBtn = document.getElementById("saveAccountBtn");
+const editAcc = document.getElementById("editAcc");
+const editPwd = document.getElementById("editPwd");
+const edit2fa = document.getElementById("edit2fa");
+const editToken = document.getElementById("editToken");
+const editEmail = document.getElementById("editEmail");
+const editEmailPwd = document.getElementById("editEmailPwd");
+const editStatus = document.getElementById("editStatus");
+const editErrorMsg = document.getElementById("editErrorMsg");
+
+let currentEditingAccount = null;
 let currentMapping = {};
 let currentDelimiter = "----";
 
@@ -62,12 +74,74 @@ export function initAccounts() {
     };
     if(importAppendBtn) importAppendBtn.onclick = () => importAccounts(false);
     if(bulkDispatchBtn) bulkDispatchBtn.onclick = bulkDispatch;
+    
+    const resetBtn = document.getElementById("resetAccounts");
+    if(resetBtn) resetBtn.onclick = resetAccountStatus;
 
     if(accountsInput) {
         accountsInput.oninput = handleInputDebounced;
     }
 
+    // Modal close
+    document.querySelectorAll(".close-account-modal-btn").forEach(btn => {
+        btn.onclick = () => accountModal.style.display = "none";
+    });
+
+    if (saveAccountBtn) {
+        saveAccountBtn.onclick = saveAccount;
+    }
+
     loadAccounts();
+}
+
+async function saveAccount() {
+    if (!currentEditingAccount) return;
+
+    const newData = {
+        account: editAcc.value,
+        password: editPwd.value,
+        twofa: edit2fa.value,
+        token: editToken.value,
+        email: editEmail.value,
+        email_password: editEmailPwd.value,
+        status: editStatus.value,
+        error_msg: editErrorMsg.value
+    };
+
+    try {
+        const r = await fetchJson("/api/data/accounts/update", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                old_account: currentEditingAccount.account,
+                new_data: newData
+            }),
+        });
+
+        if (r.ok) {
+            toast.success("账号资料已保存");
+            accountModal.style.display = "none";
+            loadAccounts();
+        } else {
+            toast.error("更新失败: " + (r.data?.message || r.status));
+        }
+    } catch (e) {
+        toast.error("网络请求失败");
+    }
+}
+
+function openAccountModal(account) {
+    currentEditingAccount = account;
+    editAcc.value = account.account || "";
+    editPwd.value = account.password || "";
+    edit2fa.value = account.twofa || "";
+    editToken.value = account.token || "";
+    editEmail.value = account.email || "";
+    editEmailPwd.value = account.email_password || "";
+    editStatus.value = account.status || "ready";
+    editErrorMsg.value = account.error_msg || "";
+    
+    accountModal.style.display = "flex";
 }
 
 let inputTimeout;
@@ -84,6 +158,22 @@ export async function loadAccounts() {
         }
     } catch (e) {
         console.error("Failed to load inventory:", e);
+    }
+}
+
+async function resetAccountStatus() {
+    if (!confirm("确定要将所有‘执行中’或‘异常’账号重置为‘就绪’状态吗？")) return;
+    
+    try {
+        const r = await fetchJson("/api/data/accounts/reset", { method: "POST" });
+        if (r.ok) {
+            toast.success(r.data.message || "账号状态已恢复");
+            await loadAccounts();
+        } else {
+            toast.error("恢复操作失败");
+        }
+    } catch (e) {
+        toast.error("网络请求失败");
     }
 }
 
@@ -132,9 +222,11 @@ function renderInventory(accounts) {
         if (a.token) assetTags.push('Token');
         if (a.twofa) assetTags.push('2FA');
         if (a.email) assetTags.push('Email');
+        if (a.email_password) assetTags.push('EmailPwd');
 
         const row = document.createElement('tr');
-        row.style.cssText = `border-bottom: 1px solid var(--border); background: ${status === 'ready' ? 'transparent' : 'rgba(255,255,255,0.02)'}`;
+        row.style.cssText = `border-bottom: 1px solid var(--border); cursor: pointer; background: ${status === 'ready' ? 'transparent' : 'rgba(255,255,255,0.02)'}`;
+        row.onclick = () => openAccountModal(a);
 
         const accountCell = makeTableCell('td', a.account || '', 'padding: 12px; font-weight: 500;');
 
@@ -272,7 +364,7 @@ async function importAccounts(overwrite) {
         });
 
         if (r.ok) {
-            toast.success(`成功导入 ${r.data.valid} 条账号资产`);
+            toast.success(`成功导入 ${r.data.valid} 条账号，数据已同步`);
             accountsInput.value = "";
             clearElement(accountsPreview);
             await loadAccounts();
@@ -303,6 +395,8 @@ async function bulkDispatch() {
     bulkDispatchBtn.disabled = true;
     bulkDispatchBtn.textContent = '批量派发中...';
 
+    sysLog(`开始全局自动指派：正在为 ${onlineUnits.length} 台空闲云机分发登录任务`);
+
     let dispatched = 0;
     for (const u of onlineUnits) {
         const accountRes = await fetchJson("/api/data/accounts/pop", { method: "POST" });
@@ -328,7 +422,7 @@ async function bulkDispatch() {
         if (res.ok) dispatched++;
     }
 
-    toast.success(`任务派发成功: ${dispatched} 台机器已开工`);
+    toast.success(`派发完成：${dispatched} 台机器已开工！`);
     bulkDispatchBtn.disabled = false;
     bulkDispatchBtn.textContent = '启动全局指派策略';
     setTimeout(loadAccounts, 2000);

@@ -87,6 +87,38 @@ def import_accounts(data: AccountsImportRequest):
     }
 
 
+class AccountUpdate(BaseModel):
+    old_account: str  # Used to find the account
+    new_data: Dict[str, Any]
+
+
+@router.post("/accounts/update")
+def update_account(data: AccountUpdate):
+    """更新账号所有字段 (要求存储格式为 JSON 行)"""
+    lines = read_lines("accounts")
+    updated_lines = []
+    found = False
+    
+    for line in lines:
+        try:
+            item = json.loads(line)
+            if item.get("account") == data.old_account:
+                # Update with new data
+                for k, v in data.new_data.items():
+                    item[k] = v
+                updated_lines.append(json.dumps(item, ensure_ascii=False))
+                found = True
+            else:
+                updated_lines.append(line)
+        except Exception:
+            updated_lines.append(line)
+                
+    if found:
+        write_lines("accounts", updated_lines)
+        return {"status": "ok", "message": f"Account {data.old_account} updated"}
+    return {"status": "error", "message": "Account not found"}
+
+
 @router.post("/accounts/status")
 def update_account_status(data: AccountStatusUpdate):
     """更新账号状态 (要求存储格式为 JSON 行)"""
@@ -148,6 +180,31 @@ def pop_account():
 def get_accounts_parsed():
     """获取所有解析后的账号对象"""
     return {"accounts": parse_accounts_lines(read_lines("accounts"))}
+
+
+@router.post("/accounts/reset")
+def reset_accounts():
+    """将所有账号状态重置为就绪 (ready)"""
+    lines = read_lines("accounts")
+    updated_lines = []
+    count = 0
+    
+    for line in lines:
+        try:
+            item = json.loads(line)
+            # 只有处于 执行中 或 错误 状态的账号才需要重置
+            if item.get("status") in ["in_progress", "bad_auth", "banned", "2fa_issue"]:
+                item["status"] = "ready"
+                item["error_msg"] = None
+                updated_lines.append(json.dumps(item, ensure_ascii=False))
+                count += 1
+            else:
+                updated_lines.append(line)
+        except Exception:
+            updated_lines.append(line)
+                
+    write_lines("accounts", updated_lines)
+    return {"status": "ok", "message": f"Successfully reset {count} accounts to ready"}
 
 
 @router.get("/location")
