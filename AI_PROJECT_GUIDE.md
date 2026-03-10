@@ -50,6 +50,7 @@ AI 在当前项目中的定位不是替代插件体系，而是：
 2. `/api/tasks` 进入任务控制面。
 3. `core/task_control.py`、`core/task_execution.py`、`core/task_finalizer.py`、`core/task_metrics.py` 共同负责托管任务生命周期。
 4. `engine/runner.py` 负责分发插件任务与 `gpt_executor` 运行时。
+5. 运行时配置可通过 payload `_runtime_profile` / `_runtime` / `_llm` / `_vlm` / `_uitars` 覆写，profile 文件位于 `config/<name>.json`。
 
 ### 4.2 AI 执行边界
 
@@ -58,7 +59,7 @@ AI 在当前项目中的定位不是替代插件体系，而是：
 - `engine/gpt_executor.py`
   - 负责受控 planner loop：观察、规划、执行、记录、停止。
 - `engine/actions/ai_actions.py`
-  - 提供 `ai.llm_evaluate` 与 `ai.vlm_evaluate` 动作边界。
+  - 提供 `ai.llm_evaluate`、`ai.vlm_evaluate`、`ai.locate_point` 动作边界。
 - `core/model_trace_store.py`
   - 负责 append-only JSONL 模型轨迹落盘。
 - `core/golden_run_distillation.py`

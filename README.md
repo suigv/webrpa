@@ -7,6 +7,7 @@
 - 插件化执行引擎（YAML 工作流 + 动作注册）
 - 浏览器自动化与拟人化交互（可配置移动/点击/输入节奏）
 - Web 控制台入口与日志 WebSocket 路由（`/web` + `/ws/logs`）
+- 云机详情页提供 AI 对话入口，可用自然语言下发 `gpt_executor` 任务并绑定 runtime profile
 
 ---
 
@@ -118,6 +119,8 @@
 - `wait_until` 已补齐 success-before-timeout、`on_timeout goto`、`on_fail`、取消态与动态重轮询语义
 - `ExecutionContext.session.defaults` 已作为最小任务级默认值接缝落地，保持显式 action 参数优先，其次 session defaults，最后回退到原始 payload
 - `ExecutionContext.runtime` 已承接任务运行时信封；target / task_id / cloud_target_label 等控制面信息不再通过 payload 私有字段注入
+- 任务可通过 payload `_runtime_profile` / `_runtime` / `_llm` / `_vlm` / `_uitars` 覆写运行时配置；profile 文件放在 `config/<name>.json`
+- 新增 `ai.locate_point` 动作：输入截图+提示词，返回点击坐标（支持像素/归一化坐标换算）
 - `UIStateService` 的结果构造、timing 与 browser polling 语义已收口到共享 helper；native bindings 也已拆到独立 registry，降低 browser/native 平行演化风险
 
 ### 5) 浏览器拟人化能力

@@ -22,6 +22,8 @@
     - 建立自愈轨迹记录，确保引擎层介入的自救动作在日志中透明，为后续视觉模型任务蒸馏保留高质量的噪声处理轨迹。
   - **参数自动剥离与注入**：
     - UI 自动剥离 `device_ip`、`package` 等冗余参数，下发任务时自动从选中的云机节点实时注入，实现业务参数与环境参数解耦。
+  - **云机详情页 AI 对话入口**：
+    - 支持在云机详情页以自然语言下发 `gpt_executor` 任务，允许指定 runtime profile 与动作边界。
   - GPT executor MVP 已接到现有 `/api/tasks` 托管链路，任务名为 `gpt_executor`，继续走既有创建、取消、重试、SSE 事件与终态规则
   - 当前 MVP 观察策略是 structured-state-first，优先消费 `ui.match_state` 的结构化状态；只有主观察不足时才记录并使用 XML tree、截图或 browser HTML 等 fallback 模态
   - GPT 执行环的 circuit breaker 是 MVP 硬要求，不是可选优化：必须限制 step budget，并在结构化状态连续停滞时显式中止
@@ -78,6 +80,7 @@
 - **架构重构**：移除单体 `app.js`，采用 ES Modules 模块化设计 (`web/js/features/*`, `web/js/state/*`, `web/js/utils/*`)
 - **交互增强**：引入全局 Toast 通知系统，替代原生 Alert/Console 日志；增加设备列表快捷控制（启动/停止/扫描）
 - **账号与调度**：账号池支持导入预览、库存状态展示、ready 账号批量分派；云机大厅支持单机下发与批量选机下发
+- **云机详情页 AI 对话**：提供自然语言入口，直接调度 `gpt_executor` 并允许绑定 runtime profile
 - **实际公开 UI**：当前公开页为云机大厅、账号池、配置；`web/js/features/tasks.js` 已实现任务管理逻辑，但 `web/index.html` 尚未暴露独立任务页入口，属于部分接线状态
 
 ### 2.5 质量保障

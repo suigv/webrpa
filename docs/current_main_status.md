@@ -17,6 +17,7 @@
 - `x_mobile_login` 已完成重复 runtime 接线收口：当前验证明确覆盖 `device_ip` 不再在步骤中重复传递，且相关步骤不再显式重复声明 `package`；既有 status / message 契约保持不变，相关登录工作流验证已通过
 - `/web` 仍只在 smoke 范围内声明为静态控制台入口，`/ws/logs` 已补上专用 route 回归测试
 - 运行时控制面验证波次已完成，包含定向测试、`MYT_ENABLE_RPC=0` 启动与 `/health` smoke
+- 云机详情页新增 AI 对话入口，可用自然语言下发 `gpt_executor` 任务并绑定 runtime profile
 - **Web 控制台产品化改造 (2026-03-10)**：
     - 实时显示 `MYT_ENABLE_RPC` 运行状态。
     - 资源仓库支持账号**全字段编辑**（Token、邮箱等）及**状态一键重置**接口。
