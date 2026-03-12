@@ -1,14 +1,20 @@
-from typing import List, Literal
+# pyright: reportAttributeAccessIssue=false, reportDeprecated=false, reportUnknownArgumentType=false, reportUnknownVariableType=false, reportUnusedCallResult=false, reportAny=false, reportExplicitAny=false
 
+from typing import Any, List, Literal, cast
+from anyio import to_thread as _to_thread
 from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi.responses import Response
 
 from core.config_loader import ConfigLoader
-from core.device_manager import DeviceManager
+from core.device_manager import get_device_manager
 from core.lan_discovery import LanDeviceDiscovery
+from hardware_adapters.mytRpc import MytRpc
 from models.device import AIType, CloudMachineInfo, DeviceInfo, DeviceStatus, DeviceStatusResponse
 
+to_thread = cast(Any, _to_thread)
+
 router = APIRouter()
-device_manager = DeviceManager()
+device_manager = get_device_manager()
 discovery = LanDeviceDiscovery()
 
 
@@ -52,16 +58,16 @@ def _to_device_info(info: dict[str, object]) -> DeviceInfo:
 
 
 @router.get("/", response_model=List[DeviceInfo])
-def list_devices(availability: Literal["all", "available_only"] = "all"):
+async def list_devices(availability: Literal["all", "available_only"] = "all"):
     # Return snapshot cache to keep UI fast; background probe worker refreshes it.
-    snapshot = device_manager.get_devices_snapshot(availability=availability)
+    snapshot = await to_thread.run_sync(device_manager.get_devices_snapshot, availability)
     return [_to_device_info(info) for info in snapshot if isinstance(info, dict)]
 
 
 @router.post("/discover")
 @router.post("/discover/")
-def discover_devices(background_tasks: BackgroundTasks):
-    def run_scan():
+async def discover_devices(background_tasks: BackgroundTasks):
+    def run_scan() -> None:
         ips = discovery.scan_now(force=True)
         if ips:
             ConfigLoader.update(
@@ -74,19 +80,23 @@ def discover_devices(background_tasks: BackgroundTasks):
 
 
 @router.get("/{device_id}", response_model=DeviceInfo)
-def get_device(device_id: int, availability: Literal["all", "available_only"] = "all"):
+async def get_device(device_id: int, availability: Literal["all", "available_only"] = "all"):
     try:
-        info = device_manager.get_device_info(device_id, availability=availability)
+        info = await to_thread.run_sync(device_manager.get_device_info, device_id, availability)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return _to_device_info(info)
 
 
 @router.get("/{device_id}/status", response_model=DeviceStatusResponse)
-def get_device_status(device_id: int):
+async def get_device_status(device_id: int):
     try:
-        dev = device_manager.get_device(device_id)
-    except KeyError as exc:
+        # 这里需要稍微改动 DeviceManager 增加 get_device 或者直接使用 get_all_devices
+        devices = await to_thread.run_sync(device_manager.get_all_devices)
+        dev = devices.get(device_id)
+        if not dev:
+            raise HTTPException(status_code=404, detail="device not found")
+    except Exception as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return DeviceStatusResponse(
         device_id=device_id,
@@ -97,18 +107,48 @@ def get_device_status(device_id: int):
 
 
 @router.post("/{device_id}/start")
-def start_device(device_id: int):
+async def start_device(device_id: int):
     try:
-        device_manager.set_device_status(device_id, DeviceStatus.IDLE, task=None, message="connection enabled")
+        await to_thread.run_sync(device_manager.set_device_status, device_id, DeviceStatus.IDLE, None, "connection enabled")
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {"device_id": device_id, "status": "enabled"}
 
 
 @router.post("/{device_id}/stop")
-def stop_device(device_id: int):
+async def stop_device(device_id: int):
     try:
-        device_manager.set_device_status(device_id, DeviceStatus.OFFLINE, task=None, message="connection disabled")
+        await to_thread.run_sync(device_manager.set_device_status, device_id, DeviceStatus.OFFLINE, None, "connection disabled")
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {"device_id": device_id, "status": "disabled"}
+
+
+@router.get("/{device_id}/{cloud_id}/screenshot")
+async def get_cloud_screenshot(device_id: int, cloud_id: int, device_ip: str, rpa_port: int):
+    def _take_screenshot() -> bytes:
+        rpc = MytRpc()
+        connected = rpc.init(device_ip, rpa_port, 5)
+        if not connected:
+            raise RuntimeError(f"RPC connect failed ({device_ip}:{rpa_port})")
+        try:
+            payload = rpc.take_capture_compress(0, 80)
+            if payload is None:
+                raise RuntimeError(f"take_capture_compress returned None ({device_ip}:{rpa_port})")
+            # 验证返回的是有效图片（JPEG/PNG magic bytes），而非错误字符串
+            if len(payload) < 4 or (payload[:2] != b'\xff\xd8' and payload[:4] != b'\x89PNG'):
+                text = payload[:200].decode('utf-8', errors='replace')
+                raise RuntimeError(f"invalid image data: {text}")
+            return bytes(payload)
+        finally:
+            try:
+                rpc.close()
+            except Exception:
+                pass
+
+    try:
+        image_bytes = await to_thread.run_sync(_take_screenshot)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    return Response(content=image_bytes, media_type="image/jpeg")

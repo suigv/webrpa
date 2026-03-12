@@ -1,12 +1,12 @@
 from engine.models.runtime import ActionResult, ExecutionContext
 from engine.models.ui_state import (
-    X_LOGIN_STAGE_VALUES,
+    LOGIN_STAGE_VALUES,
     UIStateEvidence,
     UIStateIdentity,
     UIStateObservationResult,
     UIStateTiming,
     UIStateTransition,
-    normalize_x_login_stage,
+    normalize_login_stage,
 )
 from engine.ui_state_service import UIStateService
 
@@ -17,9 +17,9 @@ def test_ui_state_service_shared_top_level_shape_and_action_result_bridge():
         state_id="home",
         platform="browser",
         expected_state_ids=["home", "account"],
-        evidence=UIStateEvidence(summary="matched url", url="https://x.com/home", matched=["/home"]),
+        evidence=UIStateEvidence(summary="matched url", url="https://example.com/home", matched=["/home"]),
         timing=UIStateTiming(elapsed_ms=42, attempt=1, samples=1),
-        raw_details={"url": "https://x.com/home", "selector": "body"},
+        raw_details={"url": "https://example.com/home", "selector": "body"},
     )
 
     payload = result.model_dump(mode="python")
@@ -36,7 +36,7 @@ def test_ui_state_service_shared_top_level_shape_and_action_result_bridge():
             "summary": "matched url",
             "selector": None,
             "text": None,
-            "url": "https://x.com/home",
+            "url": "https://example.com/home",
             "confidence": None,
             "matched": ["/home"],
             "missing": [],
@@ -50,7 +50,7 @@ def test_ui_state_service_shared_top_level_shape_and_action_result_bridge():
             "attempt": 1,
             "samples": 1,
         },
-        "raw_details": {"url": "https://x.com/home", "selector": "body"},
+        "raw_details": {"url": "https://example.com/home", "selector": "body"},
         "transition": None,
     }
 
@@ -97,13 +97,13 @@ def test_ui_state_service_timeout_contract_defaults():
 
 
 def test_ui_state_service_unknown_stage_normalization_and_compatibility_values():
-    assert X_LOGIN_STAGE_VALUES == ("home", "two_factor", "captcha", "password", "account", "unknown")
+    assert LOGIN_STAGE_VALUES == ("home", "two_factor", "captcha", "password", "account", "login_entry", "unknown")
 
-    for stage in X_LOGIN_STAGE_VALUES:
-        assert normalize_x_login_stage(stage) == stage
+    for stage in LOGIN_STAGE_VALUES:
+        assert normalize_login_stage(stage) == stage
 
-    assert normalize_x_login_stage("email") == "unknown"
-    assert normalize_x_login_stage("") == "unknown"
+    assert normalize_login_stage("email") == "unknown"
+    assert normalize_login_stage("") == "unknown"
 
 
 def test_ui_state_service_transition_shape_is_shared():

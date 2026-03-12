@@ -1,34 +1,52 @@
-# Docs Index
+# WebRPA 文档中心
 
-This file is an optional index for docs navigation.
-It is not a canonical source of truth.
-Canonical status surfaces live in `docs/project_progress.md` and `docs/current_main_status.md`.
-`docs/HANDOFF.md` owns continuation, runbook, and evidence workflow guidance.
+欢迎使用 WebRPA 开发文档。本文档库旨在提供项目现状、开发规范及架构设计的单一事实来源。
 
-## Active
+---
 
-- `project_progress.md` - Current capability snapshot, the workflow-roadmap executor wave layered on the UIStateService baseline, and rolling next steps
-- `current_main_status.md` - Current main branch completed vs pending status after the latest workflow-roadmap docs sync
-- `HANDOFF.md` - Cross-session handoff, latest rollout snapshot, evidence chain, and next-step checklist
-- `ai_workflow_design_checklist.md` - Working checklist for the target AI workflow from vision-led exploration to YAML plugin distillation
-- `atomic_features.md` - Acceptance checklist for current external capabilities
-- `plugin_input_contract.md` - Runtime payload validation and rollout policy
-- `PLUGIN_CONTRACT.md` - Plugin manifest/workflow schema and authoring contract
-- `WEB_GUI_EMBED.md` - Desktop shell embedding guide for `/web`
+## 🚀 快速开始与现状
+- **[项目进度看板 (Project Progress)](project_progress.md)**  
+  当前可用能力、最近变更、各模块完成状态及下一步计划。
 
-## Chinese Retrospectives
+---
 
-- `reference/功能原子化问题分类说明.md` - Atomicity issue taxonomy with current resolution status
-- `reference/功能原子化修复结果.md` - Branch-to-main remediation outcome and verification summary
+## 🛠 开发指南 (Core Contracts)
+- **[插件开发与输入规范 (Plugin Contract)](PLUGIN_CONTRACT.md)**  
+  YAML 插件模式 (v2) 的核心语法、输入参数声明及变量插值规则。
+- **[AI 工作流设计清单 (AI Workflow Checklist)](ai_workflow_design_checklist.md)**  
+  设计基于 LLM/VLM 的自主智能体流程时的关键考量点。
 
-## Reference
+---
 
-- `reference/README.md` - Reference docs guide and suggested reading order
-- `reference/atomicity_architecture_review.md` - Feature atomicity review and refactor seams
-- `reference/complete_endpoint_matrix.md` - Consolidated SDK/RPA/MYTOS endpoint matrix from extracted PDFs
-- `reference/pdf_feature_usability_checklist.md` - Code/test evidence mapping for PDF-defined capabilities
-- `reference/hezi_sdk_atomic_mapping.md` - Fine-grained SDK endpoint to client/action mapping
+## 📡 API 参考
+- **[盒子内 SDK API（8000）](MYT_SDK_API.md)**  
+  设备级 SDK 接口（云机容器、镜像、备份、VPC 等）。
+- **[MYTOS Android API（30001）](MYTOS_API.md)**  
+  云机级 Android HTTP API（剪贴板、代理、文件、系统配置等）。
+- **[Android RPA SDK（30002）](ANDROID_RPA_SDK.md)**  
+  RPA 控制 SDK（触控、UI 节点、截图、视频流等）。
 
-## Archive
+---
 
-- `archive/migration-matrix.md` - Historical migration planning artifact retained for context only
+## 🏗 架构与设计 (Architecture)
+- **[技术债与治理报告 (Technical Debt)](TECHNICAL_DEBT.md)**  
+  记录系统级的设计缺陷、冗余及后续重构计划。
+- **[系统交接文档 (Handoff Guide)](HANDOFF.md)**  
+  深度架构解析、依赖拓扑及核心组件（Runner, Interpreter, Controller）的运行机制。
+
+---
+
+## ⚙️ 运维与调优
+- **[配置与环境变量参考 (Configuration)](CONFIGURATION.md)**  
+  全量环境变量说明、默认值及典型启动场景。
+- **[监控部署指南 (Monitoring Rollout)](monitoring_rollout.md)**  
+  Prometheus 采集、告警配置及面板渲染说明。
+- **[僵尸任务恢复调优 (Stale Running Tuning)](stale_running_recovery_tuning.md)**  
+  关于 `MYT_TASK_STALE_RUNNING_SECONDS` 的校准与演练建议。
+
+---
+
+## 📚 规划与目标 (Goals & Roadmap)
+- **[项目目标 (Project Goals)](PROJECT_GOALS.md)**：北极星目标、成功标准与蒸馏门槛定义。
+- **[里程碑规划 (Roadmap)](ROADMAP.md)**：M0-M4 里程碑状态与下一步证据行动。
+- **[当前状态矩阵 (Status)](STATUS.md)**：功能完成度的 done/not-done 视图。

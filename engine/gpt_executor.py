@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import json
+import logging
+import os
 import re
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from collections.abc import Mapping
 from typing import Any, Callable, Protocol
+
+logger = logging.getLogger(__name__)
 
 from ai_services.llm_client import LLMClient, LLMRequest
 from ai_services.vlm_client import VLMClient
@@ -47,6 +52,7 @@ def _json_safe(value: object, *, string_limit: int = 4000) -> object:
 
 
 _SAFE_PART_RE = re.compile(r"[^a-zA-Z0-9._-]+")
+_XML_PACKAGE_RE = re.compile(r'package="([^"]+)"')
 
 
 def _safe_path_part(value: object, *, default: str) -> str:
@@ -69,6 +75,13 @@ def _string_list(value: object) -> list[str]:
                 result.append(item_str)
         return result
     return []
+
+
+def _env_enabled(name: str) -> bool:
+    raw = os.getenv(name, "")
+    if not raw:
+        return False
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _int_in_range(value: object, *, default: int, minimum: int, maximum: int) -> int:
@@ -129,6 +142,7 @@ class GptExecutorRuntime:
         self._registry = registry or get_registry()
         self._llm_client_factory = llm_client_factory or LLMClient
         self._trace_store = trace_store or ModelTraceStore()
+        self._binding_cache: dict[str, dict[str, object]] = self._load_binding_cache()
 
     def run(
         self,
@@ -144,6 +158,7 @@ class GptExecutorRuntime:
         config = self._parse_config(payload, runtime=runtime)
         context = ExecutionContext(payload=dict(payload), runtime=dict(runtime or {}))
         context.should_cancel = should_cancel
+        context.emit_event = (runtime or {}).get("emit_event")
         llm_client = self._llm_client_factory()
         ui_match_state = self._registry.resolve("ui.match_state")
 
@@ -192,19 +207,26 @@ class GptExecutorRuntime:
             observed_at = _timestamp()
             observation_payload = observation.model_dump(mode="python")
             observation_state = observation_payload.get("data", {})
-            observation_fingerprint = _stable_fingerprint(observation_state)
             observation_modality = self._observation_modality(observation_state)
             observed_state_ids = self._observed_state_ids(observation_state)
-            fallback_evidence = (
-                self._collect_fallback_evidence(
-                    context,
-                    observation_state,
-                    trace_context=trace_context,
-                    step_index=step_index,
-                )
-                if not observation.ok
-                else {}
+            fallback_evidence = self._collect_fallback_evidence(
+                context,
+                observation_state,
+                trace_context=trace_context,
+                step_index=step_index,
             )
+            if observation.ok:
+                observation_fingerprint = _stable_fingerprint(observation_state)
+            else:
+                xml_content = _json_dict(fallback_evidence.get("ui_xml")).get("content", "")
+                observation_fingerprint = _stable_fingerprint(xml_content)
+            if context.emit_event:
+                context.emit_event("task.observation", {
+                    "step": step_index,
+                    "modality": observation_modality,
+                    "observed_state_ids": observed_state_ids,
+                    "ok": bool(observation.ok),
+                })
             last_observation = {
                 "data": observation_state if isinstance(observation_state, dict) else {},
                 "ok": bool(observation.ok),
@@ -268,15 +290,29 @@ class GptExecutorRuntime:
                     },
                 )
 
-            plan = self._plan_next_step(
-                llm_client=llm_client,
-                config=config,
-                step_index=step_index,
-                observation=observation_state if isinstance(observation_state, dict) else {},
-                last_action=last_action,
-                fallback_enabled=not observation.ok,
-                fallback_evidence=fallback_evidence,
-            )
+            plan: dict[str, Any] = {"ok": False, "message": "uninitialized"}
+            max_planner_retries = 3
+            for attempt in range(max_planner_retries):
+                plan = self._plan_next_step(
+                    llm_client=llm_client,
+                    config=config,
+                    step_index=step_index,
+                    observation=observation_state if isinstance(observation_state, dict) else {},
+                    last_action=last_action,
+                    fallback_enabled=not observation.ok,
+                    fallback_evidence=fallback_evidence,
+                )
+                if plan.get("ok") is not False:
+                    break
+                
+                # 指数退避重试
+                if plan.get("retryable") and attempt < max_planner_retries - 1:
+                    backoff = 2 ** (attempt + 1)
+                    logger.warning(f"Planner failed (retryable), backing off {backoff}s: {plan.get('message')}")
+                    time.sleep(backoff)
+                    continue
+                break
+
             if plan["ok"] is False:
                 self._append_trace(
                     trace_context,
@@ -285,7 +321,7 @@ class GptExecutorRuntime:
                         sequence=step_index,
                         step_index=step_index,
                         observation=observation_state if isinstance(observation_state, dict) else {},
-                        observation_ok=bool(observation.ok),
+                        observation_ok=bool(last_observation.get("ok")),
                         observation_modality=observation_modality,
                         observed_state_ids=observed_state_ids,
                         fallback_reason=str(plan.get("fallback_reason") or ""),
@@ -315,7 +351,7 @@ class GptExecutorRuntime:
                         sequence=step_index,
                         step_index=step_index,
                         observation=observation_state if isinstance(observation_state, dict) else {},
-                        observation_ok=bool(observation.ok),
+                        observation_ok=bool(last_observation.get("ok")),
                         observation_modality=observation_modality,
                         observed_state_ids=observed_state_ids,
                         fallback_reason=str(plan.get("fallback_reason") or ""),
@@ -338,6 +374,8 @@ class GptExecutorRuntime:
                 )
 
             action_name = str(plan.get("action") or "").strip()
+            action_params = _json_dict(plan.get("params"))
+
             if action_name not in config.allowed_actions:
                 self._append_trace(
                     trace_context,
@@ -346,7 +384,7 @@ class GptExecutorRuntime:
                         sequence=step_index,
                         step_index=step_index,
                         observation=observation_state if isinstance(observation_state, dict) else {},
-                        observation_ok=bool(observation.ok),
+                        observation_ok=bool(last_observation.get("ok")),
                         observation_modality=observation_modality,
                         observed_state_ids=observed_state_ids,
                         fallback_reason=str(plan.get("fallback_reason") or ""),
@@ -368,9 +406,22 @@ class GptExecutorRuntime:
                     planner=plan,
                 )
 
-            action_params = _json_dict(plan.get("params"))
+            if context.emit_event:
+                context.emit_event("task.planning", {
+                    "step": step_index,
+                    "action": action_name,
+                    "params": action_params,
+                    "message": str(plan.get("message") or ""),
+                })
             action_result = self._registry.resolve(action_name)(action_params, context)
             action_result_payload = action_result.model_dump(mode="python")
+            if context.emit_event:
+                context.emit_event("task.action_result", {
+                    "step": step_index,
+                    "label": action_name,
+                    "ok": action_result.ok,
+                    "message": action_result.message or "",
+                })
             last_action = {
                 "action": action_name,
                 "params": action_params,
@@ -466,6 +517,64 @@ class GptExecutorRuntime:
                 "max_steps": config.max_steps,
             },
         )
+
+    @staticmethod
+    def _normalize_xml_filter(raw: object) -> dict[str, int] | None:
+        if not isinstance(raw, Mapping) or not raw:
+            return None
+        try:
+            return {
+                "max_text_len": int(raw.get("max_text_len", 60)),
+                "max_desc_len": int(raw.get("max_desc_len", 100)),
+            }
+        except Exception:
+            return None
+
+    def _load_binding_cache(self) -> dict[str, dict[str, object]]:
+        try:
+            from core.paths import config_dir
+            bindings_dir = config_dir() / "bindings"
+            if not bindings_dir.exists():
+                return {}
+            cache: dict[str, dict[str, object]] = {}
+            for binding_path in sorted(bindings_dir.glob("*.json")):
+                try:
+                    data = json.loads(binding_path.read_text(encoding="utf-8"))
+                except Exception as exc:
+                    logger.warning("Failed to read binding file %s: %s", binding_path, exc)
+                    continue
+                app_package = str(data.get("app_package") or "").strip()
+                if not app_package:
+                    continue
+                entry = {
+                    "xml_filter": self._normalize_xml_filter(data.get("xml_filter")),
+                    "states": data.get("states") if isinstance(data.get("states"), list) else [],
+                }
+                if app_package in cache:
+                    logger.warning("Duplicate app_package in bindings: %s", app_package)
+                cache[app_package] = entry
+            return cache
+        except Exception as exc:
+            logger.warning("Failed to build binding cache: %s", exc)
+            return {}
+
+    def _binding_xml_filter(self, app_package: str) -> dict[str, int] | None:
+        if not app_package:
+            return None
+        entry = self._binding_cache.get(app_package)
+        if not entry:
+            return None
+        xml_filter = entry.get("xml_filter")
+        if isinstance(xml_filter, Mapping):
+            return {str(k): int(v) for k, v in xml_filter.items() if str(k) in {"max_text_len", "max_desc_len"}}
+        return None
+
+    @staticmethod
+    def _extract_xml_package(xml: str) -> str:
+        if not xml:
+            return ""
+        match = _XML_PACKAGE_RE.search(xml)
+        return match.group(1).strip() if match else ""
 
     def validate_payload(self, payload: Mapping[str, object]) -> dict[str, str] | None:
         try:
@@ -598,10 +707,12 @@ class GptExecutorRuntime:
             error = getattr(response, "error", None)
             code = str(getattr(error, "code", "llm_error") or "llm_error")
             message = str(getattr(error, "message", "llm planning failed") or "llm planning failed")
+            retryable = bool(getattr(error, "retryable", False))
             return {
                 "ok": False,
                 "code": code,
                 "message": message,
+                "retryable": retryable,
                 "request": self._llm_request_trace(request, runtime_config=config.llm_runtime),
                 "response": response_trace,
                 "planned_at": planned_at,
@@ -697,7 +808,11 @@ class GptExecutorRuntime:
             client = self._vlm_client(config)
             request_trace["system_prompt"] = client.system_prompt
             request_trace["model"] = client.model
-            action = client.predict(image_ref, prompt)
+            _sw = screen_meta.get("screen_width")
+            _sh = screen_meta.get("screen_height")
+            _screen_w = int(_sw) if isinstance(_sw, (int, float, str)) and str(_sw).strip().isdigit() else None
+            _screen_h = int(_sh) if isinstance(_sh, (int, float, str)) and str(_sh).strip().isdigit() else None
+            action = client.predict(image_ref, prompt, screen_width=_screen_w, screen_height=_screen_h)
             response_trace = {
                 "ok": True,
                 "output_text": action.raw_text,
@@ -761,6 +876,8 @@ class GptExecutorRuntime:
 
     @staticmethod
     def _wants_vlm(modalities: list[str]) -> bool:
+        if not _env_enabled("MYT_ENABLE_VLM"):
+            return False
         normalized = {item.strip().lower() for item in modalities if str(item).strip()}
         return bool(normalized.intersection({"vlm", "vision", "uitars", "ui-tars"}))
 
@@ -817,10 +934,16 @@ class GptExecutorRuntime:
                 raw = vlm_config.get(item) if item in vlm_config else runtime_config.get(item)
                 if raw is None:
                     continue
-                try:
+                if isinstance(raw, (int, float)):
                     return float(raw)
-                except (TypeError, ValueError):
-                    continue
+                if isinstance(raw, str):
+                    stripped = raw.strip()
+                    if not stripped:
+                        continue
+                    try:
+                        return float(stripped)
+                    except ValueError:
+                        continue
             return None
 
         base_url = _read_str(["base_url", "vlm_base_url", "uitars_base_url"])
@@ -953,7 +1076,7 @@ class GptExecutorRuntime:
                 evidence["browser_html"] = browser_html
             return evidence
 
-        native_xml = self._collect_native_xml(context)
+        native_xml = self._collect_native_xml(context, trace_context=trace_context, step_index=step_index)
         if native_xml:
             evidence["ui_xml"] = native_xml
         screenshot = self._collect_native_capture(
@@ -962,6 +1085,15 @@ class GptExecutorRuntime:
             step_index=step_index,
         )
         if screenshot:
+            # 从 XML 证据注入屏幕分辨率到截图 metadata
+            if native_xml:
+                sw = native_xml.get("screen_width")
+                sh = native_xml.get("screen_height")
+                if sw and sh:
+                    metadata = _json_dict(screenshot.get("metadata"))
+                    metadata["screen_width"] = sw
+                    metadata["screen_height"] = sh
+                    screenshot["metadata"] = metadata
             evidence["screen_capture"] = screenshot
         return evidence
 
@@ -984,14 +1116,20 @@ class GptExecutorRuntime:
         except Exception as exc:
             return {"source": "browser.html", "ok": False, "message": str(exc)}
 
-    def _collect_native_xml(self, context: ExecutionContext) -> dict[str, object]:
+    def _collect_native_xml(
+        self,
+        context: ExecutionContext,
+        *,
+        trace_context: ModelTraceContext | None = None,
+        step_index: int | None = None,
+    ) -> dict[str, object]:
         preferred = self._call_optional_action("ui.dump_node_xml_ex", {"work_mode": False, "timeout_ms": 1500}, context)
         if bool(preferred.get("ok")):
-            return self._xml_evidence_from_result("ui.dump_node_xml_ex", preferred)
+            return self._xml_evidence_from_result("ui.dump_node_xml_ex", preferred, trace_context=trace_context, step_index=step_index)
 
         fallback = self._call_optional_action("ui.dump_node_xml", {"dump_all": False}, context)
         if bool(fallback.get("ok")):
-            return self._xml_evidence_from_result("ui.dump_node_xml", fallback)
+            return self._xml_evidence_from_result("ui.dump_node_xml", fallback, trace_context=trace_context, step_index=step_index)
 
         failure = _json_dict(preferred or fallback)
         if not failure:
@@ -1057,15 +1195,60 @@ class GptExecutorRuntime:
             "message": str(failure.get("message") or ""),
         }
 
-    def _xml_evidence_from_result(self, action_name: str, result: Mapping[str, object]) -> dict[str, object]:
+    def _xml_evidence_from_result(
+        self,
+        action_name: str,
+        result: Mapping[str, object],
+        *,
+        trace_context: ModelTraceContext | None = None,
+        step_index: int | None = None,
+    ) -> dict[str, object]:
         payload = _json_dict(result.get("data"))
         xml = str(payload.get("xml") or "")
-        return {
+        save_path = ""
+        if xml and trace_context is not None:
+            task_part = _safe_path_part(trace_context.task_id, default="task")
+            run_part = _safe_path_part(trace_context.run_id, default="run")
+            target_part = _safe_path_part(trace_context.target_label, default="target")
+            step_part = f"step-{int(step_index) if step_index is not None else 0}"
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+            xml_dir = traces_dir() / task_part / run_part / "xml" / target_part
+            xml_dir.mkdir(parents=True, exist_ok=True)
+            save_path = str(xml_dir / f"{step_part}-{timestamp}.xml")
+            try:
+                Path(save_path).write_text(xml, encoding="utf-8")
+            except Exception:
+                save_path = ""
+        # 从 XML 根节点 bounds 解析屏幕分辨率
+        screen_width: int | None = None
+        screen_height: int | None = None
+        if xml:
+            try:
+                import re as _re
+                m = _re.search(r'bounds="\[0,0\]\[(\d+),(\d+)\]"', xml)
+                if m:
+                    screen_width = int(m.group(1))
+                    screen_height = int(m.group(2))
+            except Exception:
+                pass
+        evidence: dict[str, object] = {
             "source": action_name,
             "xml_length": len(xml),
-            "content": _json_safe(xml),
-            "truncated": len(xml) > 4000,
         }
+        if screen_width and screen_height:
+            evidence["screen_width"] = screen_width
+            evidence["screen_height"] = screen_height
+        if save_path:
+            evidence["save_path"] = save_path
+        else:
+            # fallback: 预处理后存入 JSONL
+            from engine.actions._state_detection_support import preprocess_xml as _preprocess_xml
+            app_package = self._extract_xml_package(xml)
+            flt = self._binding_xml_filter(app_package) or {}
+            processed = _preprocess_xml(xml, **flt)
+            evidence["content"] = processed
+            evidence["truncated"] = False
+        return evidence
 
     def _call_optional_action(
         self,

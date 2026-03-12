@@ -1,6 +1,6 @@
-import { fetchJson } from '../utils/api.js';
-import { toast } from '../ui/toast.js';
-import { apiSubmitTask, buildTaskRequest } from './task_service.js';
+import { fetchJson } from '/static/js/utils/api.js';
+import { toast } from '/static/js/ui/toast.js';
+import { apiSubmitTask, buildTaskRequest } from '/static/js/features/task_service.js';
 
 const accountsInput = document.getElementById("accountsInput");
 const accountsPreview = document.getElementById("accountsPreview");
@@ -30,11 +30,11 @@ let currentMapping = {};
 let currentDelimiter = "----";
 
 const STATUS_META = {
-    ready: { text: '就绪', className: 'badge badge-ok' },
-    in_progress: { text: '执行中', className: 'badge' },
-    bad_auth: { text: '密码错误', className: 'badge badge-warn' },
-    banned: { text: '封号', className: 'badge badge-warn' },
-    '2fa_issue': { text: '2FA异常', className: 'badge badge-warn' },
+    ready: { text: '就绪', className: 'badge badge-ok', icon: '✅' },
+    in_progress: { text: '执行中', className: 'badge', icon: '⏳' },
+    bad_auth: { text: '密码错误', className: 'badge badge-warn', icon: '❌' },
+    banned: { text: '封号', className: 'badge badge-warn', icon: '⛔' },
+    '2fa_issue': { text: '2FA异常', className: 'badge badge-warn', icon: '❓' },
 };
 
 function clearElement(element) {
@@ -53,10 +53,7 @@ function makeTableCell(tagName, text, styleText = '') {
 }
 
 function buildStatusBadge(status) {
-    const meta = STATUS_META[status] || null;
-    if (!meta) {
-        return document.createTextNode(status);
-    }
+    const meta = STATUS_META[status] || { text: status, className: 'badge' };
     const badge = document.createElement('span');
     badge.className = meta.className;
     badge.textContent = meta.text;
@@ -82,7 +79,6 @@ export function initAccounts() {
         accountsInput.oninput = handleInputDebounced;
     }
 
-    // Modal close
     document.querySelectorAll(".close-account-modal-btn").forEach(btn => {
         btn.onclick = () => accountModal.style.display = "none";
     });
@@ -92,6 +88,27 @@ export function initAccounts() {
     }
 
     loadAccounts();
+}
+
+async function updateAccountStatus(account, newStatus) {
+    try {
+        const r = await fetchJson("/api/data/accounts/status", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                account: account,
+                status: newStatus
+            }),
+        });
+        if (r.ok) {
+            toast.success(`状态已更新为 ${STATUS_META[newStatus]?.text || newStatus}`);
+            await loadAccounts();
+        } else {
+            toast.error("更新失败");
+        }
+    } catch (e) {
+        toast.error("网络请求失败");
+    }
 }
 
 async function saveAccount() {
@@ -198,15 +215,16 @@ function renderInventory(accounts) {
     wrapper.style.cssText = 'overflow-x:auto;';
 
     const table = document.createElement('table');
-    table.style.cssText = 'width: 100%; border-collapse: collapse; font-size: 0.8rem; text-align: left;';
+    table.style.cssText = 'width: 100%; border-collapse: collapse; font-size: 0.75rem; text-align: left;';
 
     const thead = document.createElement('thead');
     thead.style.cssText = 'position: sticky; top: 0; background: var(--bg-sidebar); z-index: 10;';
     const headerRow = document.createElement('tr');
     headerRow.append(
-        makeTableCell('th', '账号', 'padding: 12px; border-bottom: 1px solid var(--border);'),
-        makeTableCell('th', '状态', 'padding: 12px; border-bottom: 1px solid var(--border);'),
-        makeTableCell('th', '资产详情', 'padding: 12px; border-bottom: 1px solid var(--border);'),
+        makeTableCell('th', '账号', 'padding: 10px; border-bottom: 1px solid var(--border); width: 120px;'),
+        makeTableCell('th', '当前状态', 'padding: 10px; border-bottom: 1px solid var(--border); width: 80px;'),
+        makeTableCell('th', '快捷标记', 'padding: 10px; border-bottom: 1px solid var(--border); width: 140px;'),
+        makeTableCell('th', '异常追踪', 'padding: 10px; border-bottom: 1px solid var(--border);'),
     );
     thead.appendChild(headerRow);
 
@@ -218,25 +236,55 @@ function renderInventory(accounts) {
         else if (status === 'in_progress') progressCount++;
         else errorCount++;
 
-        const assetTags = [];
-        if (a.token) assetTags.push('Token');
-        if (a.twofa) assetTags.push('2FA');
-        if (a.email) assetTags.push('Email');
-        if (a.email_password) assetTags.push('EmailPwd');
-
         const row = document.createElement('tr');
-        row.style.cssText = `border-bottom: 1px solid var(--border); cursor: pointer; background: ${status === 'ready' ? 'transparent' : 'rgba(255,255,255,0.02)'}`;
-        row.onclick = () => openAccountModal(a);
+        row.style.cssText = `border-bottom: 1px solid var(--border); background: ${status === 'ready' ? 'transparent' : 'rgba(255,255,255,0.01)'}`;
 
-        const accountCell = makeTableCell('td', a.account || '', 'padding: 12px; font-weight: 500;');
+        // 1. 账号列 (可点击编辑)
+        const accountCell = document.createElement('td');
+        accountCell.style.cssText = 'padding: 10px; font-weight: 600; color: var(--primary); cursor: pointer; text-decoration: underline;';
+        accountCell.textContent = a.account || '';
+        accountCell.onclick = () => openAccountModal(a);
 
+        // 2. 状态列
         const statusCell = document.createElement('td');
-        statusCell.style.cssText = 'padding: 12px;';
+        statusCell.style.cssText = 'padding: 10px;';
         statusCell.appendChild(buildStatusBadge(status));
 
-        const assetsCell = makeTableCell('td', assetTags.join(' · ') || '仅账密', 'padding: 12px; color: var(--text-muted); font-size: 0.7rem;');
+        // 3. 快捷标记列
+        const quickCell = document.createElement('td');
+        quickCell.style.cssText = 'padding: 10px; display: flex; gap: 4px;';
+        
+        const createQuickBtn = (targetStatus, title) => {
+            const btn = document.createElement('button');
+            btn.className = 'btn btn-text p-1 text-xs';
+            btn.innerHTML = STATUS_META[targetStatus].icon;
+            btn.title = `标记为${STATUS_META[targetStatus].text}`;
+            btn.onclick = (e) => {
+                e.stopPropagation();
+                updateAccountStatus(a.account, targetStatus);
+            };
+            if (status === targetStatus) {
+                btn.style.opacity = '1';
+                btn.style.background = 'var(--bg-sidebar)';
+                btn.style.borderRadius = '4px';
+            } else {
+                btn.style.opacity = '0.3';
+            }
+            return btn;
+        };
 
-        row.append(accountCell, statusCell, assetsCell);
+        quickCell.append(
+            createQuickBtn('ready', '就绪'),
+            createQuickBtn('bad_auth', '密错'),
+            createQuickBtn('banned', '封号'),
+            createQuickBtn('2fa_issue', '2FA异常')
+        );
+
+        // 4. 异常详情列
+        const errorCell = makeTableCell('td', a.error_msg || '-', 'padding: 10px; color: var(--error); font-size: 0.7rem; max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;');
+        errorCell.title = a.error_msg || '';
+
+        row.append(accountCell, statusCell, quickCell, errorCell);
         tbody.appendChild(row);
     });
 
@@ -247,9 +295,9 @@ function renderInventory(accounts) {
 }
 
 function updateStats(ready, progress, error) {
-    if(statReady) statReady.textContent = `就绪: ${ready}`;
-    if(statProgress) statProgress.textContent = `执行中: ${progress}`;
-    if(statError) statError.textContent = `异常: ${error}`;
+    if(statReady) statReady.textContent = ready;
+    if(statProgress) statProgress.textContent = progress;
+    if(statError) statError.textContent = error;
 }
 
 function detectDelimiter(text) {
@@ -392,10 +440,12 @@ async function bulkDispatch() {
 
     if (onlineUnits.length === 0) return toast.warn("当前无在线云机");
 
+    const plugin = prompt("请输入要派发的插件名称（如 device_reboot）", (localStorage.getItem("bulkDispatchPlugin") || ""));
+    if (!plugin || !plugin.trim()) return;
+    localStorage.setItem("bulkDispatchPlugin", plugin.trim());
+
     bulkDispatchBtn.disabled = true;
     bulkDispatchBtn.textContent = '批量派发中...';
-
-    sysLog(`开始全局自动指派：正在为 ${onlineUnits.length} 台空闲云机分发登录任务`);
 
     let dispatched = 0;
     for (const u of onlineUnits) {
@@ -407,7 +457,7 @@ async function bulkDispatch() {
         const account = accountRes.data.account;
         const twofa = account.twofa || "";
         const taskData = buildTaskRequest({
-            task: 'x_mobile_login',
+            task: plugin.trim(),
             payload: {
                 device_ip: u.deviceIp,
                 acc: account.account || '',

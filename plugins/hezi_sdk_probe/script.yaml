@@ -3,7 +3,7 @@ workflow: hezi_sdk_probe
 steps:
   - label: 探测 SDK 服务状态
     kind: action
-    action: sdk.ping
+    action: sdk.get_api_version
     params:
       device_ip: "${payload.device_ip}"
 

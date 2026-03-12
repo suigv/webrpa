@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 from engine.actions import state_actions
 from engine.models.runtime import ActionResult, ExecutionContext
-from engine.models.ui_state import X_LOGIN_STAGE_VALUES, normalize_x_login_stage
+from engine.models.ui_state import LOGIN_STAGE_VALUES, normalize_login_stage
 
 
 @dataclass(frozen=True)
@@ -25,8 +25,8 @@ def normalize_supported_state(state_id: str, supported_state_ids: Sequence[str])
     return candidate if candidate in supported_state_ids else "unknown"
 
 
-def extract_x_login_state_id(action_result: ActionResult) -> str:
-    return normalize_x_login_stage(str(action_result.data.get("stage", "unknown") or "unknown"))
+def extract_login_state_id(action_result: ActionResult) -> str:
+    return normalize_login_stage(str(action_result.data.get("stage", "unknown") or "unknown"))
 
 
 def extract_presence_state_id(
@@ -50,15 +50,15 @@ def is_presence_style_binding(binding: NativeStateBinding) -> bool:
     return "available" in binding.supported_state_ids and "missing" in binding.supported_state_ids
 
 
-_X_LOGIN_BINDING = NativeStateBinding(
-    binding_id="x_login",
-    display_name="X login",
+_LOGIN_STAGE_BINDING = NativeStateBinding(
+    binding_id="login_stage",
+    display_name="login",
     state_noun="stage",
-    supported_state_ids=X_LOGIN_STAGE_VALUES,
-    normalize_state_id=normalize_x_login_stage,
-    state_id_from_action_result=extract_x_login_state_id,
-    match_action=state_actions.detect_x_login_stage,
-    wait_action=state_actions.wait_x_login_stage,
+    supported_state_ids=LOGIN_STAGE_VALUES,
+    normalize_state_id=normalize_login_stage,
+    state_id_from_action_result=extract_login_state_id,
+    match_action=state_actions.detect_login_stage,
+    wait_action=state_actions.wait_login_stage,
 )
 
 _DM_UNREAD_BINDING = NativeStateBinding(
@@ -140,7 +140,7 @@ _FOLLOW_TARGETS_BINDING = NativeStateBinding(
 )
 
 _BINDINGS: dict[str, NativeStateBinding] = {
-    _X_LOGIN_BINDING.binding_id: _X_LOGIN_BINDING,
+    _LOGIN_STAGE_BINDING.binding_id: _LOGIN_STAGE_BINDING,
     _DM_UNREAD_BINDING.binding_id: _DM_UNREAD_BINDING,
     _DM_LAST_MESSAGE_BINDING.binding_id: _DM_LAST_MESSAGE_BINDING,
     _DM_LAST_OUTBOUND_BINDING.binding_id: _DM_LAST_OUTBOUND_BINDING,

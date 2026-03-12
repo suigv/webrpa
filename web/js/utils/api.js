@@ -1,4 +1,4 @@
-import { toast } from '../ui/toast.js';
+import { toast } from '/static/js/ui/toast.js';
 
 export async function fetchJson(url, opts = {}) {
     const { silentErrors = false, ...fetchOptions } = opts;
@@ -23,6 +23,17 @@ export async function fetchJson(url, opts = {}) {
         if (!silentErrors) {
             toast.error(`Network Error: ${e.message}`);
         }
+        return { ok: false, status: 0, data: null };
+    }
+}
+
+export async function fetchText(url, opts = {}) {
+    try {
+        const res = await fetch(url, opts);
+        const data = await res.text();
+        return { ok: res.ok, status: res.status, data };
+    } catch (e) {
+        console.error("Network Error (Text):", e);
         return { ok: false, status: 0, data: null };
     }
 }

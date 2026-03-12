@@ -66,7 +66,10 @@ class LanDeviceDiscovery:
             return []
         if network.prefixlen < 24:
             network = ipaddress.ip_network(f"{network.network_address}/24", strict=False)
-        return [str(ip) for ip in network.hosts()]
+        return [
+            str(ip) for ip in network.hosts()
+            if not ipaddress.ip_address(ip).is_loopback
+        ]
 
     def _probe_ip(self, ip: str, port: int) -> bool:
         try:
@@ -102,7 +105,10 @@ class LanDeviceDiscovery:
                 except Exception:
                     continue
 
-        hits_sorted = sorted(set(hits), key=lambda value: tuple(int(part) for part in value.split(".")))
+        hits_sorted = sorted(
+            {ip for ip in hits if not ipaddress.ip_address(ip).is_loopback},
+            key=lambda value: tuple(int(part) for part in value.split(".")),
+        )
         with self._scan_lock:
             self._discovered_ips = hits_sorted
             self._last_scan_at = time.time()

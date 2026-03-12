@@ -75,10 +75,13 @@ curl http://127.0.0.1:8001/health
 ### Plugin Workflow Boundary
 - Plugins should express business workflows, not low-level transport or fallback boilerplate.
 - When a workflow repeats the same fallback sequence three or more times, add a composite action instead of copying more YAML.
+- Prefer shared composite actions (e.g., selector batch loading + fallback click chains) for repetitive selector wiring.
 - Treat unusually long plugin scripts as an architecture smell that requires review, especially login/onboarding flows.
 
 ### Adapter Layer
-- `hardware_adapters/myt_client.py` is optional capability.
+- `hardware_adapters/myt_client.py` (`MytSdkClient`) — 8000 port, device-level SDK (container lifecycle, images, backup, SSH, VPC).
+- `hardware_adapters/android_api_client.py` (`AndroidApiClient`) — 30001 port, cloud machine Android HTTP API.
+- `hardware_adapters/mytRpc.py` (`MytRpc`) — 30002 port, RPA control (touch/key/screenshot/UI nodes).
 - Native lib loading must be lazy and failure-safe.
 - `hardware_adapters/browser_client.py` is optional browser capability based on vendored DrissionPage.
 - Browser adapter must fail gracefully when DrissionPage or browser runtime is unavailable.
@@ -87,11 +90,11 @@ curl http://127.0.0.1:8001/health
 Each cloud machine has two ports; each device has one SDK port.
 Ports are determined by `cloud_index` only — device IP provides isolation.
 
-| Port | Formula | Role |
-|---|---|---|
-| `api_port` | `30000 + (cloud-1)*100 + 1` | Cloud machine HTTP API interface |
-| `rpa_port` | `30000 + (cloud-1)*100 + 2` | MytRpc control channel (touch/app/key) |
-| `sdk_port` | `8000` (configurable) | Device-level control API, shared across all clouds |
+| Port | Formula | Role | Client |
+|---|---|---|---|
+| `api_port` | `30000 + (cloud-1)*100 + 1` | Cloud machine Android HTTP API (clipboard, proxy, screenshot, language, etc.) | `AndroidApiClient` |
+| `rpa_port` | `30000 + (cloud-1)*100 + 2` | MytRpc control channel (touch/app/key/UI nodes) | `MytRpc` |
+| `sdk_port` | `8000` (configurable) | Device-level SDK API — container lifecycle, images, backup, SSH, VPC | `MytSdkClient` |
 
 Example (device IP `192.168.1.214`, 10 clouds):
 ```
@@ -103,7 +106,7 @@ Different devices use the same port numbers but different IPs — `(ip, port)` i
 
 ### Data and Config Layer
 - `core/config_loader.py` controls runtime config access.
-- `core/data_store.py` controls JSON data I/O.
+- `core/base_store.py` is the SQLite base class (WAL mode, unified transactions).
 - Legacy TXT migration remains opt-in only.
 
 ## Pluginization Direction
@@ -149,16 +152,15 @@ uv pip install -r requirements.txt
 Start service:
 ```bash
 uv run python api/server.py
-uv run uvicorn api.server:app --reload
-uv run uvicorn api.server:app --host 0.0.0.0 --port 8000
+uv run uvicorn api.server:app --host 0.0.0.0 --port 8001
 ```
 
 Operational debugging:
 ```bash
-curl http://localhost:8000/health | jq
-curl http://localhost:8000/api/tasks/metrics | jq
-curl -N http://localhost:8000/api/tasks/{task_id}/events
-websocat ws://localhost:8000/ws/logs
+curl http://localhost:8001/health | jq
+curl http://localhost:8001/api/tasks/metrics | jq
+curl -N http://localhost:8001/api/tasks/{task_id}/events
+websocat ws://localhost:8001/ws/logs
 ```
 
 Code quality:
@@ -175,22 +177,23 @@ uv run ruff format .
   - Reuse standard response models where possible.
 - New engine action:
   - Add implementation in `engine/actions/`.
-  - Register via `register_action("namespace.action")`.
-  - First argument must be execution context (`ctx`).
+  - Register via `register_defaults()` in `engine/action_registry.py`.
+  - Action handlers must return `ActionResult`.
   - Keep the action narrowly scoped; if the change needs selector frameworks, shared state policy, or complex connection management, extract helpers or submodules instead of growing a god-file.
 - Task system key classes:
   - `TaskController` (`core/task_control.py`)
   - `TaskExecutionService` (`core/task_execution.py`)
   - `TaskAttemptFinalizer` (`core/task_finalizer.py`)
   - `TaskMetricsService` (`core/task_metrics.py`)
-  - `TaskQueue` (`core/task_queue.py`)
+  - `InMemoryTaskQueue` / `RedisTaskQueue` (`core/task_queue.py`)
   - `TaskStore` (`core/task_store.py`)
-  - `TaskEventEmitter` (`core/task_events.py`)
-  - `WorkflowInterpreter` (`engine/interpreter.py`)
+  - `TaskEventStore` (`core/task_events.py`)
+  - `Interpreter` (`engine/interpreter.py`)
 - Humanized behavior config:
   - `models/humanized.HumanizedConfig` controls move/click/input rhythm and fallback strategy.
-- Config hot reload:
-  - `common/config_manager.py` watches `config/` and reloads using `watchdog`.
+- Config and Paths:
+  - Use `core/paths.py` for all directory resolutions.
+  - `core/config_loader.py` is the primary entry point for device and system config.
 
 ### Additional Do-Not Rules
 - Do not directly mutate `config/data/tasks.db`; use task store/control APIs.
@@ -201,16 +204,16 @@ uv run ruff format .
 - Do not solve repeated workflow boilerplate by copying more YAML when a composite action is the real abstraction.
 
 ### Plugin Notes
-- Reference implementation path: `plugins/x_mobile_login/`.
-- Workflow supports template interpolation, e.g. `{{ credentials.username }}`.
+- Reference implementation path: `plugins/hezi_sdk_probe/`.
+- Workflow supports template interpolation: `${payload.key}`, `${vars.key}`, and `${payload.url:-default_val}`. Do NOT use Jinja2 `{{ }}` syntax.
 
 ### Debug Tips
 Task execution flow quick check:
 ```bash
-response=$(curl -s -X POST http://localhost:8000/api/tasks -H "Content-Type: application/json" -d '{"name":"test","priority":10}')
+response=$(curl -s -X POST http://localhost:8001/api/tasks -H "Content-Type: application/json" -d '{"name":"test","priority":10}')
 task_id=$(echo "$response" | jq -r '.data.task_id')
-curl -N http://localhost:8000/api/tasks/$task_id/events
-curl http://localhost:8000/api/tasks/$task_id | jq
+curl -N http://localhost:8001/api/tasks/$task_id/events
+curl http://localhost:8001/api/tasks/$task_id | jq
 ```
 
 Action registry smoke check:

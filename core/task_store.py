@@ -2,19 +2,15 @@ from __future__ import annotations
 
 import json
 import sqlite3
-import threading
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Iterator, Optional, List
 
-from core.paths import project_root, task_db_path
-
-
-def _project_root() -> Path:
-    return project_root()
+from core.paths import task_db_path
+from core.base_store import BaseStore
 
 
 def _db_path() -> Path:
@@ -29,6 +25,7 @@ def _next_retry_iso(backoff_seconds: int) -> str:
     dt = datetime.now(timezone.utc) + timedelta(seconds=max(0, int(backoff_seconds)))
     return dt.isoformat()
 
+TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
 
 @dataclass
 class TaskRecord:
@@ -58,434 +55,288 @@ class ManagedTaskStateClearBlocked(RuntimeError):
     pass
 
 
-class TaskStore:
+class TaskStore(BaseStore):
     def __init__(self, db_path: Path | None = None) -> None:
-        self._db_path = db_path or _db_path()
-        self._lock = threading.RLock()
-        self._init_schema()
+        db_path = db_path or _db_path()
+        super().__init__(db_path=db_path)
 
-    def _connect(self) -> sqlite3.Connection:
-        return sqlite3.connect(str(self._db_path), timeout=30)
-
-    def _init_schema(self) -> None:
-        with self._lock:
-            with self._connect() as conn:
-                _ = conn.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS tasks (
-                        task_id TEXT PRIMARY KEY,
-                        payload_json TEXT NOT NULL,
-                        devices_json TEXT NOT NULL,
-                        targets_json TEXT,
-                        ai_type TEXT NOT NULL,
-                        idempotency_key TEXT,
-                        status TEXT NOT NULL,
-                        created_at TEXT NOT NULL,
-                        updated_at TEXT NOT NULL,
-                        started_at TEXT,
-                        finished_at TEXT,
-                        result_json TEXT,
-                        error TEXT,
-                        retry_count INTEGER NOT NULL DEFAULT 0,
-                        max_retries INTEGER NOT NULL DEFAULT 0,
-                        retry_backoff_seconds INTEGER NOT NULL DEFAULT 2,
-                        next_retry_at TEXT,
-                        cancel_requested INTEGER NOT NULL DEFAULT 0,
-                        priority INTEGER NOT NULL DEFAULT 50,
-                        run_at TEXT
-                    )
-                    """
+    def init_schema(self) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS tasks (
+                    task_id TEXT PRIMARY KEY,
+                    payload_json TEXT NOT NULL,
+                    devices_json TEXT NOT NULL,
+                    targets_json TEXT,
+                    ai_type TEXT NOT NULL,
+                    idempotency_key TEXT,
+                    status TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    started_at TEXT,
+                    finished_at TEXT,
+                    result_json TEXT,
+                    error TEXT,
+                    retry_count INTEGER NOT NULL DEFAULT 0,
+                    max_retries INTEGER NOT NULL DEFAULT 0,
+                    retry_backoff_seconds INTEGER NOT NULL DEFAULT 2,
+                    next_retry_at TEXT,
+                    cancel_requested INTEGER NOT NULL DEFAULT 0,
+                    priority INTEGER NOT NULL DEFAULT 50,
+                    run_at TEXT
                 )
-                columns = {
-                    str(row[1])
-                    for row in conn.execute("PRAGMA table_info(tasks)").fetchall()
-                }
-                if "targets_json" not in columns:
-                    _ = conn.execute("ALTER TABLE tasks ADD COLUMN targets_json TEXT")
-                if "retry_count" not in columns:
-                    _ = conn.execute("ALTER TABLE tasks ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0")
-                if "max_retries" not in columns:
-                    _ = conn.execute("ALTER TABLE tasks ADD COLUMN max_retries INTEGER NOT NULL DEFAULT 0")
-                if "retry_backoff_seconds" not in columns:
-                    _ = conn.execute(
-                        "ALTER TABLE tasks ADD COLUMN retry_backoff_seconds INTEGER NOT NULL DEFAULT 2"
-                    )
-                if "next_retry_at" not in columns:
-                    _ = conn.execute("ALTER TABLE tasks ADD COLUMN next_retry_at TEXT")
-                if "cancel_requested" not in columns:
-                    _ = conn.execute("ALTER TABLE tasks ADD COLUMN cancel_requested INTEGER NOT NULL DEFAULT 0")
-                if "priority" not in columns:
-                    _ = conn.execute("ALTER TABLE tasks ADD COLUMN priority INTEGER NOT NULL DEFAULT 50")
-                if "run_at" not in columns:
-                    _ = conn.execute("ALTER TABLE tasks ADD COLUMN run_at TEXT")
-                if "idempotency_key" not in columns:
-                    _ = conn.execute("ALTER TABLE tasks ADD COLUMN idempotency_key TEXT")
-                _ = conn.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_tasks_idempotency_status_created ON tasks(idempotency_key, status, created_at)"
-                )
-                conn.commit()
-
-    @contextmanager
-    def transaction(self, immediate: bool = False) -> Iterator[sqlite3.Connection]:
-        with self._lock:
-            conn = self._connect()
-            try:
-                if immediate:
-                    conn.execute("BEGIN IMMEDIATE")
-                yield conn
-                conn.commit()
-            except Exception:
-                conn.rollback()
-                raise
-            finally:
-                conn.close()
+                """
+            )
+            columns = {
+                str(row[1])
+                for row in conn.execute("PRAGMA table_info(tasks)").fetchall()
+            }
+            # 自动迁移缺失列
+            if "targets_json" not in columns:
+                conn.execute("ALTER TABLE tasks ADD COLUMN targets_json TEXT")
+            if "retry_count" not in columns:
+                conn.execute("ALTER TABLE tasks ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0")
+            if "max_retries" not in columns:
+                conn.execute("ALTER TABLE tasks ADD COLUMN max_retries INTEGER NOT NULL DEFAULT 0")
+            if "retry_backoff_seconds" not in columns:
+                conn.execute("ALTER TABLE tasks ADD COLUMN retry_backoff_seconds INTEGER NOT NULL DEFAULT 2")
+            if "next_retry_at" not in columns:
+                conn.execute("ALTER TABLE tasks ADD COLUMN next_retry_at TEXT")
+            if "cancel_requested" not in columns:
+                conn.execute("ALTER TABLE tasks ADD COLUMN cancel_requested INTEGER NOT NULL DEFAULT 0")
+            if "priority" not in columns:
+                conn.execute("ALTER TABLE tasks ADD COLUMN priority INTEGER NOT NULL DEFAULT 50")
+            if "run_at" not in columns:
+                conn.execute("ALTER TABLE tasks ADD COLUMN run_at TEXT")
+            if "idempotency_key" not in columns:
+                conn.execute("ALTER TABLE tasks ADD COLUMN idempotency_key TEXT")
+            
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_idempotency_key ON tasks(idempotency_key)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_priority ON tasks(priority)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_run_at ON tasks(run_at)")
+            conn.commit()
 
     def create_task(
         self,
-        task_id: str,
+        task_id: str | None,
         payload: dict[str, Any],
         devices: list[int],
-        targets: list[dict[str, int]] | None,
-        ai_type: str,
-        idempotency_key: str | None,
-        max_retries: int,
-        retry_backoff_seconds: int,
-        priority: int,
-        run_at: str | None,
+        targets: list[dict[str, int]] | None = None,
+        ai_type: str = "volc",
+        max_retries: int = 0,
+        retry_backoff_seconds: int = 2,
+        priority: int = 50,
+        run_at: str | None = None,
+        idempotency_key: str | None = None,
         conn: sqlite3.Connection | None = None,
-    ) -> None:
-        if conn is None:
-            with self.transaction(immediate=True) as tx_conn:
-                self.create_task(
-                    task_id=task_id,
-                    payload=payload,
-                    devices=devices,
-                    targets=targets,
-                    ai_type=ai_type,
-                    idempotency_key=idempotency_key,
-                    max_retries=max_retries,
-                    retry_backoff_seconds=retry_backoff_seconds,
-                    priority=priority,
-                    run_at=run_at,
-                    conn=tx_conn,
-                )
-            return
+    ) -> TaskRecord:
+        task_id = task_id or str(uuid.uuid4())
         now = _now_iso()
-        self._insert_task(
-            conn=conn,
-            task_id=task_id,
-            payload=payload,
-            devices=devices,
-            targets=targets,
-            ai_type=ai_type,
-            idempotency_key=idempotency_key,
-            max_retries=max_retries,
-            retry_backoff_seconds=retry_backoff_seconds,
-            priority=priority,
-            run_at=run_at,
-            now=now,
+        record = TaskRecord(
+            task_id=task_id, payload=payload, devices=devices, targets=targets,
+            ai_type=ai_type, idempotency_key=idempotency_key, status="pending",
+            created_at=now, updated_at=now, max_retries=max_retries,
+            retry_backoff_seconds=retry_backoff_seconds, priority=priority, run_at=run_at,
         )
+        sql = """
+            INSERT INTO tasks (
+                task_id, payload_json, devices_json, targets_json, ai_type,
+                idempotency_key, status, created_at, updated_at,
+                max_retries, retry_backoff_seconds, priority, run_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """
+        params = (
+            record.task_id, json.dumps(record.payload, ensure_ascii=False),
+            json.dumps(record.devices), json.dumps(record.targets) if record.targets else None,
+            record.ai_type, record.idempotency_key, record.status, record.created_at, record.updated_at,
+            record.max_retries, record.retry_backoff_seconds, record.priority, record.run_at
+        )
+        with self._tx(conn) as tx_conn:
+            tx_conn.execute(sql, params)
+        return record
 
-    def create_or_get_active_task(
-        self,
-        payload: dict[str, Any],
-        devices: list[int],
-        targets: list[dict[str, int]] | None,
-        ai_type: str,
-        idempotency_key: str | None,
-        max_retries: int,
-        retry_backoff_seconds: int,
-        priority: int,
-        run_at: str | None,
-        conn: sqlite3.Connection | None = None,
-    ) -> tuple[TaskRecord, bool]:
-        if conn is None:
-            with self.transaction(immediate=True) as tx_conn:
-                return self.create_or_get_active_task(
-                    payload=payload,
-                    devices=devices,
-                    targets=targets,
-                    ai_type=ai_type,
-                    idempotency_key=idempotency_key,
-                    max_retries=max_retries,
-                    retry_backoff_seconds=retry_backoff_seconds,
-                    priority=priority,
-                    run_at=run_at,
-                    conn=tx_conn,
-                )
-        task_id = str(uuid.uuid4())
-        now = _now_iso()
-        if idempotency_key:
-            existing = conn.execute(
+    def find_active_by_idempotency_key(self, key: str, conn: sqlite3.Connection | None = None) -> TaskRecord | None:
+        with self._tx(conn) as tx_conn:
+            row = tx_conn.execute(
                 """
-                SELECT task_id, payload_json, devices_json, targets_json, ai_type, idempotency_key, status,
-                       created_at, updated_at, started_at, finished_at,
-                       result_json, error, retry_count, max_retries,
-                       retry_backoff_seconds, next_retry_at, cancel_requested,
-                       priority, run_at
-                FROM tasks
+                SELECT * FROM tasks
                 WHERE idempotency_key = ?
-                  AND status IN ('pending', 'running')
+                AND status NOT IN ('completed', 'failed', 'cancelled')
                 ORDER BY created_at DESC
                 LIMIT 1
                 """,
-                (idempotency_key,),
+                (key,),
             ).fetchone()
-            if existing is not None:
-                return self._row_to_record(existing), False
-        self._insert_task(
-            conn=conn,
-            task_id=task_id,
-            payload=payload,
-            devices=devices,
-            targets=targets,
-            ai_type=ai_type,
-            idempotency_key=idempotency_key,
-            max_retries=max_retries,
-            retry_backoff_seconds=retry_backoff_seconds,
-            priority=priority,
-            run_at=run_at,
-            now=now,
-        )
-
-        created = self.get_task(task_id, conn=conn)
-        if created is None:
-            raise RuntimeError("failed to create task")
-        return created, True
-
-    def _insert_task(
-        self,
-        conn: sqlite3.Connection,
-        task_id: str,
-        payload: dict[str, Any],
-        devices: list[int],
-        targets: list[dict[str, int]] | None,
-        ai_type: str,
-        idempotency_key: str | None,
-        max_retries: int,
-        retry_backoff_seconds: int,
-        priority: int,
-        run_at: str | None,
-        now: str,
-    ) -> None:
-        _ = conn.execute(
-            """
-            INSERT INTO tasks (
-                task_id, payload_json, devices_json, targets_json, ai_type,
-                idempotency_key,
-                status, created_at, updated_at,
-                retry_count, max_retries, retry_backoff_seconds, next_retry_at
-                , cancel_requested, priority, run_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                task_id,
-                json.dumps(payload, ensure_ascii=False),
-                json.dumps(devices, ensure_ascii=False),
-                json.dumps(targets, ensure_ascii=False) if targets is not None else None,
-                ai_type,
-                idempotency_key,
-                "pending",
-                now,
-                now,
-                0,
-                int(max_retries),
-                int(retry_backoff_seconds),
-                None,
-                0,
-                int(priority),
-                run_at,
-            ),
-        )
-
-    def _row_to_record(self, row: tuple[Any, ...]) -> TaskRecord:
-        payload = json.loads(str(row[1]))
-        targets: list[dict[str, int]] | None = None
-        if row[3]:
-            try:
-                targets = json.loads(str(row[3]))
-            except (ValueError, TypeError):
-                targets = None
-        return TaskRecord(
-            task_id=str(row[0]),
-            payload=payload,
-            devices=json.loads(str(row[2])),
-            targets=targets,
-            ai_type=str(row[4]),
-            idempotency_key=str(row[5]) if row[5] is not None else None,
-            status=str(row[6]),
-            created_at=str(row[7]),
-            updated_at=str(row[8]),
-            started_at=str(row[9]) if row[9] is not None else None,
-            finished_at=str(row[10]) if row[10] is not None else None,
-            result=json.loads(str(row[11])) if row[11] else None,
-            error=str(row[12]) if row[12] is not None else None,
-            retry_count=int(row[13]),
-            max_retries=int(row[14]),
-            retry_backoff_seconds=int(row[15]),
-            next_retry_at=str(row[16]) if row[16] is not None else None,
-            cancel_requested=bool(int(row[17])),
-            priority=int(row[18]),
-            run_at=str(row[19]) if row[19] is not None else None,
-        )
+            if row:
+                return self._row_to_record(row)
+        return None
 
     def get_task(self, task_id: str, conn: sqlite3.Connection | None = None) -> TaskRecord | None:
-        if conn is None:
-            with self._lock:
-                with self._connect() as tx_conn:
-                    row = tx_conn.execute(
-                        """
-                        SELECT task_id, payload_json, devices_json, targets_json, ai_type, idempotency_key, status,
-                               created_at, updated_at, started_at, finished_at,
-                               result_json, error, retry_count, max_retries,
-                               retry_backoff_seconds, next_retry_at, cancel_requested,
-                               priority, run_at
-                        FROM tasks WHERE task_id = ?
-                        """,
-                        (task_id,),
-                    ).fetchone()
-        else:
-            row = conn.execute(
-                """
-                SELECT task_id, payload_json, devices_json, targets_json, ai_type, idempotency_key, status,
-                       created_at, updated_at, started_at, finished_at,
-                       result_json, error, retry_count, max_retries,
-                       retry_backoff_seconds, next_retry_at, cancel_requested,
-                       priority, run_at
-                FROM tasks WHERE task_id = ?
-                """,
-                (task_id,),
-            ).fetchone()
-        if row is None:
-            return None
-        return self._row_to_record(row)
+        with self._tx(conn) as tx_conn:
+            row = tx_conn.execute("SELECT * FROM tasks WHERE task_id = ?", (task_id,)).fetchone()
+            if row: return self._row_to_record(row)
+        return None
 
-    def list_pending_tasks(self) -> list[TaskRecord]:
-        with self._lock:
-            with self._connect() as conn:
-                rows = conn.execute(
-                    """
-                    SELECT task_id, payload_json, devices_json, targets_json, ai_type, idempotency_key, status,
-                           created_at, updated_at, started_at, finished_at,
-                           result_json, error, retry_count, max_retries,
-                           retry_backoff_seconds, next_retry_at, cancel_requested,
-                           priority, run_at
-                    FROM tasks
-                    WHERE status = 'pending' AND cancel_requested = 0
-                    ORDER BY created_at ASC
-                    """
-                ).fetchall()
-        return [self._row_to_record(row) for row in rows]
+    def get_running_tasks_by_device(self, device_id: int) -> list[str]:
+        """获取正在某个设备上运行的任务 ID 列表。"""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT task_id, devices_json FROM tasks WHERE status = 'running' OR cancel_requested = 1"
+            ).fetchall()
+            task_ids = []
+            for row in rows:
+                try:
+                    devices = json.loads(row["devices_json"])
+                    if isinstance(devices, list) and device_id in devices:
+                        task_ids.append(row["task_id"])
+                except Exception: continue
+            return task_ids
+
+    def get_running_task_by_cloud(self, device_id: int, cloud_id: int) -> str | None:
+        """检查指定云机是否已被某个运行中任务占用，返回占用的 task_id，否则返回 None。"""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT task_id, targets_json FROM tasks WHERE status = 'running'"
+            ).fetchall()
+            for row in rows:
+                try:
+                    targets = json.loads(row["targets_json"] or "[]")
+                    for t in targets:
+                        if isinstance(t, dict) and int(t.get("device_id", 0)) == device_id and int(t.get("cloud_id", 0)) == cloud_id:
+                            return str(row["task_id"])
+                except Exception:
+                    continue
+            return None
+
+    def _row_to_record(self, row: sqlite3.Row) -> TaskRecord:
+        return TaskRecord(
+            task_id=row["task_id"],
+            payload=json.loads(row["payload_json"]),
+            devices=json.loads(row["devices_json"]),
+            targets=json.loads(row["targets_json"]) if row["targets_json"] else None,
+            ai_type=row["ai_type"],
+            idempotency_key=row["idempotency_key"],
+            status=row["status"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+            started_at=row["started_at"],
+            finished_at=row["finished_at"],
+            result=json.loads(row["result_json"]) if row["result_json"] else None,
+            error=row["error"],
+            retry_count=row["retry_count"],
+            max_retries=row["max_retries"],
+            retry_backoff_seconds=row["retry_backoff_seconds"],
+            next_retry_at=row["next_retry_at"],
+            cancel_requested=bool(row["cancel_requested"]),
+            priority=row["priority"],
+            run_at=row["run_at"],
+        )
 
     def list_tasks(self, limit: int = 100) -> list[TaskRecord]:
-        with self._lock:
-            with self._connect() as conn:
-                rows = conn.execute(
-                    """
-                    SELECT task_id, payload_json, devices_json, targets_json, ai_type, idempotency_key, status,
-                           created_at, updated_at, started_at, finished_at,
-                           result_json, error, retry_count, max_retries,
-                           retry_backoff_seconds, next_retry_at, cancel_requested,
-                           priority, run_at
-                    FROM tasks
-                    ORDER BY created_at DESC
-                    LIMIT ?
-                    """,
-                    (int(limit),),
-                ).fetchall()
-        return [self._row_to_record(row) for row in rows]
+        with self._connect() as conn:
+            rows = conn.execute("SELECT * FROM tasks ORDER BY created_at DESC LIMIT ?", (limit,)).fetchall()
+            return [self._row_to_record(row) for row in rows]
 
     def status_counts(self) -> dict[str, int]:
-        with self._lock:
-            with self._connect() as conn:
-                rows = conn.execute(
-                    """
-                    SELECT status, COUNT(*)
-                    FROM tasks
-                    GROUP BY status
-                    """
-                ).fetchall()
-        counts: dict[str, int] = {}
-        for row in rows:
-            counts[str(row[0])] = int(row[1])
-        return counts
+        with self._connect() as conn:
+            rows = conn.execute("SELECT status, COUNT(*) as cnt FROM tasks GROUP BY status").fetchall()
+        return {str(row["status"]): int(row["cnt"]) for row in rows}
 
-    def recover_stale_running_tasks(
-        self,
-        stale_before: str,
-        message: str = "recovered stale running after controller restart",
-        conn: sqlite3.Connection | None = None,
-    ) -> list[TaskRecord]:
-        if conn is None:
-            with self.transaction(immediate=True) as tx_conn:
-                return self.recover_stale_running_tasks(stale_before=stale_before, message=message, conn=tx_conn)
-        now = _now_iso()
-        recovered: list[TaskRecord] = []
-        rows = conn.execute(
-            """
-            SELECT task_id
-            FROM tasks
-            WHERE status = 'running' AND updated_at <= ?
-            ORDER BY updated_at ASC
-            """,
-            (stale_before,),
-        ).fetchall()
-        for row in rows:
-            task_id = str(row[0])
-            cur = conn.execute(
+    def plugin_success_counts(self) -> list[dict[str, object]]:
+        """按插件统计累计成功/失败/取消次数，用于蒸馏门槛判断。"""
+        with self._connect() as conn:
+            rows = conn.execute(
                 """
-                UPDATE tasks
-                SET status = 'pending',
-                    updated_at = ?,
-                    started_at = NULL,
-                    finished_at = NULL,
-                    error = ?,
-                    cancel_requested = 0
-                WHERE task_id = ? AND status = 'running'
-                """,
-                (now, message, task_id),
-            )
-            if cur.rowcount == 1:
-                record = self.get_task(task_id, conn=conn)
-                if record is not None:
-                    recovered.append(record)
-        return recovered
+                SELECT
+                    json_extract(payload_json, '$.task') as task_name,
+                    status,
+                    COUNT(*) as cnt
+                FROM tasks
+                WHERE status IN ('completed', 'failed', 'cancelled')
+                  AND json_extract(payload_json, '$.task') IS NOT NULL
+                GROUP BY task_name, status
+                """
+            ).fetchall()
+
+        stats: dict[str, dict[str, int]] = {}
+        for row in rows:
+            name = str(row["task_name"])
+            status = str(row["status"])
+            cnt = int(row["cnt"])
+            if name not in stats:
+                stats[name] = {"completed": 0, "failed": 0, "cancelled": 0}
+            stats[name][status] = cnt
+
+        return [
+            {
+                "task_name": name,
+                "completed": s["completed"],
+                "failed": s["failed"],
+                "cancelled": s["cancelled"],
+                "total": s["completed"] + s["failed"] + s["cancelled"],
+                "success_rate": round(s["completed"] / max(1, s["completed"] + s["failed"]), 3),
+            }
+            for name, s in sorted(stats.items())
+        ]
+
+    def request_cancel(self, task_id: str, conn: sqlite3.Connection | None = None) -> str | None:
+        with self._tx(conn) as tx_conn:
+            row = tx_conn.execute("SELECT status FROM tasks WHERE task_id = ?", (task_id,)).fetchone()
+            if not row: return None
+            status = row["status"]
+            if status == "pending":
+                tx_conn.execute("UPDATE tasks SET status = 'cancelled', updated_at = ? WHERE task_id = ?", (_now_iso(), task_id))
+                return "cancelled"
+            if status == "running":
+                tx_conn.execute("UPDATE tasks SET cancel_requested = 1, updated_at = ? WHERE task_id = ?", (_now_iso(), task_id))
+                return "cancelling"
+            return status
+
+    def is_cancel_requested(self, task_id: str, conn: sqlite3.Connection | None = None) -> bool:
+        with self._tx(conn) as tx_conn:
+            row = tx_conn.execute(
+                "SELECT cancel_requested FROM tasks WHERE task_id = ?",
+                (task_id,),
+            ).fetchone()
+            return bool(row["cancel_requested"]) if row else False
 
     def mark_running(self, task_id: str, conn: sqlite3.Connection | None = None) -> bool:
-        if conn is None:
-            with self.transaction(immediate=True) as tx_conn:
-                return self.mark_running(task_id, conn=tx_conn)
         now = _now_iso()
-        cur = conn.execute(
-            """
-            UPDATE tasks
-            SET status = 'running', started_at = COALESCE(started_at, ?), updated_at = ?, next_retry_at = NULL
-            WHERE task_id = ?
-              AND status = 'pending'
-              AND (next_retry_at IS NULL OR next_retry_at <= ?)
-              AND (run_at IS NULL OR run_at <= ?)
-              AND cancel_requested = 0
-            """,
-            (now, now, task_id, now, now),
-        )
-        return cur.rowcount == 1
+        with self._tx(conn) as tx_conn:
+            cur = tx_conn.execute(
+                """
+                UPDATE tasks
+                SET status = 'running',
+                    started_at = ?,
+                    updated_at = ?,
+                    next_retry_at = NULL,
+                    finished_at = NULL,
+                    error = NULL,
+                    result_json = NULL
+                WHERE task_id = ? AND status = 'pending'
+                """,
+                (now, now, task_id),
+            )
+            return cur.rowcount > 0
 
-    def mark_completed(self, task_id: str, result: dict[str, Any], conn: sqlite3.Connection | None = None) -> None:
-        if conn is None:
-            with self.transaction(immediate=True) as tx_conn:
-                self.mark_completed(task_id, result=result, conn=tx_conn)
-            return
+    def mark_cancelled(self, task_id: str, message: str | None = None, conn: sqlite3.Connection | None = None) -> None:
         now = _now_iso()
-        _ = conn.execute(
-            """
-            UPDATE tasks
-            SET status = 'completed', finished_at = ?, updated_at = ?,
-                result_json = ?, error = NULL, next_retry_at = NULL
-                , cancel_requested = 0
-            WHERE task_id = ?
-            """,
-            (now, now, json.dumps(result, ensure_ascii=False), task_id),
-        )
+        with self._tx(conn) as tx_conn:
+            tx_conn.execute(
+                """
+                UPDATE tasks
+                SET status = 'cancelled',
+                    updated_at = ?,
+                    finished_at = ?,
+                    error = ?,
+                    next_retry_at = NULL,
+                    cancel_requested = 0
+                WHERE task_id = ?
+                """,
+                (now, now, message, task_id),
+            )
 
     def mark_failed(
         self,
@@ -494,180 +345,157 @@ class TaskStore:
         result: dict[str, Any] | None = None,
         conn: sqlite3.Connection | None = None,
     ) -> None:
-        if conn is None:
-            with self.transaction(immediate=True) as tx_conn:
-                self.mark_failed(task_id, error=error, result=result, conn=tx_conn)
-            return
         now = _now_iso()
-        _ = conn.execute(
-            """
-            UPDATE tasks
-            SET status = 'failed', finished_at = ?, updated_at = ?,
-                result_json = ?, error = ?, next_retry_at = NULL
-                , cancel_requested = 0
-            WHERE task_id = ?
-            """,
-            (now, now, json.dumps(result, ensure_ascii=False) if result else None, error, task_id),
-        )
+        payload = json.dumps(result, ensure_ascii=False) if result is not None else None
+        with self._tx(conn) as tx_conn:
+            tx_conn.execute(
+                """
+                UPDATE tasks
+                SET status = 'failed',
+                    updated_at = ?,
+                    finished_at = ?,
+                    error = ?,
+                    result_json = ?,
+                    next_retry_at = NULL,
+                    cancel_requested = 0
+                WHERE task_id = ?
+                """,
+                (now, now, error, payload, task_id),
+            )
 
-    def schedule_retry(self, task_id: str, error: str, conn: sqlite3.Connection | None = None) -> TaskRecord | None:
-        if conn is None:
-            with self.transaction(immediate=True) as tx_conn:
-                return self.schedule_retry(task_id, error=error, conn=tx_conn)
-        now = _now_iso()
-        row = conn.execute(
-            """
-            SELECT retry_count, max_retries, retry_backoff_seconds, cancel_requested
-            FROM tasks
-            WHERE task_id = ?
-            """,
-            (task_id,),
-        ).fetchone()
-        if row is None:
-            return None
-        retry_count = int(row[0])
-        max_retries = int(row[1])
-        backoff = int(row[2])
-        cancel_requested = bool(int(row[3]))
-        if cancel_requested:
-            return None
-        if retry_count >= max_retries:
-            return None
-        next_retry_at = _next_retry_iso(backoff * (2**retry_count))
-        _ = conn.execute(
-            """
-            UPDATE tasks
-            SET status = 'pending',
-                updated_at = ?,
-                error = ?,
-                retry_count = retry_count + 1,
-                next_retry_at = ?,
-                result_json = NULL,
-                cancel_requested = 0
-            WHERE task_id = ?
-            """,
-            (now, error, next_retry_at, task_id),
-        )
-        return self.get_task(task_id, conn=conn)
-
-    def find_active_by_idempotency_key(self, idempotency_key: str) -> TaskRecord | None:
-        with self._lock:
-            with self._connect() as conn:
-                row = conn.execute(
-                    """
-                    SELECT task_id, payload_json, devices_json, targets_json, ai_type, idempotency_key, status,
-                           created_at, updated_at, started_at, finished_at,
-                           result_json, error, retry_count, max_retries,
-                           retry_backoff_seconds, next_retry_at, cancel_requested,
-                           priority, run_at
-                    FROM tasks
-                    WHERE idempotency_key = ?
-                      AND status IN ('pending', 'running')
-                    ORDER BY created_at DESC
-                    LIMIT 1
-                    """,
-                    (idempotency_key,),
-                ).fetchone()
-        if row is None:
-            return None
-        return self._row_to_record(row)
-
-    def cancel_pending(self, task_id: str) -> bool:
-        now = _now_iso()
-        with self._lock:
-            with self._connect() as conn:
-                cur = conn.execute(
-                    """
-                    UPDATE tasks
-                    SET status = 'cancelled', finished_at = ?, updated_at = ?,
-                        error = 'cancelled by user', next_retry_at = NULL
-                    WHERE task_id = ? AND status = 'pending'
-                    """,
-                    (now, now, task_id),
-                )
-                conn.commit()
-                return cur.rowcount == 1
-
-    def request_cancel(self, task_id: str, conn: sqlite3.Connection | None = None) -> str | None:
-        if conn is None:
-            with self.transaction(immediate=True) as tx_conn:
-                return self.request_cancel(task_id, conn=tx_conn)
-        now = _now_iso()
-        cur_pending = conn.execute(
-            """
-            UPDATE tasks
-            SET status = 'cancelled', finished_at = ?, updated_at = ?,
-                error = 'cancelled by user', next_retry_at = NULL, cancel_requested = 0
-            WHERE task_id = ? AND status = 'pending'
-            """,
-            (now, now, task_id),
-        )
-        if cur_pending.rowcount == 1:
-            return "cancelled"
-
-        cur_running = conn.execute(
-            """
-            UPDATE tasks
-            SET cancel_requested = 1, updated_at = ?, error = 'cancellation requested'
-            WHERE task_id = ? AND status = 'running'
-            """,
-            (now, task_id),
-        )
-        if cur_running.rowcount == 1:
-            return "cancelling"
-
-        row = conn.execute("SELECT task_id FROM tasks WHERE task_id = ?", (task_id,)).fetchone()
-        if row is None:
-            return None
-        return "unchanged"
-
-    def is_cancel_requested(self, task_id: str) -> bool:
-        with self._lock:
-            with self._connect() as conn:
-                row = conn.execute(
-                    "SELECT cancel_requested FROM tasks WHERE task_id = ?",
-                    (task_id,),
-                ).fetchone()
-        if row is None:
-            return False
-        return bool(int(row[0]))
-
-    def mark_cancelled(
+    def mark_completed(
         self,
         task_id: str,
-        message: str = "cancelled by user",
+        result: dict[str, Any] | None = None,
         conn: sqlite3.Connection | None = None,
     ) -> None:
-        if conn is None:
-            with self.transaction(immediate=True) as tx_conn:
-                self.mark_cancelled(task_id, message=message, conn=tx_conn)
-            return
         now = _now_iso()
-        _ = conn.execute(
-            """
-            UPDATE tasks
-            SET status = 'cancelled', finished_at = ?, updated_at = ?,
-                error = ?, next_retry_at = NULL, cancel_requested = 0
-            WHERE task_id = ?
-            """,
-            (now, now, message, task_id),
-        )
+        payload = json.dumps(result, ensure_ascii=False) if result is not None else None
+        with self._tx(conn) as tx_conn:
+            tx_conn.execute(
+                """
+                UPDATE tasks
+                SET status = 'completed',
+                    updated_at = ?,
+                    finished_at = ?,
+                    result_json = ?,
+                    error = NULL,
+                    next_retry_at = NULL,
+                    cancel_requested = 0
+                WHERE task_id = ?
+                """,
+                (now, now, payload, task_id),
+            )
+
+    def update_task_status(self, task_id: str, status: str, result: dict[str, Any] | None = None, error: str | None = None, conn: sqlite3.Connection | None = None) -> None:
+        now = _now_iso()
+        fields = ["status = ?", "updated_at = ?"]
+        params = [status, now]
+        if result is not None:
+            fields.append("result_json = ?")
+            params.append(json.dumps(result, ensure_ascii=False))
+        if error is not None:
+            fields.append("error = ?")
+            params.append(error)
+        
+        if status == "running":
+            fields.append("started_at = ?")
+            params.append(now)
+        elif status in ("completed", "failed", "cancelled"):
+            fields.append("finished_at = ?")
+            params.append(now)
+
+        sql = f"UPDATE tasks SET {', '.join(fields)} WHERE task_id = ?"
+        params.append(task_id)
+        with self._tx(conn) as tx_conn:
+            tx_conn.execute(sql, params)
+
+    def mark_task_retry(self, task_id: str, backoff_seconds: int, conn: sqlite3.Connection | None = None) -> None:
+        now = _now_iso()
+        next_at = _next_retry_iso(backoff_seconds)
+        sql = "UPDATE tasks SET status = 'pending', retry_count = retry_count + 1, next_retry_at = ?, updated_at = ? WHERE task_id = ?"
+        params = (next_at, now, task_id)
+        with self._tx(conn) as tx_conn:
+            tx_conn.execute(sql, params)
+
+    def schedule_retry(
+        self,
+        task_id: str,
+        error: str,
+        conn: sqlite3.Connection | None = None,
+    ) -> TaskRecord | None:
+        with self._tx(conn) as tx_conn:
+            row = tx_conn.execute("SELECT * FROM tasks WHERE task_id = ?", (task_id,)).fetchone()
+            if not row:
+                return None
+            record = self._row_to_record(row)
+            if record.status in TERMINAL_STATUSES:
+                return None
+            if record.retry_count >= record.max_retries:
+                return None
+
+            now = _now_iso()
+            next_at = _next_retry_iso(record.retry_backoff_seconds)
+            tx_conn.execute(
+                """
+                UPDATE tasks
+                SET status = 'pending',
+                    retry_count = retry_count + 1,
+                    next_retry_at = ?,
+                    updated_at = ?,
+                    error = ?,
+                    result_json = NULL,
+                    finished_at = NULL
+                WHERE task_id = ?
+                """,
+                (next_at, now, error, task_id),
+            )
+            return self.get_task(task_id, conn=tx_conn)
 
     def has_running_tasks(self, conn: sqlite3.Connection | None = None) -> bool:
-        if conn is None:
-            with self._lock:
-                with self._connect() as tx_conn:
-                    return self.has_running_tasks(conn=tx_conn)
-        row = conn.execute(
-            "SELECT COUNT(*) FROM tasks WHERE status = 'running'"
-        ).fetchone()
-        return int(row[0]) > 0
+        with self._tx(conn) as tx_conn:
+            row = tx_conn.execute("SELECT 1 FROM tasks WHERE status = 'running' LIMIT 1").fetchone()
+            return row is not None
 
-    def clear_all_tasks(self, conn: sqlite3.Connection | None = None, *, require_no_running: bool = True) -> None:
-        if conn is None:
-            with self.transaction(immediate=True) as tx_conn:
-                self.clear_all_tasks(conn=tx_conn, require_no_running=require_no_running)
-            return
-        if require_no_running and self.has_running_tasks(conn=conn):
-            raise ManagedTaskStateClearBlocked("cannot clear managed task state while tasks are running")
-        _ = conn.execute("DELETE FROM tasks")
+    def clear_all_tasks(self, conn: sqlite3.Connection | None = None, require_no_running: bool = False) -> None:
+        with self._tx(conn) as tx_conn:
+            if require_no_running and self.has_running_tasks(conn=tx_conn):
+                raise ManagedTaskStateClearBlocked("cannot clear managed task state while tasks are running")
+            tx_conn.execute("DELETE FROM tasks")
+
+    def list_pending_tasks(self) -> list[TaskRecord]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM tasks WHERE status = 'pending' AND (run_at IS NULL OR run_at <= ?) AND (next_retry_at IS NULL OR next_retry_at <= ?) ORDER BY priority DESC, created_at ASC",
+                (_now_iso(), _now_iso())
+            ).fetchall()
+            return [self._row_to_record(row) for row in rows]
+
+    def recover_stale_running_tasks(
+        self,
+        stale_before: str,
+        conn: sqlite3.Connection | None = None,
+    ) -> list[TaskRecord]:
+        with self._tx(conn) as tx_conn:
+            rows = tx_conn.execute(
+                "SELECT * FROM tasks WHERE status = 'running' AND updated_at <= ?",
+                (stale_before,),
+            ).fetchall()
+            if not rows:
+                return []
+
+            now = _now_iso()
+            task_ids = [str(row["task_id"]) for row in rows]
+            tx_conn.executemany(
+                """
+                UPDATE tasks
+                SET status = 'pending',
+                    updated_at = ?,
+                    started_at = NULL,
+                    finished_at = NULL,
+                    next_retry_at = NULL
+                WHERE task_id = ?
+                """,
+                [(now, task_id) for task_id in task_ids],
+            )
+            return [self.get_task(task_id, conn=tx_conn) for task_id in task_ids if task_id]

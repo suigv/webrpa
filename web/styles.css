@@ -441,6 +441,18 @@ input:focus, select:focus, textarea:focus {
 .device-meta { font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); display: flex; flex-direction: column; gap: 4px; }
 
 /* --- Plugin Grid --- */
+.plugin-category-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-top: 12px;
+  margin-bottom: 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.plugin-category-label:first-child { margin-top: 0; }
 .plugin-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
@@ -490,7 +502,7 @@ input:focus, select:focus, textarea:focus {
 }
 
 /* --- Floating Selection Bar --- */
-.selection-bar {
+.selection-dock {
   position: fixed;
   bottom: 32px;
   left: 50%;
@@ -506,8 +518,8 @@ input:focus, select:focus, textarea:focus {
   z-index: 2000;
   animation: slideUpFade 0.3s ease;
 }
-.selection-status { display: flex; align-items: center; font-size: 14px; font-weight: 500; }
-.selection-controls { display: flex; align-items: center; gap: 8px; }
+.dock-info { display: flex; align-items: center; font-size: 14px; font-weight: 500; }
+.dock-actions { display: flex; align-items: center; gap: 8px; }
 .dock-select { height: 32px; border-radius: var(--radius-sm); border-color: var(--border); }
 
 /* --- Overlays & Modals --- */
@@ -571,12 +583,12 @@ input:focus, select:focus, textarea:focus {
   .main-content { padding: 24px 16px 80px 16px; }
   .two-col-layout { grid-template-columns: 1fr; }
   
-  .selection-bar {
+  .selection-dock {
     width: 100%; bottom: 64px; border-radius: 0; border-left: none; border-right: none;
     flex-direction: column; padding: 12px 16px; gap: 12px;
   }
-  .dock-select, .selection-actions .btn { width: 100%; }
-  .selection-actions { width: 100%; display: flex; gap: 8px; }
+  .dock-select, .dock-actions .btn { width: 100%; }
+  .dock-actions { width: 100%; display: flex; gap: 8px; }
 }
 
 /* --- Badges --- */

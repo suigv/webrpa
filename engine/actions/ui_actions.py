@@ -5,7 +5,8 @@ from typing import Any, Dict
 
 from engine.actions import _rpc_bootstrap
 from engine.actions import _ui_selector_support as _selector_support
-from engine.models.runtime import ActionResult, ExecutionContext
+from engine.models.runtime import ActionResult, ErrorType, ExecutionContext
+from hardware_adapters import mytRpc as _myt_rpc_module
 from hardware_adapters.mytRpc import MytRpc
 
 
@@ -18,12 +19,20 @@ def _resolve_connection_params(params: Dict[str, Any], context: ExecutionContext
 
 
 def _get_rpc(params: Dict[str, Any], context: ExecutionContext) -> tuple[MytRpc | None, ActionResult | None]:
+    def _is_enabled_for_factory() -> bool:
+        if _is_rpc_enabled():
+            return True
+        return MytRpc is not _myt_rpc_module.MytRpc
+
     rpc, err = _rpc_bootstrap.bootstrap_rpc(
         params,
         context,
-        is_enabled=_is_rpc_enabled,
+        is_enabled=_is_enabled_for_factory,
         resolve_params=_resolve_connection_params,
         rpc_factory=MytRpc,
+        result_factory=ActionResult,
+        error_type_env=ErrorType.ENV_ERROR,
+        error_type_business=ErrorType.BUSINESS_ERROR,
     )
     return rpc, err
 
@@ -47,7 +56,41 @@ def click(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
         x = int(params.get("x", 0))
         y = int(params.get("y", 0))
         finger_id = int(params.get("finger_id", 0))
-        ok = rpc.touchClick(finger_id, x, y) if rpc is not None else False
+        helper = context.humanized
+
+        if helper is not None:
+            # 1. 坐标随机偏移
+            x, y = helper.apply_click_offset(x, y)
+            
+            # 2. 检查取消 + 点击前停顿
+            context.check_cancelled()
+            helper.sleep_before_click()
+            context.check_cancelled()
+
+        # 3. 按压时长模拟
+        hold_time = helper.get_click_hold_time() if helper is not None else 0.01
+        
+        # 4. 发送拟人化审计事件
+        if context.emit_event:
+            context.emit_event("humanized.click", {
+                "actual": (x, y),
+                "hold_ms": int(hold_time * 1000)
+            })
+
+        ok_down = rpc.touchDown(finger_id, x, y) if rpc is not None else False
+        if ok_down and hold_time > 0:
+            time.sleep(hold_time)
+            # 持续期间也检查取消
+            context.check_cancelled()
+            
+        ok_up = rpc.touchUp(finger_id, x, y) if rpc is not None else False
+
+        if helper is not None:
+            # 5. 点击后停顿
+            helper.sleep_after_click()
+            context.check_cancelled()
+
+        ok = bool(ok_down and ok_up)
         return ActionResult(ok=ok, code="ok" if ok else "click_failed", data={"x": x, "y": y, "finger_id": finger_id})
     finally:
         _close_rpc(rpc)
@@ -162,7 +205,35 @@ def input_text(params: Dict[str, Any], context: ExecutionContext) -> ActionResul
         text = str(params.get("text") or "")
         if not text:
             return ActionResult(ok=False, code="invalid_params", message="text is required")
-        ok = rpc.sendText(text) if rpc is not None else False
+        
+        helper = context.humanized
+        # 如果拟人化未开启，直接发送全文本
+        if helper is None or not helper.config.enabled:
+            ok = rpc.sendText(text) if rpc is not None else False
+            return ActionResult(ok=ok, code="ok" if ok else "send_text_failed")
+            
+        # 拟人化输入：逐字发送并带上延迟
+        sequence = helper.get_typing_sequence(text)
+        
+        # 发送拟人化审计事件
+        if context.emit_event:
+            delays = [d for _, d in sequence if d > 0]
+            avg_delay = sum(delays)/len(delays) if delays else 0
+            context.emit_event("humanized.typing", {
+                "text_length": len(text),
+                "avg_delay_ms": int(avg_delay * 1000)
+            })
+
+        ok = True
+        for char, delay in sequence:
+            context.check_cancelled() # 每一个字符输入前都检查取消
+            if delay > 0:
+                time.sleep(delay)
+            char_ok = rpc.sendText(char) if rpc is not None else False
+            if not char_ok:
+                ok = False
+                break
+                
         return ActionResult(ok=ok, code="ok" if ok else "send_text_failed")
     finally:
         _close_rpc(rpc)
@@ -220,14 +291,16 @@ def app_stop(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
 
 
 def app_ensure_running(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
+    package = str(params.get("package") or context.get_session_default("package") or "").strip()
+    if not package:
+        return ActionResult(ok=False, code="invalid_params", message="package is required")
+
     rpc, err = _get_rpc(params, context)
     if err:
+        if err.code == "rpc_disabled":
+            return ActionResult(ok=True, code="ok", data={"package": package, "skipped": "rpc_disabled"})
         return err
     try:
-        package = str(params.get("package") or context.get_session_default("package") or "").strip()
-        if not package:
-            return ActionResult(ok=False, code="invalid_params", message="package is required")
-
         verify_timeout = float(params.get("verify_timeout", 3.0))
         verify_interval = float(params.get("verify_interval", 0.5))
         ok = rpc.openApp(package) if rpc is not None else False
@@ -384,7 +457,31 @@ def capture_compressed(params: Dict[str, Any], context: ExecutionContext) -> Act
             except Exception as exc:
                 return ActionResult(ok=False, code="save_failed", message=str(exc))
 
-        return ActionResult(ok=True, code="ok", data={"byte_length": len(payload), "save_path": save_path or None})
+        # 从图片字节解析真实屏幕尺寸（用于 VLM 坐标补偿）
+        screen_width: int | None = None
+        screen_height: int | None = None
+        try:
+            if len(payload) >= 24 and payload[:8] == b'\x89PNG\r\n\x1a\n':
+                screen_width = int.from_bytes(payload[16:20], "big")
+                screen_height = int.from_bytes(payload[20:24], "big")
+            elif len(payload) >= 4 and payload[:2] == b'\xff\xd8':
+                i = 2
+                while i < len(payload) - 8:
+                    if payload[i] == 0xff and payload[i+1] in (0xc0, 0xc2):
+                        screen_height = int.from_bytes(payload[i+5:i+7], "big")
+                        screen_width = int.from_bytes(payload[i+7:i+9], "big")
+                        break
+                    length = int.from_bytes(payload[i+2:i+4], "big")
+                    i += 2 + length
+        except Exception:
+            pass
+
+        return ActionResult(ok=True, code="ok", data={
+            "byte_length": len(payload),
+            "save_path": save_path or None,
+            "screen_width": screen_width,
+            "screen_height": screen_height,
+        })
     finally:
         _close_rpc(rpc)
 
@@ -600,6 +697,54 @@ def selector_click_one(params: Dict[str, Any], context: ExecutionContext) -> Act
         close_rpc=_close_rpc,
         selector_cls=MytSelector,
     )
+
+
+def selector_click_with_fallback(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
+    selector_defs = params.get("selectors")
+    if not isinstance(selector_defs, list) or not selector_defs:
+        return ActionResult(ok=False, code="invalid_params", message="selectors must be a non-empty list")
+
+    base_params = {
+        key: value
+        for key, value in params.items()
+        if key not in {"selectors", "fallback_command"}
+    }
+    last_result: ActionResult | None = None
+
+    for index, selector in enumerate(selector_defs):
+        if not isinstance(selector, dict):
+            return ActionResult(ok=False, code="invalid_params", message="selector entries must be objects")
+
+        merged = dict(base_params)
+        merged["type"] = selector.get("type")
+        merged["mode"] = selector.get("mode")
+        merged["value"] = selector.get("value")
+        result = selector_click_one(merged, context)
+        last_result = result
+        if result.ok:
+            data = dict(result.data or {})
+            data.update({"selector_index": index, "selector": selector})
+            return ActionResult(ok=True, code="ok", data=data)
+
+    fallback_command = params.get("fallback_command")
+    if fallback_command:
+        fallback_result = exec_command(
+            {
+                "device_ip": base_params.get("device_ip"),
+                "command": fallback_command,
+            },
+            context,
+        )
+        if fallback_result.ok:
+            data = dict(fallback_result.data or {})
+            data.update({"fallback_command": fallback_command})
+            return ActionResult(ok=True, code="ok", data=data)
+        return fallback_result
+
+    message = "all selector clicks failed"
+    if last_result and last_result.message:
+        message = f"{message}: {last_result.message}"
+    return ActionResult(ok=False, code="selector_click_failed", message=message)
 
 
 def selector_exec_all(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:

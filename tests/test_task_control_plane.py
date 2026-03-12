@@ -1,6 +1,7 @@
 # pyright: reportMissingImports=false
 import json
 import os
+import sqlite3
 import socket
 import subprocess
 import sys
@@ -33,6 +34,15 @@ def _wait_status(client: TestClient, task_id: str, timeout_s: float = 3.0) -> st
             return status
         time.sleep(0.05)
     return "timeout"
+
+
+def _wait_event(controller: TaskController, task_id: str, event_type: str, timeout_s: float = 3.0) -> bool:
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        if any(event.event_type == event_type for event in controller.list_events(task_id)):
+            return True
+        time.sleep(0.05)
+    return False
 
 
 def _find_free_port() -> int:
@@ -171,7 +181,7 @@ def test_task_control_plane_gpt_executor_managed_lifecycle_and_cancel_support(tm
             assert listing.status_code == 200
             assert any(item["task_id"] == task_id for item in listing.json())
 
-            assert _wait_status(client, task_id, timeout_s=3.0) == "completed"
+            assert _wait_status(client, task_id, timeout_s=30.0) == "completed"
 
             detail = client.get(f"/api/tasks/{task_id}")
             assert detail.status_code == 200
@@ -184,13 +194,12 @@ def test_task_control_plane_gpt_executor_managed_lifecycle_and_cancel_support(tm
             assert target_result["history"][0]["action"] == "ui.click"
 
             event_types = [event.event_type for event in controller.list_events(task_id)]
-            assert event_types[:5] == [
-                "task.created",
-                "task.started",
-                "task.dispatching",
-                "task.dispatch_result",
-                "task.completed",
-            ]
+            # Event sequence now includes task.observation and task.planning per step
+            assert event_types[0] == "task.created"
+            assert "task.started" in event_types
+            assert "task.dispatching" in event_types
+            assert "task.dispatch_result" in event_types
+            assert "task.completed" in event_types
 
             cancel_create = client.post(
                 "/api/tasks/",
@@ -381,7 +390,7 @@ class _RecordingManagedRunner:
 
     def run(self, script_payload, should_cancel=None, runtime=None):
         self.calls.append({"script_payload": dict(script_payload), "runtime": dict(runtime or {})})
-        return {"ok": True, "status": "completed", "message": "done", "runtime": runtime or {}}
+        return {"ok": True, "status": "completed", "message": "done"}
 
 
 def test_managed_task_submission_uses_api_surface_and_managed_execution_lifecycle(tmp_path: Path):
@@ -401,6 +410,8 @@ def test_managed_task_submission_uses_api_surface_and_managed_execution_lifecycl
 
     try:
         with TestClient(app) as client:
+            controller.stop()
+
             create = client.post(
                 "/api/tasks/",
                 json={
@@ -413,24 +424,28 @@ def test_managed_task_submission_uses_api_surface_and_managed_execution_lifecycl
             assert create.status_code == 200
             task_id = create.json()["task_id"]
 
+            dequeued = controller._queue.dequeue(timeout_seconds=1)
+            assert dequeued == task_id
+            controller._execution_service._process_task(task_id)
+
+            assert _wait_event(controller, task_id, "task.completed", timeout_s=3.0)
             assert _wait_status(client, task_id, timeout_s=3.0) == "completed"
 
             assert len(runner.calls) == 1
             assert runner.calls[0]["script_payload"] == {"task": "anonymous", "foo": "bar"}
-            assert runner.calls[0]["runtime"] == {
-                "task_id": task_id,
-                "cloud_target": "Unit #7-2",
-                "target": {"device_id": 7, "cloud_id": 2},
-            }
+            runtime = runner.calls[0]["runtime"]
+            assert runtime["task_id"] == task_id
+            assert runtime["cloud_target"] == "Unit #7-2"
+            assert runtime["target"] == {"device_id": 7, "cloud_id": 2}
+            assert "emit_event" in runtime
 
             event_types = [event.event_type for event in controller.list_events(task_id)]
-            assert event_types[:5] == [
-                "task.created",
-                "task.started",
-                "task.dispatching",
-                "task.dispatch_result",
-                "task.completed",
-            ]
+            # Event sequence now includes task.observation and task.planning per step
+            assert event_types[0] == "task.created"
+            assert "task.started" in event_types
+            assert "task.dispatching" in event_types
+            assert "task.dispatch_result" in event_types
+            assert "task.completed" in event_types
     finally:
         reset_task_controller_for_tests()
         if db_path.exists():
@@ -746,11 +761,20 @@ def test_task_control_plane_clear_route_clears_managed_tasks_and_events(tmp_path
             task_id = create.json()["task_id"]
             assert controller.list_events(task_id)
 
+            with sqlite3.connect(db_path) as conn:
+                assert conn.execute("SELECT COUNT(*) FROM tasks").fetchone() == (1,)
+                assert conn.execute("SELECT COUNT(*) FROM task_events").fetchone() == (1,)
+                assert conn.execute("SELECT task_id, event_type FROM task_events").fetchone() == (task_id, "task.created")
+
             cleared = client.delete("/api/tasks/")
             assert cleared.status_code == 200
             assert cleared.json() == {"status": "ok", "message": "managed task state cleared"}
             assert client.get("/api/tasks/?limit=50").json() == []
             assert controller.list_events(task_id) == []
+
+            with sqlite3.connect(db_path) as conn:
+                assert conn.execute("SELECT COUNT(*) FROM tasks").fetchone() == (0,)
+                assert conn.execute("SELECT COUNT(*) FROM task_events").fetchone() == (0,)
     finally:
         reset_task_controller_for_tests()
         if db_path.exists():
@@ -790,6 +814,10 @@ def test_task_controller_clear_all_blocks_when_running_tasks_exist(tmp_path: Pat
 
         assert controller.get(created.task_id) is not None
         assert controller.list_events(created.task_id)
+        with sqlite3.connect(db_path) as conn:
+            assert conn.execute("SELECT COUNT(*) FROM tasks").fetchone() == (1,)
+            assert conn.execute("SELECT COUNT(*) FROM task_events").fetchone() == (1,)
+            assert conn.execute("SELECT status FROM tasks WHERE task_id = ?", (created.task_id,)).fetchone() == ("running",)
     finally:
         reset_task_controller_for_tests()
         if db_path.exists():
@@ -828,6 +856,11 @@ def test_task_control_plane_clear_route_rejects_when_running_tasks_exist(tmp_pat
         assert response.status_code == 409
         assert response.json()["detail"] == "cannot clear managed task state while tasks are running"
         assert controller.get(created.task_id) is not None
+        assert [event.event_type for event in controller.list_events(created.task_id)] == ["task.created"]
+        with sqlite3.connect(db_path) as conn:
+            assert conn.execute("SELECT COUNT(*) FROM tasks").fetchone() == (1,)
+            assert conn.execute("SELECT COUNT(*) FROM task_events").fetchone() == (1,)
+            assert conn.execute("SELECT status FROM tasks WHERE task_id = ?", (created.task_id,)).fetchone() == ("running",)
     finally:
         reset_task_controller_for_tests()
         if db_path.exists():

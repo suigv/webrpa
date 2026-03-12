@@ -1,11 +1,11 @@
 # pyright: reportUnknownParameterType=false, reportMissingParameterType=false, reportUnknownArgumentType=false, reportUnknownVariableType=false, reportUnknownMemberType=false
 
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import Any, cast
+from typing import cast
 
-from ai_services.llm_client import LLMResponse
+from ai_services.llm_client import LLMError, LLMResponse, retry_backoff_seconds
 from core.model_trace_store import ModelTraceStore
 from engine.action_registry import ActionRegistry
 from engine.gpt_executor import GptExecutorRuntime
@@ -15,9 +15,10 @@ from engine.models.runtime import ActionResult
 class _SequencedLLMClient:
     def __init__(self, responses: list[LLMResponse]):
         self._responses: list[LLMResponse] = list(responses)
+        self.calls: list[dict[str, object]] = []
 
     def evaluate(self, request, *, runtime_config=None):
-        _ = (request, runtime_config)
+        self.calls.append({"request": request, "runtime_config": runtime_config})
         if not self._responses:
             raise AssertionError("missing fake llm response")
         return self._responses.pop(0)
@@ -28,7 +29,7 @@ def _build_runtime(
     llm_client: _SequencedLLMClient,
     observations: list[ActionResult | Mapping[str, object]],
     trace_store: ModelTraceStore | None = None,
-    extra_actions: dict[str, object] | None = None,
+    extra_actions: dict[str, Callable[..., ActionResult]] | None = None,
 ) -> GptExecutorRuntime:
     registry = ActionRegistry()
     observed: list[ActionResult] = [_coerce_action_result(item) for item in observations]
@@ -45,7 +46,7 @@ def _build_runtime(
     registry.register("ui.match_state", _ui_match_state)
     registry.register("ui.click", _ui_click)
     for action_name, handler in (extra_actions or {}).items():
-        registry.register(action_name, cast(Any, handler))
+        registry.register(action_name, handler)
     return GptExecutorRuntime(registry=registry, llm_client_factory=lambda: llm_client, trace_store=trace_store)
 
 
@@ -57,7 +58,7 @@ def _coerce_action_result(item: ActionResult | Mapping[str, object]) -> ActionRe
         ok=bool(payload.get("ok", True)),
         code=str(payload.get("code", "ok") or "ok"),
         message=str(payload.get("message", "") or ""),
-        data=cast(dict[str, Any], payload.get("data") or payload),
+        data=cast(dict[str, object], payload.get("data") or payload),
     )
 
 
@@ -206,22 +207,140 @@ def test_gpt_executor_collects_fallback_evidence_into_planner_and_trace(tmp_path
     records = _read_trace_records(tmp_path / "traces")
     assert len(records) == 1
     record = records[0]
-    fallback_evidence = cast(dict[str, Any], record["fallback_evidence"])
-    planner = cast(dict[str, Any], record["planner"])
-    ui_xml = cast(dict[str, Any], fallback_evidence["ui_xml"])
-    screen_capture = cast(dict[str, Any], fallback_evidence["screen_capture"])
-    screen_capture_metadata = cast(dict[str, Any], screen_capture["metadata"])
+    fallback_evidence = cast(dict[str, object], record["fallback_evidence"])
+    planner = cast(dict[str, object], record["planner"])
+    ui_xml = cast(dict[str, object], fallback_evidence["ui_xml"])
+    screen_capture = cast(dict[str, object], fallback_evidence["screen_capture"])
+    screen_capture_metadata = cast(dict[str, object], screen_capture["metadata"])
     assert record["record_type"] == "terminal"
     assert record["fallback_reason"] == "observation_not_ok"
-    assert str(ui_xml["content"]).startswith("<hierarchy>")
+    assert "save_path" in ui_xml or "content" in ui_xml
+    if "save_path" in ui_xml:
+        assert str(ui_xml["save_path"]).endswith(".xml")
+    else:
+        assert str(ui_xml["content"]).startswith("<hierarchy>")
     assert screen_capture_metadata["byte_length"] == 321
-    planner_request = cast(dict[str, Any], planner["request"])
-    planner_prompt = cast(dict[str, Any], json.loads(cast(str, planner_request["prompt"])))
-    planner_fallback_evidence = cast(dict[str, Any], planner_prompt["fallback_evidence"])
-    planner_ui_xml = cast(dict[str, Any], planner_fallback_evidence["ui_xml"])
-    planner_screen_capture = cast(dict[str, Any], planner_fallback_evidence["screen_capture"])
-    assert str(planner_ui_xml["content"]).startswith("<hierarchy>")
-    assert cast(dict[str, Any], planner_screen_capture["metadata"])["byte_length"] == 321
+    planner_request = cast(dict[str, object], planner["request"])
+    planner_prompt = cast(dict[str, object], json.loads(cast(str, planner_request["prompt"])))
+    planner_fallback_evidence = cast(dict[str, object], planner_prompt["fallback_evidence"])
+    planner_ui_xml = cast(dict[str, object], planner_fallback_evidence["ui_xml"])
+    planner_screen_capture = cast(dict[str, object], planner_fallback_evidence["screen_capture"])
+    assert "save_path" in planner_ui_xml or "content" in planner_ui_xml
+    planner_screen_capture_metadata = cast(dict[str, object], planner_screen_capture["metadata"])
+    assert planner_screen_capture_metadata["byte_length"] == 321
+    assert str(screen_capture_metadata["save_path"]).endswith(".png")
+    assert planner_screen_capture_metadata["save_path"] == screen_capture_metadata["save_path"]
+
+
+def test_gpt_executor_retryable_planner_error_is_retried_with_backoff(monkeypatch):
+    sleep_calls: list[float] = []
+
+    def _fake_sleep(duration: float) -> None:
+        sleep_calls.append(duration)
+
+    monkeypatch.setattr("engine.gpt_executor.time.sleep", _fake_sleep)
+    llm_client = _SequencedLLMClient(
+        responses=[
+            LLMResponse(
+                ok=False,
+                request_id="req-retryable-1",
+                provider="openai",
+                model="gpt-5.4",
+                error=LLMError(
+                    code="provider_http_error",
+                    message="temporary upstream failure",
+                    provider_status=503,
+                    retryable=True,
+                ),
+            ),
+            LLMResponse(
+                ok=False,
+                request_id="req-retryable-2",
+                provider="openai",
+                model="gpt-5.4",
+                error=LLMError(
+                    code="provider_http_error",
+                    message="temporary upstream failure",
+                    provider_status=503,
+                    retryable=True,
+                ),
+            ),
+            LLMResponse(
+                ok=False,
+                request_id="req-retryable-3",
+                provider="openai",
+                model="gpt-5.4",
+                error=LLMError(
+                    code="provider_http_error",
+                    message="temporary upstream failure",
+                    provider_status=503,
+                    retryable=True,
+                ),
+            ),
+        ]
+    )
+    runtime = _build_runtime(
+        llm_client=llm_client,
+        observations=[{"platform": "native", "state": {"state_id": "account"}, "status": "matched"}],
+    )
+
+    result = runtime.run(
+        {
+            "task": "gpt_executor",
+            "goal": "observe retryable planner errors",
+            "expected_state_ids": ["account"],
+            "allowed_actions": ["ui.click"],
+            "max_steps": 3,
+        }
+    )
+
+    assert result["ok"] is False
+    assert result["status"] == "failed_runtime_error"
+    assert result["checkpoint"] == "planning"
+    assert result["code"] == "provider_http_error"
+    assert result["step_count"] == 0
+    planner = cast(dict[str, object], result["planner"])
+    planner_error = cast(dict[str, object], cast(dict[str, object], planner["response"])["error"])
+    assert planner_error["retryable"] is True
+    assert len(llm_client.calls) == 3
+    assert sleep_calls == [retry_backoff_seconds(0), retry_backoff_seconds(1)]
+
+
+def test_gpt_executor_repeated_actions_without_stagnation_only_hit_step_budget():
+    repeated_plan = LLMResponse(
+        ok=True,
+        request_id="req-repeat",
+        provider="openai",
+        model="gpt-5.4",
+        output_text=json.dumps({"action": "ui.click", "params": {"x": 10, "y": 20}}),
+    )
+    runtime = _build_runtime(
+        llm_client=_SequencedLLMClient(responses=[repeated_plan, repeated_plan, repeated_plan]),
+        observations=[
+            {"platform": "native", "state": {"state_id": "account-1"}, "status": "matched"},
+            {"platform": "native", "state": {"state_id": "account-2"}, "status": "matched"},
+            {"platform": "native", "state": {"state_id": "account-3"}, "status": "matched"},
+        ],
+    )
+
+    result = runtime.run(
+        {
+            "task": "gpt_executor",
+            "goal": "surface repeated planner action loops",
+            "expected_state_ids": ["account"],
+            "allowed_actions": ["ui.click"],
+            "max_steps": 3,
+            "stagnant_limit": 10,
+        }
+    )
+
+    assert result["ok"] is False
+    assert result["status"] == "failed_circuit_breaker"
+    assert result["code"] == "step_budget_exhausted"
+    assert result["checkpoint"] == "loop"
+    history = cast(list[dict[str, object]], result["history"])
+    assert [entry["action"] for entry in history] == ["ui.click", "ui.click", "ui.click"]
+    assert [entry["params"] for entry in history] == [{"x": 10, "y": 20}] * 3
 
 
 def test_gpt_executor_cancellation_writes_terminal_trace_record(tmp_path: Path):

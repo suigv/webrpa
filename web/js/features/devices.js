@@ -1,9 +1,9 @@
-import { fetchJson } from '../utils/api.js';
-import { toast } from '../ui/toast.js';
-import { renderCommonFields } from '../utils/ui_utils.js';
-import { sysLog, unitLog } from './logs.js';
-import { getTaskCatalog, apiSubmitTask, buildTaskRequest, collectTaskPayload } from './task_service.js';
-import { store } from '../state/store.js';
+import { fetchJson } from '/static/js/utils/api.js';
+import { toast } from '/static/js/ui/toast.js';
+import { renderCommonFields } from '/static/js/utils/ui_utils.js';
+import { sysLog, unitLog } from '/static/js/features/logs.js';
+import { getTaskCatalog, apiSubmitTask, buildTaskRequest, collectTaskPayload } from '/static/js/features/task_service.js';
+import { store } from '/static/js/state/store.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -36,6 +36,39 @@ function createTextBlock(label, value, valueStyle = '') {
     return row;
 }
 
+let unitAccounts = [];
+
+async function loadUnitAccounts() {
+    const select = $("unitAccountSelect");
+    const hint = $("unitAccountHint");
+    if (!select) return;
+    try {
+        const r = await fetchJson("/api/data/accounts/parsed");
+        if (!r.ok) return;
+        unitAccounts = (r.data?.accounts || []).filter(a => a.status === 'ready');
+        select.replaceChildren();
+        const emptyOpt = document.createElement('option');
+        emptyOpt.value = '';
+        emptyOpt.textContent = `-- 不绑定账号 (${unitAccounts.length} 个就绪) --`;
+        select.appendChild(emptyOpt);
+        unitAccounts.forEach((a, i) => {
+            const opt = document.createElement('option');
+            opt.value = String(i);
+            opt.textContent = a.account;
+            select.appendChild(opt);
+        });
+        if (hint) hint.textContent = `账号池共 ${unitAccounts.length} 个就绪账号`;
+    } catch (e) {
+        if (hint) hint.textContent = '加载账号失败';
+    }
+}
+
+function getSelectedAccount() {
+    const select = $("unitAccountSelect");
+    if (!select || select.value === '') return null;
+    return unitAccounts[parseInt(select.value)] || null;
+}
+
 export function initDevices() {
     const clearBtn = $("clearSelection");
     const closeBtn = $("closeDetail");
@@ -48,6 +81,35 @@ export function initDevices() {
     const submitAiBtn = $("submitUnitAiTask");
     const toggleAiAdvancedBtn = $("toggleUnitAiAdvancedBtn");
 
+    const accountRefreshBtn = $("unitAccountRefresh");
+    if (accountRefreshBtn) accountRefreshBtn.onclick = loadUnitAccounts;
+
+    // 设备详情模态框绑定
+    const closeDeviceModalBtns = document.querySelectorAll(".close-device-modal-btn");
+    closeDeviceModalBtns.forEach(btn => btn.onclick = closeDeviceModal);
+    
+    const stopDeviceBtn = $("stopDeviceTasksBtn");
+    if (stopDeviceBtn) stopDeviceBtn.onclick = () => stopDeviceTasks(currentUnitDetail);
+
+    const enableDeviceBtn = $("enableDeviceBtn");
+    if (enableDeviceBtn) enableDeviceBtn.onclick = () => setDeviceOnlineStatus(currentUnitDetail, true);
+
+    const disableDeviceBtn = $("disableDeviceBtn");
+    if (disableDeviceBtn) disableDeviceBtn.onclick = () => setDeviceOnlineStatus(currentUnitDetail, false);
+    
+    // 系统状态模态框绑定 (全局)
+    const showSysBtn = $("showSystemStatus") || $("apiStatus");
+    if (showSysBtn) {
+        showSysBtn.style.cursor = "pointer";
+        showSysBtn.onclick = openSystemStatusModal;
+    }
+    
+    const closeSystemModalBtns = document.querySelectorAll(".close-system-modal-btn");
+    closeSystemModalBtns.forEach(btn => btn.onclick = closeSystemModal);
+    
+    const globalBrowserDiagBtn = $("runGlobalBrowserDiag");
+    if (globalBrowserDiagBtn) globalBrowserDiagBtn.onclick = runGlobalBrowserDiag;
+
     if (clearBtn) clearBtn.onclick = clearSelection;
     if (closeBtn) closeBtn.onclick = closeDetail;
     if (bulkBtn) bulkBtn.onclick = runBulkTasks;
@@ -57,6 +119,7 @@ export function initDevices() {
     if (closeAiBtn) closeAiBtn.onclick = closeUnitAiDialog;
     if (cancelAiBtn) cancelAiBtn.onclick = closeUnitAiDialog;
     if (submitAiBtn) submitAiBtn.onclick = submitUnitAiTask;
+    
     if (toggleAiAdvancedBtn) {
         toggleAiAdvancedBtn.onclick = () => {
             const advanced = $("unitAiAdvanced");
@@ -94,6 +157,113 @@ export function initDevices() {
     loadDevices();
     loadPluginCatalog();
     setInterval(loadDevices, 5000);
+}
+
+function showDeviceModal() {
+    const modal = $("deviceDetailModal");
+    if (modal) modal.style.display = "flex";
+}
+
+function closeDeviceModal() {
+    const modal = $("deviceDetailModal");
+    if (modal) modal.style.display = "none";
+}
+
+async function stopDeviceTasks(unit) {
+    if (!unit) return;
+    if (!confirm(`确定要停止云机 #${unit.parent_id}-${unit.cloud_id} 上正在运行的所有任务吗？`)) return;
+
+    const r = await fetchJson(`/api/tasks/device/${unit.parent_id}/stop`, { method: "POST" });
+    if (r.ok) {
+        toast.success(`已下发停止指令，取消了 ${r.data.cancelled_count} 个任务`);
+        closeDeviceModal();
+        loadDevices();
+    } else {
+        toast.error("停止任务失败");
+    }
+}
+
+async function setDeviceOnlineStatus(unit, online) {
+    if (!unit) return;
+    const action = online ? "上线" : "下线";
+    if (!confirm(`确定要将设备 #${unit.parent_id} ${action}吗？`)) return;
+    const endpoint = online ? "start" : "stop";
+    const r = await fetchJson(`/api/devices/${unit.parent_id}/${endpoint}`, { method: "POST" });
+    if (r.ok) {
+        toast.success(`设备 #${unit.parent_id} 已${action}`);
+        closeDeviceModal();
+        loadDevices();
+    } else {
+        toast.error(`设备${action}失败`);
+    }
+}
+
+function closeSystemModal() {
+    const modal = $("systemStatusModal");
+    if (modal) modal.style.display = "none";
+}
+
+async function openSystemStatusModal() {
+    const modal = $("systemStatusModal");
+    if (modal) modal.style.display = "flex";
+    
+    const coreStatus = $("coreServicesStatus");
+    clearElement(coreStatus);
+    clearElement($("browserDiagResult"));
+    
+    // 注入基础状态
+    coreStatus.append(createTextBlock("API 端口", "8001 (WebRPA Console)"));
+    coreStatus.append(createTextBlock("Redis 队列", "已连接 (Local)", "color:var(--success)"));
+    coreStatus.append(createTextBlock("拟真引擎", "已就绪", "color:var(--success)"));
+}
+
+async function runGlobalBrowserDiag() {
+    const resultBox = $("browserDiagResult");
+    resultBox.innerHTML = '<div class="text-xs text-muted">正在探测服务端浏览器环境...</div>';
+    
+    const r = await fetchJson("/api/diagnostics/browser");
+    if (r.ok) {
+        const d = r.data;
+        let html = `<div class="bg-black text-green-400 p-4 rounded font-mono text-xs overflow-auto max-h-64 mt-2">`;
+        html += `> Browser Ready: ${d.ready ? 'YES' : 'NO'}\n`;
+        if (d.error) html += `> Error: ${d.error}\n`;
+        html += `> DrissionPage: ${d.drissionpage_importable ? 'OK' : 'FAIL'}\n`;
+        html += `> Chromium Binary: ${d.chromium_binary_found ? 'FOUND' : 'NOT FOUND'}\n`;
+        if (d.chromium_binary_path) html += `> Path: ${d.chromium_binary_path}\n`;
+        html += `</div>`;
+        resultBox.innerHTML = html;
+    } else {
+        toast.error("诊断请求失败");
+        resultBox.innerHTML = '<div class="text-error text-xs">请求失败，请检查 API 连通性</div>';
+    }
+}
+
+function openDeviceDetail(u) {
+    currentUnitDetail = u;
+    const content = $("deviceDetailContent");
+    clearElement(content);
+    
+    const unitId = `${u.parent_id}-${u.cloud_id}`;
+    $("deviceDetailTitle").textContent = `设备详情 - 云机 #${unitId}`;
+    
+    const grid = document.createElement("div");
+    grid.className = "form-grid columns-2 text-sm";
+    
+    grid.append(createTextBlock("设备 IP", u.parent_ip));
+    grid.append(createTextBlock("ADB 端口", u.rpa_port));
+    grid.append(createTextBlock("API 端口", u.api_port));
+    grid.append(createTextBlock("云机型号", u.machine_model_name || "标准型"));
+    grid.append(createTextBlock("AI 引擎", u.ai_type));
+    grid.append(createTextBlock("状态", u.availability_state, `color:${u.availability_state === 'available' ? 'var(--success)' : 'var(--error)'}`));
+    
+    if (u.current_task) {
+        const taskRow = createTextBlock("当前任务", u.current_task, "color:var(--text-primary); font-weight:600;");
+        taskRow.style.gridColumn = "1 / -1";
+        grid.append(taskRow);
+    }
+    
+    content.appendChild(grid);
+    showDeviceModal();
 }
 
 async function loadPluginCatalog() {
@@ -209,9 +379,6 @@ function renderUnitCard(container, u) {
     card.className = `device-card ${selectedUnits.has(unitId) ? 'selected' : ''}`;
     card.style.opacity = isOnline ? "1" : "0.5";
 
-    const modelName = u.machine_model_name || "标准型";
-    const aiType = u.ai_type || "volc";
-
     const header = document.createElement('div');
     header.className = 'device-card-header';
 
@@ -221,60 +388,50 @@ function renderUnitCard(container, u) {
 
     const badge = document.createElement('span');
     badge.className = 'badge badge-sm';
-    badge.textContent = aiType;
+    badge.textContent = u.ai_type || "volc";
 
-    const label = document.createElement('label');
-    label.className = 'checkbox-container';
-    label.style.cssText = 'padding-left:18px; margin:0;';
-    label.onclick = (event) => event.stopPropagation();
+    const infoBtn = document.createElement('button');
+    infoBtn.className = 'btn btn-text text-primary p-0 ml-auto';
+    infoBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>';
+    infoBtn.onclick = (e) => { e.stopPropagation(); openDeviceDetail(u); };
 
-    const checkbox = document.createElement('input');
-    checkbox.type = 'checkbox';
-    checkbox.checked = selectedUnits.has(unitId);
-    checkbox.disabled = !isOnline;
-    checkbox.className = 'unit-checkbox';
-
-    const checkmark = document.createElement('span');
-    checkmark.className = 'checkmark';
-    checkmark.style.top = '0';
-
-    label.append(checkbox, checkmark);
-    header.append(title, badge, label);
+    header.append(title, badge, infoBtn);
 
     const meta = document.createElement('div');
     meta.className = 'device-meta';
     meta.append(
-        createTextBlock('型号', modelName, 'color:var(--text-main);'),
         createTextBlock('路由', `${u.parent_ip}:${u.rpa_port}`),
     );
 
-    const status = document.createElement('div');
-    status.style.cssText = `color:${isOnline ? 'var(--success)' : 'var(--error)'}; font-weight: 500;`;
-    status.textContent = isOnline ? '就绪' : '连接中断';
-    meta.appendChild(status);
+    if (u.current_task) {
+        const taskTag = document.createElement('div');
+        taskTag.className = 'text-xs mt-2 bg-blue-50 text-blue-600 px-2 py-1 rounded border border-blue-100 truncate';
+        taskTag.textContent = `任务: ${u.current_task}`;
+        meta.appendChild(taskTag);
+    }
 
     const actions = document.createElement('div');
     actions.className = 'mt-4 pt-4 border-t flex gap-2';
     
-    const initBtn = document.createElement('button');
-    initBtn.className = 'btn btn-secondary btn-sm flex-1';
-    initBtn.textContent = '设备初始化';
-    initBtn.disabled = !isOnline;
-    initBtn.onclick = (e) => {
+    const controlBtn = document.createElement('button');
+    controlBtn.className = 'btn btn-primary btn-sm flex-1';
+    controlBtn.textContent = '进入接管';
+    controlBtn.disabled = !isOnline;
+    controlBtn.onclick = (e) => {
         e.stopPropagation();
-        initializeDevice(u);
+        openUnitDetail(u);
     };
     
-    actions.appendChild(initBtn);
+    actions.appendChild(controlBtn);
     card.append(header, meta, actions);
-    checkbox.onchange = () => { toggleSelection(unitId, checkbox.checked); };
-    card.onclick = () => { if (isOnline) openUnitDetail(u); else toast.warn("该节点当前无法连接"); };
+    card.onclick = () => { toggleSelection(unitId, !selectedUnits.has(unitId)); };
     container.appendChild(card);
 }
 
 function toggleSelection(id, check) {
     if (check) selectedUnits.add(id); else selectedUnits.delete(id);
     updateBar();
+    loadDevices(); // 刷新选中样式
 }
 
 function updateBar() {
@@ -297,6 +454,57 @@ function renderUnitPluginFields() {
     renderCommonFields(container, task, false);
 }
 
+async function loadUnitScreenshot(unit) {
+    const img = $("unitScreenshotImg");
+    const placeholder = $("unitScreenshotPlaceholder");
+    if (!img || !placeholder) return;
+    if (unit.availability_state !== "available") {
+        img.style.visibility = "hidden";
+        placeholder.textContent = "设备离线，无法获取截图";
+        placeholder.style.visibility = "visible";
+        return;
+    }
+    // 不隐藏当前图片，后台预加载新图，加载完成后无缝替换
+    try {
+        const url = `/api/devices/${unit.parent_id}/${unit.cloud_id}/screenshot?device_ip=${encodeURIComponent(unit.parent_ip)}&rpa_port=${unit.rpa_port}&t=${Date.now()}`;
+        const resp = await fetch(url);
+        if (!resp.ok) {
+            let reason = `HTTP ${resp.status}`;
+            try {
+                const body = await resp.json();
+                if (body.detail) reason = body.detail;
+            } catch (_) {}
+            if (resp.status === 502) reason = `设备不可达 (${reason})`;
+            throw new Error(reason);
+        }
+        const blob = await resp.blob();
+        const newUrl = URL.createObjectURL(blob);
+        await new Promise((resolve, reject) => {
+            const tmp = new Image();
+            tmp.onload = () => {
+                const oldUrl = img.src;
+                img.src = newUrl;
+                img.style.visibility = "visible";
+                placeholder.style.visibility = "hidden";
+                if (oldUrl && oldUrl.startsWith('blob:')) URL.revokeObjectURL(oldUrl);
+                resolve();
+            };
+            tmp.onerror = () => {
+                URL.revokeObjectURL(newUrl);
+                reject(new Error('image decode failed'));
+            };
+            tmp.src = newUrl;
+        });
+    } catch (e) {
+        if (!img.src || !img.src.startsWith('blob:')) {
+            img.style.visibility = "hidden";
+            placeholder.textContent = `截图获取失败: ${e.message}`;
+            placeholder.style.visibility = "visible";
+        }
+        // 若已有图片则静默失败，保留上一张
+    }
+}
+
 function openUnitDetail(unit) {
     document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
     const view = $("unitDetailView");
@@ -308,8 +516,19 @@ function openUnitDetail(unit) {
     clearElement(logBox);
     store.setState({ currentUnitLogTarget: buildUnitLogTarget(unit) });
     renderUnitPluginFields();
+    loadUnitAccounts();
     const btn = $("submitSingleTask");
     if(btn) btn.onclick = () => submitUnitTask(unit);
+    const refreshBtn = $("refreshScreenshot");
+    if(refreshBtn) refreshBtn.onclick = () => loadUnitScreenshot(unit);
+    loadUnitScreenshot(unit);
+    const _screenshotTimer = setInterval(() => {
+        if (currentUnitDetail !== unit) {
+            clearInterval(_screenshotTimer);
+            return;
+        }
+        loadUnitScreenshot(unit);
+    }, 1000);
     window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
@@ -318,6 +537,12 @@ export function closeDetail(restoreMainTab = true) {
     if(view) view.style.display = "none";
     closeUnitAiDialog();
     currentUnitDetail = null;
+    const img = $("unitScreenshotImg");
+    if (img && img.src && img.src.startsWith('blob:')) {
+        URL.revokeObjectURL(img.src);
+        img.src = '';
+        img.style.visibility = 'hidden';
+    }
     if (restoreMainTab) {
         const tabMain = $("tab-main");
         if(tabMain) tabMain.classList.add("active");
@@ -331,9 +556,19 @@ async function submitUnitTask(unit) {
     const container = $("unitPluginFields");
     if(!select || !container) return;
 
-    // 自动合并已知参数，如 device_ip
     const payload = collectTaskPayload(container);
     payload.device_ip = unit.parent_ip;
+
+    // 注入选中账号字段（只注入插件支持的字段）
+    const account = getSelectedAccount();
+    if (account) {
+        if (account.account) payload.acc = account.account;
+        if (account.password) payload.pwd = account.password;
+        if (account.twofa) {
+            payload.two_factor_code = account.twofa;
+            payload.fa2_secret = account.twofa;
+        }
+    }
 
     const taskData = buildTaskRequest({
         task: select.value,
@@ -365,16 +600,15 @@ async function runBulkTasks() {
     if(!confirm(`即将对选中的 ${count} 个节点执行该操作，是否继续？`)) return;
 
     sysLog(`开始集群派发任务: ${plugin}, 目标数量: ${count}`);
+    const defaultPackage = (localStorage.getItem("defaultPackage") || "").trim();
     for (const id of selectedUnits) {
         const [dId, cId] = id.split("-");
         const unit = currentUnitsById.get(id);
         
         const payload = {};
-        // 自动注入环境参数
         if (unit) {
             payload.device_ip = unit.parent_ip;
-            // 如果是常用的包名，则自动注入
-            payload.package = "com.twitter.android";
+            if (defaultPackage) payload.package = defaultPackage;
         }
 
         const taskData = buildTaskRequest({
@@ -391,12 +625,16 @@ async function runBulkTasks() {
 async function initializeDevice(unit) {
     const warning = `【高危操作警告】\n\n您确定要初始化云机 #${unit.parent_id}-${unit.cloud_id} 吗？\n\n后果如下：\n1. 强制终止该设备上所有正在运行的任务\n2. 清理 APP 数据与系统缓存\n3. 重置系统语言与地区设置\n\n确定要继续吗？`;
     if(!confirm(warning)) return;
+
+    const pkg = prompt("请输入要初始化的包名（例如 com.example.app）", (localStorage.getItem("defaultPackage") || ""));
+    if (!pkg || !pkg.trim()) return;
+    localStorage.setItem("defaultPackage", pkg.trim());
     
     const taskData = buildTaskRequest({
         task: 'mytos_device_setup',
         payload: {
             device_ip: unit.parent_ip,
-            package: "com.twitter.android", // 默认设置
+            package: pkg.trim(),
             language: "en",
             country: "US"
         },
@@ -413,16 +651,17 @@ async function initializeAllDevices() {
     const onlineUnits = Array.from(currentUnitsById.values()).filter(u => u.availability_state === "available");
     if(onlineUnits.length === 0) return toast.warn("当前没有在线的云机");
     
-    const bulkWarning = `【全局高危操作！！】\n\n即将对所有 ${onlineUnits.length} 个在线节点执行系统初始化！\n\n严重后果：\n1. 全局所有正在运行的任务将被强制中断\n2. 所有设备的 App 登录信息将被清除\n3. 系统环境将恢复至初始状态\n\n该操作不可撤销，确定要继续吗？`;
-    if(!confirm(bulkWarning)) return;
-
-    // 二次确认逻辑：手动输入“确认”验证
-    const input = prompt(`【最终严正确认】\n\n即将对这 ${onlineUnits.length} 台设备执行“全量初始化”。\n该操作将导致所有已登录账号被迫退出！\n\n若确定执行，请在下方输入“确认”：`);
+    const bulkWarning = `【全局高危操作！！】\n\n即将对所有 ${onlineUnits.length} 个在线节点执行系统初始化！\n\n该操作将导致所有已登录账号被迫退出！\n\n若确定执行，请在下方输入“确认”：`;
+    const input = prompt(bulkWarning);
     
     if (input !== "确认") {
         toast.info("操作已取消");
         return;
     }
+
+    const pkg = prompt("请输入要初始化的包名（例如 com.example.app）", (localStorage.getItem("defaultPackage") || ""));
+    if (!pkg || !pkg.trim()) return;
+    localStorage.setItem("defaultPackage", pkg.trim());
     
     sysLog(`开始全量设备初始化, 目标数量: ${onlineUnits.length}`);
     for (const u of onlineUnits) {
@@ -430,7 +669,7 @@ async function initializeAllDevices() {
             task: 'mytos_device_setup',
             payload: {
                 device_ip: u.parent_ip,
-                package: "com.twitter.android",
+                package: pkg.trim(),
                 language: "en",
                 country: "US"
             },
@@ -448,10 +687,37 @@ function parseCommaList(value) {
         .filter(Boolean);
 }
 
+async function loadAiDialogAccounts() {
+    const select = $("unitAiAccountSelect");
+    if (!select) return;
+    try {
+        const r = await fetchJson("/api/data/accounts/parsed");
+        if (!r.ok) return;
+        const accounts = (r.data?.accounts || []).filter(a => a.status === 'ready');
+        select.replaceChildren();
+        const emptyOpt = document.createElement('option');
+        emptyOpt.value = '';
+        emptyOpt.textContent = `-- 不绑定账号 (${accounts.length} 个就绪) --`;
+        select.appendChild(emptyOpt);
+        accounts.forEach((a, i) => {
+            const opt = document.createElement('option');
+            opt.value = String(i);
+            opt.textContent = a.account;
+            opt.dataset.acc = a.account || '';
+            opt.dataset.pwd = a.password || '';
+            opt.dataset.twofa = a.twofa || '';
+            select.appendChild(opt);
+        });
+    } catch (e) {}
+}
+
 function openUnitAiDialog(unit) {
     if (!unit) return;
     const modal = $("unitAiModal");
     if (modal) modal.style.display = "flex";
+    loadAiDialogAccounts();
+    const refreshBtn = $("unitAiAccountRefresh");
+    if (refreshBtn) refreshBtn.onclick = loadAiDialogAccounts;
 
     const title = $("unitAiModalTitle");
     if (title) title.textContent = `AI 对话 - 云机 #${unit.parent_id}-${unit.cloud_id}`;
@@ -460,23 +726,22 @@ function openUnitAiDialog(unit) {
     if (goalInput) goalInput.value = "";
 
     const profileInput = $("unitAiProfile");
-    if (profileInput) profileInput.value = "x_mobile_login_gpt";
+    if (profileInput) profileInput.value = "";
 
-    const stateInput = $("unitAiStateIds");
-    if (stateInput) stateInput.value = "home,account,password,captcha,two_factor,unknown";
-
-    const actionsInput = $("unitAiActions");
-    if (actionsInput) actionsInput.value = "ai.locate_point,input.text,input.enter,swipe.up,swipe.down";
-
-    const appInput = $("unitAiApp");
-    if (appInput) appInput.value = "com.twitter.android";
+    // 重置勾选框为默认值
+    document.querySelectorAll('input[name="aiState"]').forEach(cb => {
+        cb.checked = ['home','account','password','two_factor','unknown'].includes(cb.value);
+    });
+    document.querySelectorAll('input[name="aiAction"]').forEach(cb => {
+        cb.checked = true;
+    });
 
     const bindingInput = $("unitAiBindingId");
-    if (bindingInput) bindingInput.value = "tw";
+    if (bindingInput) bindingInput.value = "";
 
     const systemPrompt = $("unitAiSystemPrompt");
     if (systemPrompt) {
-        systemPrompt.value = "你是云机自动化助手，只能使用 allowed_actions。需要点击/输入时先调用 ai.locate_point 获取坐标。";
+        systemPrompt.value = "你是云机自动化助手，严格遵守以下规则：\n\n1. 【坐标规则】点击或输入前，必须先调用 ai.locate_point 获取元素坐标，禁止编造或猜测坐标值。\n\n2. 【未知状态处理】当界面状态为 unknown 时，不要停止任务。先尝试 ui.swipe 向上滑动刷新界面，再重新调用 ai.locate_point 观察当前内容，然后继续执行。\n\n3. 【加载等待】如果页面正在加载或内容尚未出现，重复调用 ai.locate_point 等待目标元素出现，最多尝试 3 次。\n\n4. 【2FA 处理】如果出现二步验证页面且已有验证码（payload.two_factor_code），直接输入；如果没有验证码，跳过并尝试其他方式继续。\n\n5. 【任务完成】只有确认进入 X 首页（看到推文列表）才返回 done:true。";
     }
 
     const useUitars = $("unitAiUseUitars");
@@ -499,19 +764,8 @@ async function submitUnitAiTask() {
         return;
     }
 
-    const expectedStateIds = parseCommaList($("unitAiStateIds")?.value || "");
-    if (expectedStateIds.length === 0) {
-        toast.warn("预期状态 IDs 不能为空");
-        return;
-    }
-
-    const allowedActions = parseCommaList($("unitAiActions")?.value || "");
-    if (allowedActions.length === 0) {
-        toast.warn("允许动作列表不能为空");
-        return;
-    }
-
-    const appPackage = String($("unitAiApp")?.value || "").trim();
+    const expectedStateIds = Array.from(document.querySelectorAll('input[name="aiState"]:checked')).map(cb => cb.value);
+    const allowedActions = Array.from(document.querySelectorAll('input[name="aiAction"]:checked')).map(cb => cb.value);
     const bindingId = String($("unitAiBindingId")?.value || "").trim();
     const systemPrompt = String($("unitAiSystemPrompt")?.value || "").trim();
     const profileName = String($("unitAiProfile")?.value || "").trim();
@@ -520,27 +774,27 @@ async function submitUnitAiTask() {
     const payload = {
         device_ip: currentUnitDetail.parent_ip,
         goal,
-        observation: {
-            expected_state_ids: expectedStateIds,
-            allowed_actions: allowedActions,
-        }
+        expected_state_ids: expectedStateIds,
+        allowed_actions: allowedActions,
+        observation: {}
     };
 
-    if (appPackage) {
-        payload.observation.app_package = appPackage;
+    // 注入选中账号
+    const aiAccountSelect = $("unitAiAccountSelect");
+    if (aiAccountSelect && aiAccountSelect.value !== '') {
+        const selectedOpt = aiAccountSelect.options[aiAccountSelect.selectedIndex];
+        if (selectedOpt.dataset.acc) payload.acc = selectedOpt.dataset.acc;
+        if (selectedOpt.dataset.pwd) payload.pwd = selectedOpt.dataset.pwd;
+        if (selectedOpt.dataset.twofa) {
+            payload.two_factor_code = selectedOpt.dataset.twofa;
+            payload.fa2_secret = selectedOpt.dataset.twofa;
+        }
     }
-    if (bindingId) {
-        payload.observation.binding_id = bindingId;
-    }
-    if (systemPrompt) {
-        payload.system_prompt = systemPrompt;
-    }
-    if (profileName) {
-        payload._runtime_profile = profileName;
-    }
-    if (useUitars) {
-        payload.fallback_modalities = ["uitars"];
-    }
+
+    if (bindingId) payload.observation.binding_id = bindingId;
+    if (systemPrompt) payload.system_prompt = systemPrompt;
+    if (profileName) payload._runtime_profile = profileName;
+    if (useUitars) payload.fallback_modalities = ["uitars"];
 
     const taskData = buildTaskRequest({
         task: "gpt_executor",

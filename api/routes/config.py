@@ -35,7 +35,7 @@ from core.config_loader import (
     get_vision_timeout_seconds,
 )
 from core.lan_discovery import LanDeviceDiscovery
-from models.config import Config, ConfigUpdate, HumanizedConfig
+from models.config import Config, ConfigUpdate, HumanizedConfigSchema
 
 router = APIRouter()
 
@@ -120,7 +120,7 @@ def get_config():
         humanization_seed=get_humanization_seed(),
         humanization_delay_ms=get_humanization_delay_ms(),
         humanization_jitter_ms=get_humanization_jitter_ms(),
-        humanized=HumanizedConfig.model_validate(get_humanized_config()),
+        humanized=HumanizedConfigSchema.model_validate(get_humanized_config()),
     )
 
 

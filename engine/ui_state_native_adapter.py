@@ -9,6 +9,7 @@ from typing import cast
 from engine.models.runtime import ActionResult, ExecutionContext
 from engine.models.ui_state import (
     UIStateEvidence,
+    UIStateIdentity,
     UIStateObservationResult,
     UIStateOperation,
     UIStateTiming,
@@ -22,7 +23,7 @@ from engine.ui_state_native_bindings import (
 
 
 class NativeUIStateAdapter:
-    def __init__(self, binding_id: str = "x_login", *, action_params: dict[str, object] | None = None) -> None:
+    def __init__(self, binding_id: str = "login_stage", *, action_params: dict[str, object] | None = None) -> None:
         self._binding: NativeStateBinding
         self._action_params: dict[str, object]
         self._action_params = dict(action_params or {})
@@ -113,6 +114,7 @@ class NativeUIStateAdapter:
             )
 
         started_at = time.monotonic()
+        context.check_cancelled()
         if self._binding.wait_action is None:
             return self._invalid_params_result(
                 operation="wait_until",
@@ -122,6 +124,7 @@ class NativeUIStateAdapter:
                 interval_ms=interval_ms,
             )
 
+        context.check_cancelled()
         action_result = self._binding.wait_action(
             self._wait_action_params(
                 target_stages=list(normalized_expected),
@@ -130,6 +133,7 @@ class NativeUIStateAdapter:
             ),
             context,
         )
+        context.check_cancelled()
         finished_at = time.monotonic()
         attempt = int(action_result.data.get("attempt", 0) or 0)
         samples = attempt
@@ -270,7 +274,7 @@ class NativeUIStateAdapter:
                         operation="observe_transition",
                         status="transition_observed",
                         platform="native",
-                        state={"state_id": current_state},
+                        state=UIStateIdentity(state_id=current_state),
                         expected_state_ids=list(normalized_to),
                         evidence=evidence,
                         timing=timing,

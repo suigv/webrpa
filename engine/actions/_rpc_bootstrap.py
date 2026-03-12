@@ -4,19 +4,31 @@ import os
 from typing import Any, Callable, Dict
 
 from core.port_calc import calculate_ports
-from engine.models.runtime import ActionResult, ExecutionContext
 
 
 RpcFactory = Callable[[], Any]
+ResultFactory = Callable[..., Any]
 
 
 def is_rpc_enabled() -> bool:
     return os.getenv("MYT_ENABLE_RPC", "1") != "0"
 
 
-def _normalize_runtime_target(context: ExecutionContext) -> Dict[str, Any]:
-    target: Dict[str, Any] = context.target
-    return target if isinstance(target, dict) else {}
+def _normalize_runtime_target(context: Any) -> Dict[str, Any]:
+    target = getattr(context, "target", None)
+    if isinstance(target, dict):
+        return target
+    runtime = getattr(context, "runtime", None)
+    if isinstance(runtime, dict):
+        runtime_target = runtime.get("target")
+        if isinstance(runtime_target, dict):
+            return runtime_target
+    payload = getattr(context, "payload", None)
+    if isinstance(payload, dict):
+        payload_target = payload.get("_target")
+        if isinstance(payload_target, dict):
+            return payload_target
+    return {}
 
 
 def _pick_connection_source(
@@ -36,10 +48,16 @@ def _pick_connection_source(
     return payload
 
 
-def resolve_connection_params(params: Dict[str, Any], context: ExecutionContext) -> tuple[str, int]:
-    payload: Dict[str, Any] = dict(context.payload) if isinstance(context.payload, dict) else {}
+def resolve_connection_params(params: Dict[str, Any], context: Any) -> tuple[str, int]:
+    payload: Dict[str, Any] = dict(getattr(context, "payload", {}) or {})
     target = _normalize_runtime_target(context)
-    session_defaults = context.session_defaults
+    if target and payload:
+        if "device_ip" not in target and payload.get("device_ip"):
+            merged_target = dict(target)
+            merged_target["device_ip"] = payload.get("device_ip")
+            target = merged_target
+    session_defaults = getattr(context, "session_defaults", {})
+    session_defaults = session_defaults if isinstance(session_defaults, dict) else {}
     source = _pick_connection_source(params, session_defaults, target, payload)
 
     device_ip = str(source.get("device_ip") or "").strip()
@@ -63,38 +81,79 @@ def resolve_connection_params(params: Dict[str, Any], context: ExecutionContext)
 
 def bootstrap_rpc(
     params: Dict[str, Any],
-    context: ExecutionContext,
+    context: Any,
     *,
     is_enabled: Callable[[], bool],
-    resolve_params: Callable[[Dict[str, Any], ExecutionContext], tuple[str, int]],
+    resolve_params: Callable[[Dict[str, Any], Any], tuple[str, int]],
     rpc_factory: RpcFactory,
-) -> tuple[Any | None, ActionResult | None]:
+    result_factory: ResultFactory,
+    error_type_env: Any,
+    error_type_business: Any,
+) -> tuple[Any | None, Any | None]:
     if not is_enabled():
-        return None, ActionResult(ok=False, code="rpc_disabled", message="MYT_ENABLE_RPC=0")
+        return None, result_factory(
+            ok=False,
+            code="rpc_disabled",
+            error_type=error_type_env,
+            message="MYT_ENABLE_RPC=0",
+        )
+
     try:
         device_ip, rpa_port = resolve_params(params, context)
     except ValueError as exc:
-        return None, ActionResult(ok=False, code="invalid_params", message=str(exc))
+        return None, result_factory(
+            ok=False,
+            code="invalid_params",
+            error_type=error_type_business,
+            message=str(exc),
+        )
 
-    rpc = rpc_factory()
-    connected = rpc.init(device_ip, rpa_port, int(params.get("connect_timeout", 5)))
-    if not connected:
-        return None, ActionResult(ok=False, code="rpc_connect_failed", message=f"connect failed: {device_ip}:{rpa_port}")
-    return rpc, None
+    try:
+        rpc = rpc_factory()
+        if rpc is None:
+            return None, result_factory(
+                ok=False,
+                code="rpc_driver_load_failed",
+                error_type=error_type_env,
+                message="Failed to load RPC native driver",
+            )
+
+        connected = rpc.init(device_ip, rpa_port, int(params.get("connect_timeout", 5)))
+        if not connected:
+            return None, result_factory(
+                ok=False,
+                code="rpc_connect_failed",
+                error_type=error_type_env,
+                message=f"connect failed: {device_ip}:{rpa_port}",
+            )
+        return rpc, None
+    except Exception as exc:
+        return None, result_factory(
+            ok=False,
+            code="rpc_unexpected_error",
+            error_type=error_type_env,
+            message=f"RPC error: {str(exc)}",
+        )
 
 
 def connect_rpc(
     params: Dict[str, Any],
-    context: ExecutionContext,
+    context: Any,
     *,
     rpc_factory: RpcFactory,
-) -> tuple[Any | None, ActionResult | None]:
+    result_factory: ResultFactory,
+    error_type_env: Any,
+    error_type_business: Any,
+) -> tuple[Any | None, Any | None]:
     return bootstrap_rpc(
         params,
         context,
         is_enabled=is_rpc_enabled,
         resolve_params=resolve_connection_params,
         rpc_factory=rpc_factory,
+        result_factory=result_factory,
+        error_type_env=error_type_env,
+        error_type_business=error_type_business,
     )
 
 

@@ -6,88 +6,106 @@
 ## 1. 当前阶段
 
 - 阶段：**Web Console Productization & Navigation Engine Hardening**
-- 核心状态：API、任务系统、插件执行、账号池全面可用；Web 控制台完成产品化改造，支持全生命周期任务与账号管理；导航引擎引入“自愈”与“锚点”机制，具备极强的环境噪声抗性；实时日志流打通 Action 级反馈链路
-- 最近重点：
+- 核心状态：API、任务系统、插件执行、账号池全面可用；Web 控制台完成产品化改造；导航引擎具备自愈与锚点机制；AI 执行引擎接入托管链路。
+- 最近重点 (2026-03-11)：
+  - **工业级稳固性与运维增强 (2026-03-11)**：
+    - **跨平台拟真引擎全集成**：建立统一的 `HumanizedHelper`，拟人化偏移与打字节奏已成功注入 **Android Native 动作 (RPC)**，实现全端一致的风险控制。
+    - **数据库架构统合 (BaseStore)**：彻底消除了 SQLite 实现碎片化，所有 Store 模块统一继承 `BaseStore`，全面启用 WAL 模式与 30s 统一忙时重试。
+    - **Web 控制台全能化升级**：
+      - **节点中心**：支持云机详情穿透、紧急停止、以及针对服务端环境（8001/Redis/浏览器驱动）的一键诊断。
+      - **库存中心**：实现账号状态一键标记（✅/❌/⛔/❓）与全字段在线编辑。
+      - **洞察中心**：任务流水支持 **SSE 实时事件流追踪**，可视化展示 AI 的每一步 Thought 与仿真证据。
+      - **全量设置**：支持在线修改 host_ip、device_ips (JSON) 以及业务文本 (Location/Website)。
+    - **运行环境优化**：
+      - **测试隔离**：强制测试环境重定向至临时路径，保护生产账号数据。
+      - **取消响应**：`wait_until` 解释器层实现 2s 级短脉冲轮询，大幅提升任务取消的灵敏度。
+  - **架构收敛与重构**：
+    - `TaskController` 已完成职责拆分，下放至 `TaskExecutionService`、`TaskMetricsService` 等子服务。
+    - `engine/actions/sdk_actions.py` 已完成职责纠偏，拆分出共享存储、业务辅助等独立支持模块。
+    - 统一了全局路径管理 (`core/paths.py`)，消除了多处根路径解析冗余。
+    - **插件加载一致性**：`get_shared_plugin_loader` 已实现真正的全局单例，API 层刷新与后台执行引擎物理同步。
   - **Web 控制台产品化 (2026-03-10)**：
-    - 实时显示 `MYT_ENABLE_RPC` 运行状态（开启/关闭/未知）。
-    - 资源仓库支持账号**全字段编辑**（含 Token、邮箱等）及**状态一键重置**接口。
-    - 任务流水支持**全局停止**、清空历史及单任务精准控制；前端渲染优先使用中文 `display_name`。
-    - 设备集群支持**单机/全量初始化**，并植入“高危操作风险说明”、“二次确认”与“手动输入验证”逻辑。
-  - **反馈与监控体系升级**：
-    - 全系统反馈语重构，由生硬的技术术语转向业务化的产品描述。
-    - 实时执行日志流实现**跨线程 WebSocket 异步广播**，Action 执行结果（✅成功/❌失败）即时可视化。
-  - **导航引擎鲁棒性强化 (ISA 兼容)**：
-    - 引入 **“UI 清道夫” (Global Interstitial Handler)**，底层自动识别并静默排除同步联系人、升级引导等干扰项。
-    - 引入 **“语义锚点判定” (Anchor-Based Navigation)**，支持在 ID 缺失或变更环境下通过底部导航选中态进行多语言定位。
-    - 建立自愈轨迹记录，确保引擎层介入的自救动作在日志中透明，为后续视觉模型任务蒸馏保留高质量的噪声处理轨迹。
-  - **参数自动剥离与注入**：
-    - UI 自动剥离 `device_ip`、`package` 等冗余参数，下发任务时自动从选中的云机节点实时注入，实现业务参数与环境参数解耦。
-  - **云机详情页 AI 对话入口**：
-    - 支持在云机详情页以自然语言下发 `gpt_executor` 任务，允许指定 runtime profile 与动作边界。
-  - GPT executor MVP 已接到现有 `/api/tasks` 托管链路，任务名为 `gpt_executor`，继续走既有创建、取消、重试、SSE 事件与终态规则
-  - 当前 MVP 观察策略是 structured-state-first，优先消费 `ui.match_state` 的结构化状态；只有主观察不足时才记录并使用 XML tree、截图或 browser HTML 等 fallback 模态
-  - GPT 执行环的 circuit breaker 是 MVP 硬要求，不是可选优化：必须限制 step budget，并在结构化状态连续停滞时显式中止
-  - 原始模型轨迹已单独落到 `config/data/traces/` append-only JSONL，和任务 lifecycle events 分开，供后续 Golden Run 蒸馏读取
-  - Golden Run MVP 蒸馏保持离线工具路径，当前从一条成功的 `gpt_executor` JSONL 轨迹生成可审阅的 `manifest.yaml` + `script.yaml` 草稿；实际使用链路是先通过 `/api/tasks` 跑出成功 trace，再用 `tools/distill_golden_run.py --task-id --run-id --target-label --attempt-number --output-dir` 生成草稿，且不会自动写入 `plugins/`
-  - 当前 usability gate 已定死为 parse + replay smoke。蒸馏草稿只有在现有 parser、manifest input 检查、PluginLoader 和 Runner replay smoke 都通过后才算 usable
-  - SoM overlays、shadow healing、multi-run consensus extraction 和更广的恢复系统仍明确留在 v1 之外
-  - 保留 `UIStateService` rollout 基线，继续沿用统一状态结果形状与 thin action wrapper，不把 recovery 或 fallback 逻辑塞进 service
-  - 收紧 `wait_until` 轮询语义，并补齐 success-before-timeout、timeout 文案、`on_timeout goto`、`on_fail` fallback、取消返回与动态重轮询回归覆盖
-  - 收口 `UIStateService` 共享语义：结果构造、timing 与 browser polling 改走共享 helper，native binding 注册拆到独立模块，减少 browser/native 的平行演化面
-  - 落地 `ExecutionContext.session.defaults` 最小任务级接缝，明确覆盖顺序为显式 action 参数优先，其次 session defaults，最后才回退到原始 payload
-  - 保守扩展 UI-state 观察覆盖，新增 `timeline_candidates`、`follow_targets` 绑定与集合首项别名，不改顶层观察结果形状
-  - 补齐有界页面级 composite helper，`ui.navigate_to` 与 `ui.fill_form` 现在用于导航和表单驱动，不把它们写成工作流级恢复系统
-  - 保留此前 `home` / `x_mobile_login` 工作流迁移基线，其中 `x_mobile_login` 已验证可通过 manifest 输入默认值与 `_target` 派生的 session defaults 收口重复 runtime 接线；当前只明确覆盖 `device_ip` 去重和相关步骤不再显式重复声明 `package`，同时不改变状态与消息契约
-  - 最新验证波次已覆盖定向登录工作流测试、运行时接线 smoke，以及既有 `pytest tests -q`、`check_no_legacy_imports.py`、`MYT_ENABLE_RPC=0` 启动与 `/health` 验证结论
-  - 既有 RPA/RPC remediation、`sdk_actions` facade + helper 分层、`/api/runtime/execute` debug/internal-only 契约、监控接线文档与 stale-running 调优文档仍保持有效
+    - 实时显示 `MYT_ENABLE_RPC` 运行状态。
+    - 资源仓库支持账号全字段编辑及状态一键重置。
+    - 任务流水支持全局停止、清空历史及单任务精准控制。
+    - 实时执行日志流实现 WebSocket 异步广播，Action 结果可视化。
+  - **导航引擎鲁棒性强化**：
+    - 引入“UI 清道夫”自动排除升级引导等干扰项。
+    - 引入“语义锚点判定”支持无 ID 环境下的多语言定位。
+  - **AI 执行引擎 (GPT Executor)**：
+    - 已接入 `/api/tasks` 托管链路，支持创建、取消、重试及 SSE 事件。
+    - 默认采用 `structured-state-first` 观察策略，仅在必要时回退至视觉模态。
+    - 原始模型轨迹独立持久化至 `config/data/traces/`。
+- 最近重点 (2026-03-12)：
+  - **端口架构全面修正**：
+    - 以官方三份文档为基准，建立三端口完全分离架构：8000（物理机级SDK）/ 30001（云机级Android API）/ 30002（RPA控制）。
+    - 新建 `hardware_adapters/android_api_client.py`（`AndroidApiClient`，30001端口），实现 34 个云机级原子动作（剪贴板、S5代理、截图、文件操作、语言设置、定位、ADB权限、Google ID、联系人、模块管理等）。
+    - 新建 `engine/actions/android_api_actions.py`，注册 `android.*` 命名空间（34个动作）。
+    - `MytSdkClient`（8000端口）精简 ~400 行，移除所有混入的 30001 方法，回归物理机级职责（云机容器生命周期、镜像、备份、SSH、VPC）。
+    - `mytos.*` 动作（50个）改为代理到 `android.*` 实现，不再走错误的 8000 端口。
+  - **多轮成功率统计与蒸馏触发**：
+    - 新增 `GET /api/tasks/metrics/plugins`，按插件统计累计成功次数及蒸馏进度。
+    - 新增 `POST /api/tasks/distill/{plugin}`，一键触发多轮蒸馏生成 YAML 草稿。
+    - 新增 `tools/distill_multi_run.py`，多 trace 聚合蒸馏工具。
+    - 前端「运行洞察」新增「插件蒸馏进度」面板，带进度条和蒸馏按钮。
+  - **VLM 屏幕元数据修复**：`capture_compressed` 从 JPEG/PNG 字节解析真实屏幕宽高，注入 trace 并传给 `VLMClient.predict()`，修复 VLM 坐标补偿精度。
+  - **任务系统稳健性**：设备级排他锁（防幽灵任务）、子进程不做 availability 强制检查、多目标取消即时中断、`subscribe` 改为追加模式。
+  - **前端系统**：账号选择器（接管页和AI对话框）、AI对话框改为勾选模式、设备上下线按钮、系统偏好页简化（移除 JSON 输入）、已发现设备数实时显示。
+
+- 最近重点 (2026-03-12，本会话)：
+  - **M0 Gate 验证**：全量测试 264/264 通过，check_no_legacy_imports OK，server startup OK，/health 200 OK。证据存档于 `.sisyphus/evidence/m0-gate-pytest-full.txt`。
+  - **测试修复**：修复 `test_multi_device_ip`（ConfigLoader dict mock 兼容、list 格式、host_ip fallback）、`test_config_migration_idempotent`（migrate 幂等性）、`test_humanized_config_integration`（clamp + random_seed coercion）、`test_config_loader_compat`（过时断言）。
+  - **代码清理**：删除 `core/data_contracts.py`、`core/task_store_helpers.py`、`scripts/experimental/`、`contracts/*.pyi` 等死代码；从 `api/server.py` 移除 `LanDeviceDiscovery` 后台自动扫描（保留手动 `/discover/` 端点）。
+  - **Web 控制台增强**：
+    - 云机详情页实时截图（RPC `take_capture_compress`，每秒刷新，退出时释放 blob URL）。
+    - 实时执行日志修复（DB event poller 解决子进程事件不推送问题）。
+    - 任务编排页设备勾选器（从在线节点列表多选，替换手动输入 ID）。
+    - 守护进程扫描排除 loopback 地址；`discovery_subnet` 配置页新增保存按钮。
+    - 浮动多选栏 CSS 类名修复（`selection-dock` 等）。
+    - 日志新增 `task.observation`（界面识别结果）和 `task.planning`（AI 决策）显示。
+  - **GPT Executor 证据采集全面升级**：
+    - XML dump 改为每步无条件采集（不再仅在 observation 失败时采集）。
+    - XML 完整保存为文件（`traces/<task>/<run>/xml/<target>/step-N-<ts>.xml`），不再截断。
+    - `screen_width/height` 从 XML 根节点 bounds 解析，注入到 `screen_capture.metadata` 和 trace record。
+    - `task.observation` 和 `task.planning` 事件每步发出，前端日志三段式显示：观察→决策→执行。
+    - `context.emit_event` 正确赋值修复（之前 gpt_executor 未传入 emit_event）。
+  - **蒸馏路径确认**：登录类流程在真实设备成功运行（vision 路径，`fallback_reason: gpt_not_found`）。下次运行将携带完整 XML，可直接用 `distill_binding.py` 生成 binding 草稿。
+  - **App UI 配置架构重构**：
+    - 删除旧单 app UI 配置，迁移至 `config/apps/default.yaml`（多 app 扩展架构）。
+    - `load_ui_selectors/selector/value/scheme` 动作支持动态 app 推断（`params.app` > `payload.app` > `payload.package` 推断，默认 `default`/`MYT_DEFAULT_APP`）。
+    - `core.load_ui_scheme` 修复为直接执行 `am start` 导航，不再只返回 URL 字符串。
+    - `sdk_config_support.py` 新增 `load_app_config_document(app)`、`app_config_path(app)`、`resolve_app()` 等接口。
+  - **死代码清理（本会话）**：删除 `common/env_loader.py`、`common/runtime_state.py`、`common/toolskit.py`（零引用旧产物）。
+
+- 下一步优先级：
+  - [x] 提取数据库基类 (`BaseStore`)，消除 `TaskStore` 与 `TaskEventStore` 的重复代码（待验证）。
+  - [x] 废弃 `common/config_manager.py`，全面收敛至 `core/config_loader.py`（待验证）。
+  - [x] 引入 Pydantic 重构配置解析逻辑，替代手动 JSON 校验（待验证）。
+  - [x] 拆分 `DeviceManager`，将云机探测逻辑移至独立服务（待验证）。
+  - [x] 修复 AI 模块隐患：VLM 连接泄露处理及基于 `retryable` 标记的退避重试（待验证）。
+  - **AI 对话架构改进 (2026-03-11)**：
+    - **修复无 binding 熔断误判**：`gpt_executor` 在 `observation.ok=False` 时改用 UI XML 内容计算停滞 fingerprint，避免无 binding 场景下两步必然熔断的问题。
+    - **新增 binding 蒸馏工具** (`tools/distill_binding.py`)：从 trace jsonl 自动提取 UI 特征、归纳界面状态，生成 `NativeStateBinding` 代码草稿，支持按 App 逐步积累 binding 定义。
+    - **前端 AI 对话修复**：`binding_id` 默认置空（避免硬编码默认值造成误判）；`allowed_actions` 修正为注册名（`ui.input_text`, `ui.key_press`, `ui.swipe`）；SSE 事件流修复（`await` 误用导致 500）。
+    - **LLM 调用链路修复**：新增 `OpenAIChatProvider` 支持标准 Chat Completions 格式（原 Responses API 格式被代理服务拒绝）；`.env` 加载改为 `source` 方式确保 key 注入进程。
 
 ## 2. 已实现功能清单
 
 ### 2.1 API 与控制面
-
-- 健康检查、debug/internal-only 运行时直跑入口、`/web` 静态控制台入口（smoke-backed，`api/server.py`）
-- 设备管理：列表/详情/状态/启停（`api/routes/devices.py`）
-- 任务管理：创建/列表/详情/取消 + SSE 事件流（`api/routes/task_routes.py`）
-- 任务响应映射边界：`api/mappers/task_mapper.py` 统一承接 `TaskRecord` -> `TaskResponse` / `TaskDetailResponse` 转换，路由层保持 thin HTTP coordination
-- 配置管理：读取/更新系统配置与 humanized 配置（`api/routes/config.py`）
-- 数据接口：账号/位置/网站读写与账号导入解析（`api/routes/data.py`）
-- 日志 WebSocket 路由（`/ws/logs`，由 `tests/test_websocket_logs_route.py` 覆盖 ping/filter 广播路径；`api/routes/websocket.py`）
+- 任务/设备/配置/数据全套 RESTful 接口。
+- WebSocket 实时日志流 (`/ws/logs`)。
+- 托管任务生命周期管理（创建/取消/重试/指标）。
 
 ### 2.2 引擎与插件
-
-- Runner + Interpreter 工作流执行（`engine/runner.py`, `engine/interpreter.py`）
-- 托管 `gpt_executor` 运行时（`engine/gpt_executor.py`）已复用现有 task/runtime seam，按 structured-state-first 规划动作，并在需要时记录 fallback 模态
-- 条件、跳转、等待、失败策略，且已接入 `UIStateService` 支持统一状态观察与等待；`wait_until` 已补齐动态重轮询、超时分支、失败回退与取消语义回归（`engine/conditions.py`, `engine/models/*`）
-- 插件扫描与加载（`engine/plugin_loader.py`）
-- 离线 Golden Run 蒸馏（`core/golden_run_distillation.py`, `tools/distill_golden_run.py`）会基于成功 JSONL 轨迹产出 reviewable YAML draft，并对 payload literals 做参数化映射
-- 已内置插件：`x_mobile_login`、`mytos_device_setup`、`device_reboot`、`device_soft_reset`、`blogger_scrape`、`profile_clone` 及互动类插件；此前 `home` / `x_mobile_login` 迁移基线仍有效，其中 `x_mobile_login` 已完成 session-defaults 接线压缩验证
+- Runner + Interpreter 声明式工作流引擎。
+- 支持 YAML 插件模式（`v2` 契约）。
+- 托管 `gpt_executor` 自主智能体运行时。
+- 离线 Golden Run 蒸馏工具。
 
 ### 2.3 适配器与动作
-
-- 浏览器动作：open/input/click/exists/wait/check_html/close（`engine/actions/browser_actions.py`）
-- 账号凭据动作：`credentials.load`（`engine/actions/credential_actions.py`）
-- UI/RPC 动作：点击、滑动、输入、按键、截图、节点查询等（`engine/actions/ui_actions.py`）
-- `UIStateService` 统一状态契约、native/browser adapters、thin wrappers 与兼容动作入口已落地，且新增 `timeline_candidates` / `follow_targets` 观察绑定与集合首项别名（相关实现位于 `engine/actions/` 与 `engine/conditions.py`）
-- `UIStateService` 的共享结果构造、timing 与 browser polling helper 已落地，native binding 注册已拆到独立模块，并补充了 helper/adapter 语义回归测试
-- `ExecutionContext.session.defaults` 已作为最小任务级默认值接缝落地，RPC / package / credentials 消费侧可按显式参数 → session defaults → payload 的顺序取值
-- 有界 composite helper `ui.navigate_to` 与 `ui.fill_form` 已可用于页面导航和表单驱动，范围仍限定在页面级封装
-- SDK 动作绑定 facade + `sdk_*_support.py` helper 分层（`engine/actions/sdk_actions.py`）
-- BrowserClient 拟人化与降级兜底（`hardware_adapters/browser_client.py`）
-- MytRpc 跨平台动态库选择（`hardware_adapters/mytRpc.py`）
-
-### 2.4 前端控制台
-
-- **架构重构**：移除单体 `app.js`，采用 ES Modules 模块化设计 (`web/js/features/*`, `web/js/state/*`, `web/js/utils/*`)
-- **交互增强**：引入全局 Toast 通知系统，替代原生 Alert/Console 日志；增加设备列表快捷控制（启动/停止/扫描）
-- **账号与调度**：账号池支持导入预览、库存状态展示、ready 账号批量分派；云机大厅支持单机下发与批量选机下发
-- **云机详情页 AI 对话**：提供自然语言入口，直接调度 `gpt_executor` 并允许绑定 runtime profile
-- **实际公开 UI**：当前公开页为云机大厅、账号池、配置；`web/js/features/tasks.js` 已实现任务管理逻辑，但 `web/index.html` 尚未暴露独立任务页入口，属于部分接线状态
-
-### 2.5 质量保障
-
-- 关键门禁脚本：`tools/check_no_legacy_imports.py`
-- 测试覆盖：API、任务、配置迁移、插件、适配器、Web smoke、跨平台库选择，以及 `/api/runtime/execute` 非托管任务语义回归（`tests/`）
-- GPT executor MVP 文档门禁已覆盖 `tools/check_doc_claims.py` 与 `tests/test_doc_claim_guard.py`；distilled draft 的可用性回归由 `tests/test_gpt_distillation.py` 里的 parse + replay smoke gate 约束
+- 统一 UI 状态观察层 (`UIStateService`)。
+- 浏览器、原生 UI、SDK 动作绑定。
+- 拟人化操作与降级回退机制。
 
 ## 3. 自动统计快照
 
@@ -104,25 +122,5 @@
 | Test functions (`def test_*`) | 282 |
 <!-- AUTO_PROGRESS_SNAPSHOT:END -->
 
-## 4. 维护方式（实时更新建议）
-
-每次“有意义变更”后执行：
-
-```bash
-./.venv/bin/python tools/update_project_progress.py
-```
-
-推荐在以下时机执行：
-
-1. 合并功能分支前
-2. 每次完成测试与验证后
-3. 发布前（用于生成最新项目快照）
-
-## 5. 下一步建议（滚动）
-
-1. 保持 `UIStateService` rollout 后观察，重点看新增插件以及既有 `home` / `x_mobile_login` 路线是否继续复用统一状态边界和 session defaults，而不是回退到重复的插件内状态梯子。
-2. 将工作流级保守恢复明确维持在 **deferred**，继续观察是否真的在多个工作流里反复出现同一有界有序恢复链，再决定是否上提为共享策略。
-3. 将 `docs/monitoring_rollout.md` 和 `config/monitoring/rendered/single-node-example/` 落到真实环境，完成外部 Prometheus / Alertmanager 联调。
-4. 按 `docs/stale_running_recovery_tuning.md` 在真实部署里校准 `MYT_TASK_STALE_RUNNING_SECONDS`，补齐常态值与演练值证据。
-5. 持续复查 `docs/reference/sdk_actions_followup_assessment.md`、`docs/reference/shared_json_store_watchpoint.md`、`docs/reference/x_mobile_login_compression_watchpoint.md` 等 watchpoint 是否触发新的拆分或收口条件。
-6. GPT executor 后续增强保持为 deferred，先不要把 SoM overlays、shadow healing、multi-run consensus extraction 或更广恢复系统写成 v1 已完成项。
+## 4. 维护说明
+每次有意义变更后执行 `./.venv/bin/python tools/update_project_progress.py` 以更新统计快照。

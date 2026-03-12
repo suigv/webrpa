@@ -2,12 +2,29 @@ from __future__ import annotations
 
 import base64
 import os
+import threading
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
 
 import httpx
 
 from core.vlm.uitars_output_parser import UITarsOutputParser, UITarsAction
+
+_shared_http_client: httpx.Client | None = None
+_CLIENT_LOCK = threading.Lock()
+
+
+def _get_shared_http_client(timeout: float = 60.0) -> httpx.Client:
+    global _shared_http_client
+    if _shared_http_client is None:
+        with _CLIENT_LOCK:
+            if _shared_http_client is None:
+                limits = httpx.Limits(max_keepalive_connections=20, max_connections=100)
+                try:
+                    _shared_http_client = httpx.Client(timeout=timeout, limits=limits)
+                except TypeError:
+                    _shared_http_client = httpx.Client(timeout=timeout)
+    return _shared_http_client
 
 
 class VLMClient:
@@ -28,6 +45,7 @@ class VLMClient:
         api_key: Optional[str] = None,
         system_prompt: Optional[str] = None,
         timeout: float = 60.0,
+        http_client: httpx.Client | None = None,
     ) -> None:
         self.base_url = (base_url or os.environ.get("UITARS_BASE_URL", self.DEFAULT_BASE_URL)).rstrip("/")
         self.model = model or os.environ.get("UITARS_MODEL", self.DEFAULT_MODEL)
@@ -35,11 +53,10 @@ class VLMClient:
         self.system_prompt = system_prompt or self.DEFAULT_SYSTEM_PROMPT
         self.timeout = timeout
         self._parser = UITarsOutputParser()
-        self._http = httpx.Client(timeout=timeout)
+        self._http = http_client or _get_shared_http_client(timeout=timeout)
 
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
+    def close(self) -> None:
+        return None
 
     def evaluate(
         self,
@@ -56,11 +73,12 @@ class VLMClient:
             screen_width=screen_width,
             screen_height=screen_height,
         )
+        raw = getattr(action, "raw", None)
         return {
             "ok": True,
             "image_ref": image_ref,
             "prompt": prompt,
-            "result": action.raw,
+            "result": raw,
             "action": action.to_dict(),
         }
 
@@ -68,7 +86,7 @@ class VLMClient:
         self,
         image_ref: str,
         task: str,
-        history: Optional[list] = None,
+        history: Optional[list[dict[str, object]]] = None,
         *,
         screen_width: int | None = None,
         screen_height: int | None = None,
@@ -83,10 +101,6 @@ class VLMClient:
         raw_text = self._call_api(messages)
         screen_width, screen_height = size if size else (None, None)
         return self._parser.parse(raw_text, screen_width=screen_width, screen_height=screen_height)
-
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
 
     def _load_image_payload(
         self,
@@ -111,17 +125,22 @@ class VLMClient:
             return base64.b64encode(raw_bytes).decode(), size
         return image_ref, (int(screen_width), int(screen_height)) if screen_width and screen_height else None
 
-    def _build_messages(self, image_b64: str, task: str, history: list) -> list:
+    def _build_messages(
+        self,
+        image_b64: str,
+        task: str,
+        history: list[dict[str, object]],
+    ) -> list[dict[str, object]]:
         user_content = [
             {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_b64}"}},
             {"type": "text", "text": task},
         ]
-        messages = [{"role": "system", "content": self.system_prompt}]
+        messages: list[dict[str, object]] = [{"role": "system", "content": self.system_prompt}]
         messages.extend(history)
         messages.append({"role": "user", "content": user_content})
         return messages
 
-    def _call_api(self, messages: list) -> str:
+    def _call_api(self, messages: list[dict[str, object]]) -> str:
         payload = {
             "model": self.model,
             "messages": messages,
@@ -133,6 +152,7 @@ class VLMClient:
             f"{self.base_url}/chat/completions",
             json=payload,
             headers=headers,
+            timeout=self.timeout,
         )
         resp.raise_for_status()
         data = resp.json()
@@ -149,12 +169,10 @@ def _safe_b64decode(value: str) -> bytes:
 def _image_size_from_bytes(data: bytes) -> tuple[int, int] | None:
     if len(data) < 24:
         return None
-    # PNG
     if data.startswith(b"\x89PNG\r\n\x1a\n"):
         width = int.from_bytes(data[16:20], "big")
         height = int.from_bytes(data[20:24], "big")
         return (width, height)
-    # JPEG
     if data[:2] == b"\xff\xd8":
         idx = 2
         length = len(data)
@@ -163,7 +181,6 @@ def _image_size_from_bytes(data: bytes) -> tuple[int, int] | None:
                 idx += 1
                 continue
             marker = data[idx + 1]
-            # SOF markers
             if marker in (
                 0xC0, 0xC1, 0xC2, 0xC3,
                 0xC5, 0xC6, 0xC7,
@@ -182,3 +199,7 @@ def _image_size_from_bytes(data: bytes) -> tuple[int, int] | None:
                 break
             idx += 2 + segment_len
     return None
+
+
+def get_shared_vlm_client() -> VLMClient:
+    return VLMClient()

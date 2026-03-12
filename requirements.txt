@@ -14,3 +14,4 @@ tldextract>=3.4.4
 psutil
 PyYAML>=6.0
 pyotp>=2.9.0
+redis

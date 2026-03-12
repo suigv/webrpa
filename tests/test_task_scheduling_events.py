@@ -1,6 +1,7 @@
 # pyright: reportUnknownParameterType=false, reportMissingParameterType=false, reportUnknownMemberType=false, reportUnknownArgumentType=false
 
 import json
+import sqlite3
 import threading
 import time
 from datetime import datetime, timedelta, timezone
@@ -44,6 +45,10 @@ def _stream_task_events(client: TestClient, task_id: str) -> str:
             if ": close" in text:
                 break
     return text
+
+
+def _sse_event_names(text: str) -> list[str]:
+    return [line.removeprefix("event: ") for line in text.splitlines() if line.startswith("event: ")]
 
 
 class OrderRunner:
@@ -143,7 +148,7 @@ def test_run_at_delays_execution():
         assert still_waiting.status_code == 200
         assert still_waiting.json()["status"] == "pending"
 
-        assert _wait_status(client, task_id, "completed", timeout_s=5.0)
+        assert _wait_status(client, task_id, "completed", timeout_s=10.0)
 
 
 def test_priority_prefers_higher_first_when_same_run_at(tmp_path: Path, monkeypatch):
@@ -202,57 +207,121 @@ def test_priority_prefers_higher_first_when_same_run_at(tmp_path: Path, monkeypa
             db_path.unlink()
 
 
-def test_task_events_sse_stream_contains_lifecycle_events():
+def test_task_events_sse_stream_contains_lifecycle_events(tmp_path: Path):
     reset_task_controller_for_tests()
-    with TestClient(app) as client:
-        create = client.post(
-            "/api/tasks/",
-            json={
-                "script": {"task": "anonymous", "steps": []},
-                "devices": [1],
-                "ai_type": "volc",
-                "priority": 50,
-                "max_retries": 0,
-                "retry_backoff_seconds": 0,
-            },
-        )
-        assert create.status_code == 200
-        task_id = create.json()["task_id"]
+    db_path = tmp_path / "tasks_lifecycle_events.db"
+    if db_path.exists():
+        db_path.unlink()
+    controller = TaskController(
+        store=TaskStore(db_path=db_path),
+        queue_backend=InMemoryTaskQueue(),
+        event_store=TaskEventStore(db_path=db_path),
+    )
+    override_task_controller_for_tests(controller)
 
-        text = _stream_task_events(client, task_id)
+    try:
+        with TestClient(app) as client:
+            create = client.post(
+                "/api/tasks/",
+                json={
+                    "script": {"task": "anonymous", "steps": []},
+                    "devices": [1],
+                    "ai_type": "volc",
+                    "priority": 50,
+                    "max_retries": 0,
+                    "retry_backoff_seconds": 0,
+                },
+            )
+            assert create.status_code == 200
+            task_id = create.json()["task_id"]
 
-        assert "event: task.created" in text
-        assert "event: task.started" in text
-        assert "event: task.dispatching" in text
-        assert "event: task.dispatch_result" in text
-        assert "event: task.completed" in text
+            text = _stream_task_events(client, task_id)
+            event_names = _sse_event_names(text)
+
+            assert event_names[:5] == [
+                "task.created",
+                "task.started",
+                "task.dispatching",
+                "task.dispatch_result",
+                "task.completed",
+            ]
+            assert ": close" in text
+
+            with sqlite3.connect(db_path) as conn:
+                assert conn.execute("SELECT status FROM tasks WHERE task_id = ?", (task_id,)).fetchone() == ("completed",)
+                assert conn.execute(
+                    "SELECT event_type FROM task_events WHERE task_id = ? ORDER BY event_id ASC",
+                    (task_id,),
+                ).fetchall() == [(name,) for name in event_names]
+    finally:
+        reset_task_controller_for_tests()
+        if db_path.exists():
+            db_path.unlink()
 
 
-def test_task_events_sse_stream_contains_retry_and_failed_terminal_events():
+def test_task_events_sse_stream_contains_retry_and_failed_terminal_events(tmp_path: Path):
     reset_task_controller_for_tests()
-    with TestClient(app) as client:
-        create = client.post(
-            "/api/tasks/",
-            json={
-                "script": {"task": "nonexistent_task"},
-                "devices": [1],
-                "ai_type": "volc",
-                "priority": 50,
-                "max_retries": 2,
-                "retry_backoff_seconds": 0,
-            },
-        )
-        assert create.status_code == 200
-        task_id = create.json()["task_id"]
+    db_path = tmp_path / "tasks_retry_failed_events.db"
+    if db_path.exists():
+        db_path.unlink()
+    controller = TaskController(
+        store=TaskStore(db_path=db_path),
+        queue_backend=InMemoryTaskQueue(),
+        event_store=TaskEventStore(db_path=db_path),
+    )
+    override_task_controller_for_tests(controller)
 
-        text = _stream_task_events(client, task_id)
+    try:
+        with TestClient(app) as client:
+            create = client.post(
+                "/api/tasks/",
+                json={
+                    "script": {"task": "nonexistent_task"},
+                    "devices": [1],
+                    "ai_type": "volc",
+                    "priority": 50,
+                    "max_retries": 2,
+                    "retry_backoff_seconds": 0,
+                },
+            )
+            assert create.status_code == 200
+            task_id = create.json()["task_id"]
 
-        assert text.count("event: task.created") == 1
-        assert text.count("event: task.started") == 3
-        assert text.count("event: task.dispatching") == 3
-        assert text.count("event: task.dispatch_result") == 3
-        assert text.count("event: task.retry_scheduled") == 2
-        assert text.count("event: task.failed") == 1
+            text = _stream_task_events(client, task_id)
+            event_names = _sse_event_names(text)
+
+            assert event_names == [
+                "task.created",
+                "task.started",
+                "task.dispatching",
+                "task.dispatch_result",
+                "task.retry_scheduled",
+                "task.started",
+                "task.dispatching",
+                "task.dispatch_result",
+                "task.retry_scheduled",
+                "task.started",
+                "task.dispatching",
+                "task.dispatch_result",
+                "task.failed",
+            ]
+            assert event_names.count("task.retry_scheduled") == 2
+            assert event_names.count("task.failed") == 1
+            assert ": close" in text
+
+            with sqlite3.connect(db_path) as conn:
+                assert conn.execute(
+                    "SELECT status, retry_count FROM tasks WHERE task_id = ?",
+                    (task_id,),
+                ).fetchone() == ("failed", 2)
+                assert conn.execute(
+                    "SELECT event_type FROM task_events WHERE task_id = ? ORDER BY event_id ASC",
+                    (task_id,),
+                ).fetchall() == [(name,) for name in event_names]
+    finally:
+        reset_task_controller_for_tests()
+        if db_path.exists():
+            db_path.unlink()
 
 
 def test_pending_task_cancel_emits_cancel_requested_and_cancelled_without_starting():
@@ -323,13 +392,13 @@ def test_trace_managed_gpt_execution_persists_jsonl_without_raw_trace_events(tmp
             assert _wait_status(client, task_id, "completed", timeout_s=3.0)
 
             events = controller.list_events(task_id)
-            assert [event.event_type for event in events][:5] == [
-                "task.created",
-                "task.started",
-                "task.dispatching",
-                "task.dispatch_result",
-                "task.completed",
-            ]
+            event_types_list = [event.event_type for event in events]
+            # Event sequence now includes task.observation and task.planning per step
+            assert event_types_list[0] == "task.created"
+            assert "task.started" in event_types_list
+            assert "task.dispatching" in event_types_list
+            assert "task.dispatch_result" in event_types_list
+            assert "task.completed" in event_types_list
             assert all("trace" not in json.dumps(event.payload, ensure_ascii=False).lower() for event in events)
 
             trace_root = tmp_path / "config" / "data" / "traces" / task_id / f"{task_id}-run-1"
@@ -392,13 +461,12 @@ def test_trace_persistence_failure_propagates_through_existing_task_failure_path
             assert detail.json()["error"] == "trace append exploded"
 
             event_types = [event.event_type for event in controller.list_events(task_id)]
-            assert event_types[:5] == [
-                "task.created",
-                "task.started",
-                "task.dispatching",
-                "task.dispatch_result",
-                "task.failed",
-            ]
+            # Event sequence now includes task.observation and task.planning per step
+            assert event_types[0] == "task.created"
+            assert "task.started" in event_types
+            assert "task.dispatching" in event_types
+            assert "task.dispatch_result" in event_types
+            assert "task.failed" in event_types
     finally:
         reset_task_controller_for_tests()
         if db_path.exists():

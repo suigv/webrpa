@@ -37,8 +37,6 @@ def test_sdk_core_endpoint_mapping(monkeypatch):
     assert sdk.start_android("android-01")["ok"] is True
     assert sdk.switch_model("android-01", "m1")["ok"] is True
     assert sdk.switch_model("android-02", "", localModel="pixel")["ok"] is True
-    assert sdk.query_s5_proxy()["ok"] is True
-    assert sdk.set_clipboard("hello")["ok"] is True
     assert sdk.change_ssh_password("", "pass123")["ok"] is True
 
     assert ("GET", "/info/device", None, None) in captured
@@ -46,8 +44,6 @@ def test_sdk_core_endpoint_mapping(monkeypatch):
     assert ("POST", "/android/start", {"name": "android-01"}, None) in captured
     assert ("POST", "/android/switchModel", {"name": "android-01", "modelId": "m1"}, None) in captured
     assert ("POST", "/android/switchModel", {"name": "android-02", "localModel": "pixel"}, None) in captured
-    assert ("GET", "/proxy/status", None, None) in captured
-    assert ("POST", "/clipboard", {"content": "hello"}, None) in captured
     assert ("POST", "/link/ssh/changePwd", {"password": "pass123"}, None) in captured
 
 
@@ -61,8 +57,6 @@ def test_sdk_required_field_validation():
     assert sdk.backup_model("android-01", "")["ok"] is False
     assert sdk.switch_model("android-01", "")["ok"] is False
     assert sdk.set_auth_password("abc", "xyz")["ok"] is False
-    assert sdk.set_s5_proxy({"ip": "1.1.1.1"})["ok"] is False
-    assert sdk.set_google_id("")["ok"] is False
 
 
 def test_sdk_documented_endpoint_calls(monkeypatch):
@@ -78,15 +72,14 @@ def test_sdk_documented_endpoint_calls(monkeypatch):
     monkeypatch.setattr(BaseHTTPClient, "request_json", fake_request_json)
     sdk = MytSdkClient("192.168.1.2", 8000)
 
-    assert sdk.query_s5_proxy()["ok"] is True
-    assert sdk.get_version()["ok"] is True
-    assert sdk.get_google_id()["ok"] is True
-    assert sdk.ip_geolocation("23.247.138.215", "en")["ok"] is True
+    # MytSdkClient 8000 port only — these methods now live on AndroidApiClient
+    assert sdk.get_device_info()["ok"] is True
+    assert sdk.get_api_version()["ok"] is True
+    assert sdk.list_androids()["ok"] is True
 
-    assert ("GET", "/proxy/status", None, None) in calls
-    assert ("GET", "/device/version", None, None) in calls
-    assert ("GET", "/identity/googleId", None, None) in calls
-    assert ("GET", "/location/ip", None, {"ip": "23.247.138.215", "language": "en"}) in calls
+    assert ("GET", "/info/device", None, None) in calls
+    assert ("GET", "/info", None, None) in calls
+    assert ("GET", "/android", None, None) in calls
 
 
 def test_sdk_box_endpoint_mapping_expanded(monkeypatch, tmp_path):

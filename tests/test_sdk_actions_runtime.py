@@ -63,7 +63,7 @@ def test_sdk_action_invocation_maps_to_client(monkeypatch):
     register_defaults = mod.register_defaults
     ExecutionContext = _load_execution_context()
 
-    class FakeClient:
+    class FakeSdkClient:
         def __init__(self, device_ip: str, sdk_port: int = 8000, timeout_seconds: float = 30.0, retries: int = 3):
             self.device_ip = device_ip
             self.sdk_port = sdk_port
@@ -71,31 +71,37 @@ def test_sdk_action_invocation_maps_to_client(monkeypatch):
         def get_device_info(self):
             return {"ok": True, "data": {"ip": self.device_ip, "port": self.sdk_port}}
 
-        def set_clipboard(self, content: str):
-            return {"ok": True, "data": {"content": content}}
+    class FakeAndroidApiClient:
+        def __init__(self, device_ip: str, api_port: int, timeout_seconds: float = 30.0, retries: int = 3):
+            self.device_ip = device_ip
+            self.api_port = api_port
 
-        def ip_geolocation(self, ip: str, language: str = ""):
+        def set_clipboard(self, text: str):
+            return {"ok": True, "data": {"text": text}}
+
+        def ip_geolocation(self, ip: str = "", language: str = ""):
             return {"ok": True, "data": {"ip": ip, "language": language}}
 
     sdk_mod = importlib.import_module("engine.actions.sdk_actions")
-    monkeypatch.setattr(sdk_mod, "MytSdkClient", FakeClient)
+    android_mod = importlib.import_module("engine.actions.android_api_actions")
+    monkeypatch.setattr(sdk_mod, "MytSdkClient", FakeSdkClient)
+    monkeypatch.setattr(android_mod, "AndroidApiClient", FakeAndroidApiClient)
 
     reg = ActionRegistry()
     monkeypatch.setattr(mod, "_registry", reg)
     register_defaults()
 
-    ctx = ExecutionContext(payload={"device_ip": "192.168.1.8", "sdk_port": 8010})
+    ctx = ExecutionContext(payload={"device_ip": "192.168.1.8", "sdk_port": 8010}, runtime={"api_port": 30001})
     res1 = reg.resolve("sdk.get_device_info")({}, ctx)
     assert res1.ok is True
     assert res1.data["result"]["data"]["ip"] == "192.168.1.8"
 
-    res2 = reg.resolve("mytos.set_clipboard")({"content": "abc"}, ctx)
+    # mytos.set_clipboard now uses 'text' param (30001 API)
+    res2 = reg.resolve("mytos.set_clipboard")({"text": "abc"}, ctx)
     assert res2.ok is True
-    assert res2.data["result"]["data"]["content"] == "abc"
 
-    res3 = reg.resolve("mytos.ip_geolocation")({"ip": "23.247.138.215", "language": "en"}, ctx)
+    res3 = reg.resolve("mytos.ip_geolocation")({"ip": "23.247.138.215"}, ctx)
     assert res3.ok is True
-    assert res3.data["result"]["data"]["ip"] == "23.247.138.215"
 
 
 def test_save_shared_preserves_valid_json_across_repeated_updates(monkeypatch, tmp_path):

@@ -147,8 +147,11 @@ class BrowserUIStateService(UIStateService):
         url_spec = self._single_url_spec(expected_ids)
 
         if url_spec is not None:
-            if browser.wait_url_contains(url_spec.value, timeout_seconds=max(1, int(timeout_ms / 1000))):
-                current_url = self._safe_current_url(browser)
+            timeout_s = max(1, int(timeout_ms / 1000))
+            context.check_cancelled()
+            matched = browser.wait_url_contains(url_spec.value, timeout_seconds=timeout_s)
+            current_url = self._safe_current_url(browser)
+            if matched:
                 return UIStateObservationResult.matched(
                     operation="wait_until",
                     state_id=f"url:{url_spec.value}",
@@ -171,6 +174,7 @@ class BrowserUIStateService(UIStateService):
                     ),
                     raw_details={"observations": [{"kind": "url", "target": url_spec.value, "current_url": current_url}]},
                 )
+
             return UIStateObservationResult.timeout(
                 operation="wait_until",
                 platform=self.platform,
@@ -179,7 +183,7 @@ class BrowserUIStateService(UIStateService):
                 evidence=UIStateEvidence(
                     summary=f"timed out waiting for url fragment {url_spec.value}",
                     text=url_spec.value,
-                    url=self._safe_current_url(browser) or None,
+                    url=current_url or None,
                     missing=[url_spec.value],
                 ),
                 timing=self._timing(
@@ -190,7 +194,7 @@ class BrowserUIStateService(UIStateService):
                     attempt=1,
                     samples=1,
                 ),
-                raw_details={"observations": [{"kind": "url", "target": url_spec.value, "current_url": self._safe_current_url(browser)}]},
+                raw_details={"observations": [{"kind": "url", "target": url_spec.value, "current_url": current_url}]},
             )
 
         poll_outcome = poll_until_result(

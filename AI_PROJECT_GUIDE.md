@@ -7,10 +7,11 @@
 文档分工：
 
 - `README.md`：入口说明与项目摘要。
-- `docs/project_progress.md`：canonical capability / progress ledger。
-- `docs/current_main_status.md`：canonical short status ledger。
-- `docs/HANDOFF.md`：continuation / runbook / evidence workflow。
-- `docs/ai_workflow_design_checklist.md`：AI 目标工作流的持续更新清单。
+- `docs/project_progress.md`：项目看板，包含可用能力、完成状态与下一步计划。
+- `docs/PLUGIN_CONTRACT.md`：插件契约与参数输入规范（v2）。
+- `docs/HANDOFF.md`：架构解析、变量作用域与设计原则（精简版）。
+- `docs/ai_workflow_design_checklist.md`：AI 工作流设计清单（中文）。
+- `docs/TECHNICAL_DEBT.md`：系统技术债与治理重构路线图。
 
 ## 2）项目定位
 
@@ -65,7 +66,13 @@ AI 在当前项目中的定位不是替代插件体系，而是：
 - `core/golden_run_distillation.py`
   - 负责从成功轨迹生成 reviewable YAML draft。
 - `tools/distill_golden_run.py`
-  - 负责手工/离线触发蒸馏。
+  - 负责手工/离线触发单次蒸馏。
+- `tools/distill_multi_run.py`
+  - 多轮 trace 聚合蒸馏，达到门槛（简单 3 次/复杂 10 次）后生成 YAML 草稿。
+- `tools/distill_binding.py`
+  - 从 trace XML 提取界面特征，生成 `NativeStateBinding` 代码草稿。
+
+LLM 链路说明：`LLMClient` 使用标准 OpenAI Chat Completions 格式（`/chat/completions`），支持通过 `MYT_LLM_API_BASE_URL` 指定代理服务，通过 `MYT_LLM_API_KEY` 配置密钥。
 
 ## 5）核心设计原则
 
@@ -118,6 +125,7 @@ AI 相关能力应尽量复用：
 - 现在主执行链仍然是 structured-state-first。
 - 仓库里已有视觉相关配置入口，但当前 VLM 接线仍然很轻，不能写成成熟 dedicated stack。
 - `ai.vlm_evaluate` 已作为动作边界存在，但当前视觉能力还不是成熟的一等公民执行器。
+- `gpt_executor` 的 VLM 路径由环境变量 `MYT_ENABLE_VLM` 控制，默认关闭；开启后才会根据 `fallback_modalities` 触发。
 - 因此，若未来走 vision-led exploration，应被视为**目标方向扩展**，不是当前已完成能力。
 - 当前这一波 AI 开发以云机为先，浏览器仍保持兼容支持，但不是当前主 AI 设计驱动面。
 

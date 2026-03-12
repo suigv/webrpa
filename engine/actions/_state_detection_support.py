@@ -1,57 +1,20 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 import re
 import xml.etree.ElementTree as ET
-from typing import Any, Iterable
+from typing import Any
 
 from engine.models.runtime import ActionResult, ExecutionContext
 
 
-# 定义全局已知的 UI 干扰项及其处理方式（多语言适配）
-# 结构：[(特征文字列表, 响应按钮的 ID 或文字)]
-INTERSTITIALS = [
-    # 1. “同步联系人”引导 (修正关闭按钮为 caret)
-    (["想查看 X 上有哪些认识的人", "Sync contacts", "联系人"], "com.twitter.android:id/caret"),
-    # 2. “Premium 升级”横幅
-    (["升级", "Upgrade", "Premium"], "com.twitter.android:id/caret"),
-    # 3. “评价应用”弹窗
-    (["评价", "Rate us", "Like X?"], "暂不"),
-]
+def _coerce_text_list(raw: Iterable[str] | str | None) -> list[str]:
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        return [part.strip() for part in raw.split(",") if part.strip()]
+    return [str(part).strip() for part in raw if str(part).strip()]
 
-def auto_clean_interstitials(rpc: Any, context: ExecutionContext | None = None) -> int:
-    """
-    自动识别并清理屏幕上的干扰项。
-    """
-    cleaned_count = 0
-    for markers, action in INTERSTITIALS:
-        if query_any_text_contains(rpc, markers):
-            try:
-                # 构造业务友好的描述
-                marker_str = markers[0]
-                msg = f"检测到‘{marker_str}’类弹窗，正在自动排除..."
-                
-                # 如果有 context 且有 emit_event，则推送到前端
-                if context and context.emit_event:
-                    context.emit_event("task.action_result", {
-                        "step": "自愈",
-                        "label": msg,
-                        "ok": True,
-                        "message": "已点击清理按钮"
-                    })
-
-                if ":" in str(action):
-                    selector = rpc.create_selector()
-                    rpc.addQuery_ResourceId(selector, action)
-                    node = rpc.execQueryOne(selector)
-                    if node:
-                        rpc.click_node(node)
-                        cleaned_count += 1
-                    rpc.free_selector(selector)
-                else:
-                    pass
-            except Exception:
-                continue
-    return cleaned_count
 
 def query_any_text_contains(rpc: Any, texts: Iterable[str], timeout_ms: int = 900) -> bool:
     _ = timeout_ms
@@ -71,41 +34,6 @@ def query_any_text_contains(rpc: Any, texts: Iterable[str], timeout_ms: int = 90
     finally:
         rpc.free_selector(selector)
     return False
-
-
-def detect_x_login_stage_with_rpc(rpc: Any) -> str:
-    try:
-        focus, ok = rpc.exec_cmd("dumpsys window | grep mCurrentFocus")
-        focus_text = str(focus or "").lower()
-        if ok and focus_text:
-            if any(key in focus_text for key in ("home", "mainactivity", "timeline")):
-                return "home"
-            if any(key in focus_text for key in ("loginchallenges", "verification", "two-factor")):
-                return "two_factor"
-    except Exception:
-        pass
-
-    if query_any_text_contains(rpc, ["captcha", "arkose", "verify you are human", "prove you are human"]):
-        return "captcha"
-    if query_any_text_contains(rpc, ["verification code", "验证码", "two-factor", "2fa", "enter your code"]):
-        return "two_factor"
-    if query_any_text_contains(rpc, ["password", "密码", "forgot password", "忘记密码"]):
-        return "password"
-    if query_any_text_contains(
-        rpc,
-        [
-            "已有账号",
-            "创建账号",
-            "查看世界正在发生的新鲜事",
-            "phone, email, or username",
-            "用户名",
-            "电子邮件",
-        ],
-    ):
-        return "account"
-    if query_any_text_contains(rpc, ["home", "主页", "主頁", "ホーム", "for you", "关注", "Following"]):
-        return "home"
-    return "unknown"
 
 
 def parse_bounds(raw: str) -> dict[str, int]:
@@ -180,10 +108,12 @@ def candidate_identity(candidate: dict[str, Any]) -> str:
 def extract_candidates_from_xml(
     xml_text: str,
     package: str = "",
-    row_id_contains: str = ":id/row",
+    row_id_contains: str = "",
     min_top: int = 220,
     max_bottom: int = 2200,
     max_candidates: int = 12,
+    fallback_resource_ids: Iterable[str] | None = None,
+    fallback_desc_markers: Iterable[str] | None = None,
 ) -> list[dict[str, Any]]:
     if not xml_text.strip():
         return []
@@ -191,6 +121,13 @@ def extract_candidates_from_xml(
         root = ET.fromstring(xml_text)
     except Exception:
         return []
+
+    fallback_resource_id_set = {
+        item for item in _coerce_text_list(fallback_resource_ids) if item
+    }
+    fallback_desc_marker_set = [
+        item.lower() for item in _coerce_text_list(fallback_desc_markers) if item
+    ]
 
     def accept(candidate: dict[str, Any]) -> bool:
         bound = candidate.get("bound", {})
@@ -211,18 +148,18 @@ def extract_candidates_from_xml(
         resource_id = str(node.attrib.get("resource-id") or "")
         class_name = str(node.attrib.get("class") or "")
         content_desc = str(node.attrib.get("content-desc") or "")
-        
-        # 匹配逻辑优化：
-        # 1. 符合指定的 row_id_contains
-        # 2. 或者 Resource ID 是通用的 android:id/list
-        # 3. 或者类名是 RecyclerView 且包含主页描述
-        is_match = (row_id_contains and row_id_contains in resource_id) or \
-                   (resource_id == "android:id/list") or \
-                   ("RecyclerView" in class_name and ("主页" in content_desc or "Home" in content_desc))
-        
+
+        fallback_resource_match = bool(fallback_resource_id_set) and resource_id in fallback_resource_id_set
+        fallback_desc_match = False
+        if fallback_desc_marker_set and "RecyclerView" in class_name:
+            content_lower = content_desc.lower()
+            fallback_desc_match = any(marker in content_lower for marker in fallback_desc_marker_set)
+
+        is_match = (row_id_contains and row_id_contains in resource_id) or fallback_resource_match or fallback_desc_match
+
         if not is_match:
             continue
-            
+
         candidate = candidate_from_element(node)
         if candidate is None or not accept(candidate):
             continue
@@ -272,12 +209,21 @@ def normalize_dm_text(raw: str) -> str:
     return cleaned.strip()
 
 
-def extract_last_dm_message_from_xml(xml_text: str, package: str = "com.twitter.android", max_left: int = 540) -> dict[str, Any] | None:
+def extract_last_dm_message_from_xml(
+    xml_text: str,
+    package: str = "",
+    max_left: int = 540,
+    separator_tokens: Iterable[str] | None = None,
+) -> dict[str, Any] | None:
     if not xml_text.strip():
         return None
     try:
         root = ET.fromstring(xml_text)
     except Exception:
+        return None
+
+    separator_tokens = _coerce_text_list(separator_tokens)
+    if not separator_tokens:
         return None
 
     matches: list[dict[str, Any]] = []
@@ -290,7 +236,7 @@ def extract_last_dm_message_from_xml(xml_text: str, package: str = "com.twitter.
         raw = desc or text
         if not raw:
             continue
-        if all(token not in raw for token in ("：", ": ")):
+        if all(token not in raw for token in separator_tokens):
             continue
         bound = parse_bounds(node.attrib.get("bounds", ""))
         if int(bound.get("left", 0)) >= max_left:
@@ -307,12 +253,21 @@ def extract_last_dm_message_from_xml(xml_text: str, package: str = "com.twitter.
     return matches[0]
 
 
-def extract_last_outbound_dm_message_from_xml(xml_text: str, package: str = "com.twitter.android", min_left: int = 540) -> dict[str, Any] | None:
+def extract_last_outbound_dm_message_from_xml(
+    xml_text: str,
+    package: str = "",
+    min_left: int = 540,
+    separator_tokens: Iterable[str] | None = None,
+) -> dict[str, Any] | None:
     if not xml_text.strip():
         return None
     try:
         root = ET.fromstring(xml_text)
     except Exception:
+        return None
+
+    separator_tokens = _coerce_text_list(separator_tokens)
+    if not separator_tokens:
         return None
 
     matches: list[dict[str, Any]] = []
@@ -324,6 +279,8 @@ def extract_last_outbound_dm_message_from_xml(xml_text: str, package: str = "com
         text = str(node.attrib.get("text") or "").strip()
         raw = desc or text
         if not raw:
+            continue
+        if all(token not in raw for token in separator_tokens):
             continue
         bound = parse_bounds(node.attrib.get("bounds", ""))
         if int(bound.get("left", 0)) < min_left:
@@ -340,7 +297,12 @@ def extract_last_outbound_dm_message_from_xml(xml_text: str, package: str = "com
     return matches[0]
 
 
-def extract_follow_targets_from_xml(xml_text: str, package: str = "com.twitter.android", min_top: int = 350) -> list[dict[str, Any]]:
+def extract_follow_targets_from_xml(
+    xml_text: str,
+    package: str = "",
+    min_top: int = 350,
+    button_texts: Iterable[str] | None = None,
+) -> list[dict[str, Any]]:
     if not xml_text.strip():
         return []
     try:
@@ -348,7 +310,10 @@ def extract_follow_targets_from_xml(xml_text: str, package: str = "com.twitter.a
     except Exception:
         return []
 
-    button_texts = {"follow", "フォローする", "关注", "關注"}
+    button_text_set = {text.lower() for text in _coerce_text_list(button_texts) if text}
+    if not button_text_set:
+        return []
+
     targets: list[dict[str, Any]] = []
     seen: set[tuple[int, int]] = set()
 
@@ -357,7 +322,7 @@ def extract_follow_targets_from_xml(xml_text: str, package: str = "com.twitter.a
         if package and node_package not in {"", package}:
             continue
         text = str(node.attrib.get("text") or "").strip()
-        if text.lower() not in button_texts and text not in button_texts:
+        if text.lower() not in button_text_set:
             continue
         bound = parse_bounds(node.attrib.get("bounds", ""))
         top = int(bound.get("top", 0))
@@ -375,7 +340,12 @@ def extract_follow_targets_from_xml(xml_text: str, package: str = "com.twitter.a
     return targets
 
 
-def extract_unread_dm_targets_from_xml(xml_text: str, package: str = "com.twitter.android", min_top: int = 250) -> list[dict[str, Any]]:
+def extract_unread_dm_targets_from_xml(
+    xml_text: str,
+    package: str = "",
+    min_top: int = 250,
+    markers: Iterable[str] | None = None,
+) -> list[dict[str, Any]]:
     if not xml_text.strip():
         return []
     try:
@@ -383,7 +353,10 @@ def extract_unread_dm_targets_from_xml(xml_text: str, package: str = "com.twitte
     except Exception:
         return []
 
-    markers = ("未読", "unread")
+    marker_set = [marker.lower() for marker in _coerce_text_list(markers) if marker]
+    if not marker_set:
+        return []
+
     targets: list[dict[str, Any]] = []
     seen: set[tuple[int, int]] = set()
 
@@ -394,7 +367,7 @@ def extract_unread_dm_targets_from_xml(xml_text: str, package: str = "com.twitte
         text = str(node.attrib.get("text") or "").strip()
         desc = str(node.attrib.get("content-desc") or "").strip()
         combined = f"{text} {desc}".lower()
-        if not any(marker in combined for marker in markers):
+        if not any(marker in combined for marker in marker_set):
             continue
         bound = parse_bounds(node.attrib.get("bounds", ""))
         top = int(bound.get("top", 0))
@@ -412,7 +385,14 @@ def extract_unread_dm_targets_from_xml(xml_text: str, package: str = "com.twitte
     return targets
 
 
-def extract_candidates_action(params: dict[str, Any], context: ExecutionContext, *, row_id_contains: str, connect_rpc: Any, close_rpc: Any) -> ActionResult:
+def extract_candidates_action(
+    params: dict[str, Any],
+    context: ExecutionContext,
+    *,
+    row_id_contains: str,
+    connect_rpc: Any,
+    close_rpc: Any,
+) -> ActionResult:
     rpc, err = connect_rpc(params, context)
     if err:
         return err
@@ -420,11 +400,13 @@ def extract_candidates_action(params: dict[str, Any], context: ExecutionContext,
         xml_text = dump_xml_for_candidates(rpc, int(params.get("timeout_ms", 2500)))
         candidates = extract_candidates_from_xml(
             xml_text=xml_text,
-            package=str(params.get("package") or "com.twitter.android").strip(),
+            package=str(params.get("package") or context.get_session_default("package") or "").strip(),
             row_id_contains=str(params.get("row_id_contains") or row_id_contains).strip(),
             min_top=int(params.get("min_top", 220) or 220),
             max_bottom=int(params.get("max_bottom", 2200) or 2200),
             max_candidates=int(params.get("max_candidates", 12) or 12),
+            fallback_resource_ids=params.get("fallback_resource_ids"),
+            fallback_desc_markers=params.get("fallback_desc_markers"),
         )
         if not candidates:
             return ActionResult(ok=False, code="no_candidates", message="no candidates extracted", data={"candidates": [], "count": 0})
@@ -433,7 +415,14 @@ def extract_candidates_action(params: dict[str, Any], context: ExecutionContext,
         close_rpc(rpc)
 
 
-def collect_blogger_candidates(params: dict[str, Any], context: ExecutionContext, *, connect_rpc: Any, close_rpc: Any, time_module: Any) -> ActionResult:
+def collect_blogger_candidates(
+    params: dict[str, Any],
+    context: ExecutionContext,
+    *,
+    connect_rpc: Any,
+    close_rpc: Any,
+    time_module: Any,
+) -> ActionResult:
     rpc, err = connect_rpc(params, context)
     if err:
         return err
@@ -443,8 +432,8 @@ def collect_blogger_candidates(params: dict[str, Any], context: ExecutionContext
         timeout_ms = int(params.get("timeout_ms", 2500) or 2500)
         settle_ms = max(int(params.get("settle_ms", 900) or 900), 0)
         swipe_duration_ms = max(int(params.get("swipe_duration_ms", 350) or 350), 0)
-        package = str(params.get("package") or "com.twitter.android").strip()
-        row_id_contains = str(params.get("row_id_contains") or ":id/row").strip()
+        package = str(params.get("package") or context.get_session_default("package") or "").strip()
+        row_id_contains = str(params.get("row_id_contains") or "").strip()
         min_top = int(params.get("min_top", 220) or 220)
         max_bottom = int(params.get("max_bottom", 2200) or 2200)
         stop_when_stalled = bool(params.get("stop_when_stalled", True))
@@ -468,6 +457,8 @@ def collect_blogger_candidates(params: dict[str, Any], context: ExecutionContext
                 min_top=min_top,
                 max_bottom=max_bottom,
                 max_candidates=max_candidates,
+                fallback_resource_ids=params.get("fallback_resource_ids"),
+                fallback_desc_markers=params.get("fallback_desc_markers"),
             )
             new_items = 0
             for candidate in extracted:
@@ -506,3 +497,63 @@ def collect_blogger_candidates(params: dict[str, Any], context: ExecutionContext
         return ActionResult(ok=True, code="ok", data={"candidates": collected, "count": len(collected), "rounds": rounds, "swipe_count": swipe_count})
     finally:
         close_rpc(rpc)
+
+
+# ------------------------------------------------------------------ #
+# XML 预处理
+# ------------------------------------------------------------------ #
+
+
+def preprocess_xml(xml: str, max_text_len: int = 0, max_desc_len: int = 0) -> str:
+    """从原始 Android XML 中提取有效节点的关键属性，剥离噪音。
+
+    max_text_len/max_desc_len 为 0 表示不截断，只做结构性过滤。
+    具体阈值应从 binding 文件的 xml_filter 字段读取，不同 App 按需配置。
+    """
+    pkg_m = re.search(r'package="([^"]+)"', xml)
+    app_pkg = pkg_m.group(1) if pkg_m else ""
+
+    lines: list[str] = []
+    for m in re.finditer(r'<node((?:[^>]|/>)*?)(?:/>|>)', xml):
+        attrs_str = m.group(1)
+
+        def get(attr: str) -> str:
+            vm = re.search(rf'{attr}="([^"]*)"', attrs_str)
+            return vm.group(1).strip() if vm else ""
+
+        if app_pkg and get("package") and get("package") != app_pkg:
+            continue
+        if get("bounds") == "[0,0][0,0]":
+            continue
+        if get("enabled") == "false" and not get("text") and not get("resource-id") and not get("content-desc"):
+            continue
+
+        text = get("text")
+        rid = get("resource-id")
+        desc = get("content-desc")
+        cls = get("class").split(".")[-1]
+        clickable = get("clickable") == "true"
+
+        if not text and not rid and not desc:
+            continue
+        if max_desc_len > 0 and len(desc) > max_desc_len:
+            desc = ""
+        if not text and not rid and not desc:
+            continue
+        if max_text_len > 0 and len(text) > max_text_len:
+            text = text[:max_text_len] + "..."
+
+        parts: list[str] = [cls] if cls else []
+        if text:
+            parts.append(f'text={text}')
+        if rid:
+            rid_short = rid.split(":id/")[-1] if ":id/" in rid else rid
+            parts.append(f'id={rid_short}')
+        if desc and desc != text:
+            parts.append(f'desc={desc}')
+        if clickable:
+            parts.append("clickable")
+
+        lines.append(" | ".join(parts))
+
+    return "\n".join(lines)

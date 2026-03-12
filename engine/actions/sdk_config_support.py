@@ -10,28 +10,56 @@ import yaml
 from core.data_store import _resolve_root_path, write_json_atomic
 
 
-def ui_config_paths() -> list[Path]:
+_PACKAGE_TO_APP: dict[str, str] = {
+    "com.instagram.android": "instagram",
+    "com.facebook.katana": "facebook",
+    "com.tiktok.android": "tiktok",
+}
+DEFAULT_APP_NAME = (os.getenv("MYT_DEFAULT_APP", "default") or "default").strip().lower() or "default"
+
+
+def app_from_package(package: str) -> str:
+    """从 Android package 名推断 app 配置文件名，未知 package 返回空字符串。"""
+    return _PACKAGE_TO_APP.get(str(package or "").strip(), "")
+
+
+def resolve_app(params: dict[str, Any], payload: dict[str, Any]) -> str:
+    """从 params.app > payload.app > payload.package 顺序推断 app 名，默认 DEFAULT_APP_NAME。"""
+    app = str(params.get("app") or payload.get("app") or "").strip().lower()
+    if app:
+        return app
+    package = str(payload.get("package") or "").strip()
+    if package:
+        mapped = app_from_package(package)
+        if mapped:
+            return mapped
+    return DEFAULT_APP_NAME
+
+
+def app_config_path(app: str) -> Path:
+    """返回 config/apps/{app}.yaml 的路径，优先用 _resolve_root_path()，回退 repo root。"""
     repo_root = Path(__file__).resolve().parents[2]
-    candidates = [Path(_resolve_root_path()) / "config" / "x_ui.yaml", repo_root / "config" / "x_ui.yaml"]
-    unique: list[Path] = []
-    seen: set[str] = set()
-    for path in candidates:
-        path_str = str(path.resolve()) if path.exists() else os.path.abspath(str(path))
-        if path_str not in seen:
-            seen.add(path_str)
-            unique.append(path)
-    return unique
+    for base in [Path(_resolve_root_path()), repo_root]:
+        path = base / "config" / "apps" / f"{app}.yaml"
+        if path.exists():
+            return path
+    return Path(_resolve_root_path()) / "config" / "apps" / f"{app}.yaml"
 
 
-def load_ui_config_document() -> dict[str, Any]:
-    for path in ui_config_paths():
-        if not path.exists():
-            continue
+def load_app_config_document(app: str) -> dict[str, Any]:
+    """加载 config/apps/{app}.yaml。"""
+    path = app_config_path(app)
+    if path.exists():
         raw = yaml.safe_load(path.read_text(encoding="utf-8"))
         if isinstance(raw, dict):
             return raw
-        raise ValueError(f"x_ui config must be a mapping: {path}")
-    raise FileNotFoundError("config/x_ui.yaml not found")
+        raise ValueError(f"app config must be a mapping: {path}")
+    raise FileNotFoundError(f"config/apps/{app}.yaml not found")
+
+
+def load_ui_config_document() -> dict[str, Any]:
+    """向后兼容接口，默认加载 DEFAULT_APP_NAME 配置。"""
+    return load_app_config_document(DEFAULT_APP_NAME)
 
 
 def strategy_config_paths() -> list[Path]:

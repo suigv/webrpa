@@ -149,7 +149,8 @@ def _args_exec_android(params: dict[str, Any]) -> tuple[list[Any], dict[str, Any
 
 def _args_switch_image(params: dict[str, Any]) -> tuple[list[Any], dict[str, Any]]:
     kwargs = {k: v for k, v in params.items() if k not in {"device_ip", "sdk_port", "timeout_seconds", "retries", "name", "image_url"}}
-    return [str(params.get("name", "")), str(params.get("image_url", ""))], kwargs
+    image_url = str(params.get("image_url") or params.get("imageUrl") or "").strip()
+    return [str(params.get("name", "")), image_url], kwargs
 
 
 def _args_switch_model(params: dict[str, Any]) -> tuple[list[Any], dict[str, Any]]:
@@ -158,15 +159,71 @@ def _args_switch_model(params: dict[str, Any]) -> tuple[list[Any], dict[str, Any
 
 
 def _args_pull_image(params: dict[str, Any]) -> tuple[list[Any], dict[str, Any]]:
-    return [str(params.get("image_url", ""))], {}
+    image_url = str(params.get("image_url") or params.get("imageUrl") or "").strip()
+    return [image_url], {}
+
+
+def _args_change_image_batch(params: dict[str, Any]) -> tuple[list[Any], dict[str, Any]]:
+    container_names = params.get("container_names") or params.get("containerNames") or params.get("names") or []
+    if isinstance(container_names, str):
+        containers = [name.strip() for name in container_names.split(",") if name.strip()]
+    else:
+        containers = [str(name).strip() for name in container_names if str(name).strip()]
+    image = str(params.get("image") or params.get("imageUrl") or "").strip()
+    return [containers, image], {}
+
+
+def _args_copy_android(params: dict[str, Any]) -> tuple[list[Any], dict[str, Any]]:
+    name = str(params.get("name") or "")
+    index_num = params.get("index_num") if "index_num" in params else params.get("indexNum")
+    count = params.get("count")
+    return [name, index_num, count], {}
+
+
+def _args_task_status(params: dict[str, Any]) -> tuple[list[Any], dict[str, Any]]:
+    task_id = str(params.get("task_id") or params.get("taskId") or "")
+    return [task_id], {}
+
+
+def _args_macvlan(params: dict[str, Any]) -> tuple[list[Any], dict[str, Any]]:
+    gw = str(params.get("gw") or params.get("gateway") or "")
+    subnet = str(params.get("subnet") or "")
+    private = params.get("private")
+    return [gw, subnet, private], {}
+
+
+def _args_container_domain_filter(params: dict[str, Any]) -> tuple[list[Any], dict[str, Any]]:
+    container_id = str(params.get("container_id") or params.get("containerID") or "")
+    return [container_id], {}
+
+
+def _args_container_domains(params: dict[str, Any]) -> tuple[list[Any], dict[str, Any]]:
+    container_id = str(params.get("container_id") or params.get("containerID") or "")
+    domains = params.get("domains") or []
+    if isinstance(domains, str):
+        domain_list = [d.strip() for d in domains.split(",") if d.strip()]
+    else:
+        domain_list = [str(d).strip() for d in domains if str(d).strip()]
+    return [container_id, domain_list], {}
+
+
+def _args_domains(params: dict[str, Any]) -> tuple[list[Any], dict[str, Any]]:
+    domains = params.get("domains") or []
+    if isinstance(domains, str):
+        domain_list = [d.strip() for d in domains.split(",") if d.strip()]
+    else:
+        domain_list = [str(d).strip() for d in domains if str(d).strip()]
+    return [domain_list], {}
 
 
 def _args_image_url(params: dict[str, Any]) -> tuple[list[Any], dict[str, Any]]:
-    return [str(params.get("image_url", ""))], {}
+    image_url = str(params.get("image_url") or params.get("imageUrl") or "").strip()
+    return [image_url], {}
 
 
 def _args_download_backup(params: dict[str, Any]) -> tuple[list[Any], dict[str, Any]]:
-    return [str(params.get("backup_name", "")), str(params.get("save_path", ""))], {}
+    backup_name = str(params.get("backup_name") or params.get("name") or "").strip()
+    return [backup_name, str(params.get("save_path", ""))], {}
 
 
 def _args_backup_model(params: dict[str, Any]) -> tuple[list[Any], dict[str, Any]]:
@@ -398,7 +455,10 @@ ACTION_BUILDERS: dict[str, tuple[str, Callable[[dict[str, Any]], tuple[list[Any]
     "sdk.exec_android": ("exec_android", _args_exec_android),
     "sdk.get_cloud_status": ("get_cloud_status", _args_name),
     "sdk.switch_image": ("switch_image", _args_switch_image),
+    "sdk.change_image_batch": ("change_image_batch", _args_change_image_batch),
     "sdk.switch_model": ("switch_model", _args_switch_model),
+    "sdk.copy_android": ("copy_android", _args_copy_android),
+    "sdk.get_task_status": ("get_task_status", _args_task_status),
     "sdk.pull_image": ("pull_image", _args_pull_image),
     "sdk.list_images": ("list_images", None),
     "sdk.delete_image": ("delete_image", _args_image_url),
@@ -409,9 +469,18 @@ ACTION_BUILDERS: dict[str, tuple[str, Callable[[dict[str, Any]], tuple[list[Any]
     "sdk.import_image": ("import_image", _args_path_file),
     "sdk.export_android": ("export_android", _args_name),
     "sdk.import_android": ("import_android", _args_path_file),
+    "sdk.create_android_v2": ("create_android_v2", _args_payload),
+    "sdk.reset_android_v2": ("reset_android_v2", _args_name),
+    "sdk.change_image_batch_v2": ("change_image_batch_v2", _args_change_image_batch),
+    "sdk.copy_android_v2": ("copy_android_v2", _args_copy_android),
+    "sdk.switch_image_v2": ("switch_image_v2", _args_switch_image),
     "sdk.list_phone_models_online": ("list_phone_models_online", None),
     "sdk.list_country_codes": ("list_country_codes", None),
     "sdk.set_android_macvlan": ("set_android_macvlan", _args_payload_and_name),
+    "sdk.list_macvlan": ("list_macvlan", None),
+    "sdk.create_macvlan": ("create_macvlan", _args_macvlan),
+    "sdk.update_macvlan": ("update_macvlan", _args_macvlan),
+    "sdk.delete_macvlan": ("delete_macvlan", None),
     "sdk.prune_images": ("prune_images", None),
     "sdk.list_backups": ("list_backups", _args_name),
     "sdk.delete_backup": ("delete_backup", _args_name),
@@ -442,12 +511,21 @@ ACTION_BUILDERS: dict[str, tuple[str, Callable[[dict[str, Any]], tuple[list[Any]
     "sdk.update_vpc_group_alias": ("update_vpc_group_alias", _args_payload),
     "sdk.delete_vpc_group": ("delete_vpc_group", _args_payload),
     "sdk.add_vpc_rule": ("add_vpc_rule", _args_payload),
+    "sdk.add_vpc_rule_batch": ("add_vpc_rule_batch", _args_payload),
     "sdk.list_vpc_container_rules": ("list_vpc_container_rules", _args_get_call_records),
     "sdk.delete_vpc_node": ("delete_vpc_node", _args_payload),
+    "sdk.delete_vpc_rule": ("delete_vpc_rule", _args_payload),
+    "sdk.delete_vpc_rule_batch": ("delete_vpc_rule_batch", _args_payload),
     "sdk.update_vpc_group": ("update_vpc_group", _args_payload),
     "sdk.add_vpc_socks": ("add_vpc_socks", _args_payload),
     "sdk.set_vpc_whitelist_dns": ("set_vpc_whitelist_dns", _args_enabled),
     "sdk.test_vpc_latency": ("test_vpc_latency", _args_get_call_records),
+    "sdk.get_container_domain_filter": ("get_container_domain_filter", _args_container_domain_filter),
+    "sdk.set_container_domain_filter": ("set_container_domain_filter", _args_container_domains),
+    "sdk.clear_container_domain_filter": ("clear_container_domain_filter", _args_container_domain_filter),
+    "sdk.get_global_domain_filter": ("get_global_domain_filter", None),
+    "sdk.set_global_domain_filter": ("set_global_domain_filter", _args_domains),
+    "sdk.clear_global_domain_filter": ("clear_global_domain_filter", None),
     "sdk.list_local_phone_models": ("list_local_phone_models", None),
     "sdk.delete_local_phone_model": ("delete_local_phone_model", _args_model_name),
     "sdk.export_local_phone_model": ("export_local_phone_model", _args_model_name),
@@ -462,6 +540,8 @@ ACTION_BUILDERS: dict[str, tuple[str, Callable[[dict[str, Any]], tuple[list[Any]
     "sdk.get_lm_info": ("get_lm_info", None),
     "sdk.delete_lm_local": ("delete_lm_local", _args_model_name),
     "sdk.get_lm_models": ("get_lm_models", None),
+    "sdk.chat_completions": ("chat_completions", _args_payload),
+    "sdk.embeddings": ("embeddings", _args_payload),
     "sdk.reset_lm_device": ("reset_lm_device", None),
     "sdk.start_lm_server": ("start_lm_server", None),
     "sdk.stop_lm_server": ("stop_lm_server", None),
@@ -520,11 +600,87 @@ ACTION_BUILDERS: dict[str, tuple[str, Callable[[dict[str, Any]], tuple[list[Any]
 
 
 def get_sdk_action_bindings() -> dict[str, Callable[[dict[str, Any], ExecutionContext], ActionResult]]:
+    from engine.actions.android_api_actions import (
+        android_query_proxy, android_set_proxy, android_stop_proxy, android_set_proxy_filter,
+        android_get_clipboard, android_set_clipboard,
+        android_upload_google_cert, android_download_file, android_upload_file,
+        android_backup_app, android_restore_app, android_batch_install_apps,
+        android_screenshot, android_autoclick,
+        android_camera_hot_start, android_set_background_keepalive,
+        android_query_background_keepalive, android_add_background_keepalive,
+        android_remove_background_keepalive, android_update_background_keepalive,
+        android_set_key_block, android_add_contact,
+        android_get_container_info, android_get_version, android_receive_sms, android_get_call_records,
+        android_refresh_location, android_ip_geolocation,
+        android_query_adb, android_switch_adb,
+        android_set_google_id, android_get_google_id, android_install_magisk,
+        android_get_root_allowed_apps, android_set_root_allowed_app,
+        android_set_language, android_get_google_adid,
+        android_export_app_info, android_import_app_info,
+        android_set_virtual_camera_source, android_get_app_bootstart_list, android_set_app_bootstart,
+        android_get_webrtc_player_url,
+    )
+
+    # sdk.* 和部分其他动作走 8000（物理机级 SDK）
     bindings = {
         action_name: _invoke(method_name, arg_builder)
         for action_name, (method_name, arg_builder) in ACTION_BUILDERS.items()
+        if not action_name.startswith("mytos.")
     }
     bindings["sdk.wait_cloud_status"] = wait_cloud_status
+
+    # mytos.* 动作走 30001（云机级 Android API），代理到 android.* 实现
+    bindings["mytos.query_s5_proxy"] = android_query_proxy
+    bindings["mytos.set_s5_proxy"] = android_set_proxy
+    bindings["mytos.stop_s5_proxy"] = android_stop_proxy
+    bindings["mytos.set_s5_filter"] = android_set_proxy_filter
+    bindings["mytos.get_clipboard"] = android_get_clipboard
+    bindings["mytos.set_clipboard"] = android_set_clipboard
+    bindings["mytos.upload_google_cert"] = android_upload_google_cert
+    bindings["mytos.download_file"] = android_download_file
+    bindings["mytos.upload_file"] = android_upload_file
+    bindings["mytos.export_app_info"] = android_export_app_info
+    bindings["mytos.import_app_info"] = android_import_app_info
+    bindings["mytos.backup_app_info"] = android_backup_app
+    bindings["mytos.restore_app_info"] = android_restore_app
+    bindings["mytos.export_app_data"] = android_backup_app
+    bindings["mytos.import_app_data"] = android_restore_app
+    bindings["mytos.batch_install_apps"] = android_batch_install_apps
+    bindings["mytos.screenshot"] = android_screenshot
+    bindings["mytos.autoclick"] = android_autoclick
+    bindings["mytos.touch_down"] = android_autoclick
+    bindings["mytos.touch_up"] = android_autoclick
+    bindings["mytos.touch_move"] = android_autoclick
+    bindings["mytos.tap"] = android_autoclick
+    bindings["mytos.keypress"] = android_autoclick
+    bindings["mytos.camera_hot_start"] = android_camera_hot_start
+    bindings["mytos.background_keepalive"] = android_set_background_keepalive
+    bindings["mytos.query_background_keepalive"] = android_query_background_keepalive
+    bindings["mytos.add_background_keepalive"] = android_add_background_keepalive
+    bindings["mytos.remove_background_keepalive"] = android_remove_background_keepalive
+    bindings["mytos.update_background_keepalive"] = android_update_background_keepalive
+    bindings["mytos.disable_key"] = android_set_key_block
+    bindings["mytos.add_contact"] = android_add_contact
+    bindings["mytos.get_version"] = android_get_version
+    bindings["mytos.get_container_info"] = android_get_container_info
+    bindings["mytos.receive_sms"] = android_receive_sms
+    bindings["mytos.get_call_records"] = android_get_call_records
+    bindings["mytos.refresh_location"] = android_refresh_location
+    bindings["mytos.ip_geolocation"] = android_ip_geolocation
+    bindings["mytos.query_adb_permission"] = android_query_adb
+    bindings["mytos.switch_adb_permission"] = android_switch_adb
+    bindings["mytos.set_google_id"] = android_set_google_id
+    bindings["mytos.get_google_id"] = android_get_google_id
+    bindings["mytos.module_manager"] = android_install_magisk
+    bindings["mytos.install_magisk"] = android_install_magisk
+    bindings["mytos.get_root_allowed_apps"] = android_get_root_allowed_apps
+    bindings["mytos.set_root_allowed_app"] = android_set_root_allowed_app
+    bindings["mytos.set_virtual_camera_source"] = android_set_virtual_camera_source
+    bindings["mytos.get_app_bootstart_list"] = android_get_app_bootstart_list
+    bindings["mytos.set_app_bootstart"] = android_set_app_bootstart
+    bindings["mytos.set_language_country"] = android_set_language
+    bindings["mytos.get_webrtc_player_url"] = android_get_webrtc_player_url
+
     return bindings
 
 
@@ -629,6 +785,10 @@ def _ui_config_paths() -> list[Path]:
 
 def _load_ui_config_document() -> dict[str, Any]:
     return _sdk_config_support_module().load_ui_config_document()
+
+
+def _load_app_config_document(app: str) -> dict[str, Any]:
+    return _sdk_config_support_module().load_app_config_document(app)
 
 
 def _strategy_config_paths() -> list[Path]:
@@ -803,7 +963,9 @@ def load_ui_value(params: dict[str, Any], context: ExecutionContext) -> ActionRe
     return _sdk_runtime_support_module().load_ui_value_action(
         params,
         load_ui_config_document=_load_ui_config_document,
+        load_app_config_document=_load_app_config_document,
         resolve_ui_key=_resolve_ui_key,
+        context=context,
     )
 
 
@@ -812,14 +974,37 @@ def load_ui_selector(params: dict[str, Any], context: ExecutionContext) -> Actio
         params,
         context,
         load_ui_config_document=_load_ui_config_document,
+        load_app_config_document=_load_app_config_document,
+        resolve_ui_key=_resolve_ui_key,
+        resolve_localized_entry=_resolve_localized_entry,
+    )
+
+
+def load_ui_selectors(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
+    return _sdk_runtime_support_module().load_ui_selectors_action(
+        params,
+        context,
+        load_ui_config_document=_load_ui_config_document,
+        load_app_config_document=_load_app_config_document,
         resolve_ui_key=_resolve_ui_key,
         resolve_localized_entry=_resolve_localized_entry,
     )
 
 
 def load_ui_scheme(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
-    return _sdk_runtime_support_module().load_ui_scheme_action(
-        params,
-        load_ui_config_document=_load_ui_config_document,
-        resolve_ui_key=_resolve_ui_key,
-    )
+    from engine.actions.ui_actions import _get_rpc, _close_rpc
+    rpc, err = _get_rpc(params, context)
+    if err is not None:
+        # RPC 不可用时仍尝试返回 URL（不执行）
+        rpc = None
+    try:
+        return _sdk_runtime_support_module().load_ui_scheme_action(
+            params,
+            load_ui_config_document=_load_ui_config_document,
+            load_app_config_document=_load_app_config_document,
+            resolve_ui_key=_resolve_ui_key,
+            rpc=rpc,
+        )
+    finally:
+        if rpc is not None:
+            _close_rpc(rpc)

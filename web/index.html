@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <title>WebRPA</title>
   <link rel="stylesheet" href="/static/styles.css">
+  <script src="/static/js/diag.js"></script>
+  <script type="module" src="/static/js/main.js"></script>
 </head>
 <body class="dark-theme">
   <div class="app-wrapper">
@@ -18,6 +20,7 @@
         <button class="nav-item active" data-tab="tab-main">设备集群</button>
         <button class="nav-item" data-tab="tab-tasks">任务队列</button>
         <button class="nav-item" data-tab="tab-accounts">资源仓库</button>
+        <button id="nav-metrics" class="nav-item" data-tab="tab-metrics">运行洞察</button>
         <button class="nav-item" data-tab="tab-config">系统偏好</button>
       </nav>
       <div class="navbar-actions">
@@ -71,16 +74,18 @@
               <div class="divider mt-6 mb-4"></div>
               <div class="flex justify-between items-center mb-4">
                 <span class="text-sm font-medium">执行策略</span>
-                <button id="toggleTasksAdvancedBtn" class="btn btn-text text-muted px-0">展开/收起</button>
+                <button id="refreshTaskTargets" class="btn btn-text btn-sm text-muted px-0">刷新节点</button>
               </div>
-              <div id="tasksAdvanced" class="collapsible-section">
-                <div class="form-grid columns-2">
-                  <div class="form-group"><label>指定设备 ID</label><input type="number" id="targetDeviceId" placeholder="例如 1" min="1"></div>
-                  <div class="form-group"><label>指定云机 ID</label><input type="number" id="targetCloudId" placeholder="例如 1" min="1"></div>
-                  <div class="form-group"><label>优先级调度</label><input type="number" id="taskPriority" value="50"></div>
-                  <div class="form-group"><label>失败重试上限</label><input type="number" id="taskMaxRetries" value="0"></div>
-                  <div class="form-group col-span-2"><label>计划执行时间 (可选)</label><input type="datetime-local" id="taskRunAt"></div>
-                </div>
+              <div class="form-group">
+                <label>目标节点</label>
+                <div id="taskTargetList" class="form-grid columns-2" style="max-height:200px; overflow-y:auto; border:1px solid var(--border); border-radius:var(--radius-sm); padding:8px; margin-top:6px;"></div>
+                <div class="text-muted" id="taskTargetHint" style="font-size:12px; margin-top:6px;">请勾选要执行的云机</div>
+              </div>
+              <div class="form-grid columns-2 mt-4">
+                <div class="form-group"><label>优先级调度</label><input type="number" id="taskPriority" value="50"></div>
+                <div class="form-group"><label>失败重试上限</label><input type="number" id="taskMaxRetries" value="0"></div>
+                <div class="form-group col-span-2"><label>计划执行时间 (可选)</label><input type="datetime-local" id="taskRunAt"></div>
+                <div class="form-group col-span-2"><label>任务停止时间 (可选)</label><input type="datetime-local" id="taskStopAt"></div>
               </div>
               
               <button id="submitTask" class="btn btn-primary w-full mt-6">提交执行</button>
@@ -146,6 +151,85 @@
         </div>
       </div>
 
+      <!-- 运行洞察 (Dashboard) -->
+      <div id="tab-metrics" class="tab-pane">
+        <div class="section-header">
+          <h2>运行洞察</h2>
+          <p class="text-muted">集群全量任务统计与质量分析</p>
+        </div>
+        
+        <!-- 顶层核心指标 -->
+        <div class="form-grid columns-4 mb-8">
+          <div class="panel p-6 flex-col items-center text-center">
+            <div class="text-xs text-muted mb-2 uppercase font-bold">任务成功率</div>
+            <div id="metricSuccessRate" class="text-3xl font-black text-primary">0%</div>
+            <div id="metricHealthStatus" class="mt-2 text-xs px-2 py-1 rounded bg-success-soft text-success">状态良好</div>
+          </div>
+          <div class="panel p-6 flex-col items-center text-center">
+            <div class="text-xs text-muted mb-2 uppercase font-bold">吞吐量 (1h)</div>
+            <div id="metricTotalTerminal" class="text-3xl font-black">0</div>
+            <div class="mt-2 text-xs text-muted">已结束任务</div>
+          </div>
+          <div class="panel p-6 flex-col items-center text-center">
+            <div class="text-xs text-muted mb-2 uppercase font-bold">当前活跃数</div>
+            <div id="metricTotalActive" class="text-3xl font-black text-info">0</div>
+            <div class="mt-2 text-xs text-muted">运行中 + 等待中</div>
+          </div>
+          <div class="panel p-6 flex-col items-center text-center">
+            <div class="text-xs text-muted mb-2 uppercase font-bold">平均耗时</div>
+            <div id="metricAvgDuration" class="text-3xl font-black">0s</div>
+            <div class="mt-2 text-xs text-muted">单任务执行时长</div>
+          </div>
+        </div>
+
+        <!-- 插件蒸馏进度 -->
+        <div class="panel mt-8">
+          <div class="panel-header">
+            <h3>插件蒸馏进度</h3>
+            <span class="text-xs text-muted">累计成功次数 / 蒸馏门槛</span>
+          </div>
+          <div class="panel-body p-6">
+            <div id="metricPluginStats" class="space-y-4">
+              <div class="text-center text-muted py-8">暂无插件执行记录</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="two-col-layout mt-8">
+          <!-- 左侧：失败分布 -->
+          <div class="panel flex-col">
+            <div class="panel-header">
+              <h3>异常根因分布</h3>
+              <span class="text-xs text-muted">按错误码降序</span>
+            </div>
+            <div class="panel-body flex-1 p-6">
+              <div id="metricErrorDistribution" class="space-y-6">
+                <!-- 动态注入内容 -->
+                <div class="text-center text-muted py-8">暂无终端任务数据</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 右侧：观测工具 -->
+          <div class="panel flex-col">
+            <div class="panel-header">
+              <h3>运维观测工具</h3>
+            </div>
+            <div class="panel-body space-y-6 p-6">
+              <div>
+                <h4 class="text-sm font-medium mb-2">Prometheus Exporter</h4>
+                <p class="text-xs text-muted mb-4">实时公开给监控抓取系统的原始文本数据。</p>
+                <button id="viewPrometheusRaw" class="btn btn-secondary w-full">查看 Prometheus 原始文本</button>
+              </div>
+              <div class="divider"></div>
+              <div id="prometheusPreviewArea" style="display:none;">
+                <textarea id="prometheusRawText" class="terminal w-full h-48 text-[10px]" style="font-size:10px" readonly></textarea>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- 系统偏好 -->
       <div id="tab-config" class="tab-pane">
         <div class="section-header">
@@ -154,30 +238,63 @@
         </div>
         <div class="two-col-layout">
           <div class="panel">
-            <div class="panel-header"><h3>网络层配置</h3></div>
+            <div class="panel-header"><h3>核心网络配置</h3></div>
             <div class="panel-body">
+              <div class="form-grid columns-2">
+                <div class="form-group">
+                  <label>服务器宿主 IP</label>
+                  <input type="text" id="cfgHostIp" placeholder="127.0.0.1">
+                </div>
+                <div class="form-group">
+                  <label>SDK 默认端口</label>
+                  <input type="number" id="cfgSdkPort" value="8000">
+                </div>
+                <div class="form-group">
+                  <label>单机云机密度</label>
+                  <input type="number" id="cfgCloudPerDevice" value="12">
+                </div>
+                <div class="form-group">
+                  <label>已发现设备数</label>
+                  <div id="cfgDiscoveredCount" class="text-primary font-bold" style="line-height:2.2rem;">-</div>
+                </div>
+              </div>
+
+              <div class="divider mt-8 mb-4"></div>
+              
               <label class="custom-checkbox">
                 <input type="checkbox" id="discoveryEnabled">
                 <span class="checkmark"></span>
                 <div class="label-text">
                   <strong>守护进程扫描</strong>
-                  <span class="text-muted display-block text-sm">每 20 秒在后台自动探寻新设备</span>
+                  <span class="text-muted display-block text-sm">自动探寻局域网内的新节点</span>
                 </div>
               </label>
-              <div class="form-group mt-6">
+              <div class="form-group mt-4">
                 <label>目标探测网段 (CIDR)</label>
                 <input type="text" id="discoverySubnet" placeholder="192.168.1.0/24">
               </div>
+              <button class="btn btn-secondary w-full mt-4" onclick="document.getElementById('saveConfig').click()">保存配置</button>
             </div>
           </div>
 
           <div class="panel">
-            <div class="panel-header"><h3>行为拟真引擎</h3></div>
+            <div class="panel-header"><h3>业务策略文本</h3></div>
             <div class="panel-body">
+              <div class="form-group">
+                <label>Location 预设文本 (养号位置等)</label>
+                <textarea id="txtLocation" rows="3" placeholder="输入地理位置信息..."></textarea>
+              </div>
+              <div class="form-group mt-4">
+                <label>Website 预设列表 (目标站点等)</label>
+                <textarea id="txtWebsite" rows="3" placeholder="每行一个网址..."></textarea>
+              </div>
+              
+              <div class="divider mt-8 mb-4"></div>
+              <h3 class="text-sm font-bold mb-4">行为拟真引擎</h3>
               <div class="flex gap-3 mb-6">
                 <select id="hzPreset" class="flex-1">
                   <option value="low">低扰动环境</option>
-                  <option value="medium">标准环境 (推荐)</option>
+                  <option value="medium" selected>标准环境 (推荐)</option>
                   <option value="high">高危环境 (深压)</option>
                   <option value="custom">专家自定义参数</option>
                 </select>
@@ -189,7 +306,6 @@
                 <span class="checkmark"></span>
                 <div class="label-text">
                   <strong>全局行为混淆</strong>
-                  <span class="text-muted display-block text-sm">在所有输入与点击动作中注入随机噪点</span>
                 </div>
               </label>
 
@@ -204,8 +320,14 @@
                   <div class="form-group"><label>错误停顿 (最大值)</label><input type="number" id="hzTypoDelayMax" step="0.01"></div>
                   <div class="form-group"><label>退格延迟 (最小值)</label><input type="number" id="hzBackspaceDelayMin" step="0.01"></div>
                   <div class="form-group"><label>退格延迟 (最大值)</label><input type="number" id="hzBackspaceDelayMax" step="0.01"></div>
+                  <div class="form-group"><label>点击偏移 X (最小值)</label><input type="number" id="hzClickOffsetXMin"></div>
                   <div class="form-group"><label>点击偏移 X (最大值)</label><input type="number" id="hzClickOffsetXMax"></div>
+                  <div class="form-group"><label>点击偏移 Y (最小值)</label><input type="number" id="hzClickOffsetYMin"></div>
                   <div class="form-group"><label>点击偏移 Y (最大值)</label><input type="number" id="hzClickOffsetYMax"></div>
+                  <div class="form-group"><label>单词停顿概率</label><input type="number" id="hzWordPauseProbability" step="0.01"></div>
+                  <div class="form-group"><label>单词停顿 (最大秒)</label><input type="number" id="hzWordPauseMax" step="0.01"></div>
+                  <div class="form-group"><label>物理按压 (最小秒)</label><input type="number" id="hzClickHoldMin" step="0.01"></div>
+                  <div class="form-group"><label>物理按压 (最大秒)</label><input type="number" id="hzClickHoldMax" step="0.01"></div>
                 </div>
               </div>
 
@@ -233,14 +355,34 @@
 
     <!-- 沉浸式任务报告 -->
     <div id="taskModal" class="modal-overlay" style="display: none;">
-      <div class="modal">
+      <div class="modal modal-lg">
         <div class="modal-header">
-          <h3>诊断报告</h3>
+          <div class="flex items-center gap-2">
+            <h3 id="taskModalTitle">任务追踪</h3>
+            <span id="taskModalStatusBadge"></span>
+          </div>
           <button class="btn btn-text text-muted px-2 close-task-modal-btn">Esc</button>
         </div>
-        <div id="taskDetailBody" class="modal-body"></div>
-        <div class="p-4 border-t bg-panel">
-          <button class="btn btn-secondary w-full close-task-modal-btn">确认退出</button>
+        <div class="modal-body p-0 flex-row" style="height: 500px;">
+          <!-- 左侧：基础信息 -->
+          <div class="w-1/3 border-r p-4 bg-bg-sidebar overflow-y-auto">
+            <h4 class="text-xs font-bold text-muted uppercase mb-4">核心参数</h4>
+            <div id="taskInfoContent" class="space-y-4"></div>
+          </div>
+          <!-- 右侧：实时事件流 -->
+          <div class="flex-1 flex flex-col">
+            <div class="p-2 px-4 border-b bg-panel flex justify-between items-center">
+              <span class="text-xs font-medium">实时执行轨迹</span>
+              <span id="eventStreamStatus" class="text-xs text-muted">正在建立流连接...</span>
+            </div>
+            <div id="taskEventTimeline" class="terminal flex-1 m-0 rounded-none border-none p-4 overflow-y-auto font-mono text-xs">
+              <!-- SSE 事件动态注入 -->
+            </div>
+          </div>
+        </div>
+        <div class="p-4 border-t bg-panel flex gap-3">
+          <button id="taskCancelBtn" class="btn btn-secondary text-error flex-1">停止当前任务</button>
+          <button class="btn btn-primary flex-1 close-task-modal-btn">确认并退出</button>
         </div>
       </div>
     </div>
@@ -289,8 +431,16 @@
             </div>
           </div>
           <div class="panel flex-col">
-            <div class="panel-header"><h3>实时执行日志</h3></div>
-            <div class="panel-body p-0 flex-1">
+            <div class="panel-header">
+              <h3>当前屏幕</h3>
+              <button id="refreshScreenshot" class="btn btn-secondary btn-sm">刷新截图</button>
+            </div>
+            <div class="panel-body" style="position:relative; height:420px; padding:0; overflow:hidden;">
+              <img id="unitScreenshotImg" src="" alt="" style="position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:auto; height:auto; max-width:60%; max-height:400px; border-radius:var(--radius-sm); visibility:hidden;">
+              <div id="unitScreenshotPlaceholder" class="text-muted" style="position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); white-space:nowrap;">正在加载截图...</div>
+            </div>
+            <div class="panel-header" style="border-top: 1px solid var(--border);"><h3>实时执行日志</h3></div>
+            <div class="panel-body p-0 flex-1" style="min-height: 160px;">
               <div id="unitLogBox" class="terminal border-none h-full m-0 rounded-none"></div>
             </div>
           </div>
@@ -308,17 +458,75 @@
       </div>
       <div class="modal-body">
         <div class="form-group">
-          <label>任务描述（自然语言）</label>
-          <textarea id="unitAiGoal" rows="4" placeholder="例如：打开登录页面，输入账号密码并点击登录"></textarea>
+          <label>任务描述</label>
+          <textarea id="unitAiGoal" rows="3" placeholder="例如：打开登录页面，输入账号密码并点击登录"></textarea>
         </div>
-        <div class="form-group">
-          <label>运行时配置（runtime profile）</label>
-          <input id="unitAiProfile" type="text" placeholder="x_mobile_login_gpt">
-          <div class="text-muted" style="font-size:12px; margin-top:6px;">读取 config/&lt;name&gt;.json 的 llm 配置</div>
+
+        <div class="form-group mt-4">
+          <label>绑定账号（可选）</label>
+          <div class="flex gap-2">
+            <select id="unitAiAccountSelect" class="flex-1"></select>
+            <button id="unitAiAccountRefresh" class="btn btn-secondary btn-sm">刷新</button>
+          </div>
+          <div id="unitAiAccountHint" class="text-muted" style="font-size:12px; margin-top:6px;">选择后账号信息将自动注入任务</div>
         </div>
-        <div class="form-group">
-          <label>预期状态 IDs（逗号分隔）</label>
-          <input id="unitAiStateIds" type="text" placeholder="home,account,password,captcha,two_factor,unknown">
+
+        <div class="form-group mt-4">
+          <label class="mb-2 display-block">可能出现的界面状态（勾选）</label>
+          <div class="flex flex-wrap gap-3" id="unitAiStateCheckboxes">
+            <label class="custom-checkbox inline-flex items-center gap-1">
+              <input type="checkbox" name="aiState" value="home" checked>
+              <span class="checkmark"></span><span>首页</span>
+            </label>
+            <label class="custom-checkbox inline-flex items-center gap-1">
+              <input type="checkbox" name="aiState" value="account" checked>
+              <span class="checkmark"></span><span>账号输入</span>
+            </label>
+            <label class="custom-checkbox inline-flex items-center gap-1">
+              <input type="checkbox" name="aiState" value="password" checked>
+              <span class="checkmark"></span><span>密码输入</span>
+            </label>
+            <label class="custom-checkbox inline-flex items-center gap-1">
+              <input type="checkbox" name="aiState" value="two_factor" checked>
+              <span class="checkmark"></span><span>二步验证</span>
+            </label>
+            <label class="custom-checkbox inline-flex items-center gap-1">
+              <input type="checkbox" name="aiState" value="captcha">
+              <span class="checkmark"></span><span>验证码</span>
+            </label>
+            <label class="custom-checkbox inline-flex items-center gap-1">
+              <input type="checkbox" name="aiState" value="unknown" checked>
+              <span class="checkmark"></span><span>未知</span>
+            </label>
+          </div>
+          <input type="hidden" id="unitAiStateIds">
+        </div>
+
+        <div class="form-group mt-4">
+          <label class="mb-2 display-block">允许 AI 使用的操作</label>
+          <div class="flex flex-wrap gap-3">
+            <label class="custom-checkbox inline-flex items-center gap-1">
+              <input type="checkbox" name="aiAction" value="ai.locate_point" checked>
+              <span class="checkmark"></span><span>视觉定位</span>
+            </label>
+            <label class="custom-checkbox inline-flex items-center gap-1">
+              <input type="checkbox" name="aiAction" value="ui.click" checked>
+              <span class="checkmark"></span><span>点击</span>
+            </label>
+            <label class="custom-checkbox inline-flex items-center gap-1">
+              <input type="checkbox" name="aiAction" value="ui.input_text" checked>
+              <span class="checkmark"></span><span>输入文字</span>
+            </label>
+            <label class="custom-checkbox inline-flex items-center gap-1">
+              <input type="checkbox" name="aiAction" value="ui.key_press" checked>
+              <span class="checkmark"></span><span>按键</span>
+            </label>
+            <label class="custom-checkbox inline-flex items-center gap-1">
+              <input type="checkbox" name="aiAction" value="ui.swipe" checked>
+              <span class="checkmark"></span><span>滑动</span>
+            </label>
+          </div>
+          <input type="hidden" id="unitAiActions">
         </div>
 
         <div class="divider mt-6 mb-4"></div>
@@ -326,29 +534,29 @@
         <div id="unitAiAdvanced" class="collapsible-section mt-4">
           <div class="form-grid columns-2">
             <div class="form-group">
-              <label>绑定 ID</label>
-              <input id="unitAiBindingId" type="text" placeholder="x_login">
+              <label>最大执行步数</label>
+              <input id="unitAiMaxSteps" type="number" value="15">
             </div>
             <div class="form-group">
-              <label>最大步数</label>
-              <input id="unitAiMaxSteps" type="number" value="8">
-            </div>
-            <div class="form-group">
-              <label>停滞阈值</label>
-              <input id="unitAiStagnantLimit" type="number" value="2">
+              <label>停滞熔断阈值</label>
+              <input id="unitAiStagnantLimit" type="number" value="4">
             </div>
             <div class="form-group col-span-2">
-              <label>允许动作（逗号分隔）</label>
-              <input id="unitAiActions" type="text" placeholder="ai.locate_point,ui.click,ui.input_text,ui.key_press,ui.swipe">
+              <label>模型配置文件（留空使用默认）</label>
+              <input id="unitAiProfile" type="text" placeholder="留空使用系统默认，填写后读取 config/&lt;名称&gt;.json">
             </div>
             <div class="form-group col-span-2">
-              <label>System Prompt</label>
-              <textarea id="unitAiSystemPrompt" rows="3" placeholder="仅允许使用 allowed_actions 规划下一步"></textarea>
+              <label>绑定状态识别规则（高级）</label>
+              <input id="unitAiBindingId" type="text" placeholder="留空由 AI 自行感知界面">
+            </div>
+            <div class="form-group col-span-2">
+              <label>自定义系统提示词</label>
+              <textarea id="unitAiSystemPrompt" rows="2" placeholder="留空使用默认"></textarea>
             </div>
             <div class="form-group col-span-2">
               <label class="flex items-center gap-2">
                 <input id="unitAiUseUitars" type="checkbox">
-                启用 UI-TARS 回退（structured state 不可用时）
+                启用视觉模型回退（UI-TARS）
               </label>
             </div>
           </div>
@@ -399,6 +607,68 @@
     </div>
   </div>
 
-  <script type="module" src="/static/js/main.js"></script>
+  <!-- 设备详情模态框 -->
+  <div id="deviceDetailModal" class="modal-overlay" style="display: none;">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="deviceDetailTitle">设备详情</h3>
+        <button class="btn btn-text text-muted px-2 close-device-modal-btn">Esc</button>
+      </div>
+      <div class="modal-body">
+        <div id="deviceDetailContent">
+          <!-- 动态注入内容 -->
+        </div>
+        <div class="divider mt-6 mb-4"></div>
+        <div class="flex flex-col gap-4">
+          <div class="flex gap-3">
+            <button id="enableDeviceBtn" class="btn btn-secondary flex-1">
+              <span class="mr-2">✅</span> 上线设备
+            </button>
+            <button id="disableDeviceBtn" class="btn btn-secondary text-error flex-1">
+              <span class="mr-2">⛔</span> 下线设备
+            </button>
+          </div>
+          <button id="stopDeviceTasksBtn" class="btn btn-secondary text-error w-full">
+            <span class="mr-2">⏹</span> 停止该设备当前所有任务
+          </button>
+        </div>
+      </div>
+      <div class="p-4 border-t bg-panel">
+        <button class="btn btn-primary w-full close-device-modal-btn">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 系统状态模态框 -->
+  <div id="systemStatusModal" class="modal-overlay" style="display: none;">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>服务端环境诊断</h3>
+        <button class="btn btn-text text-muted px-2 close-system-modal-btn">Esc</button>
+      </div>
+      <div class="modal-body">
+        <div class="space-y-6">
+          <div>
+            <h4 class="text-sm font-bold mb-2">核心服务状态</h4>
+            <div id="coreServicesStatus" class="form-grid columns-2 text-sm">
+              <!-- 动态注入: API, Redis, RPC Lib -->
+            </div>
+          </div>
+          <div class="divider"></div>
+          <div>
+            <h4 class="text-sm font-bold mb-2">浏览器引擎 (DrissionPage)</h4>
+            <div id="browserEngineStatus">
+              <button id="runGlobalBrowserDiag" class="btn btn-secondary w-full">一键运行浏览器诊断</button>
+              <div id="browserDiagResult" class="mt-4"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="p-4 border-t bg-panel">
+        <button class="btn btn-primary w-full close-system-modal-btn">关闭</button>
+      </div>
+    </div>
+  </div>
+
   </body>
   </html>

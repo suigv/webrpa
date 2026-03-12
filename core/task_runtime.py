@@ -50,8 +50,9 @@ def build_queue_schedule(
 
 
 class TaskTargetRuntimeResolver:
-    def __init__(self, device_manager: Any) -> None:
+    def __init__(self, device_manager: Any, task_store: Any = None) -> None:
         self._device_manager = device_manager
+        self._task_store = task_store
 
     def resolve(
         self,
@@ -85,6 +86,25 @@ class TaskTargetRuntimeResolver:
                 "code": "target_not_found",
                 "message": str(exc),
             }
+
+        # 若 probe_cache 为空导致 availability_state=unknown，尝试从快照补充
+        clouds_raw = info.get("cloud_machines") if isinstance(info, dict) else []
+        clouds = clouds_raw if isinstance(clouds_raw, list) else []
+        probe_unknown = any(
+            isinstance(c, dict) and c.get("cloud_id") == cloud_id and c.get("availability_state") == "unknown"
+            for c in clouds
+        )
+        if probe_unknown:
+            try:
+                snapshots = self._device_manager.get_devices_snapshot("all")
+                for snap in snapshots:
+                    if not isinstance(snap, dict):
+                        continue
+                    if int(snap.get("device_id", 0)) == device_id:
+                        info = snap
+                        break
+            except Exception:
+                pass
 
         clouds_raw = info.get("cloud_machines") if isinstance(info, dict) else []
         clouds = clouds_raw if isinstance(clouds_raw, list) else []
@@ -120,6 +140,19 @@ class TaskTargetRuntimeResolver:
                 ),
             }
 
+        if enforce_availability and self._task_store is not None:
+            try:
+                occupied = self._task_store.get_running_task_by_cloud(device_id, cloud_id)
+                if occupied:
+                    return None, {
+                        "ok": False,
+                        "status": "failed_target_unavailable",
+                        "code": "target_occupied",
+                        "message": f"cloud {device_id}-{cloud_id} is occupied by running task {occupied}",
+                    }
+            except Exception:
+                pass
+
         return {
             "device_id": device_id,
             "cloud_id": cloud_id,
@@ -150,18 +183,20 @@ class TaskDispatchRuntimeResolver:
         payload: dict[str, Any],
         devices: list[int],
         targets: list[dict[str, int]] | None = None,
+        enforce_availability: bool = True,
     ) -> list[PreparedTaskTarget]:
         payload_for_run = dict(payload)
         runtime_overrides = _resolve_runtime_overrides(payload_for_run)
         dispatch_targets = normalize_dispatch_targets(targets, devices)
-        should_resolve_target = (os.getenv("MYT_ENABLE_RPC", "1") != "0") and self._plugin_loader.has(task_name)
+        rpc_enabled = os.getenv("MYT_ENABLE_RPC", "1") not in ("0", "false", "False")
+        should_resolve_target = rpc_enabled and (self._plugin_loader.has(task_name) or task_name == "gpt_executor")
 
         prepared_targets: list[PreparedTaskTarget] = []
         for target in dispatch_targets:
             target_runtime: dict[str, Any] | None = None
             target_error: dict[str, Any] | None = None
             if should_resolve_target:
-                target_runtime, target_error = self._target_runtime_resolver.resolve(target, enforce_availability=True)
+                target_runtime, target_error = self._target_runtime_resolver.resolve(target, enforce_availability=enforce_availability)
 
             runtime_target = target_runtime or target
             target_payload = dict(payload_for_run)
