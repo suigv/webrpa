@@ -426,25 +426,17 @@ class GoldenRunDistiller:
                 return pkg
         return ""
 
-    _XML_TEXT_LABEL_MAP: dict[str, str] = {
-        "login": "login_entry", "sign in": "login_entry", "log in": "login_entry",
-        "password": "login_password", "密码": "login_password",
-        "verification": "login_verification_code", "验证码": "login_verification_code",
-        "home": "home", "timeline": "home", "为你推荐": "home",
-        "followers": "followers_list", "following": "following_list",
-        "notifications": "notifications", "通知": "notifications",
-        "messages": "messages", "私信": "messages",
-        "search": "search", "搜索": "search",
-        "compose": "compose_tweet",
-    }
-
     def _infer_state_id_from_features(self, resource_ids: list[str], texts: list[str]) -> str | None:
-        rid_str = " ".join(resource_ids).lower()
-        text_str = " ".join(texts).lower()
-        combined = rid_str + " " + text_str
-        for keyword, state_id in self._XML_TEXT_LABEL_MAP.items():
-            if keyword.lower() in combined:
-                return state_id
+        """从 resource_id 推断通用 state_id，不包含 app 特定关键字。"""
+        for rid in resource_ids:
+            part = rid.split(":id/")[-1].strip().lower()
+            part = re.sub(r"[^a-z0-9]+", "_", part).strip("_")
+            if part and len(part) > 2:
+                return part
+        if texts:
+            part = re.sub(r"[^a-z0-9]+", "_", texts[0].lower()).strip("_")
+            if part and len(part) > 2:
+                return part
         return None
 
     def _extract_states_from_records(self, records: list[dict[str, object]]) -> list[dict[str, str]]:

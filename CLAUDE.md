@@ -45,6 +45,13 @@ curl -N http://localhost:8001/api/tasks/{task_id}/events
 uv run python -c "from engine.action_registry import list_actions; print('\n'.join(list_actions()))"
 ```
 
+## Architecture Constraints
+
+- **No app-specific logic in framework code**: `engine/`, `core/`, `api/` must not contain hardcoded app names, package names, keywords, or UI strings (e.g. "twitter", "followers", "为你推荐"). App-specific data belongs in `config/apps/<app>.yaml`.
+- **`sdk_config_support._PACKAGE_TO_APP`** is the only permitted place to map package → app name. Adding a new app requires only adding one entry there plus a `config/apps/<app>.yaml`.
+- **Distillation tools** (`core/golden_run_distillation.py`, `tools/distill_binding.py`) must use generic XML feature extraction; state label inference must not match app-specific keywords.
+- **`config/apps/<app>.yaml`** is the single source of truth for per-app configuration: `package_name`, `xml_filter`, `states`, `schemes`, `selectors`.
+
 ## Architecture
 
 Three-layer model:
