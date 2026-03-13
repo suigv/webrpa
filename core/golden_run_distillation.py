@@ -11,8 +11,9 @@ from typing import Any
 import yaml
 
 from core.model_trace_store import ModelTraceContext, ModelTraceStore
+from engine.actions.sdk_config_support import app_config_path, app_from_package, load_app_config_document
 from engine.models.manifest import InputType, PluginInput, PluginManifest
-from engine.models.workflow import WorkflowScript
+from engine.models.workflow import ActionStep, WorkflowScript
 
 
 _WORD_RE = re.compile(r"[^a-z0-9]+")
@@ -103,6 +104,7 @@ class GoldenRunDistiller:
             yaml.safe_dump(script.model_dump(mode="json"), sort_keys=False, allow_unicode=True),
             encoding="utf-8",
         )
+        self._merge_selectors_to_app_config(step_records, script)
         return GoldenRunDraft(
             manifest=manifest,
             script=script,
@@ -398,3 +400,88 @@ class GoldenRunDistiller:
         if isinstance(value, float):
             return InputType.number
         return InputType.string
+
+    # ------------------------------------------------------------------
+    # Selector extraction
+    # ------------------------------------------------------------------
+
+    _UI_LOCATOR_ACTIONS = frozenset({
+        "ui.click", "ui.long_click", "ui.input_text",
+        "ui.node_click", "ui.node_long_click",
+        "ui.focus_and_input_with_shell_fallback",
+        "ui.input_text_with_shell_fallback",
+        "ui.click_selector_or_tap",
+    })
+
+    def _extract_package_from_records(self, records: list[dict[str, object]]) -> str:
+        for record in records:
+            observation = record.get("observation")
+            if not isinstance(observation, dict):
+                continue
+            data = observation.get("data")
+            if not isinstance(data, dict):
+                continue
+            pkg = str(data.get("package") or "").strip()
+            if pkg:
+                return pkg
+        return ""
+
+    def _merge_selectors_to_app_config(
+        self,
+        records: list[dict[str, object]],
+        script: WorkflowScript,
+    ) -> None:
+        package = self._extract_package_from_records(records)
+        if not package:
+            return
+        app = app_from_package(package)
+        if not app:
+            return
+
+        # collect new selectors from script steps
+        new_selectors: dict[str, dict[str, str]] = {}
+        for step in script.steps:
+            if not isinstance(step, ActionStep):
+                continue
+            if step.action not in self._UI_LOCATOR_ACTIONS:
+                continue
+            params = step.params
+            # extract text-based selector
+            text_val = params.get("text")
+            if isinstance(text_val, str) and text_val and not text_val.startswith("${"):
+                key = _slug(text_val, default="") or f"text_{len(new_selectors)}"
+                if key not in new_selectors:
+                    new_selectors[key] = {"type": "text", "mode": "equal", "value": text_val}
+            # extract resource_id-based selector
+            rid_val = params.get("resource_id")
+            if isinstance(rid_val, str) and rid_val and not rid_val.startswith("${"):
+                key = _slug(rid_val.split("/")[-1], default="") or f"rid_{len(new_selectors)}"
+                if key not in new_selectors:
+                    new_selectors[key] = {"type": "resource_id", "mode": "equal", "value": rid_val}
+
+        if not new_selectors:
+            return
+
+        # load existing app config and merge
+        try:
+            doc = load_app_config_document(app)
+        except Exception:
+            doc = {"version": "v1", "package_name": package}
+
+        existing: dict[str, object] = doc.get("selectors") if isinstance(doc.get("selectors"), dict) else {}  # type: ignore[assignment]
+        merged = False
+        for key, selector in new_selectors.items():
+            if key not in existing:
+                existing[key] = selector
+                merged = True
+
+        if not merged:
+            return
+
+        doc["selectors"] = existing
+        config_path = app_config_path(app)
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        config_path.write_text(
+            yaml.safe_dump(doc, sort_keys=False, allow_unicode=True),
+            encoding="utf-8",
+        )
