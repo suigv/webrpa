@@ -1,10 +1,16 @@
-# Android RPA SDK（30002）
+# Android RPA SDK (rpa_port)
 
 基准文档：Android RPA 开发文档
 
-本地调用说明：
+## 端口与连接
+本项目采用多云机动态端口架构。每个云机的 `rpa_port` 按以下公式计算：
+`rpa_port = 30000 + (cloud-1)*100 + 2`
 
-使用 `hardware_adapters/mytRpc.py` 的 `MytRpc`。文档中的 `handle` 参数在本项目中由 `MytRpc.init()` 创建并保存在实例内，不需要每次调用显式传入。
+- **Cloud 1**: 30002
+- **Cloud 2**: 30102
+- **Cloud 10**: 30902
+
+本地调用说明：使用 `hardware_adapters/mytRpc.py` 的 `MytRpc`。
 
 ## 模块导入
 
@@ -22,9 +28,7 @@
 | mytSelector.py | 提供 UI 元素选择器功能，用于查找和筛选 UI 节点 | mytSelector 类 | 需要根据条件查找 UI 元素时使用 |
 | rpcNode.py | 封装了 UI 节点的操作和属性获取方法 | rpcNode 类 | 获取节点属性、执行节点操作时使用 |
 | logger.py | 提供日志记录功能 | logger 对象 | 需要记录日志信息时使用 |
-| ToolsKit.py | 提供各种工具函数 | ToolsKit 类 | 获取程序路径、检查进程状态等工具操作 |
-| __init__.py | 模块初始化文件 | - | 确保 common 目录可作为 Python 模块导入 |
-| libmytrpc.dll | 底层动态链接库，实现了与设备通信的核心功能 | - | 提供 SDK 核心功能的底层实现，所有上层操作最终都会调用此 DLL 中的函数 |
+| libmytrpc.so/dll | 底层动态链接库，实现了与设备通信的核心功能 | - | 提供 SDK 核心功能的底层实现 |
 
 ## CaptureResult - 截图结果
 

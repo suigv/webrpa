@@ -53,17 +53,18 @@
   - **前端系统**：账号选择器（接管页和AI对话框）、AI对话框改为勾选模式、设备上下线按钮、系统偏好页简化（移除 JSON 输入）、已发现设备数实时显示。
 
   - **AI 绑定蒸馏链路打通与稳定性增强 (X App)**：
-    - **XML 截断原因调查与修复**：确认为 `dump_node_xml_ex` 存在 **4KB (4096字节)** 的 RPC 传输缓冲区硬限制。当 UI 树较大时，数据在约 4041 字节处（扣除协议头）被强行切断，造成 XML 解析失败。
+    - **XML 截断原因调查与修复**：确认为 `dump_node_xml_ex` 存在 **4KB (4096字节)** 的 RPC 传输缓冲区硬限制。已在底层通过自愈重试机制解决。
     - **自愈式捕获逻辑 (Self-Healing)**：在 `_state_detection_support.py` 中实现了自动完整性校验，若检测到 `Ex` 模式截断，则自动重试标准 `dump_node_xml`（无此缓冲区限制），确保 AI 能获取完整 UI 树。
     - **蒸馏工具 Regex Fallback**：为 `tools/distill_binding.py` 引入了正则回退机制，确保在极端截断情况下仍能提取包名和核心特征。
     - **App 探测去硬编码重构**：彻底移除了框架中针对 X App 的硬编码字符串，支持通过 `config/apps/*.yaml` 动态加载。
     - **通用的 Native 状态观察**：`X_APP_STAGE_BINDING` 已重构为全局通用的 `app_stage` 绑定。
     - **X App 特征落地**：解析并集成 X App 首页特征。
+    - **文档与系统一致性对齐**：全量审计并修复了 `docs/` 下的过期信息，包括多云机动态端口公式、任务控制面架构拆分描述、以及插件契约规范（补全 Pydantic 必填字段），确保文档作为“单一事实来源”的准确性。
   - **代码清理（本会话）**：删除 `common/env_loader.py`、`common/runtime_state.py`、`common/toolskit.py`（零引用旧产物）。
 
 - 最近重点 (本会话)：
   - **App 配置统一架构**：删除 `config/bindings/` 目录，`xml_filter`/`states` 字段合并至 `config/apps/<app>.yaml`；GPT 执行器改为从 `config/apps/*.yaml` 按 `package_name` 加载 binding 参数；`sdk_config_support` 新增 `com.twitter.android → x` 映射。
-  - **X app 配置**：新增 `config/apps/x.yaml`，含 `package_name`、`xml_filter`（max_text_len=60/max_desc_len=100，针对 X app 的合理截断）、15 个 UI 状态描述、deep link scheme。
+  - **X app 配置**：新增 `config/apps/x.yaml`，含 `package_name`、`xml_filter`（max_text_len=60/max_desc_len=100，针对 X app 的合理截断），15 个 UI 状态描述，deep link scheme。
   - **蒸馏自动 selector merge**：`GoldenRunDistiller.distill()` 完成后自动扫描 script steps，提取 UI 定位 action（`ui.click` 等 8 种）的未参数化 `text`/`resource_id` 值，merge 写入对应 `config/apps/<app>.yaml` 的 `selectors` 字段；已有 selector 不覆盖。
 
 - 最近重点 (本会话)：
@@ -89,10 +90,10 @@
   - [x] 拆分 `DeviceManager`，将云机探测逻辑移至独立服务（待验证）。
   - [x] 修复 AI 模块隐患：VLM 连接泄露处理及基于 `retryable` 标记的退避重试（待验证）。
   - **AI 对话架构改进 (2026-03-11)**：
-    - **修复无 binding 熔断误判**：`gpt_executor` 在 `observation.ok=False` 时改用 UI XML 内容计算停滞 fingerprint，避免无 binding 场景下两步必然熔断的问题。
-    - **新增 binding 蒸馏工具** (`tools/distill_binding.py`)：从 trace jsonl 自动提取 UI 特征、归纳界面状态，生成 `NativeStateBinding` 代码草稿，支持按 App 逐步积累 binding 定义。
-    - **前端 AI 对话修复**：`binding_id` 默认置空（避免硬编码默认值造成误判）；`allowed_actions` 修正为注册名（`ui.input_text`, `ui.key_press`, `ui.swipe`）；SSE 事件流修复（`await` 误用导致 500）。
-    - **LLM 调用链路修复**：新增 `OpenAIChatProvider` 支持标准 Chat Completions 格式（原 Responses API 格式被代理服务拒绝）；`.env` 加载改为 `source` 方式确保 key 注入进程。
+    - **修复无 binding 场景下的 fingerprint 计算**：`gpt_executor` 在 `observation.ok=False` 时改用 UI XML 内容计算停滞 fingerprint，防止在无 binding 场景下错误触发死循环熔断。
+    - **新增 binding 蒸馏工具** (`tools/distill_binding.py`)：从 trace jsonl 自动提取 UI 特征、归纳界面状态，生成 `NativeStateBinding` 代码草稿。
+    - **前端 AI 对话修复**：`binding_id` 服务化、allowed_actions 注册名对齐、SSE 事件流稳定性修复。
+    - **LLM 调用链路修复**：新增 `OpenAIChatProvider` 并通过 `.env` 注入 key，由于采用了标准 OpenAI 封装协议，系统现在能更稳健地连接到各类代理服务。
 
 ## 2. 已实现功能清单
 
@@ -125,6 +126,7 @@
 | SDK action bindings (`engine/actions/sdk_actions.py`) | 154 |
 | Test files (`tests/test_*.py`) | 50 |
 | Test functions (`def test_*`) | 245 |
+| Documentation files (`docs/*.md`) | 16 |
 <!-- AUTO_PROGRESS_SNAPSHOT:END -->
 
 ## 4. 维护说明

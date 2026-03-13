@@ -1,10 +1,16 @@
-# MYTOS Android API（30001）
+# MYTOS Android API (api_port)
 
 基准文档：MYTOS API 接口文档
 
-本地调用说明：
+## 端口与连接
+本项目采用多云机动态端口架构。每个云机的 `api_port` 按以下公式计算：
+`api_port = 30000 + (cloud-1)*100 + 1`
 
-使用 `hardware_adapters/android_api_client.py` 的 `AndroidApiClient` 或 `mytos.*` 动作。参数名优先与文档一致，同时部分字段支持兼容别名（例如 `save_path` ↔ `local_path`）。
+- **Cloud 1**: 30001
+- **Cloud 2**: 30101
+- **Cloud 10**: 30901
+
+本地调用说明：使用 `hardware_adapters/android_api_client.py` 的 `AndroidApiClient` 或 `mytos.*` 动作。
 
 ## 1. 下载文件
 

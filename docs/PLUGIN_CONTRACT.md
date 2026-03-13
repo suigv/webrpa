@@ -17,10 +17,15 @@ plugins/<plugin_name>/
 ### 核心字段
 | 字段 | 类型 | 说明 |
 |---|---|---|
+| `api_version` | string | 固定填 `v1` |
+| `kind` | string | 固定填 `plugin` |
 | `name` | string | 插件唯一标识（须与目录名一致） |
+| `version` | string | 插件版本号 |
+| `display_name` | string | 插件显示名称 |
+| `category` | string | 插件分类（默认 `其他`） |
 | `description` | string | 插件功能描述（用于 AI 发现） |
 | `inputs` | list[Input] | 输入参数声明 |
-| `expected_output` | object | (可选) 预期输出结果的结构化说明，用于 AI 编排任务链 |
+| `expected_output` | object | (可选) 预期输出结果的结构化说明 |
 
 ### 输入参数 (Input)
 | 字段 | 类型 | 说明 |
@@ -43,12 +48,21 @@ plugins/<plugin_name>/
 - `${vars.key}`：引用脚本内部变量或步骤结果（通过 `save_as` 保存）。
 - `${payload.url:-default_val}`：支持默认值语法。
 
-### 核心指令
-1.  **action**：执行原子动作（如 `ui.click`, `browser.open`）。
-2.  **if**：基于条件（`text_contains`, `exists`, `var_equals` 等）的分支跳转。
-3.  **wait_until**：轮询等待特定状态达成。
-4.  **goto**：标签跳转。
-5.  **stop**：显式终止并返回成功或失败。
+### 核心结构
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `version` | string | 固定填 `v1` |
+| `workflow` | string | 工作流名称描述 |
+| `steps` | list[Step] | 步骤列表 |
+
+### 核心指令 (Step)
+每个步骤必须包含 `kind` 字段作为类型鉴别器。
+
+1.  **action** (`kind: action`)：执行原子动作（如 `ui.click`, `browser.open`）。
+2.  **if** (`kind: if`)：基于条件（`when`, `then`, `otherwise`）的分支跳转。
+3.  **wait_until** (`kind: wait_until`)：轮询等待特定状态达成。
+4.  **goto** (`kind: goto`)：标签跳转。
+5.  **stop** (`kind: stop`)：显式终止并返回成功或失败。
 
 > **说明**：如需跨页面导航，请使用 `ui.navigate_to`，并在 `params` 或 session defaults 提供 `routes` 与 `hops`（路由定义 + 跳转动作）。该动作基于 `ui.match_state` 校验到达状态，避免隐式硬编码路径。
 
@@ -64,7 +78,10 @@ plugins/<plugin_name>/
 
 ## 5. 开发者检查单
 - [ ] `manifest.yaml` 的 `name` 与目录名一致。
+- [ ] `manifest.yaml` 包含 `api_version: v1` 和 `kind: plugin`。
+- [ ] `script.yaml` 包含 `version: v1` 和 `workflow` 名称。
+- [ ] 脚本中每个步骤都包含 `kind` 鉴别器（如 `kind: action`）。
 - [ ] 所有 `action` 引用的动作均已在系统中注册。
-- [ ] 脚本中引用的所有 `${payload.xxx}` 均在 `manifest` 中有对应声明。
+- [ ] 步骤中引用的 `${payload.xxx}` 均在 `manifest` 中有对应声明。
 - [ ] 关键步骤配置了合理的 `on_fail` 策略。
 - [ ] 复杂跳转逻辑已通过 `max_transitions`（硬上限 500）压力测试。

@@ -9,15 +9,23 @@
 WebRPA 采用三层架构模型：
 1.  **控制面 (Control Plane)**：基于 FastAPI 提供的 REST 接口，负责任务持久化、状态机管理和指标统计。
 2.  **执行引擎 (Execution Engine)**：负责解释并运行 YAML 插件工作流，支持 deterministic（确定性）和 autonomous（自主）两种执行模式。
-3.  **驱动/硬件层 (Driver/Hardware Layer)**：通过三端口协议操作云机：8000（物理机级SDK，容器管理）、30001（云机级Android API，系统操作）、30002（RPA控制，触控/截图/输入）；浏览器通过 DrissionPage/CDP 操作。
+3.  **驱动/硬件层 (Driver/Hardware Layer)**：通过三端口协议操作云机：
+    - `sdk_port`: 8000（物理机级 SDK，负责容器/镜像/备份）。
+    - `api_port`: 30000 + (cloud-1)*100 + 1（Android API，负责系统/剪贴板/文件）。
+    - `rpa_port`: 30000 + (cloud-1)*100 + 2（RPA 控制，负责触控/UI 节点/截图）。
+    - 浏览器通过 DrissionPage/CDP 操作。
 
 ---
 
 ## 2. 核心组件解析
 
 ### 2.1 任务、存储与异步化 (Task, Persistence & Async)
-- **核心组件**：`TaskController` 作为调度中心。
-- **存储架构**：全量模块统一继承自 `BaseStore`。
+- **核心组件**：
+  - `TaskController`：负责任务的提交与整体生命周期流程。
+  - `TaskExecutionService`：负责任务的执行编排与分发。
+  - `TaskMetricsService`：负责指标聚合。
+  - `TaskAttemptFinalizer`：负责任务重试与清理策略。
+- **存储架构**：全量模块统一继承自 `BaseStore`，使用 SQLite WAL 模式。
 - **异步安全**：API 路由全面采用 `anyio.to_thread` 封装，确保同步 Store 操作不阻塞事件循环。
 
 ### 2.2 解释器与 AI 韧性 (Interpreter & AI Agent)

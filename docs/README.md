@@ -21,9 +21,9 @@
 ## 📡 API 参考
 - **[盒子内 SDK API（8000）](MYT_SDK_API.md)**  
   设备级 SDK 接口（云机容器、镜像、备份、VPC 等）。
-- **[MYTOS Android API（30001）](MYTOS_API.md)**  
+- **[MYTOS Android API (api_port)](MYTOS_API.md)**  
   云机级 Android HTTP API（剪贴板、代理、文件、系统配置等）。
-- **[Android RPA SDK（30002）](ANDROID_RPA_SDK.md)**  
+- **[Android RPA SDK (rpa_port)](ANDROID_RPA_SDK.md)**  
   RPA 控制 SDK（触控、UI 节点、截图、视频流等）。
 
 ---
