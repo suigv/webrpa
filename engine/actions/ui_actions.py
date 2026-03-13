@@ -8,6 +8,37 @@ from engine.actions import _ui_selector_support as _selector_support
 from engine.models.runtime import ActionResult, ErrorType, ExecutionContext
 from hardware_adapters import mytRpc as _myt_rpc_module
 from hardware_adapters.mytRpc import MytRpc
+from engine.action_registry import ActionMetadata
+
+
+CLICK_METADATA = ActionMetadata(
+    description="Click on screen coordinates (x, y)",
+    params_schema={
+        "type": "object",
+        "properties": {
+            "x": {"type": "integer", "description": "X coordinate"},
+            "y": {"type": "integer", "description": "Y coordinate"},
+            "finger_id": {"type": "integer", "default": 0, "description": "Finger index for touch"}
+        },
+        "required": ["x", "y"]
+    }
+)
+
+SWIPE_METADATA = ActionMetadata(
+    description="Swipe from (x0, y0) to (x1, y1)",
+    params_schema={
+        "type": "object",
+        "properties": {
+            "x0": {"type": "integer", "description": "Start X coordinate"},
+            "y0": {"type": "integer", "description": "Start Y coordinate"},
+            "x1": {"type": "integer", "description": "End X coordinate"},
+            "y1": {"type": "integer", "description": "End Y coordinate"},
+            "duration": {"type": "integer", "default": 300, "description": "Swipe duration in ms"},
+            "finger_id": {"type": "integer", "default": 0}
+        },
+        "required": ["x0", "y0", "x1", "y1"]
+    }
+)
 
 
 def _is_rpc_enabled() -> bool:

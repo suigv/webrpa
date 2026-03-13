@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
     from .models.runtime import ActionResult, ExecutionContext
@@ -10,19 +11,35 @@ if TYPE_CHECKING:
 ActionCallable = Callable[[dict[str, object], "ExecutionContext"], "ActionResult"]
 
 
+class ActionMetadata(BaseModel):
+    """Metadata describing an action's purpose and schema."""
+    description: str = ""
+    params_schema: Optional[Dict[str, Any]] = None
+    returns_schema: Optional[Dict[str, Any]] = None
+
+
 class ActionRegistry:
     """Maps action names (e.g. 'browser.open') to callable implementations."""
 
     def __init__(self) -> None:
         self._actions: dict[str, ActionCallable] = {}
+        self._metadata: dict[str, ActionMetadata] = {}
 
-    def register(self, name: str, handler: ActionCallable) -> None:
+    def register(self, name: str, handler: ActionCallable, metadata: ActionMetadata | None = None) -> None:
         self._actions[name] = handler
+        if metadata:
+            self._metadata[name] = metadata
 
     def resolve(self, name: str) -> ActionCallable:
         if name not in self._actions:
             raise KeyError(f"unknown action: {name}")
         return self._actions[name]
+
+    def get_metadata(self, name: str) -> ActionMetadata | None:
+        return self._metadata.get(name)
+
+    def describe_all(self) -> dict[str, ActionMetadata]:
+        return dict(self._metadata)
 
     def has(self, name: str) -> bool:
         return name in self._actions
@@ -57,8 +74,8 @@ def reset_registry() -> None:
     _defaults_registered = False
 
 
-def register_action(name: str, handler: ActionCallable) -> None:
-    _registry.register(name, handler)
+def register_action(name: str, handler: ActionCallable, metadata: ActionMetadata | None = None) -> None:
+    _registry.register(name, handler, metadata=metadata)
 
 
 def resolve_action(name: str) -> ActionCallable:
@@ -130,6 +147,8 @@ def register_defaults() -> None:
         node_get_parent,
         node_get_text,
         node_long_click,
+        CLICK_METADATA,
+        SWIPE_METADATA
     )
     from .actions.login_actions import (
         click_selector_or_tap,
@@ -245,14 +264,14 @@ def register_defaults() -> None:
     _registry.register("ai.llm_evaluate", llm_evaluate)
     _registry.register("ai.vlm_evaluate", vlm_evaluate)
     _registry.register("ai.locate_point", locate_point)
-    _registry.register("ui.click", click)
+    _registry.register("ui.click", click, metadata=CLICK_METADATA)
     _registry.register("ui.match_state", ui_match_state)
     _registry.register("ui.touch_down", touch_down)
     _registry.register("ui.touch_up", touch_up)
     _registry.register("ui.touch_move", touch_move)
     _registry.register("ui.wait_until", ui_wait_until)
     _registry.register("ui.observe_transition", ui_observe_transition)
-    _registry.register("ui.swipe", swipe)
+    _registry.register("ui.swipe", swipe, metadata=SWIPE_METADATA)
     _registry.register("ui.long_click", long_click)
     _registry.register("ui.input_text", input_text)
     _registry.register("ui.fill_form", fill_form)
