@@ -4,7 +4,10 @@
 
 ---
 
-## 🚀 快速开始与现状
+## 🚀 Quick Start
+- **[AI 会话必读指南 (AI Onboarding Guide)](AI_ONBOARDING.md)**: 开启新会话或新 AI 介入时，请优先引导其阅读此文档以同步项目上下文。
+
+## 文档索引 (Index)
 - **[项目进度看板 (Project Progress)](project_progress.md)**  
   当前可用能力、最近变更、各模块完成状态及下一步计划。
 
