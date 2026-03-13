@@ -114,6 +114,33 @@ def load_interaction_text_document() -> dict[str, Any]:
     raise FileNotFoundError("config/strategies/interaction_texts.yaml not found")
 
 
+def prompt_templates_config_paths() -> list[Path]:
+    repo_root = Path(__file__).resolve().parents[2]
+    candidates = [
+        Path(_resolve_root_path()) / "config" / "strategies" / "prompt_templates.yaml",
+        repo_root / "config" / "strategies" / "prompt_templates.yaml",
+    ]
+    unique: list[Path] = []
+    seen: set[str] = set()
+    for path in candidates:
+        path_str = str(path.resolve()) if path.exists() else os.path.abspath(str(path))
+        if path_str not in seen:
+            seen.add(path_str)
+            unique.append(path)
+    return unique
+
+
+def load_prompt_templates_document() -> dict[str, Any]:
+    for path in prompt_templates_config_paths():
+        if not path.exists():
+            continue
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+        if isinstance(raw, dict):
+            return raw
+        raise ValueError(f"prompt templates config must be a mapping: {path}")
+    raise FileNotFoundError("config/strategies/prompt_templates.yaml not found")
+
+
 def daily_counter_path() -> Path:
     return Path(_resolve_root_path()) / "config" / "data" / "daily_counters.json"
 
