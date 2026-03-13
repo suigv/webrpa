@@ -18,7 +18,9 @@ plugins/<plugin_name>/
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `name` | string | 插件唯一标识（须与目录名一致） |
+| `description` | string | 插件功能描述（用于 AI 发现） |
 | `inputs` | list[Input] | 输入参数声明 |
+| `expected_output` | object | (可选) 预期输出结果的结构化说明，用于 AI 编排任务链 |
 
 ### 输入参数 (Input)
 | 字段 | 类型 | 说明 |
