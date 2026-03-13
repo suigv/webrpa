@@ -1,6 +1,16 @@
 version: v1
 strategies:
+  default:
+    candidate_scoring:
+      has_media_bonus: 0
+      keyword_bonuses: []
+    weights: {}
+    keywords: {}
+    blacklist: []
   volc:
+    candidate_scoring:
+      has_media_bonus: 10
+      keyword_bonuses: []
     weights:
       core: 5
       action: 3
@@ -30,6 +40,13 @@ strategies:
       - "招聘"
       - "代理"
   part_time:
+    candidate_scoring:
+      has_media_bonus: 0
+      keyword_bonuses:
+        - {text: "円", score: 10}
+        - {text: "paypay", score: 8, case_insensitive: true}
+        - {text: "現金", score: 5}
+        - {text: "配布", score: 5}
     weights:
       core: 5
       action: 3

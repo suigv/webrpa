@@ -14,13 +14,13 @@ from .config_loader import (
     get_total_devices,
 )
 from .port_calc import calculate_ports
-from models.device import AIType, DeviceStatus
+from models.device import DeviceStatus
 
 logger = logging.getLogger(__name__)
 
 
 class Device:
-    def __init__(self, device_id: int, ai_type: AIType = AIType.VOLC):
+    def __init__(self, device_id: int, ai_type: str = "default"):
         self.device_id = device_id
         self.ai_type = ai_type
         self.status = DeviceStatus.IDLE
@@ -185,7 +185,7 @@ class DeviceManager:
                 next_devices[device_id] = existing.get(device_id, Device(device_id))
             self._devices = next_devices
 
-    def get_device(self, device_id: int, ai_type: AIType = AIType.VOLC) -> Device:
+    def get_device(self, device_id: int, ai_type: str = "default") -> Device:
         self._sync_devices_with_config()
         with self._devices_lock:
             if device_id not in self._devices:
@@ -361,12 +361,6 @@ def parse_device_range(device_str: str) -> list[int]:
             devices.add(int(token))
     return sorted(devices)
 
-
-def parse_ai_type(ai_type: str) -> str:
-    value = ai_type.lower().strip()
-    if value in ["volc", "volcano", "huoshan"]:
-        return "volc"
-    return "volc"
 
 
 def check_stop_condition(stop_hour: Optional[int] = None) -> bool:

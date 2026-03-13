@@ -9,7 +9,7 @@ from core.config_loader import ConfigLoader
 from core.device_manager import get_device_manager
 from core.lan_discovery import LanDeviceDiscovery
 from hardware_adapters.mytRpc import MytRpc
-from models.device import AIType, CloudMachineInfo, DeviceInfo, DeviceStatus, DeviceStatusResponse
+from models.device import CloudMachineInfo, DeviceInfo, DeviceStatus, DeviceStatusResponse
 
 to_thread = cast(Any, _to_thread)
 
@@ -38,7 +38,7 @@ def _to_device_info(info: dict[str, object]) -> DeviceInfo:
     ip = str(ip_raw)
     sdk_raw = info.get("sdk_port", 8000)
     sdk_port = int(sdk_raw) if isinstance(sdk_raw, (int, float, str)) else 8000
-    ai_raw = str(info.get("ai_type", AIType.VOLC.value))
+    ai_raw = str(info.get("ai_type", "default"))
     status_raw = str(info.get("status", DeviceStatus.IDLE.value))
 
     return DeviceInfo(
@@ -47,7 +47,7 @@ def _to_device_info(info: dict[str, object]) -> DeviceInfo:
         device_id=device_id,
         ip=ip,
         sdk_port=sdk_port,
-        ai_type=AIType(ai_raw),
+        ai_type=ai_raw,
         status=DeviceStatus(status_raw),
         cloud_slots_total=cloud_slots_total,
         available_cloud_count=available_cloud_count,

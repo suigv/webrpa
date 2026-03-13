@@ -82,6 +82,22 @@
   - **X app 配置**：新增 `config/apps/x.yaml`，含 `package_name`、`xml_filter`（max_text_len=60/max_desc_len=100，针对 X app 的合理截断）、15 个 UI 状态描述、deep link scheme。
   - **蒸馏自动 selector merge**：`GoldenRunDistiller.distill()` 完成后自动扫描 script steps，提取 UI 定位 action（`ui.click` 等 8 种）的未参数化 `text`/`resource_id` 值，merge 写入对应 `config/apps/<app>.yaml` 的 `selectors` 字段；已有 selector 不覆盖。
 
+- 最近重点 (本会话)：
+  - **场景提示词模板服务化**：
+    - 新建 `engine/prompt_templates.py`，集中定义 4 个模板常量（通用自动化、账号登录/切换、社交媒体 X/Twitter、内容采集/数据爬取），作为项目唯一数据源。
+    - 新增 `GET /api/tasks/prompt_templates` 路由，动态返回模板列表（key/name/content）。
+    - 前端 AI 对话框「场景提示词模板」select 改为动态拉取（`loadPromptTemplates()`），移除硬编码静态对象和静态 `<option>`，打开对话框时自动刷新。
+
+- 最近重点 (本会话)：
+  - **ai_type 去硬编码重构**：
+    - 删除框架层所有 `volc`/`part_time` 业务判断分支（`sdk_business_support.py`）。
+    - 候选人评分权重（`has_media_bonus`、`keyword_bonuses`）移入 `nurture_keywords.yaml` 的 `candidate_scoring` 字段，框架通用读取。
+    - 搜索词（`#mytxx`/`#mytjz`）移入 `interaction_texts.yaml` 的 `search_query` section，框架从配置随机选取。
+    - 删除 `models/device.py` 中的 `AIType` enum，`DeviceInfo.ai_type` 改为开放 `str`。
+    - 删除 `core/device_manager.py` 中的 `parse_ai_type` 死代码函数。
+    - 所有兜底值从 `"volc"` 改为 `"default"`，`nurture_keywords.yaml` 新增 `default` strategy section。
+    - **新增模式只需改配置，零框架改动**。
+
 - 下一步优先级：
   - [x] 提取数据库基类 (`BaseStore`)，消除 `TaskStore` 与 `TaskEventStore` 的重复代码（待验证）。
   - [x] 废弃 `common/config_manager.py`，全面收敛至 `core/config_loader.py`（待验证）。
@@ -119,12 +135,12 @@
 
 | Metric | Value |
 |---|---:|
-| API route decorators (`api/routes`) | 28 |
+| API route decorators (`api/routes`) | 35 |
 | App-level route decorators (`api/server.py`) | 5 |
-| Plugin count (`plugins/*/manifest.yaml`) | 12 |
-| SDK action bindings (`engine/actions/sdk_actions.py`) | 131 |
-| Test files (`tests/test_*.py`) | 61 |
-| Test functions (`def test_*`) | 282 |
+| Plugin count (`plugins/*/manifest.yaml`) | 4 |
+| SDK action bindings (`engine/actions/sdk_actions.py`) | 154 |
+| Test files (`tests/test_*.py`) | 50 |
+| Test functions (`def test_*`) | 245 |
 <!-- AUTO_PROGRESS_SNAPSHOT:END -->
 
 ## 4. 维护说明

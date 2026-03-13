@@ -14,7 +14,7 @@ def pick_weighted_keyword_action(
     load_strategy_document: Callable[[], dict[str, Any]],
 ) -> ActionResult:
     override = str(params.get("override") or "").strip()
-    ai_type = str(params.get("ai_type") or "volc").strip()
+    ai_type = str(params.get("ai_type") or "default").strip()
     blogger = str(params.get("blogger") or "").strip()
     if override:
         return ActionResult(ok=True, code="ok", data={"keyword": override, "rendered_keyword": override, "source": "override", "ai_type": ai_type})
@@ -25,7 +25,7 @@ def pick_weighted_keyword_action(
         return ActionResult(ok=False, code="strategy_config_unavailable", message=str(exc))
 
     strategies = document.get("strategies", {})
-    strategy = strategies.get(ai_type) or strategies.get("volc")
+    strategy = strategies.get(ai_type) or strategies.get("default")
     if not isinstance(strategy, dict):
         return ActionResult(ok=False, code="strategy_missing", message=f"strategy not found: {ai_type}")
 
@@ -63,13 +63,13 @@ def is_text_blacklisted_action(
     load_strategy_document: Callable[[], dict[str, Any]],
 ) -> ActionResult:
     text = str(params.get("text") or "").strip()
-    ai_type = str(params.get("ai_type") or "volc").strip()
+    ai_type = str(params.get("ai_type") or "default").strip()
     try:
         document = load_strategy_document()
     except Exception as exc:
         return ActionResult(ok=False, code="strategy_config_unavailable", message=str(exc))
     strategies = document.get("strategies", {})
-    strategy = strategies.get(ai_type) or strategies.get("volc")
+    strategy = strategies.get(ai_type) or strategies.get("default")
     if not isinstance(strategy, dict):
         return ActionResult(ok=False, code="strategy_missing", message=f"strategy not found: {ai_type}")
     blacklist = strategy.get("blacklist", [])
@@ -241,17 +241,19 @@ def pick_candidate_action(
     if not isinstance(candidates, list):
         return ActionResult(ok=False, code="invalid_params", message="candidates must be a list")
 
-    ai_type = str(params.get("ai_type") or "generic").strip()
+    ai_type = str(params.get("ai_type") or "default").strip()
     strategy = str(params.get("strategy") or "best").strip().lower()
     min_text_length = int(params.get("min_text_length", 4) or 4)
 
     try:
         document = load_strategy_document()
         strategies = document.get("strategies", {})
-        strategy_cfg = strategies.get(ai_type) or {}
+        strategy_cfg = strategies.get(ai_type) or strategies.get("default") or {}
         blacklist = strategy_cfg.get("blacklist", []) if isinstance(strategy_cfg, dict) else []
+        scoring_cfg = strategy_cfg.get("candidate_scoring", {}) if isinstance(strategy_cfg, dict) else {}
     except Exception:
         blacklist = []
+        scoring_cfg = {}
 
     scored: list[tuple[int, dict[str, Any]]] = []
     for candidate in candidates:
@@ -267,17 +269,15 @@ def pick_candidate_action(
 
         score = 1
         if candidate.get("has_media"):
-            score += 3
-        if ai_type == "volc" and candidate.get("has_media"):
-            score += 10
-        if ai_type == "part_time":
-            lowered = combined.lower()
-            if "円" in combined:
-                score += 10
-            if "paypay" in lowered:
-                score += 8
-            if "現金" in combined or "配布" in combined:
-                score += 5
+            score += 3 + scoring_cfg.get("has_media_bonus", 0)
+        for bonus in scoring_cfg.get("keyword_bonuses", []):
+            kw = str(bonus.get("text") or "").strip()
+            if not kw:
+                continue
+            target = combined.lower() if bonus.get("case_insensitive") else combined
+            needle = kw.lower() if bonus.get("case_insensitive") else kw
+            if needle in target:
+                score += int(bonus.get("score", 0))
         score += min(len(combined), 120) // 20
         scored.append((score, candidate))
 
@@ -293,13 +293,25 @@ def pick_candidate_action(
     return ActionResult(ok=True, code="ok", data={"candidate": selected, "count": len(scored), "ai_type": ai_type, "strategy": strategy})
 
 
-def choose_blogger_search_query_action(params: dict[str, Any]) -> ActionResult:
+def choose_blogger_search_query_action(
+    params: dict[str, Any],
+    *,
+    load_interaction_document: Callable[[], dict[str, Any]],
+) -> ActionResult:
     override = str(params.get("override") or "").strip()
-    ai_type = str(params.get("ai_type") or "volc").strip()
+    ai_type = str(params.get("ai_type") or "default").strip()
     if override:
         return ActionResult(ok=True, code="ok", data={"query": override, "source": "override", "ai_type": ai_type})
-    query = "#mytxx" if ai_type == "volc" else "#mytjz"
-    return ActionResult(ok=True, code="ok", data={"query": query, "source": "default", "ai_type": ai_type})
+    try:
+        document = load_interaction_document()
+    except Exception as exc:
+        return ActionResult(ok=False, code="interaction_config_unavailable", message=str(exc))
+    search_query_cfg = document.get("search_query", {})
+    candidates = search_query_cfg.get(ai_type) or search_query_cfg.get("default") or []
+    if not candidates:
+        return ActionResult(ok=False, code="search_query_missing", message=f"no search_query configured for: {ai_type}")
+    query = random.choice(candidates)
+    return ActionResult(ok=True, code="ok", data={"query": query, "source": "config", "ai_type": ai_type})
 
 
 def derive_blogger_profile_action(

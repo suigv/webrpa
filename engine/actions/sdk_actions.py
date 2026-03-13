@@ -918,7 +918,10 @@ def pick_candidate(params: dict[str, Any], context: ExecutionContext) -> ActionR
 
 
 def choose_blogger_search_query(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
-    return _sdk_business_support_module().choose_blogger_search_query_action(params)
+    return _sdk_business_support_module().choose_blogger_search_query_action(
+        params,
+        load_interaction_text_document=_load_interaction_text_document,
+    )
 
 
 def _derive_blogger_profile_data(
