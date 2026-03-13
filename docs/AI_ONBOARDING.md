@@ -27,6 +27,11 @@
   *里程碑核对。* 快速了解 M0-M4 各个阶段的 Verified（已验证）vs Planned（规划中）情况。
 
 ---
+---
+
+## 🛠️ AI 行为守则 (Agent Responsibilities)
+- **文档自愈 (Self-Documenting)**：根据 `AGENTS.md` 规范，AI 在完成任何功能开发、Action 新增或重构后，**必须**同步更新相关文档（包括但不限于 `/docs` 目录、`ActionMetadata` 声明以及 `project_progress.md`）。
+- **校验为先**：必须在提交前执行 `check_no_legacy_imports.py` 和 `pytest`。
 
 ## 🔵 第三级：架构深潜 (Deep Architecture)
 **用途**：理解“代码库的解耦逻辑”以及“核心组件职责”。

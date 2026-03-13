@@ -125,6 +125,7 @@ Different devices use the same port numbers but different IPs — `(ip, port)` i
 ## Commit and Change Hygiene
 - Small, capability-based commits.
 - Do not mix refactor + feature + formatting in one change.
+- **Documentation Self-Healing**: After completing functional changes or adding new features (e.g., new Actions, API endpoints, or Plugins), the agent **MUST** automatically update relevant documentation (e.g., `docs/`, `ActionMetadata`, or `project_progress.md`) to reflect the changes.
 - Keep tests updated with each behavior change.
 
 ## Definition of Done
