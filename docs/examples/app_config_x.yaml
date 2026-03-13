@@ -4,10 +4,11 @@
 version: v1
 package_name: com.twitter.android   # 用于 GPT 执行器按 package 匹配此配置
 
-# GPT 执行器 XML 解析参数（可选，0 或不填表示不截断）
-# xml_filter:
-#   max_text_len: 60
-#   max_desc_len: 100
+# GPT 执行器 XML 解析参数（可选）
+# 有此配置时按指定值截断，无配置时默认 0（不截断）
+xml_filter:
+  max_text_len: 60
+  max_desc_len: 100
 
 # AI 可感知的 UI 状态列表（供 GPT 执行器状态识别使用，可选）
 states:

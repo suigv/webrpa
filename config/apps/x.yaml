@@ -1,6 +1,10 @@
 version: v1
 package_name: com.twitter.android
 
+xml_filter:
+  max_text_len: 60
+  max_desc_len: 100
+
 states:
   - id: home
     description: X 首页 / 时间线，底部导航栏可见
