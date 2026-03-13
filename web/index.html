@@ -257,6 +257,14 @@
                   <label>已发现设备数</label>
                   <div id="cfgDiscoveredCount" class="text-primary font-bold" style="line-height:2.2rem;">-</div>
                 </div>
+                <div class="form-group">
+                  <label>默认运营角色</label>
+                  <select id="cfgDefaultAi">
+                    <option value="default">default（通用）</option>
+                    <option value="volc">volc（主力）</option>
+                    <option value="part_time">part_time（兼职）</option>
+                  </select>
+                </div>
               </div>
 
               <div class="divider mt-8 mb-4"></div>
@@ -550,8 +558,12 @@
               <input id="unitAiBindingId" type="text" placeholder="留空由 AI 自行感知界面">
             </div>
             <div class="form-group col-span-2">
-              <label>自定义系统提示词</label>
-              <textarea id="unitAiSystemPrompt" rows="2" placeholder="留空使用默认"></textarea>
+              <label>场景提示词模板</label>
+              <select id="unitAiPromptTemplate" class="w-full"></select>
+            </div>
+            <div class="form-group col-span-2">
+              <label>系统提示词 (根据模板自动填充)</label>
+              <textarea id="unitAiSystemPrompt" rows="4" placeholder="可以根据模板自动填充，也可手动修改"></textarea>
             </div>
             <div class="form-group col-span-2">
               <label class="flex items-center gap-2">

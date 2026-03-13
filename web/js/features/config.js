@@ -136,12 +136,14 @@ export async function saveConfig() {
         }
 
         // 1. 保存全局配置
+        const cfgDefaultAi = document.getElementById("cfgDefaultAi");
         const configBody = {
             host_ip: cfgHostIp.value.trim(),
             sdk_port: Number(cfgSdkPort.value),
             cloud_machines_per_device: Number(cfgCloudPerDevice.value),
             discovery_enabled: Boolean(discoveryEnabled.checked),
             discovery_subnet: discoverySubnet.value.trim(),
+            default_ai: cfgDefaultAi ? cfgDefaultAi.value : "default",
             humanized: parsedHumanized,
         };
 
@@ -219,6 +221,8 @@ function setFormValues(data) {
     if (cfgHostIp) cfgHostIp.value = data.host_ip || "";
     if (cfgSdkPort) cfgSdkPort.value = data.sdk_port || 8000;
     if (cfgCloudPerDevice) cfgCloudPerDevice.value = data.cloud_machines_per_device || 12;
+    const cfgDefaultAi = document.getElementById("cfgDefaultAi");
+    if (cfgDefaultAi) cfgDefaultAi.value = data.default_ai || "default";
 
     // 已发现设备数（从设备列表实时读取在线云机数）
     const discoveredCount = document.getElementById("cfgDiscoveredCount");
