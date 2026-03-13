@@ -302,7 +302,7 @@ class DeviceManager:
             "ip": device_ip,
             "sdk_port": get_sdk_port(),
             "sdk_port_role": "device_control_api",
-            "ai_type": device.ai_type.value,
+            "ai_type": device.ai_type.value if hasattr(device.ai_type, 'value') else device.ai_type,
             "status": effective_status.value,
             "cloud_slots_total": cloud_machines_per_device,
             "available_cloud_count": available_count,
