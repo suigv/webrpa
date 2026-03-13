@@ -37,6 +37,7 @@ Distillation gate: simple tasks require 3 successful runs; complex tasks require
 Rules: when runs are model-from-scratch, only successful logs qualify for distillation; successes are cumulative (not required to be consecutive).
 Current state (unverified): Single-run golden distillation tool and tests exist; multi-run distillation is not implemented.
 Binding distillation path: `tools/distill_binding.py` can extract UI state features from trace XML files and generate NativeStateBinding code drafts. XML is now complete (full file, not truncated), enabling reliable feature extraction. Next step: accumulate successful runs and execute distill_binding.py.
+Selector auto-merge: After each golden run distillation, UI locator action params (text/resource_id) are automatically extracted and merged into `config/apps/<app>.yaml` selectors. Package name is inferred from trace observation data; existing selectors are never overwritten.
 
 ### M4: External User Readiness
 Status: Planned.
