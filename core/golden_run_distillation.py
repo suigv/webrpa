@@ -426,6 +426,96 @@ class GoldenRunDistiller:
                 return pkg
         return ""
 
+    _XML_TEXT_LABEL_MAP: dict[str, str] = {
+        "login": "login_entry", "sign in": "login_entry", "log in": "login_entry",
+        "password": "login_password", "密码": "login_password",
+        "verification": "login_verification_code", "验证码": "login_verification_code",
+        "home": "home", "timeline": "home", "为你推荐": "home",
+        "followers": "followers_list", "following": "following_list",
+        "notifications": "notifications", "通知": "notifications",
+        "messages": "messages", "私信": "messages",
+        "search": "search", "搜索": "search",
+        "compose": "compose_tweet",
+    }
+
+    def _infer_state_id_from_features(self, resource_ids: list[str], texts: list[str]) -> str | None:
+        rid_str = " ".join(resource_ids).lower()
+        text_str = " ".join(texts).lower()
+        combined = rid_str + " " + text_str
+        for keyword, state_id in self._XML_TEXT_LABEL_MAP.items():
+            if keyword.lower() in combined:
+                return state_id
+        return None
+
+    def _extract_states_from_records(self, records: list[dict[str, object]]) -> list[dict[str, str]]:
+        import xml.etree.ElementTree as ET
+        from collections import Counter
+        state_map: dict[str, dict[str, str]] = {}
+        for record in records:
+            fe = record.get("fallback_evidence") or {}
+            xml_content = str((fe.get("ui_xml") or {}).get("content") or "").strip()
+            if not xml_content:
+                continue
+            try:
+                root = ET.fromstring(xml_content)
+            except ET.ParseError:
+                continue
+            rids: list[str] = []
+            texts: list[str] = []
+            for node in root.iter():
+                rid = node.get("resource-id", "")
+                if rid and ":id/" in rid:
+                    rids.append(rid)
+                text = node.get("text", "").strip()
+                if text and len(text) < 60:
+                    texts.append(text)
+            state_id = self._infer_state_id_from_features(rids, texts)
+            if state_id and state_id not in state_map:
+                top_rids = [r.split(":id/")[-1] for r in rids[:3]]
+                top_texts = texts[:3]
+                desc_parts = []
+                if top_rids:
+                    desc_parts.append(" / ".join(top_rids))
+                if top_texts:
+                    desc_parts.append(" / ".join(top_texts))
+                state_map[state_id] = {
+                    "id": state_id,
+                    "description": "、".join(desc_parts) if desc_parts else state_id,
+                }
+        return list(state_map.values())
+
+    def _compute_xml_filter(self, records: list[dict[str, object]]) -> dict[str, int] | None:
+        import xml.etree.ElementTree as ET
+        text_lens: list[int] = []
+        desc_lens: list[int] = []
+        for record in records:
+            fe = record.get("fallback_evidence") or {}
+            xml_content = str((fe.get("ui_xml") or {}).get("content") or "").strip()
+            if not xml_content:
+                continue
+            try:
+                root = ET.fromstring(xml_content)
+            except ET.ParseError:
+                continue
+            for node in root.iter():
+                text = node.get("text", "").strip()
+                if text:
+                    text_lens.append(len(text))
+                desc = node.get("content-desc", "").strip()
+                if desc:
+                    desc_lens.append(len(desc))
+        if not text_lens or not desc_lens:
+            return None
+        text_lens.sort()
+        desc_lens.sort()
+        p90_text = text_lens[int(len(text_lens) * 0.9)]
+        p90_desc = desc_lens[int(len(desc_lens) * 0.9)]
+        # clamp to reasonable range [20, 200]
+        return {
+            "max_text_len": max(20, min(200, p90_text)),
+            "max_desc_len": max(20, min(200, p90_desc)),
+        }
+
     def _merge_selectors_to_app_config(
         self,
         records: list[dict[str, object]],
@@ -446,39 +536,55 @@ class GoldenRunDistiller:
             if step.action not in self._UI_LOCATOR_ACTIONS:
                 continue
             params = step.params
-            # extract text-based selector
             text_val = params.get("text")
             if isinstance(text_val, str) and text_val and not text_val.startswith("${"):
                 key = _slug(text_val, default="") or f"text_{len(new_selectors)}"
                 if key not in new_selectors:
                     new_selectors[key] = {"type": "text", "mode": "equal", "value": text_val}
-            # extract resource_id-based selector
             rid_val = params.get("resource_id")
             if isinstance(rid_val, str) and rid_val and not rid_val.startswith("${"):
                 key = _slug(rid_val.split("/")[-1], default="") or f"rid_{len(new_selectors)}"
                 if key not in new_selectors:
                     new_selectors[key] = {"type": "resource_id", "mode": "equal", "value": rid_val}
 
-        if not new_selectors:
-            return
-
-        # load existing app config and merge
+        # load existing app config
         try:
             doc = load_app_config_document(app)
         except Exception:
             doc = {"version": "v1", "package_name": package}
 
-        existing: dict[str, object] = doc.get("selectors") if isinstance(doc.get("selectors"), dict) else {}  # type: ignore[assignment]
-        merged = False
-        for key, selector in new_selectors.items():
-            if key not in existing:
-                existing[key] = selector
-                merged = True
+        changed = False
 
-        if not merged:
+        # merge selectors
+        if new_selectors:
+            existing_sel: dict[str, object] = doc.get("selectors") if isinstance(doc.get("selectors"), dict) else {}  # type: ignore[assignment]
+            for key, selector in new_selectors.items():
+                if key not in existing_sel:
+                    existing_sel[key] = selector
+                    changed = True
+            doc["selectors"] = existing_sel
+
+        # merge states
+        new_states = self._extract_states_from_records(records)
+        if new_states:
+            existing_states: list[dict[str, str]] = doc.get("states") if isinstance(doc.get("states"), list) else []  # type: ignore[assignment]
+            existing_ids = {str(s.get("id") or "") for s in existing_states}
+            for state in new_states:
+                if state["id"] not in existing_ids:
+                    existing_states.append(state)
+                    changed = True
+            doc["states"] = existing_states
+
+        # update xml_filter if not already set
+        if not doc.get("xml_filter"):
+            xml_filter = self._compute_xml_filter(records)
+            if xml_filter:
+                doc["xml_filter"] = xml_filter
+                changed = True
+
+        if not changed:
             return
 
-        doc["selectors"] = existing
         config_path = app_config_path(app)
         config_path.parent.mkdir(parents=True, exist_ok=True)
         config_path.write_text(

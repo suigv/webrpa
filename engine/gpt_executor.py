@@ -54,6 +54,28 @@ def _json_safe(value: object, *, string_limit: int = 4000) -> object:
 _SAFE_PART_RE = re.compile(r"[^a-zA-Z0-9._-]+")
 _XML_PACKAGE_RE = re.compile(r'package="([^"]+)"')
 
+_KNOWN_APP_SCHEMES: dict[str, dict[str, str]] = {
+    "com.twitter.android": {
+        "user_profile": "twitter://user?screen_name={username}",
+        "search": "twitter://search?query={query}",
+        "home": "twitter://timeline",
+        "notifications": "twitter://notifications",
+        "messages": "twitter://messages",
+    },
+    "com.instagram.android": {
+        "user_profile": "instagram://user?username={username}",
+        "home": "instagram://feed",
+    },
+    "com.facebook.katana": {
+        "home": "fb://feed",
+        "user_profile": "fb://profile/{user_id}",
+    },
+    "com.tiktok.android": {
+        "user_profile": "snssdk1128://user/profile/{user_id}",
+        "home": "snssdk1128://feed",
+    },
+}
+
 
 def _safe_path_part(value: object, *, default: str) -> str:
     raw = str(value or "").strip()
@@ -592,7 +614,8 @@ class GptExecutorRuntime:
                     }
                 return
             path.parent.mkdir(parents=True, exist_ok=True)
-            skeleton = {"version": "v1", "package_name": app_package, "schemes": {}, "selectors": {}}
+            schemes = _KNOWN_APP_SCHEMES.get(app_package, {})
+            skeleton = {"version": "v1", "package_name": app_package, "schemes": schemes, "selectors": {}}
             path.write_text(_yaml.safe_dump(skeleton, sort_keys=False, allow_unicode=True), encoding="utf-8")
             self._binding_cache[app_package] = {"xml_filter": None, "states": []}
             logger.info("bootstrapped app config for package %s at %s", app_package, path)
