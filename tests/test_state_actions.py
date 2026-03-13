@@ -52,6 +52,10 @@ def test_detect_login_stage_account(monkeypatch):
             self.query_text = value
             return True
 
+        def addQuery_DescContainWith(self, selector, value):
+            _ = (selector, value)
+            return True
+
         def execQueryOne(self, selector):
             _ = selector
             return 1 if self.query_text == "账号" else None
@@ -481,6 +485,10 @@ def test_ui_state_action_wrappers_preserve_legacy_native_contracts(monkeypatch):
         def addQuery_TextContainWith(self, selector, value):
             _ = selector
             self.query_text = value
+            return True
+
+        def addQuery_DescContainWith(self, selector, value):
+            _ = (selector, value)
             return True
 
         def execQueryOne(self, selector):

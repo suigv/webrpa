@@ -26,10 +26,15 @@ def query_any_text_contains(rpc: Any, texts: Iterable[str], timeout_ms: int = 90
             value = str(text).strip()
             if not value:
                 continue
+            # 查 text 属性
             rpc.clear_selector(selector)
             rpc.addQuery_TextContainWith(selector, value)
-            node = rpc.execQueryOne(selector)
-            if node:
+            if rpc.execQueryOne(selector):
+                return True
+            # 查 content-desc 属性（X App 等底部导航栏只有 content-desc，无 text）
+            rpc.clear_selector(selector)
+            rpc.addQuery_DescContainWith(selector, value)
+            if rpc.execQueryOne(selector):
                 return True
     finally:
         rpc.free_selector(selector)

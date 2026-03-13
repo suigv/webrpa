@@ -371,6 +371,7 @@ class GptExecutorRuntime:
                     step_count=step_index - 1,
                     history=history,
                     final_observation=observation_state,
+                    extracted_data=plan.get("extracted_data"),
                     planner=plan,
                 )
 
@@ -713,6 +714,7 @@ class GptExecutorRuntime:
                 "action": "string",
                 "params": "object",
                 "message": "string",
+                "extracted_data": "object (optional, populate with key findings when done=true)"
             },
         }
         if vlm_attempt is not None:

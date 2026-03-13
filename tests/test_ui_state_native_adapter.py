@@ -42,6 +42,10 @@ def test_native_adapter_login_stage_match_returns_structured_evidence(monkeypatc
             self.query_text = str(value)
             return True
 
+        def addQuery_DescContainWith(self, selector: object, value: object) -> bool:
+            _ = (selector, value)
+            return True
+
         def execQueryOne(self, selector: object) -> int | None:
             _ = selector
             return 1 if self.query_text == "账号" else None
@@ -100,6 +104,10 @@ def test_native_adapter_login_stage_no_match_preserves_evidence(monkeypatch: Mon
         def addQuery_TextContainWith(self, selector: object, value: object) -> bool:
             _ = selector
             self.query_text = str(value)
+            return True
+
+        def addQuery_DescContainWith(self, selector: object, value: object) -> bool:
+            _ = (selector, value)
             return True
 
         def execQueryOne(self, selector: object) -> int | None:
@@ -167,6 +175,10 @@ def test_native_adapter_wait_until_timeout_returns_structured_timeout(monkeypatc
         def addQuery_TextContainWith(self, selector: object, value: object) -> bool:
             _ = selector
             self.query_text = str(value)
+            return True
+
+        def addQuery_DescContainWith(self, selector: object, value: object) -> bool:
+            _ = (selector, value)
             return True
 
         def execQueryOne(self, selector: object) -> int | None:
