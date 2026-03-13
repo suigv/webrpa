@@ -10,8 +10,8 @@ cd "$ROOT_DIR"
 # 2. 导出关键环境变量
 export PYTHONPATH=.
 export MYT_LOAD_DOTENV=1
-export MYT_ENABLE_RPC=1
-export MYT_ENABLE_VLM=1
+# 注意：RPC 和 VLM 功能开关等核心系统配置现已迁移至 config/system.yaml
+# 不再通过 MYT_ENABLE_RPC 和 MYT_ENABLE_VLM 环境变量配置。
 export MYT_API_PORT=8001
 export MYT_TASK_QUEUE_BACKEND=redis
 
