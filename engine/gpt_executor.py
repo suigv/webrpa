@@ -533,17 +533,20 @@ class GptExecutorRuntime:
     def _load_binding_cache(self) -> dict[str, dict[str, object]]:
         try:
             from core.paths import config_dir
-            bindings_dir = config_dir() / "bindings"
-            if not bindings_dir.exists():
+            apps_dir = config_dir() / "apps"
+            if not apps_dir.exists():
                 return {}
             cache: dict[str, dict[str, object]] = {}
-            for binding_path in sorted(bindings_dir.glob("*.json")):
+            for app_path in sorted(apps_dir.glob("*.yaml")):
                 try:
-                    data = json.loads(binding_path.read_text(encoding="utf-8"))
+                    import yaml as _yaml
+                    data = _yaml.safe_load(app_path.read_text(encoding="utf-8"))
                 except Exception as exc:
-                    logger.warning("Failed to read binding file %s: %s", binding_path, exc)
+                    logger.warning("Failed to read app config file %s: %s", app_path, exc)
                     continue
-                app_package = str(data.get("app_package") or "").strip()
+                if not isinstance(data, dict):
+                    continue
+                app_package = str(data.get("package_name") or "").strip()
                 if not app_package:
                     continue
                 entry = {
@@ -551,7 +554,7 @@ class GptExecutorRuntime:
                     "states": data.get("states") if isinstance(data.get("states"), list) else [],
                 }
                 if app_package in cache:
-                    logger.warning("Duplicate app_package in bindings: %s", app_package)
+                    logger.warning("Duplicate package_name in app configs: %s", app_package)
                 cache[app_package] = entry
             return cache
         except Exception as exc:

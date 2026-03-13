@@ -73,7 +73,8 @@ WebRPA 的 UI 选择器与 Scheme 配置存放在 `config/apps/`，默认读取 
 | `MYT_DEFAULT_APP` | `default` | 当无法从 `params.app / payload.app / payload.package` 推断 App 时使用的默认配置名。 |
 
 ### 6.2 UI 状态绑定（可选）
-AI/GPT 路径会从 `config/bindings/*.json` 动态加载 UI 状态绑定数据（按 `app_package` 匹配）。  
+AI/GPT 路径会从 `config/apps/*.yaml` 动态加载 UI 状态绑定数据（按 `package_name` 字段匹配）。
+`xml_filter` 和 `states` 字段与选择器配置统一存放在同一文件中。
 缺少绑定不会报错，系统会进入 **binding-free** 观察模式。
 
 ---

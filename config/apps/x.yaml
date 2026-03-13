@@ -1,0 +1,43 @@
+version: v1
+package_name: com.twitter.android
+
+xml_filter:
+  max_text_len: 60
+  max_desc_len: 100
+
+states:
+  - id: home
+    description: X 首页 / 时间线，底部导航栏可见
+  - id: profile
+    description: 用户个人资料页，显示头像、简介、粉丝数
+  - id: followers_list
+    description: 粉丝列表页，显示多个用户行及 Follow 按钮
+  - id: following_list
+    description: 关注中列表页，显示多个用户行
+  - id: login_phone_email
+    description: 登录页 — 输入手机号或邮箱
+  - id: login_password
+    description: 登录页 — 输入密码
+  - id: login_verification_code
+    description: 登录页 — 输入验证码 / 二步验证
+  - id: tweet_detail
+    description: 推文详情页，显示单条推文及评论
+  - id: compose_tweet
+    description: 发推编辑页，文本输入框可见
+  - id: search
+    description: 搜索页，顶部搜索框可见
+  - id: notifications
+    description: 通知页，显示互动消息列表
+  - id: messages
+    description: 私信页，显示对话列表
+  - id: rate_limit_dialog
+    description: 频率限制弹窗，提示操作过于频繁
+  - id: captcha
+    description: 人机验证页面
+  - id: unknown
+    description: 无法识别的状态
+
+schemes:
+  user_profile: "twitter://user?screen_name={username}"
+
+selectors: {}

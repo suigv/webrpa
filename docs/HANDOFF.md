@@ -51,7 +51,7 @@ WebRPA 采用三层架构模型：
 - **AI 决策轨迹**：`config/data/traces/`
 - **插件目录**：`plugins/`
 - **UI 配置**：`config/apps/*.yaml`（默认 `config/apps/default.yaml`，可通过 `MYT_DEFAULT_APP` 指定回退配置）
-- **UI 状态绑定**：`config/bindings/*.json`（按 `app_package` 动态加载，缺失时走 binding-free 观察）
+- **UI 状态绑定**：`config/apps/*.yaml`（按 `package_name` 动态加载，`xml_filter`/`states` 与选择器统一存放，缺失时走 binding-free 观察）
 - **驱动库 (SO/DLL)**：`lib/`（libmytrpc，支持 macOS/Linux/Windows）
 - **临时浏览器 Profile**：`/tmp/webrpa_browser_profiles/`，`close()` 时自动删除，启动时清理残留。
 

@@ -14,6 +14,7 @@ _PACKAGE_TO_APP: dict[str, str] = {
     "com.instagram.android": "instagram",
     "com.facebook.katana": "facebook",
     "com.tiktok.android": "tiktok",
+    "com.twitter.android": "x",
 }
 DEFAULT_APP_NAME = (os.getenv("MYT_DEFAULT_APP", "default") or "default").strip().lower() or "default"
 

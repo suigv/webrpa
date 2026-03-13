@@ -4,7 +4,7 @@
 
 示例列表（状态）：
 - `docs/examples/app_config_default.yaml`：模板，可用于 `config/apps/<app>.yaml` 的结构参考。
-- `docs/examples/binding_sample.json`：模板，对齐 `config/bindings/*.json` 的字段结构（含 `xml_filter` / `states`）。
+- `docs/examples/app_config_x.yaml`：模板，对齐 `config/apps/<app>.yaml` 的完整字段结构（含 `package_name` / `xml_filter` / `states` / `selectors` / `schemes`）。
 - `docs/examples/navigate_to.json`：结构示例（browser 路径）。
 - `docs/examples/login_stage.json`：模板，需按目标 App 调整 `stage_patterns`。
 - `docs/examples/ui_match_state.json`：结构示例（native + browser 两类）。
