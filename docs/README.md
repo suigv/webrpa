@@ -33,6 +33,8 @@
   记录系统级的设计缺陷、冗余及后续重构计划。
 - **[系统交接文档 (Handoff Guide)](HANDOFF.md)**  
   深度架构解析、依赖拓扑及核心组件（Runner, Interpreter, Controller）的运行机制。
+- **[Skills化演进与架构评估 (Skills Evolution)](SKILLS_EVOLUTION.md)**  
+  评估项目“技能化”进度，分析架构阻力并指明 AI 自动合成技能的演进方向。
 
 ---
 
