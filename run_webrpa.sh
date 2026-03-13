@@ -11,6 +11,7 @@ cd "$ROOT_DIR"
 export PYTHONPATH=.
 export MYT_LOAD_DOTENV=1
 export MYT_ENABLE_RPC=1
+export MYT_ENABLE_VLM=1
 export MYT_API_PORT=8001
 export MYT_TASK_QUEUE_BACKEND=redis
 
