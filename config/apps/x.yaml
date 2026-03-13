@@ -1,9 +1,10 @@
 version: v1
 package_name: com.twitter.android
 
-xml_filter:
-  max_text_len: 60
-  max_desc_len: 100
+# xml_filter 待蒸馏后自动填入（P90 统计），首次运行前不设置
+# xml_filter:
+#   max_text_len: 60
+#   max_desc_len: 100
 
 states:
   - id: home
