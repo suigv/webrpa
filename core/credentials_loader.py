@@ -36,7 +36,8 @@ class Credentials:
 
 
 def _allowed_credential_roots() -> list[Path]:
-    raw = os.environ.get("MYT_CREDENTIAL_ALLOWLIST", "/etc/myt")
+    from core.system_settings_loader import get_credential_allowlist
+    raw = get_credential_allowlist()
     roots: list[Path] = []
     roots.append(Path(".").resolve())
     for item in raw.split(":"):

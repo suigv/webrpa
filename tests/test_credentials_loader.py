@@ -12,7 +12,9 @@ def test_login_stage_credentials_loader_happy_path(tmp_path: Path, monkeypatch):
         json.dumps({"username_or_email": "demo@example.com", "password": "secret"}),
         encoding="utf-8",
     )
-    monkeypatch.setenv("MYT_CREDENTIAL_ALLOWLIST", str(tmp_path))
+    monkeypatch.setattr(
+        "core.system_settings_loader.get_credential_allowlist", lambda: str(tmp_path)
+    )
 
     creds = load_credentials_from_ref(str(cred_file))
     assert creds.username_or_email == "demo@example.com"
@@ -29,7 +31,9 @@ def test_login_stage_credentials_loader_rejects_path_outside_allowlist(tmp_path:
         json.dumps({"username_or_email": "demo@example.com", "password": "secret"}),
         encoding="utf-8",
     )
-    monkeypatch.setenv("MYT_CREDENTIAL_ALLOWLIST", str(allowed_root))
+    monkeypatch.setattr(
+        "core.system_settings_loader.get_credential_allowlist", lambda: str(allowed_root)
+    )
 
     with pytest.raises(ValueError, match="outside allowlist"):
         load_credentials_from_ref(str(cred_file))
@@ -43,7 +47,9 @@ def test_login_stage_credentials_loader_rejects_symlink(tmp_path: Path, monkeypa
     )
     link = tmp_path / "link.json"
     link.symlink_to(source)
-    monkeypatch.setenv("MYT_CREDENTIAL_ALLOWLIST", str(tmp_path))
+    monkeypatch.setattr(
+        "core.system_settings_loader.get_credential_allowlist", lambda: str(tmp_path)
+    )
 
     with pytest.raises(ValueError, match="symlink"):
         load_credentials_from_ref(str(link))

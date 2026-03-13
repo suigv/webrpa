@@ -257,8 +257,8 @@ def _execute_task(
 
 
 def _create_process_queue_backend() -> QueueBackend:
-    redis_url = os.environ.get("MYT_REDIS_URL", "redis://127.0.0.1:6379/0")
-    return RedisTaskQueue(redis_url=redis_url)
+    from core.system_settings_loader import get_redis_url
+    return RedisTaskQueue(redis_url=get_redis_url())
 
 
 def _process_task_subprocess(task_id: str, cancel_event: multiprocessing.Event) -> None:

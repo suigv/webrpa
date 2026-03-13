@@ -32,5 +32,17 @@ def task_db_path() -> Path:
     return data_dir() / "tasks.db"
 
 
+def browser_profiles_dir() -> Path:
+    """Browser profile cache directory (configurable via config/system.yaml)."""
+    from core.system_settings_loader import get_browser_profiles_dir
+    return get_browser_profiles_dir()
+
+
+def ai_work_dir() -> Path:
+    """AI vision working directory (configurable via config/system.yaml)."""
+    from core.system_settings_loader import get_ai_work_dir
+    return get_ai_work_dir()
+
+
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()

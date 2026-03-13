@@ -47,9 +47,10 @@ class VLMClient:
         timeout: float = 60.0,
         http_client: httpx.Client | None = None,
     ) -> None:
-        self.base_url = (base_url or os.environ.get("UITARS_BASE_URL", self.DEFAULT_BASE_URL)).rstrip("/")
-        self.model = model or os.environ.get("UITARS_MODEL", self.DEFAULT_MODEL)
-        self.api_key = api_key or os.environ.get("UITARS_API_KEY", "token")
+        from core.system_settings_loader import get_vlm_base_url, get_vlm_model, get_vlm_api_key
+        self.base_url = (base_url or get_vlm_base_url()).rstrip("/")
+        self.model = model or get_vlm_model()
+        self.api_key = api_key or get_vlm_api_key() or os.environ.get("UITARS_API_KEY", "token")
         self.system_prompt = system_prompt or self.DEFAULT_SYSTEM_PROMPT
         self.timeout = timeout
         self._parser = UITarsOutputParser()

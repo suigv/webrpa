@@ -50,6 +50,7 @@ def _coerce_modalities(value: object) -> list[str]:
 
 
 def _get_llm_config() -> JSONDict:
+    from core.system_settings_loader import get_llm_base_url, get_llm_model
     store = ConfigLoader.load()
     loaded: JSONDict = store.model_dump(mode="python")
     raw = loaded.get("llm", {})
@@ -66,8 +67,9 @@ def _get_llm_config() -> JSONDict:
         _ = config.setdefault("model", legacy_model)
 
     _ = config.setdefault("provider", DEFAULT_LLM_PROVIDER)
-    _ = config.setdefault("model", DEFAULT_LLM_MODEL)
-    _ = config.setdefault("base_url", DEFAULT_LLM_BASE_URL)
+    # Use system.yaml as source for base_url and model defaults
+    _ = config.setdefault("model", get_llm_model())
+    _ = config.setdefault("base_url", get_llm_base_url())
     _ = config.setdefault("timeout_seconds", DEFAULT_LLM_TIMEOUT_SECONDS)
 
     return config

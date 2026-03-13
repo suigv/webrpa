@@ -413,7 +413,8 @@ class BrowserClient:
                     import os
 
                     safe_id = hashlib.md5(profile_id.encode("utf-8")).hexdigest()
-                    base_dir = os.environ.get("MYT_USER_DATA_DIR", "/tmp/webrpa_browser_profiles")
+                    from core.paths import browser_profiles_dir as _bpd
+                    base_dir = str(_bpd())
                     profile_dir = Path(base_dir) / safe_id
                     profile_dir.mkdir(parents=True, exist_ok=True)
                     self._current_profile_dir = profile_dir

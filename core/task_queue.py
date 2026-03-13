@@ -178,7 +178,8 @@ class RedisTaskQueue:
 
 def create_task_queue() -> QueueBackend:
     backend = os.environ.get("MYT_TASK_QUEUE_BACKEND", "redis").strip().lower()
-    redis_url = os.environ.get("MYT_REDIS_URL", "redis://127.0.0.1:6379/0")
+    from core.system_settings_loader import get_redis_url
+    redis_url = get_redis_url()
     if backend == "memory":
         return InMemoryTaskQueue()
 

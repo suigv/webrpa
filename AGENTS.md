@@ -111,9 +111,8 @@ Different devices use the same port numbers but different IPs — `(ip, port)` i
 
 ### App Config Layer
 - `config/apps/<app>.yaml` is the **single source of truth** for all per-app configuration: `package_name`, `xml_filter`, `states`, `schemes`, `selectors`.
-- `engine/actions/sdk_config_support._PACKAGE_TO_APP` is the **only** permitted place to map Android package name → app config name. Adding a new app requires one entry here plus a corresponding `config/apps/<app>.yaml`.
-- **Framework code (`engine/`, `core/`, `api/`) must never contain app-specific strings**: no hardcoded package names, app names, UI keywords, or locale strings (e.g. `"twitter"`, `"followers"`, `"为你推荐"`). All such data belongs in `config/apps/<app>.yaml`.
-- Distillation tools must use generic XML feature extraction. State label inference must not match app-specific keywords — state IDs are inferred from resource-id structure and refined by human review of `config/apps/<app>.yaml`.
+- **Automatic App Discovery**: The system should dynamically map Android package names to app configurations by scanning `config/apps/*.yaml`. **Framework code (`engine/`, `core/`, `api/`) must never contain app-specific strings**: no hardcoded package names, app names, UI keywords, or locale strings.
+- Distillation tools must use generic XML feature extraction. State label inference must not match app-specific keywords.
 - `xml_filter`, `states`, and `selectors` in app config files are populated automatically by the distillation pipeline; `schemes` requires manual authoring.
 
 ## Pluginization Direction

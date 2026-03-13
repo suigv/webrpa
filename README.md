@@ -121,7 +121,7 @@
 - `ExecutionContext.session.defaults` 已作为最小任务级默认值接缝落地，保持显式 action 参数优先，其次 session defaults，最后回退到原始 payload
 - `ExecutionContext.runtime` 已承接任务运行时信封；target / task_id / cloud_target_label 等控制面信息不再通过 payload 私有字段注入
 - 任务可通过 payload `_runtime_profile` / `_runtime` / `_llm` / `_vlm` / `_uitars` 覆写运行时配置；profile 文件放在 `config/<name>.json`
-- `gpt_executor` 的 VLM 路径默认关闭；需要时设置 `MYT_ENABLE_VLM=1` 并在 `fallback_modalities` 中显式启用
+- `gpt_executor` 的 VLM 路径默认关闭；需要时在 `config/system.yaml` 中设置 `enable_vlm: true` 并在 `fallback_modalities` 中显式启用
 - 新增 `ai.locate_point` 动作：输入截图+提示词，返回点击坐标（支持像素/归一化坐标换算）
 - `UIStateService` 的结果构造、timing 与 browser polling 语义已收口到共享 helper；native bindings 也已拆到独立 registry，降低 browser/native 平行演化风险
 
@@ -187,7 +187,7 @@ python3 -m venv .venv
  MYT_ENABLE_RPC=0 ./.venv/bin/python -m uvicorn api.server:app --host 127.0.0.1 --port 8001
 ```
 
-说明：如根目录存在 `.env`，设置 `MYT_LOAD_DOTENV=1` 后服务启动时会加载到环境变量。
+说明：全局非敏系统配置（如 Redis, LLM URL 等）统一在 `config/system.yaml` 中维护。如需注入敏感信息（如 API Key）或进行环境变量覆盖，可在根目录创建 `.env`，并设置 `MYT_LOAD_DOTENV=1` 后启动服务。
 
 ### 3) 健康检查
 

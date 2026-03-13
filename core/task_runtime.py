@@ -188,7 +188,12 @@ class TaskDispatchRuntimeResolver:
         payload_for_run = dict(payload)
         runtime_overrides = _resolve_runtime_overrides(payload_for_run)
         dispatch_targets = normalize_dispatch_targets(targets, devices)
-        rpc_enabled = os.getenv("MYT_ENABLE_RPC", "1") not in ("0", "false", "False")
+        from core.system_settings_loader import get_rpc_enabled
+        _env_rpc = os.environ.get("MYT_ENABLE_RPC")
+        if _env_rpc is not None:
+            rpc_enabled = _env_rpc.strip() not in ("0", "false", "False")
+        else:
+            rpc_enabled = get_rpc_enabled()
         should_resolve_target = rpc_enabled and (self._plugin_loader.has(task_name) or task_name == "gpt_executor")
 
         prepared_targets: list[PreparedTaskTarget] = []

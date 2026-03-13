@@ -72,7 +72,7 @@ AI 在当前项目中的定位不是替代插件体系，而是：
 - `tools/distill_binding.py`
   - 从 trace XML 提取界面特征，生成 `NativeStateBinding` 代码草稿。
 
-LLM 链路说明：`LLMClient` 使用标准 OpenAI Chat Completions 格式（`/chat/completions`），支持通过 `MYT_LLM_API_BASE_URL` 指定代理服务，通过 `MYT_LLM_API_KEY` 配置密钥。
+LLM 链路说明：`LLMClient` 使用标准 OpenAI Chat Completions 格式（`/chat/completions`）。LLM base_url 和 model 由 `config/system.yaml` 配置，API Key 则仅通过 `MYT_LLM_API_KEY` 环境变量配置（保证密钥安全）。
 
 ## 5）核心设计原则
 

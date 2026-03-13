@@ -3,25 +3,64 @@ from __future__ import annotations
 from datetime import datetime
 import os
 from pathlib import Path
-from typing import Any
+import time
+from typing import Any, Dict
 
 import yaml
 
 from core.data_store import _resolve_root_path, write_json_atomic
 
+# 动态缓存映射表
+_cached_package_map: Dict[str, str] = {}
+_last_scan_time: float = 0
+_SCAN_TTL = 60.0  # 缓存 60 秒
 
-_PACKAGE_TO_APP: dict[str, str] = {
-    "com.instagram.android": "instagram",
-    "com.facebook.katana": "facebook",
-    "com.tiktok.android": "tiktok",
-    "com.twitter.android": "x",
-}
+def _scan_apps_for_packages() -> Dict[str, str]:
+    """扫描 config/apps/*.yaml 并根据 package_name 字段构建映射表。"""
+    mapping: Dict[str, str] = {}
+    repo_root = Path(__file__).resolve().parents[2]
+    
+    # 搜索路径：优先 resolve_root_path()，回退 repo root
+    search_dirs = [Path(_resolve_root_path()) / "config" / "apps", repo_root / "config" / "apps"]
+    
+    seen_apps = set()
+    for apps_dir in search_dirs:
+        if not apps_dir.exists():
+            continue
+        for yaml_path in apps_dir.glob("*.yaml"):
+            app_name = yaml_path.stem
+            if app_name in seen_apps:
+                continue
+            try:
+                with open(yaml_path, "r", encoding="utf-8") as f:
+                    doc = yaml.safe_load(f)
+                    if isinstance(doc, dict) and "package_name" in doc:
+                        pkg = str(doc["package_name"]).strip()
+                        if pkg:
+                            mapping[pkg] = app_name
+                seen_apps.add(app_name)
+            except Exception:
+                continue
+    return mapping
+
+def get_package_to_app_map() -> Dict[str, str]:
+    """获取包名到 App 名的映射表（带缓存）。"""
+    global _cached_package_map, _last_scan_time
+    now = time.time()
+    if not _cached_package_map or (now - _last_scan_time) > _SCAN_TTL:
+        _cached_package_map = _scan_apps_for_packages()
+        _last_scan_time = now
+    return _cached_package_map
+
 DEFAULT_APP_NAME = (os.getenv("MYT_DEFAULT_APP", "default") or "default").strip().lower() or "default"
 
 
 def app_from_package(package: str) -> str:
     """从 Android package 名推断 app 配置文件名，未知 package 返回空字符串。"""
-    return _PACKAGE_TO_APP.get(str(package or "").strip(), "")
+    pkg = str(package or "").strip()
+    if not pkg:
+        return ""
+    return get_package_to_app_map().get(pkg, "")
 
 
 def resolve_app(params: dict[str, Any], payload: dict[str, Any]) -> str:
@@ -38,7 +77,7 @@ def resolve_app(params: dict[str, Any], payload: dict[str, Any]) -> str:
 
 
 def app_config_path(app: str) -> Path:
-    """返回 config/apps/{app}.yaml 的路径，优先用 _resolve_root_path()，回退 repo root。"""
+    """返回 config/apps/{app}.yaml 的路径。"""
     repo_root = Path(__file__).resolve().parents[2]
     for base in [Path(_resolve_root_path()), repo_root]:
         path = base / "config" / "apps" / f"{app}.yaml"
@@ -59,7 +98,7 @@ def load_app_config_document(app: str) -> dict[str, Any]:
 
 
 def load_ui_config_document() -> dict[str, Any]:
-    """向后兼容接口，默认加载 DEFAULT_APP_NAME 配置。"""
+    """向后兼容接口。"""
     return load_app_config_document(DEFAULT_APP_NAME)
 
 

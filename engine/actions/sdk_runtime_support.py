@@ -17,13 +17,13 @@ def _resolve_app(params: dict[str, Any], payload: dict[str, Any]) -> str:
     if app:
         return app
     package = str(payload.get("package") or "").strip()
-    _pkg_map = {
-        "com.instagram.android": "instagram",
-        "com.facebook.katana": "facebook",
-        "com.tiktok.android": "tiktok",
-    }
+    if package:
+        from engine.actions.sdk_config_support import app_from_package
+        mapped = app_from_package(package)
+        if mapped:
+            return mapped
     default_app = str(os.getenv("MYT_DEFAULT_APP", "default") or "default").strip().lower() or "default"
-    return _pkg_map.get(package, default_app)
+    return default_app
 
 
 def extract_cloud_status_payload(result: dict[str, Any]) -> tuple[str, Any]:

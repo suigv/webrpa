@@ -909,7 +909,8 @@ class GptExecutorRuntime:
 
     @staticmethod
     def _wants_vlm(modalities: list[str]) -> bool:
-        if not _env_enabled("MYT_ENABLE_VLM"):
+        from core.system_settings_loader import get_vlm_enabled
+        if not get_vlm_enabled():
             return False
         normalized = {item.strip().lower() for item in modalities if str(item).strip()}
         return bool(normalized.intersection({"vlm", "vision", "uitars", "ui-tars"}))

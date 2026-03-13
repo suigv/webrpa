@@ -11,7 +11,12 @@ ResultFactory = Callable[..., Any]
 
 
 def is_rpc_enabled() -> bool:
-    return os.getenv("MYT_ENABLE_RPC", "1") != "0"
+    # Allow MYT_ENABLE_RPC=0 to override (test framework and migration scripts use this)
+    env_val = os.environ.get("MYT_ENABLE_RPC")
+    if env_val is not None:
+        return env_val.strip() not in ("0", "false", "False")
+    from core.system_settings_loader import get_rpc_enabled
+    return get_rpc_enabled()
 
 
 def _normalize_runtime_target(context: Any) -> Dict[str, Any]:

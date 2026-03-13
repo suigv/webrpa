@@ -26,7 +26,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(level
 
 
 def _cleanup_stale_browser_profiles() -> None:
-    base_dir = Path(os.environ.get("MYT_USER_DATA_DIR", "/tmp/webrpa_browser_profiles"))
+    from core.paths import browser_profiles_dir
+    base_dir = browser_profiles_dir()
     if not base_dir.exists():
         return
     cutoff = time.time() - 3600

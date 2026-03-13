@@ -1,0 +1,49 @@
+# webrpa 系统级配置 (System Settings)
+# 修改此文件以调整系统行为，重启服务生效
+# 此文件是所有系统级配置的唯一来源，无需环境变量（api_key 等 secret 除外）
+
+# ─────────────────────────────────────────
+# 功能开关
+# ─────────────────────────────────────────
+features:
+  # 是否启用 RPC 控制通道（touch/key/screenshot）
+  enable_rpc: true
+  # 是否启用 VLM 视觉模型功能
+  enable_vlm: true
+
+# ─────────────────────────────────────────
+# 外部服务地址
+# ─────────────────────────────────────────
+services:
+  # Redis 队列后端
+  redis_url: "redis://127.0.0.1:6379/0"
+
+  # LLM 服务（OpenAI 兼容接口）
+  llm:
+    base_url: "https://api.openai.com/v1"
+    model: "gpt-4o"
+    # ⚠️  api_key 属于 secret，不在此处配置
+    #    请通过环境变量 MYT_LLM_API_KEY 注入
+
+  # VLM / UI-TARS 视觉语言模型服务
+  vlm:
+    base_url: "http://127.0.0.1:9000/v1"
+    model: "UI-TARS-1.5-7B-6bit"
+    # ⚠️  api_key 请通过环境变量 UITARS_API_KEY 注入
+
+# ─────────────────────────────────────────
+# 路径设置
+# ─────────────────────────────────────────
+paths:
+  # 浏览器 profile 缓存目录（DrissionPage 使用）
+  browser_profiles_dir: "/tmp/webrpa_browser_profiles"
+  # AI 视觉工作目录（截图临时存放）
+  ai_work_dir: "/tmp/webrpa_ai"
+
+# ─────────────────────────────────────────
+# 凭据文件
+# ─────────────────────────────────────────
+credentials:
+  # 凭据文件搜索根路径，冒号分隔多路径
+  # 运行时从此路径加载凭据 JSON 文件
+  allowlist: "/etc/myt"
