@@ -1,0 +1,36 @@
+{
+  "target": "profile",
+  "routes": {
+    "home": {
+      "display_name": "Home",
+      "binding_id": "browser",
+      "platform": "browser",
+      "current_state_ids": ["url:example.com/"],
+      "arrival_state_ids": ["url:example.com/"]
+    },
+    "profile": {
+      "display_name": "Profile",
+      "binding_id": "browser",
+      "platform": "browser",
+      "current_state_ids": ["url:example.com/u/"],
+      "arrival_state_ids": ["url:example.com/u/"]
+    }
+  },
+  "hops": [
+    {
+      "from_route": "home",
+      "to_route": "profile",
+      "attempts": [
+        {
+          "action": "browser.open",
+          "params": {
+            "url": "https://example.com/u/demo"
+          }
+        }
+      ]
+    }
+  ],
+  "common_params": {
+    "timeout_ms": 8000
+  }
+}
