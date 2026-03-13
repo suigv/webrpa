@@ -52,12 +52,13 @@
   - **任务系统稳健性**：设备级排他锁（防幽灵任务）、子进程不做 availability 强制检查、多目标取消即时中断、`subscribe` 改为追加模式。
   - **前端系统**：账号选择器（接管页和AI对话框）、AI对话框改为勾选模式、设备上下线按钮、系统偏好页简化（移除 JSON 输入）、已发现设备数实时显示。
 
-- 最近重点 (本会话)：
-  - **AI 绑定蒸馏链路打通 (X App)**：
-    - **XML 截断容错修复**：针对 RPC 传输中 4KB 截断导致的解析失败，为 `tools/distill_binding.py` 引入了 **Regex Fallback** 机制，确保在 XML 不完整时仍能提取 package 和 UI 特征。
-    - **App 探测去硬编码重构**：彻底移除了框架中针对 X App 的硬编码字符串。实现了通用的 `detect_app_stage` 动作，该动作利用 `sdk_config_support` 根据当前包名动态加载 `config/apps/*.yaml` 里的 `selectors` 配置。
-    - **通用的 Native 状态观察**：`X_APP_STAGE_BINDING` 已重构为全局通用的 `app_stage` 绑定，理论上支持任何在 `config/apps/` 下有定义的 App。
-    - **X App 特征落地**：自动化提取并集成 X App (`com.twitter.android`) 首页（home）特征至 `x.yaml`。
+  - **AI 绑定蒸馏链路打通与稳定性增强 (X App)**：
+    - **XML 截断原因调查与修复**：确认为 `dump_node_xml_ex` 存在 **4KB (4096字节)** 的 RPC 传输缓冲区硬限制。当 UI 树较大时，数据在约 4041 字节处（扣除协议头）被强行切断，造成 XML 解析失败。
+    - **自愈式捕获逻辑 (Self-Healing)**：在 `_state_detection_support.py` 中实现了自动完整性校验，若检测到 `Ex` 模式截断，则自动重试标准 `dump_node_xml`（无此缓冲区限制），确保 AI 能获取完整 UI 树。
+    - **蒸馏工具 Regex Fallback**：为 `tools/distill_binding.py` 引入了正则回退机制，确保在极端截断情况下仍能提取包名和核心特征。
+    - **App 探测去硬编码重构**：彻底移除了框架中针对 X App 的硬编码字符串，支持通过 `config/apps/*.yaml` 动态加载。
+    - **通用的 Native 状态观察**：`X_APP_STAGE_BINDING` 已重构为全局通用的 `app_stage` 绑定。
+    - **X App 特征落地**：解析并集成 X App 首页特征。
   - **代码清理（本会话）**：删除 `common/env_loader.py`、`common/runtime_state.py`、`common/toolskit.py`（零引用旧产物）。
 
 - 最近重点 (本会话)：
