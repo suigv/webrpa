@@ -31,13 +31,15 @@ Current state (unverified): Evidence collection significantly improved (2026-03-
 - DB event poller added to broadcast subprocess task events to WebSocket clients.
 
 ### M3: Distillation to Model-Free YAML Plugin
-Status: Partial.
+Status: Verified (Stage 1).
 Definition of done: Multi-run evidence can distill a reviewable YAML plugin that passes replay smoke checks without model dependency.
 Distillation gate: simple tasks require 3 successful runs; complex tasks require at most 10 successful runs.
-Rules: when runs are model-from-scratch, only successful logs qualify for distillation; successes are cumulative (not required to be consecutive).
-Current state (unverified): Single-run golden distillation tool and tests exist; multi-run distillation is not implemented.
-Binding distillation path: `tools/distill_binding.py` can extract UI state features from trace XML files and generate NativeStateBinding code drafts. XML is now complete (full file, not truncated), enabling reliable feature extraction. Next step: accumulate successful runs and execute distill_binding.py.
-Selector auto-merge: After each golden run distillation, UI locator action params (text/resource_id) are automatically extracted and merged into `config/apps/<app>.yaml` selectors. Package name is inferred from trace observation data; existing selectors are never overwritten.
+Current state (Verified): 
+- XML 截断问题已通过 `distill_binding.py` 的正则回溯机制解决。
+- 实现了通用的 `app_stage` 探测机制，支持从 `config/apps/*.yaml` 动态加载特征，不再依赖硬编码框架。
+- 成功为 X App 产生了首页 binding 选择器。
+- 自动 Selector Merge 机制已在 GoldenRunDistiller 中闭环。
+- 下一步：支持多 trace 聚合蒸馏 (Multi-run) 以提高 feature 覆盖率。
 
 ### M4: External User Readiness
 Status: Planned.

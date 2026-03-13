@@ -40,8 +40,17 @@ def load_trace_records(jsonl_path: Path) -> list[dict]:
 
 def extract_xml(record: dict) -> str | None:
     fe = record.get("fallback_evidence") or {}
-    content = (fe.get("ui_xml") or {}).get("content") or ""
-    return content.strip() or None
+    ui_xml = fe.get("ui_xml") or {}
+    content = ui_xml.get("content") or ""
+    if content:
+        return content.strip()
+    
+    save_path = ui_xml.get("save_path") or ""
+    if save_path:
+        p = Path(save_path)
+        if p.exists():
+            return p.read_text(encoding="utf-8").strip()
+    return None
 
 
 def parse_features(xml_content: str) -> dict:
@@ -51,23 +60,40 @@ def parse_features(xml_content: str) -> dict:
         "texts": Counter(),
         "content_descs": Counter(),
     }
+    
+    # 首先尝试正常解析
     try:
         root = ET.fromstring(xml_content)
-    except ET.ParseError:
+        for node in root.iter():
+            pkg = node.get("package", "")
+            if pkg: features["packages"][pkg] += 1
+            rid = node.get("resource-id", "")
+            if rid and ":id/" in rid: features["resource_ids"][rid] += 1
+            text = node.get("text", "").strip()
+            if text and len(text) < 60: features["texts"][text] += 1
+            desc = node.get("content-desc", "").strip()
+            if desc and len(desc) < 60: features["content_descs"][desc] += 1
         return features
-    for node in root.iter():
-        pkg = node.get("package", "")
-        if pkg:
-            features["packages"][pkg] += 1
-        rid = node.get("resource-id", "")
-        if rid and ":id/" in rid:
-            features["resource_ids"][rid] += 1
-        text = node.get("text", "").strip()
-        if text and len(text) < 60:
-            features["texts"][text] += 1
-        desc = node.get("content-desc", "").strip()
-        if desc and len(desc) < 60:
-            features["content_descs"][desc] += 1
+    except ET.ParseError:
+        pass
+
+    # 如果 XML 不完整（常见于 4KB 截断），使用正则提取特征
+    import re
+    patterns = {
+        "packages": r'package="([^"]*)"',
+        "resource_ids": r'resource-id="([^"]*)"',
+        "texts": r'text="([^"]*)"',
+        "content_descs": r'content-desc="([^"]*)"',
+    }
+    
+    for key, pattern in patterns.items():
+        matches = re.findall(pattern, xml_content)
+        for m in matches:
+            if not m.strip(): continue
+            if key == "resource_ids" and ":id/" not in m: continue
+            if key in ("texts", "content_descs") and len(m) > 60: continue
+            features[key][m] += 1
+            
     return features
 
 

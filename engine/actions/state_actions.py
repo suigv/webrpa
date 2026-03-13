@@ -9,6 +9,7 @@ Candidate = dict[str, object]
 
 from engine.actions import _rpc_bootstrap
 from engine.actions import _state_detection_support as _support
+from engine.actions import sdk_config_support
 from engine.models.runtime import ActionResult, ErrorType, ExecutionContext
 from hardware_adapters import mytRpc as _myt_rpc_module
 from hardware_adapters.mytRpc import MytRpc
@@ -574,5 +575,61 @@ def open_first_unread_dm(params: Params, context: ExecutionContext) -> ActionRes
         if not touch_click(0, x, y):
             return ActionResult(ok=False, code="open_unread_dm_failed", message="failed to open unread dm", data={"target": first})
         return ActionResult(ok=True, code="ok", data={"target": first, "count": len(targets)})
+    finally:
+        _close_rpc(rpc)
+def detect_app_stage(params: Params, context: ExecutionContext) -> ActionResult:
+    rpc, err = _connect_rpc(params, context)
+    if err:
+        return err
+    assert rpc is not None
+    try:
+        package = _resolve_package(params, context)
+        app_name = params.get("app") or sdk_config_support.app_from_package(package) or sdk_config_support.DEFAULT_APP_NAME
+        
+        try:
+            config = sdk_config_support.load_app_config_document(str(app_name))
+            selectors = config.get("selectors", {})
+        except Exception:
+            selectors = {}
+
+        stage_patterns = {}
+        for stage_id, sel in selectors.items():
+            if not isinstance(sel, dict):
+                continue
+            stage_patterns[stage_id] = {
+                "resource_ids": _coerce_text_list(sel.get("resource_ids")),
+                "focus_markers": _coerce_text_list(sel.get("focus_markers")),
+                "text_markers": _coerce_text_list(sel.get("p95_text_markers") or sel.get("texts")) + _coerce_text_list(sel.get("content_descs")),
+            }
+        
+        if not stage_patterns:
+            return ActionResult(ok=True, code="ok", data={"stage": "unknown"})
+
+        stage = _detect_login_stage_with_rpc(rpc, {"stage_patterns": stage_patterns, "stage_order": list(stage_patterns.keys())}, context)
+        return ActionResult(ok=True, code="ok", data={"stage": stage})
+    finally:
+        _close_rpc(rpc)
+
+
+def wait_app_stage(params: Params, context: ExecutionContext) -> ActionResult:
+    rpc, err = _connect_rpc(params, context)
+    if err:
+        return err
+    assert rpc is not None
+    try:
+        timeout_ms = _int_from_param(params.get("timeout_ms"), 10000)
+        target_stages = set(_coerce_text_list(params.get("target_stages")))
+        if not target_stages:
+            return ActionResult(ok=False, code="invalid_params", message="target_stages is required")
+
+        started = time.monotonic()
+        while (time.monotonic() - started) * 1000 <= timeout_ms:
+            context.check_cancelled()
+            res = detect_app_stage(params, context)
+            if res.ok and res.data.get("stage") in target_stages:
+                return res
+            time.sleep(0.5)
+        
+        return ActionResult(ok=False, code="stage_timeout", message="wait app_stage timeout")
     finally:
         _close_rpc(rpc)

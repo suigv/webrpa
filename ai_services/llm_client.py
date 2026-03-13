@@ -66,8 +66,9 @@ def _get_llm_config() -> JSONDict:
     if legacy_model:
         _ = config.setdefault("model", legacy_model)
 
-    _ = config.setdefault("provider", DEFAULT_LLM_PROVIDER)
-    # Use system.yaml as source for base_url and model defaults
+    from core.system_settings_loader import get_llm_provider
+    # Use system.yaml as source for provider, base_url and model defaults
+    _ = config.setdefault("provider", get_llm_provider() or DEFAULT_LLM_PROVIDER)
     _ = config.setdefault("model", get_llm_model())
     _ = config.setdefault("base_url", get_llm_base_url())
     _ = config.setdefault("timeout_seconds", DEFAULT_LLM_TIMEOUT_SECONDS)

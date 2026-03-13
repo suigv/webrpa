@@ -88,6 +88,10 @@ def get_llm_model() -> str:
     return load().services.llm.model
 
 
+def get_llm_provider() -> str:
+    return load().services.llm.provider
+
+
 def get_vlm_base_url() -> str:
     return load().services.vlm.base_url
 

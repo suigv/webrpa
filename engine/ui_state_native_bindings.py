@@ -139,6 +139,17 @@ _FOLLOW_TARGETS_BINDING = NativeStateBinding(
     match_action=state_actions.extract_follow_targets,
 )
 
+_APP_STAGE_BINDING = NativeStateBinding(
+    binding_id="app_stage",
+    display_name="app stage",
+    state_noun="stage",
+    supported_state_ids=("home", "login", "search", "notifications", "profile", "unknown"),
+    normalize_state_id=lambda state_id: str(state_id or "unknown"),
+    state_id_from_action_result=lambda r: str(r.data.get("stage", "unknown")),
+    match_action=state_actions.detect_app_stage,
+    wait_action=state_actions.wait_app_stage,
+)
+
 _BINDINGS: dict[str, NativeStateBinding] = {
     _LOGIN_STAGE_BINDING.binding_id: _LOGIN_STAGE_BINDING,
     _DM_UNREAD_BINDING.binding_id: _DM_UNREAD_BINDING,
@@ -147,6 +158,7 @@ _BINDINGS: dict[str, NativeStateBinding] = {
     _SEARCH_CANDIDATES_BINDING.binding_id: _SEARCH_CANDIDATES_BINDING,
     _TIMELINE_CANDIDATES_BINDING.binding_id: _TIMELINE_CANDIDATES_BINDING,
     _FOLLOW_TARGETS_BINDING.binding_id: _FOLLOW_TARGETS_BINDING,
+    _APP_STAGE_BINDING.binding_id: _APP_STAGE_BINDING,
 }
 
 

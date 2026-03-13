@@ -24,6 +24,7 @@ class LLMSettings(BaseModel):
 
     base_url: str = "https://api.openai.com/v1"
     model: str = "gpt-4o"
+    provider: str = "openai"
     # api_key is intentionally absent — must be injected via env var MYT_LLM_API_KEY
 
 

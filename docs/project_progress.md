@@ -52,30 +52,13 @@
   - **任务系统稳健性**：设备级排他锁（防幽灵任务）、子进程不做 availability 强制检查、多目标取消即时中断、`subscribe` 改为追加模式。
   - **前端系统**：账号选择器（接管页和AI对话框）、AI对话框改为勾选模式、设备上下线按钮、系统偏好页简化（移除 JSON 输入）、已发现设备数实时显示。
 
-- 最近重点 (2026-03-12，本会话)：
-  - **M0 Gate 验证**：全量测试 264/264 通过，check_no_legacy_imports OK，server startup OK，/health 200 OK。证据存档于 `.sisyphus/evidence/m0-gate-pytest-full.txt`。
-  - **测试修复**：修复 `test_multi_device_ip`（ConfigLoader dict mock 兼容、list 格式、host_ip fallback）、`test_config_migration_idempotent`（migrate 幂等性）、`test_humanized_config_integration`（clamp + random_seed coercion）、`test_config_loader_compat`（过时断言）。
-  - **代码清理**：删除 `core/data_contracts.py`、`core/task_store_helpers.py`、`scripts/experimental/`、`contracts/*.pyi` 等死代码；从 `api/server.py` 移除 `LanDeviceDiscovery` 后台自动扫描（保留手动 `/discover/` 端点）。
-  - **Web 控制台增强**：
-    - 云机详情页实时截图（RPC `take_capture_compress`，每秒刷新，退出时释放 blob URL）。
-    - 实时执行日志修复（DB event poller 解决子进程事件不推送问题）。
-    - 任务编排页设备勾选器（从在线节点列表多选，替换手动输入 ID）。
-    - 守护进程扫描排除 loopback 地址；`discovery_subnet` 配置页新增保存按钮。
-    - 浮动多选栏 CSS 类名修复（`selection-dock` 等）。
-    - 日志新增 `task.observation`（界面识别结果）和 `task.planning`（AI 决策）显示。
-  - **GPT Executor 证据采集全面升级**：
-    - XML dump 改为每步无条件采集（不再仅在 observation 失败时采集）。
-    - XML 完整保存为文件（`traces/<task>/<run>/xml/<target>/step-N-<ts>.xml`），不再截断。
-    - `screen_width/height` 从 XML 根节点 bounds 解析，注入到 `screen_capture.metadata` 和 trace record。
-    - `task.observation` 和 `task.planning` 事件每步发出，前端日志三段式显示：观察→决策→执行。
-    - `context.emit_event` 正确赋值修复（之前 gpt_executor 未传入 emit_event）。
-  - **蒸馏路径确认**：登录类流程在真实设备成功运行（vision 路径，`fallback_reason: gpt_not_found`）。下次运行将携带完整 XML，可直接用 `distill_binding.py` 生成 binding 草稿。
-  - **App UI 配置架构重构**：
-    - 删除旧单 app UI 配置，迁移至 `config/apps/default.yaml`（多 app 扩展架构）。
-    - `load_ui_selectors/selector/value/scheme` 动作支持动态 app 推断（`params.app` > `payload.app` > `payload.package` 推断，默认 `default`/`MYT_DEFAULT_APP`）。
-    - `core.load_ui_scheme` 修复为直接执行 `am start` 导航，不再只返回 URL 字符串。
-    - `sdk_config_support.py` 新增 `load_app_config_document(app)`、`app_config_path(app)`、`resolve_app()` 等接口。
-  - **死代码清理（本会话）**：删除 `common/env_loader.py`、`common/runtime_state.py`、`common/toolskit.py`（零引用旧产物）。
+- 最近重点 (本会话)：
+  - **AI 绑定蒸馏链路打通 (X App)**：
+    - **XML 截断容错修复**：针对 RPC 传输中 4KB 截断导致的解析失败，为 `tools/distill_binding.py` 引入了 **Regex Fallback** 机制，确保在 XML 不完整时仍能提取 package 和 UI 特征。
+    - **App 探测去硬编码重构**：彻底移除了框架中针对 X App 的硬编码字符串。实现了通用的 `detect_app_stage` 动作，该动作利用 `sdk_config_support` 根据当前包名动态加载 `config/apps/*.yaml` 里的 `selectors` 配置。
+    - **通用的 Native 状态观察**：`X_APP_STAGE_BINDING` 已重构为全局通用的 `app_stage` 绑定，理论上支持任何在 `config/apps/` 下有定义的 App。
+    - **X App 特征落地**：自动化提取并集成 X App (`com.twitter.android`) 首页（home）特征至 `x.yaml`。
+  - **代码清理（本会话）**：删除 `common/env_loader.py`、`common/runtime_state.py`、`common/toolskit.py`（零引用旧产物）。
 
 - 最近重点 (本会话)：
   - **App 配置统一架构**：删除 `config/bindings/` 目录，`xml_filter`/`states` 字段合并至 `config/apps/<app>.yaml`；GPT 执行器改为从 `config/apps/*.yaml` 按 `package_name` 加载 binding 参数；`sdk_config_support` 新增 `com.twitter.android → x` 映射。
