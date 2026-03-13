@@ -196,9 +196,20 @@ def extract_candidates_from_xml(
 
 
 def dump_xml_for_candidates(rpc: Any, timeout_ms: int = 2500) -> str:
+    """获取 XML，增加完整性校验。如果 Ex 模式被截断，则尝试通过标准模式补救。"""
+    # 1. 优先尝试带超时参数的 Ex 版本，防止挂起
     xml_text = rpc.dump_node_xml_ex(False, timeout_ms)
+    
+    # 2. 完整性检查：如果 XML 不为空但未闭合（不包含 </hierarchy>），说明被截断了
+    if xml_text and "</hierarchy>" not in xml_text:
+        # 尝试使用标准模式补齐（虽然没有超时保护，但在 Ex 已预热的情况下通常能很快返回）
+        full_xml = rpc.dump_node_xml(False)
+        if full_xml and "</hierarchy>" in full_xml:
+            return full_xml
+            
     if xml_text:
         return xml_text
+        
     fallback = rpc.dump_node_xml(False)
     return str(fallback or "")
 
