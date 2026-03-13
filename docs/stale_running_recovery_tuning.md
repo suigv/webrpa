@@ -1,162 +1,57 @@
-# Stale Running Recovery Tuning
+# 僵尸任务恢复调优 (Stale Running Recovery Tuning)
 
-## Scope
+本文档旨在指导运维人员如何校准 `MYT_TASK_STALE_RUNNING_SECONDS` 配置，以在不中断活跃任务的前提下，实现控制面崩溃后的自愈。
 
-This guide covers the repo-backed tuning and verification path for `MYT_TASK_STALE_RUNNING_SECONDS`.
-It ties the setting to three existing surfaces in this repo:
+---
 
-- `GET /health`
-- the recovery event `task.recovered_stale_running`
-- the Prometheus alert rule `NewTaskStaleRunningRecovered`
+## 1. 核心机制：自愈 (Self-Healing)
 
-This repo does not define named production environments or external SLO targets for this setting.
-The repo-backed baselines below are therefore scenario-based, not environment-name-based.
+当 `TaskController` 启动时，系统会扫描所有状态为 `running` 的任务：
+1.  如果任务的 `updated_at` 时间戳早于当前时间减去 `MYT_TASK_STALE_RUNNING_SECONDS`，该任务将被判定为“僵尸任务（Stale）”。
+2.  系统会将该任务强制恢复为 `pending` 状态，以便重新进入队列执行。
 
-## Current Behavior
+---
 
-`api/server.py` and `core/task_execution.py` use the same parsing rule:
+## 2. 默认值与参数 (Default Parameters)
 
-- default value: `300`
-- invalid integer input: falls back to `300`
-- negative input: clamped to `0`
+| 环境变量 | 默认值 (秒) | 建议范围 | 说明 |
+|---|---|---|---|
+| `MYT_TASK_STALE_RUNNING_SECONDS` | `300` | `120 ~ 1800` | 判定任务已僵死的超时时间。 |
 
-`tests/test_health_smoke.py:18` verifies the invalid-input fallback.
-`tests/test_health_smoke.py:31` verifies negative clamping.
+---
 
-On controller startup, `TaskController.start()` delegates to `TaskExecutionService.start()`, which runs stale-running recovery before the worker loop starts.
-Recovered rows come from `TaskStore.recover_stale_running_tasks(...)`, which moves stale `running` tasks back to `pending`, clears stale execution timestamps, and keeps them resumable.
+## 3. 调优指南：如何设置该值？
 
-Each recovered task is re-enqueued and emits `task.recovered_stale_running` with `stale_after_seconds`.
+设置该值时需平衡以下两个因素：
 
-## Repo-Backed Baselines
+### 3.1 正常任务的单次最长执行时间
+- **考量**：如果你的业务工作流（如大型账户注册）通常需要 10 分钟才能完成，那么 `300` 秒（5 分钟）的默认值就太短了。
+- **风险**：过短的值会导致正常运行的任务在 `TaskController` 意外重启时被错误地判定为僵尸任务并重新下发。
 
-### Steady-State Baseline
+### 3.2 故障后的业务恢复容忍度 (RTO)
+- **考量**：如果发生系统崩溃，你希望多久能恢复业务？
+- **风险**：过长的值（如 1800 秒）意味着在控制面重启后，故障任务可能需要等待半小时才能被重新调度。
 
-Use `300` seconds as the normal baseline.
+---
 
-Why this is the repo-backed default:
+## 4. 校准建议 (Calibration Baseline)
 
-- `api/server.py` defaults to `300`
-- `core/task_execution.py` defaults to `300`
-- `docs/plugin_input_contract.md:58` documents `300` as the default
-- `docs/HANDOFF.md:93` records `300` as the stale threshold baseline
+根据目前各业务插件的运行数据，建议基线如下：
 
-Keep this default when:
+- **轻量互动类 (Blogger, Like, DM)**：
+  - 建议值：`300` 秒。
+  - 理由：任务通常在 2 分钟内结束。
 
-- you want normal controller-restart recovery behavior
-- you are not actively drilling stale-running recovery
-- there is no repo-backed evidence that legitimate tasks are being recovered too early or too late
+- **复杂注册/环境配置类 (Setup, Login)**：
+  - 建议值：`600 ~ 900` 秒。
+  - 理由：需要下载资源或多次重试，总耗时可能接近 10 分钟。
 
-### Temporary Validation Or Drill Baseline
+---
 
-Use `0` seconds only as a temporary validation or restart-drill baseline.
+## 5. 验证演练 (Drill Strategy)
 
-Why this is repo-backed:
-
-- `tests/test_task_control_plane.py:402` sets `MYT_TASK_STALE_RUNNING_SECONDS="0"`
-- that test proves immediate stale classification on controller restart and verifies `task.recovered_stale_running` is emitted, `tests/test_task_control_plane.py:453`
-- negative values are clamped to `0`, so `0` is also the lowest effective value exposed by `/health`, `tests/test_health_smoke.py:31`
-
-Use `0` when:
-
-- you need a fast recovery drill in a controlled environment
-- you want to prove the recovery and alerting path end to end
-
-Reset to `300` after the drill unless you have environment-specific evidence outside this repo that justifies another value.
-
-## Operator Tuning Rule
-
-Use this plain rule:
-
-- keep `300` by default
-- lower the value temporarily when you need to validate the restart recovery path quickly
-- raise the value only if legitimate long-running tasks are being recovered too aggressively after controller restart
-- reset to `300` after temporary validation, rollback, or drills
-
-This repo does not include workload-duration baselines, production latency targets, or per-environment thresholds beyond the default and the drill value above.
-If you pick a non-default steady-state value, treat that as an operator-managed deployment decision and confirm it through the verification steps below.
-
-## What Changes When The Value Changes
-
-### `/health`
-
-`GET /health` reports the effective parsed value at `task_policy.stale_running_seconds`, `api/server.py`.
-This is the first place to confirm the live process is using the intended threshold, especially if deployment wrappers or service managers set environment variables before startup.
-
-### Recovery Events
-
-When a controller restart finds stale `running` rows older than the computed cutoff, the controller:
-
-1. recovers them in the store
-2. re-enqueues them with their existing scheduling metadata
-3. emits `task.recovered_stale_running`
-
-The event payload includes `stale_after_seconds`, so the recovery record itself shows which threshold was applied.
-
-### Monitoring Path
-
-The repo alert rule lives in `config/monitoring/prometheus/task_metrics_alerts.yml:31`.
-It fires `NewTaskStaleRunningRecovered` when exported task metrics contain `new_task_event_type_count{event_type="task.recovered_stale_running"} > 0`.
-
-`docs/monitoring_rollout.md:121` lists this rule in the rollout baseline, and `docs/monitoring_rollout.md:128` states that the rule is informational.
-
-## Verification Procedure
-
-This procedure stays inside repo-backed facts and uses the existing monitoring rollout chain from `docs/monitoring_rollout.md`.
-
-### A. Confirm the live threshold
-
-Start the service with the intended value, then check:
-
-```bash
-curl http://127.0.0.1:8001/health
-```
-
-Expected evidence:
-
-- `task_policy.stale_running_seconds` is `300` for the steady-state baseline
-- `task_policy.stale_running_seconds` is `0` for a temporary validation drill
-- invalid input does not survive, it falls back to `300`
-- negative input does not survive, it shows as `0`
-
-### B. Prove recovery event emission
-
-For a reproducible repo-backed drill, use the focused regression evidence in `tests/test_task_control_plane.py:402`.
-That test demonstrates the minimal validation setup:
-
-- set `MYT_TASK_STALE_RUNNING_SECONDS=0`
-- create a task
-- mark it `running`
-- restart the controller
-- confirm the task completes after recovery
-- confirm an emitted `task.recovered_stale_running` event exists
-
-If you validate this manually in an operator environment, the evidence to keep is:
-
-- the task record no longer stuck in `running`
-- the recovered task re-entered execution
-- the task event stream or stored events include `task.recovered_stale_running`
-- the recovery event payload shows the threshold you intended to test
-
-### C. Prove the monitoring artifact path
-
-Use the rollout baseline from `docs/monitoring_rollout.md` rather than designing a new monitoring chain.
-
-Evidence to check after a recovery drill:
-
-- Prometheus loads `config/monitoring/prometheus/task_metrics_alerts.yml`
-- exported task metrics show `new_task_event_type_count{event_type="task.recovered_stale_running"}`
-- the informational alert `NewTaskStaleRunningRecovered` appears in Prometheus and then in Alertmanager according to the external routing policy
-
-The repo-backed alert definition is in `config/monitoring/prometheus/task_metrics_alerts.yml:31`.
-The repo-backed rollout chain is documented in `docs/monitoring_rollout.md:117` and `docs/monitoring_rollout.md:142`.
-
-## Recommended Evidence After Tuning
-
-After any change to `MYT_TASK_STALE_RUNNING_SECONDS`, check these three artifacts together:
-
-- `/health` shows the effective live threshold
-- recovered tasks emit `task.recovered_stale_running`
-- external monitoring surfaces `NewTaskStaleRunningRecovered` when the recovery event appears in exported metrics
-
-If the purpose was only a validation drill, restore `MYT_TASK_STALE_RUNNING_SECONDS=300` and re-check `/health` so the process-level baseline is back to the repo default.
+1.  启动一个长时运行的任务。
+2.  在任务执行中途，手动杀掉 `uvicorn api.server:app` 进程。
+3.  等待 `N` 秒（N > 配置值）。
+4.  重启系统，通过 `GET /api/tasks/{task_id}` 验证任务是否已自动恢复为 `pending`。
+5.  查看 `TaskEventStore` 确认是否有“recovered stale running”事件日志。

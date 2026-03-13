@@ -1,137 +1,68 @@
-# 插件契约 v2（`plugins/`）
+# 插件契约与输入规范 (v2)
 
-## 目标
-定义稳定的 **YAML 声明式插件契约**，让运行时可以执行业务工作流，而不耦合 API 路由或历史任务代码。
+## 1. 目标与结构
+定义稳定的 **YAML 声明式插件契约**，实现业务流与执行引擎的解耦。
 
-## 版本
-- 当前契约：`v2`（仅 YAML）
-- 历史版本：`v1`（JSON + handler.py）——**已弃用**
-
-## 目录结构
-
-每个插件位于 `plugins/` 下独立目录：
-
+### 目录结构
 ```text
 plugins/<plugin_name>/
 ├── manifest.yaml    # 插件元信息与输入声明
 └── script.yaml      # 声明式工作流步骤
 ```
 
-两文件均为必需。插件不再使用 Python handler 入口。
+---
 
-## Manifest 模式（`manifest.yaml`）
+## 2. 输入声明规范 (`manifest.yaml`)
 
-| 字段 | 类型 | 必填 | 说明 |
-|---|---|---|---|
-| `api_version` | `"v1"` | 是 | 模式版本（固定 `v1`） |
-| `kind` | `"plugin"` | 是 | 资源类型（固定 `plugin`） |
-| `name` | string | 是 | 插件唯一标识（应与目录名一致） |
-| `version` | string | 是 | 插件版本（建议 semver） |
-| `display_name` | string | 是 | 展示名称 |
-| `description` | string | 否 | 描述 |
-| `entry_script` | string | 否 | 入口脚本名（默认 `script.yaml`） |
-| `inputs` | list[PluginInput] | 否 | 输入参数声明 |
+### 核心字段
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `name` | string | 插件唯一标识（须与目录名一致） |
+| `inputs` | list[Input] | 输入参数声明 |
 
-### PluginInput 模式
+### 输入参数 (Input)
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `name` | string | 参数名（在脚本中通过 `${payload.name}` 引用） |
+| `type` | string | `string` | `integer` | `number` | `boolean` |
+| `required` | bool | 是否必填（默认 `true`） |
+| `default` | any | 默认值 |
 
-| 字段 | 类型 | 必填 | 说明 |
-|---|---|---|---|
-| `name` | string | 是 | 参数名 |
-| `type` | `"string" \| "integer" \| "number" \| "boolean"` | 是 | 参数类型 |
-| `required` | bool | 否 | 是否必填（默认 `true`） |
-| `default` | any | 否 | 默认值 |
+### 运行时验证策略
+- **严格模式**：由 `MYT_STRICT_PLUGIN_UNKNOWN_INPUTS=1` 控制。若开启，插件将拒绝任何未在 `manifest.yaml` 中声明的输入参数（`task` 和 `_` 前缀参数除外）。
+- **验证失败**：返回 `status=failed_config_error`, `checkpoint=dispatch`。
 
-## Workflow 模式（`script.yaml`）
+---
 
-| 字段 | 类型 | 必填 | 说明 |
-|---|---|---|---|
-| `version` | `"v1"` | 是 | 脚本模式版本 |
-| `workflow` | string | 是 | 工作流名称（建议与插件名一致） |
-| `vars` | dict | 否 | 脚本级变量（支持插值） |
-| `steps` | list[Step] | 是 | 有序步骤列表 |
+## 3. 工作流脚本规范 (`script.yaml`)
 
 ### 变量插值
+- `${payload.key}`：引用外部输入。
+- `${vars.key}`：引用脚本内部变量或步骤结果（通过 `save_as` 保存）。
+- `${payload.url:-default_val}`：支持默认值语法。
 
-使用 `${namespace.path}` 语法：
-- `${payload.key}`：来自运行时 payload
-- `${vars.key}`：来自脚本变量或前置步骤结果
-- `${vars.creds.field}`：点路径访问
-- `${payload.url:-https://default.com}`：`:-` 后跟默认值
+### 核心指令
+1.  **action**：执行原子动作（如 `ui.click`, `browser.open`）。
+2.  **if**：基于条件（`text_contains`, `exists`, `var_equals` 等）的分支跳转。
+3.  **wait_until**：轮询等待特定状态达成。
+4.  **goto**：标签跳转。
+5.  **stop**：显式终止并返回成功或失败。
 
-## 步骤原语（5 类）
+> **说明**：如需跨页面导航，请使用 `ui.navigate_to`，并在 `params` 或 session defaults 提供 `routes` 与 `hops`（路由定义 + 跳转动作）。该动作基于 `ui.match_state` 校验到达状态，避免隐式硬编码路径。
 
-### 1) `action`：执行已注册动作
-关键字段：`action`、`params`、`save_as`、`on_fail`
+---
 
-### 2) `if`：条件分支
-关键字段：`when`、`then`、`otherwise`
+## 4. 失败处理策略 (`on_fail`)
+- **abort**：立即终止（默认）。
+- **skip**：忽略错误继续。
+- **retry**：配置 `retries` 和 `delay_ms` 进行局部重试。
+- **goto**：跳转到指定的异常处理标签。
 
-### 3) `wait_until`：轮询等待
-关键字段：`check`、`interval_ms`、`timeout_ms`、`on_timeout`
+---
 
-### 4) `goto`：无条件跳转
-关键字段：`target`
-
-### 5) `stop`：结束工作流
-关键字段：`status`（`success|failed`）、`message`
-
-## 条件类型
-
-| 类型 | 字段 | 说明 |
-|---|---|---|
-| `text_contains` | `text` | 页面 HTML 包含文本（忽略大小写） |
-| `url_contains` | `text` | 当前 URL 包含文本 |
-| `exists` | `selector` | DOM 中存在匹配元素 |
-| `var_equals` | `var`, `equals` | 变量等值判断 |
-| `result_ok` | — | 上一步动作结果为成功 |
-
-## 失败策略（`on_fail`）
-
-| 策略 | 字段 | 行为 |
-|---|---|---|
-| `abort` | — | 终止并返回错误（默认） |
-| `skip` | — | 忽略失败，继续后续步骤 |
-| `retry` | `retries`, `delay_ms` | 重试 N 次 |
-| `goto` | `goto` | 失败后跳转到指定标签 |
-
-## 内置动作（示例）
-
-### 浏览器动作
-- `browser.open`
-- `browser.input`
-- `browser.click`
-- `browser.exists`
-- `browser.check_html`
-- `browser.wait_url`
-- `browser.close`
-
-### 凭据动作
-- `credentials.load`
-
-## 运行时执行流程
-
-1. `PluginLoader.scan()` 发现 `plugins/*/manifest.yaml`
-2. `Runner.run()` 按任务名匹配插件
-3. `parse_script()` 解析并校验 `script.yaml`
-4. `Interpreter.execute()` 执行工作流
-5. 浏览器会话按需惰性创建
-6. 解释器在 `finally` 中负责关闭浏览器会话
-7. `max_transitions = 500` 防止跳转死循环
-8. `wait_until` 强制受 `timeout_ms` 和引擎硬上限（120s）限制
-
-## 安全与隔离规则
-
-- 插件不得依赖旧命名空间（`tasks` / `app.*`）
-- 插件不得包含 Python 逻辑（仅 YAML）
-- 凭据必须通过 `credentials.load` 且路径受白名单约束
-- 不允许执行仓库范围外的破坏性文件操作
-
-## 插件验收检查单
-
-- [ ] `manifest.yaml` 可通过 `PluginManifest` 校验
-- [ ] `script.yaml` 可通过 `WorkflowScript` 校验
-- [ ] 引用标签全部存在
-- [ ] 无重复标签
-- [ ] 引用动作均已注册
-- [ ] 失败分支（`on_fail`）有测试覆盖
-- [ ] `check_no_legacy_imports.py` 通过
+## 5. 开发者检查单
+- [ ] `manifest.yaml` 的 `name` 与目录名一致。
+- [ ] 所有 `action` 引用的动作均已在系统中注册。
+- [ ] 脚本中引用的所有 `${payload.xxx}` 均在 `manifest` 中有对应声明。
+- [ ] 关键步骤配置了合理的 `on_fail` 策略。
+- [ ] 复杂跳转逻辑已通过 `max_transitions`（硬上限 500）压力测试。

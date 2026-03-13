@@ -1,8 +1,10 @@
-import pytest
-from typing import Any, cast
+# pyright: reportPrivateUsage=false
+
+from typing import cast
 
 from core.config_loader import ConfigLoader, get_device_ip, get_device_ips
 from core.device_manager import DeviceManager
+from core.port_calc import calculate_ports
 
 
 def test_get_device_ip_uses_mapping_then_fallback():
@@ -11,7 +13,7 @@ def test_get_device_ip_uses_mapping_then_fallback():
         ConfigLoader._config = {
             "host_ip": "10.0.0.1",
             "device_ips": {"1": "10.0.0.11", "2": "10.0.0.12"},
-            "cloud_machines_per_device": 10,
+            "cloud_machines_per_device": 12,
         }
         assert get_device_ip(1) == "10.0.0.11"
         assert get_device_ip(2) == "10.0.0.12"
@@ -26,7 +28,7 @@ def test_get_device_ips_supports_list_format():
         ConfigLoader._config = {
             "host_ip": "10.0.0.1",
             "device_ips": ["10.0.0.21", "10.0.0.22"],
-            "cloud_machines_per_device": 10,
+            "cloud_machines_per_device": 12,
         }
         assert get_device_ips() == {"1": "10.0.0.21", "2": "10.0.0.22"}
     finally:
@@ -42,37 +44,44 @@ def test_device_manager_returns_nested_cloud_topology():
             "host_ip": "10.0.0.1",
             "device_ips": {"2": "10.0.0.52"},
             "total_devices": 3,
-            "cloud_machines_per_device": 10,
+            "cloud_machines_per_device": 12,
             "sdk_port": 8000,
         }
         manager = DeviceManager()
-        info = manager.get_device_info(2)
-        assert info["device_id"] == 2
-        assert info["ip"] == "10.0.0.52"
-        assert info["schema_version"] == 2
-        assert info["allocation_version"] == 1
-        assert info["sdk_port"] == 8000
-        assert info["cloud_slots_total"] == 12
-        clouds = cast(list[dict[str, Any]], info["cloud_machines"])
+        snapshot = manager.get_devices_snapshot()
+        device = next(entry for entry in snapshot if entry["device_id"] == 2)
+        assert device["ip"] == "10.0.0.52"
+        assert device["schema_version"] == 2
+        assert device["allocation_version"] == 1
+
+        clouds = cast(list[dict[str, object]], device["cloud_machines"])
         assert len(clouds) == 12
+        api_port, rpa_port = calculate_ports(2, 1, 12)
         assert clouds[0]["cloud_id"] == 1
-        assert clouds[0]["api_port"] == 30001
-        assert clouds[0]["rpa_port"] == 30002
+        assert clouds[0]["api_port"] == api_port
+        assert clouds[0]["rpa_port"] == rpa_port
     finally:
         ConfigLoader._config = backup
 
 
-def test_device_manager_rejects_unknown_device_id():
+def test_device_manager_syncs_device_count_from_config():
     backup = ConfigLoader._config
+    manager = DeviceManager()
     try:
         ConfigLoader._config = {
             "host_ip": "10.0.0.1",
             "device_ips": {},
             "total_devices": 2,
-            "cloud_machines_per_device": 10,
+            "cloud_machines_per_device": 12,
         }
-        manager = DeviceManager()
-        with pytest.raises(KeyError):
-            _ = manager.get_device(3)
+        assert set(manager.get_all_devices().keys()) == {1, 2}
+
+        ConfigLoader._config = {
+            "host_ip": "10.0.0.1",
+            "device_ips": {},
+            "total_devices": 1,
+            "cloud_machines_per_device": 12,
+        }
+        assert set(manager.get_all_devices().keys()) == {1}
     finally:
         ConfigLoader._config = backup

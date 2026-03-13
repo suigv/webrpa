@@ -1,10 +1,13 @@
+# pyright: reportImportCycles=false
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 
-from .models.runtime import ActionResult, ExecutionContext
+if TYPE_CHECKING:
+    from .models.runtime import ActionResult, ExecutionContext
 
-ActionCallable = Callable[[dict[str, object], ExecutionContext], ActionResult]
+ActionCallable = Callable[[dict[str, object], "ExecutionContext"], "ActionResult"]
 
 
 class ActionRegistry:
@@ -100,6 +103,7 @@ def register_defaults() -> None:
         touch_up,
         selector_add_query,
         selector_click_one,
+        selector_click_with_fallback,
         selector_clear,
         selector_exec_all,
         selector_exec_one,
@@ -164,6 +168,7 @@ def register_defaults() -> None:
         save_blogger_candidate,
         load_ui_scheme,
         load_ui_selector,
+        load_ui_selectors,
         load_ui_value,
         load_shared_optional,
         load_shared_required,
@@ -172,7 +177,7 @@ def register_defaults() -> None:
     )
     from .actions.state_actions import (
         collect_blogger_candidates,
-        detect_x_login_stage,
+        detect_login_stage,
         extract_dm_last_message,
         extract_dm_last_outbound_message,
         extract_unread_dm_targets,
@@ -182,7 +187,7 @@ def register_defaults() -> None:
         extract_timeline_candidates,
         follow_visible_targets,
         open_first_unread_dm,
-        wait_x_login_stage,
+        wait_login_stage,
     )
     from .actions.ai_actions import llm_evaluate, vlm_evaluate, locate_point
 
@@ -207,6 +212,7 @@ def register_defaults() -> None:
     _registry.register("core.resolve_first_non_empty", resolve_first_non_empty)
     _registry.register("core.load_ui_value", load_ui_value)
     _registry.register("core.load_ui_selector", load_ui_selector)
+    _registry.register("core.load_ui_selectors", load_ui_selectors)
     _registry.register("core.load_ui_scheme", load_ui_scheme)
     _registry.register("core.check_daily_limit", check_daily_limit)
     _registry.register("core.increment_daily_counter", increment_daily_counter)
@@ -224,8 +230,8 @@ def register_defaults() -> None:
     _registry.register("core.generate_totp", generate_totp)
     _registry.register("core.generate_dm_reply", generate_dm_reply)
     _registry.register("core.generate_quote_text", generate_quote_text)
-    _registry.register("core.detect_x_login_stage", detect_x_login_stage)
-    _registry.register("core.wait_x_login_stage", wait_x_login_stage)
+    _registry.register("core.detect_login_stage", detect_login_stage)
+    _registry.register("core.wait_login_stage", wait_login_stage)
     _registry.register("core.extract_timeline_candidates", extract_timeline_candidates)
     _registry.register("core.extract_search_candidates", extract_search_candidates)
     _registry.register("core.collect_blogger_candidates", collect_blogger_candidates)
@@ -274,6 +280,7 @@ def register_defaults() -> None:
     _registry.register("ui.create_selector", create_selector)
     _registry.register("ui.selector_add_query", selector_add_query)
     _registry.register("ui.selector_click_one", selector_click_one)
+    _registry.register("ui.selector_click_with_fallback", selector_click_with_fallback)
     _registry.register("ui.selector_exec_one", selector_exec_one)
     _registry.register("ui.selector_exec_all", selector_exec_all)
     _registry.register("ui.selector_find_nodes", selector_find_nodes)
@@ -299,3 +306,54 @@ def register_defaults() -> None:
     _registry.register("ui.dump_node_xml_ex", dump_node_xml_ex)
     for action_name, handler in get_sdk_action_bindings().items():
         _registry.register(action_name, handler)
+
+    from engine.actions.android_api_actions import (
+        android_get_clipboard, android_set_clipboard,
+        android_query_proxy, android_set_proxy, android_stop_proxy, android_set_proxy_filter,
+        android_screenshot,
+        android_download_file, android_upload_file,
+        android_set_language, android_refresh_location, android_get_google_adid,
+        android_receive_sms, android_add_contact, android_get_container_info,
+        android_set_key_block, android_set_background_keepalive,
+        android_backup_app, android_restore_app, android_upload_google_cert,
+        android_batch_install_apps, android_export_app_info, android_import_app_info,
+        android_get_call_records, android_ip_geolocation,
+        android_query_adb, android_switch_adb,
+        android_get_google_id, android_set_google_id,
+        android_install_magisk, android_camera_hot_start, android_autoclick,
+        android_get_root_allowed_apps, android_set_root_allowed_app,
+    )
+    _registry.register("android.get_clipboard", android_get_clipboard)
+    _registry.register("android.set_clipboard", android_set_clipboard)
+    _registry.register("android.query_proxy", android_query_proxy)
+    _registry.register("android.set_proxy", android_set_proxy)
+    _registry.register("android.stop_proxy", android_stop_proxy)
+    _registry.register("android.set_proxy_filter", android_set_proxy_filter)
+    _registry.register("android.screenshot", android_screenshot)
+    _registry.register("android.download_file", android_download_file)
+    _registry.register("android.upload_file", android_upload_file)
+    _registry.register("android.set_language", android_set_language)
+    _registry.register("android.refresh_location", android_refresh_location)
+    _registry.register("android.get_google_adid", android_get_google_adid)
+    _registry.register("android.receive_sms", android_receive_sms)
+    _registry.register("android.add_contact", android_add_contact)
+    _registry.register("android.get_container_info", android_get_container_info)
+    _registry.register("android.set_key_block", android_set_key_block)
+    _registry.register("android.set_background_keepalive", android_set_background_keepalive)
+    _registry.register("android.backup_app", android_backup_app)
+    _registry.register("android.restore_app", android_restore_app)
+    _registry.register("android.upload_google_cert", android_upload_google_cert)
+    _registry.register("android.batch_install_apps", android_batch_install_apps)
+    _registry.register("android.get_root_allowed_apps", android_get_root_allowed_apps)
+    _registry.register("android.set_root_allowed_app", android_set_root_allowed_app)
+    _registry.register("android.export_app_info", android_export_app_info)
+    _registry.register("android.import_app_info", android_import_app_info)
+    _registry.register("android.get_call_records", android_get_call_records)
+    _registry.register("android.ip_geolocation", android_ip_geolocation)
+    _registry.register("android.query_adb", android_query_adb)
+    _registry.register("android.switch_adb", android_switch_adb)
+    _registry.register("android.get_google_id", android_get_google_id)
+    _registry.register("android.set_google_id", android_set_google_id)
+    _registry.register("android.install_magisk", android_install_magisk)
+    _registry.register("android.camera_hot_start", android_camera_hot_start)
+    _registry.register("android.autoclick", android_autoclick)

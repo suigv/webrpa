@@ -228,7 +228,7 @@ def test_fill_form_successfully_inputs_submits_and_waits(monkeypatch: pytest.Mon
     result = handler(
         {
             "device_ip": "192.168.1.2",
-            "allowed_state": {"binding_id": "x_login", "expected_state_ids": ["account"]},
+            "allowed_state": {"binding_id": "login_stage", "expected_state_ids": ["account"]},
             "fields": [
                 {
                     "field_id": "account",
@@ -247,7 +247,7 @@ def test_fill_form_successfully_inputs_submits_and_waits(monkeypatch: pytest.Mon
                 "fallback_x": 930,
                 "fallback_y": 1830,
             },
-            "wait_for_state": {"binding_id": "x_login", "expected_state_ids": ["password"]},
+            "wait_for_state": {"binding_id": "login_stage", "expected_state_ids": ["password"]},
         },
         ExecutionContext(payload={"device_ip": "192.168.1.2"}),
     )
@@ -356,83 +356,122 @@ def test_fill_form_injects_session_credentials(monkeypatch: pytest.MonkeyPatch):
 
 def test_navigate_to_noops_when_already_at_target(monkeypatch: pytest.MonkeyPatch):
     register_defaults()
-    from engine.actions import navigation_actions
+    from engine.actions import ui_state_actions
 
-    def resolve_current_route(_params: dict[str, object], _context: ExecutionContext) -> dict[str, object]:
-        return {"route_id": "home_timeline", "probes": {"home_timeline": {"matched": True}}}
+    def ui_match_state(params: dict[str, object], _context: ExecutionContext) -> ActionResult:
+        if params.get("binding_id") == "feed_binding":
+            return ActionResult(ok=True, code="ok", data={"state": {"state_id": "available"}})
+        return ActionResult(ok=False, code="no_match", data={"state": {"state_id": "unknown"}})
 
-    monkeypatch.setattr(navigation_actions, "_resolve_current_route", resolve_current_route)
+    monkeypatch.setattr(ui_state_actions, "ui_match_state", ui_match_state)
+
+    routes = {"feed": {"binding_id": "feed_binding", "display_name": "feed"}}
 
     handler = resolve_action("ui.navigate_to")
-    result = handler({"target": "home_timeline", "device_ip": "192.168.1.2"}, ExecutionContext(payload={"device_ip": "192.168.1.2"}))
+    result = handler(
+        {"target": "feed", "routes": routes, "hops": []},
+        ExecutionContext(payload={"device_ip": "192.168.1.2"}),
+    )
 
     assert result.ok is True
     assert result.data["noop"] is True
-    assert result.data["current_route"] == "home_timeline"
+    assert result.data["current_route"] == "feed"
 
 
 def test_navigate_to_recognizes_missing_state_page_as_current_route(monkeypatch: pytest.MonkeyPatch):
     register_defaults()
-    from engine.actions import navigation_actions
+    from engine.actions import ui_state_actions
 
     def ui_match_state(params: dict[str, object], _context: ExecutionContext) -> ActionResult:
-        binding_id = str(params.get("binding_id") or "")
-        if binding_id == "timeline_candidates":
+        if params.get("binding_id") == "feed_binding":
             return ActionResult(ok=True, code="ok", data={"state": {"state_id": "missing"}})
         return ActionResult(ok=False, code="no_match", data={"state": {"state_id": "unknown"}})
 
-    monkeypatch.setattr(navigation_actions, "_ui_match_state", ui_match_state)
+    monkeypatch.setattr(ui_state_actions, "ui_match_state", ui_match_state)
+
+    routes = {"feed": {"binding_id": "feed_binding", "display_name": "feed"}}
 
     handler = resolve_action("ui.navigate_to")
-    result = handler({"target": "home_timeline", "device_ip": "192.168.1.2"}, ExecutionContext(payload={"device_ip": "192.168.1.2"}))
+    result = handler(
+        {"target": "feed", "routes": routes, "hops": []},
+        ExecutionContext(payload={"device_ip": "192.168.1.2"}),
+    )
 
     assert result.ok is True
     assert result.data["noop"] is True
-    assert result.data["current_route"] == "home_timeline"
+    assert result.data["current_route"] == "feed"
 
 
 def test_navigate_to_runs_successful_bounded_route(monkeypatch: pytest.MonkeyPatch):
     register_defaults()
-    from engine.actions import navigation_actions
+    from engine.actions import ui_state_actions
 
-    current_states = iter([
-        {"route_id": "messages_inbox", "probes": {"messages_inbox": {"matched": True}}},
-        {"route_id": "search_results", "probes": {"search_results": {"matched": True}}},
-    ])
+    feed_calls = 0
 
-    def resolve_current_route(_params: dict[str, object], _context: ExecutionContext) -> dict[str, object]:
-        return cast(dict[str, object], next(current_states))
+    def ui_match_state(params: dict[str, object], _context: ExecutionContext) -> ActionResult:
+        nonlocal feed_calls
+        binding_id = params.get("binding_id")
+        if binding_id == "inbox_binding":
+            return ActionResult(ok=True, code="ok", data={"state": {"state_id": "available"}})
+        if binding_id == "feed_binding":
+            feed_calls += 1
+            if feed_calls == 1:
+                return ActionResult(ok=False, code="no_match", data={"state": {"state_id": "unknown"}})
+            return ActionResult(ok=True, code="ok", data={"state": {"state_id": "available"}})
+        return ActionResult(ok=False, code="no_match", data={"state": {"state_id": "unknown"}})
 
-    def execute_hop(hop, _params: dict[str, object], _context: ExecutionContext, *, active_route: str) -> dict[str, object]:
-        assert active_route == "messages_inbox"
-        assert hop.hop_id == "messages_to_home_timeline"
-        return {"code": "ok", "message": "reached home timeline", "attempts": [{"attempt_id": "open_home_scheme"}]}
+    monkeypatch.setattr(ui_state_actions, "ui_match_state", ui_match_state)
 
-    monkeypatch.setattr(navigation_actions, "_resolve_current_route", resolve_current_route)
-    monkeypatch.setattr(navigation_actions, "_execute_hop", execute_hop)
+    def fake_resolve_action(_name: str):
+        def _handler(_params: dict[str, object], _context: ExecutionContext) -> ActionResult:
+            return ActionResult(ok=True, code="ok")
+        return _handler
+
+    monkeypatch.setattr("engine.action_registry.resolve_action", fake_resolve_action)
+
+    routes = {
+        "feed": {"binding_id": "feed_binding", "display_name": "feed"},
+        "inbox": {"binding_id": "inbox_binding", "display_name": "inbox"},
+    }
+    hops = [
+        {
+            "hop_id": "inbox_to_feed",
+            "from_route": "inbox",
+            "to_route": "feed",
+            "attempts": [{"action": "ui.key_press", "params": {"key": "home"}}],
+        }
+    ]
 
     handler = resolve_action("ui.navigate_to")
-    result = handler({"target": "home_timeline", "device_ip": "192.168.1.2"}, ExecutionContext(payload={"device_ip": "192.168.1.2"}))
+    result = handler(
+        {"target": "feed", "routes": routes, "hops": hops},
+        ExecutionContext(payload={"device_ip": "192.168.1.2"}),
+    )
 
     assert result.ok is True
-    assert result.data["path"] == ["messages_to_home_timeline"]
-    assert result.data["current_route"] == "home_timeline"
+    assert result.data["path"] == ["inbox_to_feed"]
+    assert result.data["current_route"] == "feed"
 
 
 def test_navigate_to_returns_target_unreachable_when_no_path(monkeypatch: pytest.MonkeyPatch):
     register_defaults()
-    from engine.actions import navigation_actions
+    from engine.actions import ui_state_actions
 
-    monkeypatch.setattr(
-        navigation_actions,
-        "_resolve_current_route",
-        lambda _params, _context: {"route_id": "search_results", "probes": {"search_results": {"matched": True}}},
-    )
-    monkeypatch.setattr(navigation_actions, "_resolve_path", lambda _start, _target: [])
+    def ui_match_state(params: dict[str, object], _context: ExecutionContext) -> ActionResult:
+        if params.get("binding_id") == "feed_binding":
+            return ActionResult(ok=True, code="ok", data={"state": {"state_id": "available"}})
+        return ActionResult(ok=False, code="no_match", data={"state": {"state_id": "unknown"}})
+
+    monkeypatch.setattr(ui_state_actions, "ui_match_state", ui_match_state)
+
+    routes = {
+        "feed": {"binding_id": "feed_binding", "display_name": "feed"},
+        "inbox": {"binding_id": "inbox_binding", "display_name": "inbox"},
+    }
 
     handler = resolve_action("ui.navigate_to")
     result = handler(
-        {"target": "messages_inbox", "device_ip": "192.168.1.2"},
+        {"target": "inbox", "routes": routes, "hops": []},
         ExecutionContext(payload={"device_ip": "192.168.1.2"}),
     )
 
@@ -442,26 +481,44 @@ def test_navigate_to_returns_target_unreachable_when_no_path(monkeypatch: pytest
 
 def test_navigate_to_returns_state_drift_detected(monkeypatch: pytest.MonkeyPatch):
     register_defaults()
-    from engine.actions import navigation_actions
+    from engine.actions import navigation_actions, ui_state_actions
 
-    current_states = iter([
-        {"route_id": "messages_inbox", "probes": {"messages_inbox": {"matched": True}}},
-    ])
+    def ui_match_state(params: dict[str, object], _context: ExecutionContext) -> ActionResult:
+        if params.get("binding_id") == "inbox_binding":
+            return ActionResult(ok=True, code="ok", data={"state": {"state_id": "available"}})
+        return ActionResult(ok=False, code="no_match", data={"state": {"state_id": "unknown"}})
 
-    monkeypatch.setattr(navigation_actions, "_resolve_current_route", lambda _params, _context: next(current_states))
+    monkeypatch.setattr(ui_state_actions, "ui_match_state", ui_match_state)
     monkeypatch.setattr(
         navigation_actions,
         "_execute_hop",
-        lambda hop, _params, _context, *, active_route: {
+        lambda _routes, hop, _params, _context, *, active_route: {
             "code": "state_drift_detected",
             "message": f"navigation drifted during {hop.hop_id}",
-            "attempts": [{"attempt_id": "open_home_scheme"}],
-            "observed_route": "search_results",
+            "attempts": [{"attempt_id": "open_action"}],
+            "observed_route": "search",
         },
     )
 
+    routes = {
+        "feed": {"binding_id": "feed_binding", "display_name": "feed"},
+        "inbox": {"binding_id": "inbox_binding", "display_name": "inbox"},
+        "search": {"binding_id": "search_binding", "display_name": "search"},
+    }
+    hops = [
+        {
+            "hop_id": "inbox_to_feed",
+            "from_route": "inbox",
+            "to_route": "feed",
+            "attempts": [{"action": "ui.key_press", "params": {"key": "home"}}],
+        }
+    ]
+
     handler = resolve_action("ui.navigate_to")
-    result = handler({"target": "home_timeline", "device_ip": "192.168.1.2"}, ExecutionContext(payload={"device_ip": "192.168.1.2"}))
+    result = handler(
+        {"target": "feed", "routes": routes, "hops": hops},
+        ExecutionContext(payload={"device_ip": "192.168.1.2"}),
+    )
 
     assert result.ok is False
     assert result.code == "state_drift_detected"

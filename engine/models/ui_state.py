@@ -11,7 +11,7 @@ UIStateOperation = Literal["match_state", "wait_until", "observe_transition"]
 UIStatePlatform = Literal["native", "browser", "unknown"]
 UIStateMatchStatus = Literal["matched", "no_match", "timeout", "transition_observed", "unknown"]
 
-X_LOGIN_STAGE_VALUES: tuple[str, ...] = ("home", "two_factor", "captcha", "password", "account", "unknown")
+LOGIN_STAGE_VALUES: tuple[str, ...] = ("home", "two_factor", "captcha", "password", "account", "login_entry", "unknown")
 
 
 class UIStateIdentity(BaseModel):
@@ -156,6 +156,6 @@ class UIStateObservationResult(BaseModel):
         )
 
 
-def normalize_x_login_stage(stage: str) -> str:
+def normalize_login_stage(stage: str) -> str:
     candidate = str(stage or "unknown").strip() or "unknown"
-    return candidate if candidate in X_LOGIN_STAGE_VALUES else "unknown"
+    return candidate if candidate in LOGIN_STAGE_VALUES else "unknown"

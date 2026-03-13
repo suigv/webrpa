@@ -21,7 +21,7 @@ def _load_execution_context():
     raise ModuleNotFoundError("cannot import ExecutionContext")
 
 
-def test_detect_x_login_stage_account(monkeypatch):
+def test_detect_login_stage_account(monkeypatch):
     mod = _load_state_actions_module()
     ExecutionContext = _load_execution_context()
 
@@ -54,7 +54,7 @@ def test_detect_x_login_stage_account(monkeypatch):
 
         def execQueryOne(self, selector):
             _ = selector
-            return 1 if self.query_text == "已有账号" else None
+            return 1 if self.query_text == "账号" else None
 
         def free_selector(self, selector):
             _ = selector
@@ -63,12 +63,12 @@ def test_detect_x_login_stage_account(monkeypatch):
     monkeypatch.setattr(mod, "MytRpc", FakeRpc)
 
     ctx = ExecutionContext(payload={"device_ip": "192.168.1.214", "_target": {"device_id": 1, "cloud_id": 3}})
-    result = mod.detect_x_login_stage({}, ctx)
+    result = mod.detect_login_stage({}, ctx)
     assert result.ok is True
     assert result.data["stage"] == "account"
 
 
-def test_wait_x_login_stage_until_home(monkeypatch):
+def test_wait_login_stage_until_home(monkeypatch):
     mod = _load_state_actions_module()
     ExecutionContext = _load_execution_context()
 
@@ -112,7 +112,16 @@ def test_wait_x_login_stage_until_home(monkeypatch):
     monkeypatch.setattr(mod.time, "sleep", lambda *_: None)
 
     ctx = ExecutionContext(payload={"device_ip": "192.168.1.214", "_target": {"device_id": 1, "cloud_id": 3}})
-    result = mod.wait_x_login_stage({"target_stages": ["home"], "timeout_ms": 3000, "interval_ms": 10}, ctx)
+    result = mod.wait_login_stage(
+        {
+            "target_stages": ["home"],
+            "timeout_ms": 3000,
+            "interval_ms": 10,
+            "stage_patterns": {"home": {"focus_markers": ["home"]}},
+            "stage_order": ["home"],
+        },
+        ctx,
+    )
     assert result.ok is True
     assert result.data["stage"] == "home"
 
@@ -133,11 +142,11 @@ def test_extract_search_candidates_from_xml(monkeypatch):
             _ = (work_mode, timeout_ms)
             return """
             <hierarchy>
-              <node text="" resource-id="" class="android.widget.FrameLayout" package="com.twitter.android" bounds="[0,0][1080,2200]">
-                <node text="ignored top" resource-id="com.twitter.android:id/row" class="android.widget.LinearLayout" package="com.twitter.android" bounds="[0,10][1080,180]"/>
-                <node text="" resource-id="com.twitter.android:id/row" class="android.widget.LinearLayout" package="com.twitter.android" bounds="[0,420][1080,980]">
-                  <node text="PayPay 配布 5000円" resource-id="" class="android.widget.TextView" package="com.twitter.android" bounds="[50,450][900,520]"/>
-                  <node text="" content-desc="promo card" resource-id="" class="android.widget.ImageView" package="com.twitter.android" bounds="[50,540][900,920]"/>
+              <node text="" resource-id="" class="android.widget.FrameLayout" package="com.example.app" bounds="[0,0][1080,2200]">
+                <node text="ignored top" resource-id="com.example.app:id/row" class="android.widget.LinearLayout" package="com.example.app" bounds="[0,10][1080,180]"/>
+                <node text="" resource-id="com.example.app:id/row" class="android.widget.LinearLayout" package="com.example.app" bounds="[0,420][1080,980]">
+                  <node text="PayPay 配布 5000円" resource-id="" class="android.widget.TextView" package="com.example.app" bounds="[50,450][900,520]"/>
+                  <node text="" content-desc="promo card" resource-id="" class="android.widget.ImageView" package="com.example.app" bounds="[50,540][900,920]"/>
                 </node>
               </node>
             </hierarchy>
@@ -149,7 +158,7 @@ def test_extract_search_candidates_from_xml(monkeypatch):
 
     monkeypatch.setattr(mod, "MytRpc", FakeRpc)
     ctx = ExecutionContext(payload={"device_ip": "192.168.1.214"})
-    result = mod.extract_search_candidates({"package": "com.twitter.android"}, ctx)
+    result = mod.extract_search_candidates({"package": "com.example.app"}, ctx)
     assert result.ok is True
     assert result.data["count"] == 1
     candidate = result.data["candidates"][0]
@@ -178,18 +187,18 @@ def test_collect_blogger_candidates_across_rounds(monkeypatch):
             pages = [
                 """
                 <hierarchy>
-                  <node text="" resource-id="" class="android.widget.FrameLayout" package="com.twitter.android" bounds="[0,0][1080,2200]">
-                    <node text="" resource-id="com.twitter.android:id/row" class="android.widget.LinearLayout" package="com.twitter.android" bounds="[0,420][1080,980]">
-                      <node text="Demo User @demo_handle PayPay 配布" class="android.widget.TextView" package="com.twitter.android" bounds="[50,450][900,520]"/>
+                  <node text="" resource-id="" class="android.widget.FrameLayout" package="com.example.app" bounds="[0,0][1080,2200]">
+                    <node text="" resource-id="com.example.app:id/row" class="android.widget.LinearLayout" package="com.example.app" bounds="[0,420][1080,980]">
+                      <node text="Demo User @demo_handle PayPay 配布" class="android.widget.TextView" package="com.example.app" bounds="[50,450][900,520]"/>
                     </node>
                   </node>
                 </hierarchy>
                 """,
                 """
                 <hierarchy>
-                  <node text="" resource-id="" class="android.widget.FrameLayout" package="com.twitter.android" bounds="[0,0][1080,2200]">
-                    <node text="" resource-id="com.twitter.android:id/row" class="android.widget.LinearLayout" package="com.twitter.android" bounds="[0,420][1080,980]">
-                      <node text="Next User @next_handle 現金配布" class="android.widget.TextView" package="com.twitter.android" bounds="[50,450][900,520]"/>
+                  <node text="" resource-id="" class="android.widget.FrameLayout" package="com.example.app" bounds="[0,0][1080,2200]">
+                    <node text="" resource-id="com.example.app:id/row" class="android.widget.LinearLayout" package="com.example.app" bounds="[0,420][1080,980]">
+                      <node text="Next User @next_handle 現金配布" class="android.widget.TextView" package="com.example.app" bounds="[50,450][900,520]"/>
                     </node>
                   </node>
                 </hierarchy>
@@ -209,7 +218,7 @@ def test_collect_blogger_candidates_across_rounds(monkeypatch):
     monkeypatch.setattr(mod, "MytRpc", FakeRpc)
     monkeypatch.setattr(mod.time, "sleep", lambda *_: None)
     ctx = ExecutionContext(payload={"device_ip": "192.168.1.214"})
-    result = mod.collect_blogger_candidates({"package": "com.twitter.android", "max_rounds": 2, "max_candidates": 5}, ctx)
+    result = mod.collect_blogger_candidates({"package": "com.example.app", "max_rounds": 2, "max_candidates": 5}, ctx)
     assert result.ok is True
     assert result.data["count"] == 2
     assert result.data["swipe_count"] == 1
@@ -264,10 +273,10 @@ def test_extract_dm_last_message_from_xml(monkeypatch):
             _ = (work_mode, timeout_ms)
             return """
             <hierarchy>
-              <node text="" resource-id="" class="android.widget.FrameLayout" package="com.twitter.android" bounds="[0,0][1080,2200]">
-                <node text="" content-desc="Alice：你好，最近怎么样。12:20" class="android.view.View" package="com.twitter.android" bounds="[30,600][500,720]"/>
-                <node text="" content-desc="Me：稍后回复。12:21" class="android.view.View" package="com.twitter.android" bounds="[620,800][1020,900]"/>
-                <node text="" content-desc="Bob：最后一条消息。12:25" class="android.view.View" package="com.twitter.android" bounds="[40,980][520,1100]"/>
+              <node text="" resource-id="" class="android.widget.FrameLayout" package="com.example.app" bounds="[0,0][1080,2200]">
+                <node text="" content-desc="Alice：你好，最近怎么样。12:20" class="android.view.View" package="com.example.app" bounds="[30,600][500,720]"/>
+                <node text="" content-desc="Me：稍后回复。12:21" class="android.view.View" package="com.example.app" bounds="[620,800][1020,900]"/>
+                <node text="" content-desc="Bob：最后一条消息。12:25" class="android.view.View" package="com.example.app" bounds="[40,980][520,1100]"/>
               </node>
             </hierarchy>
             """
@@ -278,7 +287,7 @@ def test_extract_dm_last_message_from_xml(monkeypatch):
 
     monkeypatch.setattr(mod, "MytRpc", FakeRpc)
     ctx = ExecutionContext(payload={"device_ip": "192.168.1.214"})
-    result = mod.extract_dm_last_message({"package": "com.twitter.android"}, ctx)
+    result = mod.extract_dm_last_message({"package": "com.example.app"}, ctx)
     assert result.ok is True
     assert result.data["message"] == "最后一条消息。12:25"
     assert "Bob：" in result.data["raw"]
@@ -300,9 +309,9 @@ def test_extract_dm_last_outbound_message_from_xml(monkeypatch):
             _ = (work_mode, timeout_ms)
             return """
             <hierarchy>
-              <node text="" resource-id="" class="android.widget.FrameLayout" package="com.twitter.android" bounds="[0,0][1080,2200]">
-                <node text="" content-desc="Alice：你好，最近怎么样。12:20" class="android.view.View" package="com.twitter.android" bounds="[30,600][500,720]"/>
-                <node text="" content-desc="Me：我刚发出的回复。12:31" class="android.view.View" package="com.twitter.android" bounds="[620,980][1020,1100]"/>
+              <node text="" resource-id="" class="android.widget.FrameLayout" package="com.example.app" bounds="[0,0][1080,2200]">
+                <node text="" content-desc="Alice：你好，最近怎么样。12:20" class="android.view.View" package="com.example.app" bounds="[30,600][500,720]"/>
+                <node text="" content-desc="Me：我刚发出的回复。12:31" class="android.view.View" package="com.example.app" bounds="[620,980][1020,1100]"/>
               </node>
             </hierarchy>
             """
@@ -313,7 +322,7 @@ def test_extract_dm_last_outbound_message_from_xml(monkeypatch):
 
     monkeypatch.setattr(mod, "MytRpc", FakeRpc)
     ctx = ExecutionContext(payload={"device_ip": "192.168.1.214"})
-    result = mod.extract_dm_last_outbound_message({"package": "com.twitter.android"}, ctx)
+    result = mod.extract_dm_last_outbound_message({"package": "com.example.app"}, ctx)
     assert result.ok is True
     assert result.data["message"] == "我刚发出的回复。12:31"
 
@@ -337,9 +346,9 @@ def test_extract_and_follow_visible_targets(monkeypatch):
             _ = (work_mode, timeout_ms)
             return """
             <hierarchy>
-              <node text="" resource-id="" class="android.widget.FrameLayout" package="com.twitter.android" bounds="[0,0][1080,2200]">
-                <node text="Follow" class="android.widget.Button" package="com.twitter.android" bounds="[780,500][980,580]"/>
-                <node text="フォローする" class="android.widget.Button" package="com.twitter.android" bounds="[780,720][980,800]"/>
+              <node text="" resource-id="" class="android.widget.FrameLayout" package="com.example.app" bounds="[0,0][1080,2200]">
+                <node text="Follow" class="android.widget.Button" package="com.example.app" bounds="[780,500][980,580]"/>
+                <node text="フォローする" class="android.widget.Button" package="com.example.app" bounds="[780,720][980,800]"/>
               </node>
             </hierarchy>
             """
@@ -356,11 +365,11 @@ def test_extract_and_follow_visible_targets(monkeypatch):
     monkeypatch.setattr(mod.time, "sleep", lambda *_: None)
     ctx = ExecutionContext(payload={"device_ip": "192.168.1.214"})
 
-    extracted = mod.extract_follow_targets({"package": "com.twitter.android"}, ctx)
+    extracted = mod.extract_follow_targets({"package": "com.example.app"}, ctx)
     assert extracted.ok is True
     assert extracted.data["count"] == 2
 
-    followed = mod.follow_visible_targets({"package": "com.twitter.android", "max_clicks": 2}, ctx)
+    followed = mod.follow_visible_targets({"package": "com.example.app", "max_clicks": 2}, ctx)
     assert followed.ok is True
     assert followed.data["clicked_count"] == 2
 
@@ -384,8 +393,8 @@ def test_extract_and_open_first_unread_dm(monkeypatch):
             _ = (work_mode, timeout_ms)
             return """
             <hierarchy>
-              <node text="" resource-id="" class="android.widget.FrameLayout" package="com.twitter.android" bounds="[0,0][1080,2200]">
-                <node text="未読 2" content-desc="Unread conversation" class="android.view.View" package="com.twitter.android" bounds="[30,500][980,680]"/>
+              <node text="" resource-id="" class="android.widget.FrameLayout" package="com.example.app" bounds="[0,0][1080,2200]">
+                <node text="未読 2" content-desc="Unread conversation" class="android.view.View" package="com.example.app" bounds="[30,500][980,680]"/>
               </node>
             </hierarchy>
             """
@@ -401,11 +410,11 @@ def test_extract_and_open_first_unread_dm(monkeypatch):
     monkeypatch.setattr(mod, "MytRpc", FakeRpc)
     ctx = ExecutionContext(payload={"device_ip": "192.168.1.214"})
 
-    extracted = mod.extract_unread_dm_targets({"package": "com.twitter.android"}, ctx)
+    extracted = mod.extract_unread_dm_targets({"package": "com.example.app"}, ctx)
     assert extracted.ok is True
     assert extracted.data["count"] == 1
 
-    opened = mod.open_first_unread_dm({"package": "com.twitter.android"}, ctx)
+    opened = mod.open_first_unread_dm({"package": "com.example.app"}, ctx)
     assert opened.ok is True
     assert opened.data["count"] == 1
 
@@ -416,13 +425,13 @@ def test_state_actions_rpc_bootstrap_error_contracts(monkeypatch):
     ctx = ExecutionContext(payload={})
 
     monkeypatch.setattr(mod, "_is_rpc_enabled", lambda: False)
-    disabled = mod.detect_x_login_stage({}, ctx)
+    disabled = mod.detect_login_stage({}, ctx)
     assert disabled.ok is False
     assert disabled.code == "rpc_disabled"
     assert disabled.message == "MYT_ENABLE_RPC=0"
 
     monkeypatch.setattr(mod, "_is_rpc_enabled", lambda: True)
-    invalid = mod.detect_x_login_stage({}, ctx)
+    invalid = mod.detect_login_stage({}, ctx)
     assert invalid.ok is False
     assert invalid.code == "invalid_params"
     assert invalid.message == "device_ip is required"
@@ -436,7 +445,7 @@ def test_state_actions_rpc_bootstrap_error_contracts(monkeypatch):
             return None
 
     monkeypatch.setattr(mod, "MytRpc", FailingRpc)
-    failed = mod.detect_x_login_stage({"device_ip": "192.168.1.214", "rpa_port": 30002}, ctx)
+    failed = mod.detect_login_stage({"device_ip": "192.168.1.214", "rpa_port": 30002}, ctx)
     assert failed.ok is False
     assert failed.code == "rpc_connect_failed"
     assert failed.message == "connect failed: 192.168.1.214:30002"
@@ -476,7 +485,7 @@ def test_ui_state_action_wrappers_preserve_legacy_native_contracts(monkeypatch):
 
         def execQueryOne(self, selector):
             _ = selector
-            return 1 if self.query_text == "已有账号" else None
+            return 1 if self.query_text == "账号" else None
 
         def free_selector(self, selector):
             _ = selector
@@ -487,10 +496,10 @@ def test_ui_state_action_wrappers_preserve_legacy_native_contracts(monkeypatch):
     ctx = ExecutionContext(payload={"device_ip": "192.168.1.214", "_target": {"device_id": 1, "cloud_id": 3}})
 
     service_result = resolve_action("ui.match_state")(
-        {"platform": "native", "binding_id": "x_login", "expected_state_ids": ["account", "home"]},
+        {"platform": "native", "binding_id": "login_stage", "expected_state_ids": ["account", "home"]},
         ctx,
     )
-    legacy_result = resolve_action("core.detect_x_login_stage")({}, ctx)
+    legacy_result = resolve_action("core.detect_login_stage")({}, ctx)
 
     assert service_result.ok is True
     assert service_result.code == "ok"
@@ -530,15 +539,15 @@ def test_ui_state_action_wrappers_expose_browser_contract_and_aliases():
             return self._wait_result
 
     browser_ctx = ExecutionContext(payload={})
-    browser_ctx.browser = FakeBrowser(existing={"#login"}, url="https://x.com/login")
+    browser_ctx.browser = FakeBrowser(existing={"#login"}, url="https://example.com/login")
     browser_match = resolve_action("browser.match_state")({"expected_state_ids": ["exists:#login"]}, browser_ctx)
 
     wait_ctx = ExecutionContext(payload={})
-    wait_ctx.browser = FakeBrowser(url="https://x.com/home", wait_result=True)
+    wait_ctx.browser = FakeBrowser(url="https://example.com/home", wait_result=True)
     browser_wait = resolve_action("browser.wait_until")({"expected_state_ids": ["url:/home"], "timeout_ms": 2000}, wait_ctx)
 
     transition_ctx = ExecutionContext(payload={})
-    transition_ctx.browser = FakeBrowser(existing={"#login"}, url="https://x.com/home", wait_result=True)
+    transition_ctx.browser = FakeBrowser(existing={"#login"}, url="https://example.com/home", wait_result=True)
     transition = resolve_action("ui.observe_transition")(
         {
             "platform": "browser",

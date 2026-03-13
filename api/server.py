@@ -1,5 +1,7 @@
 import logging
 import os
+import shutil
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -13,8 +15,8 @@ from api.routes import data as data_route
 from api.routes import devices as devices_route
 from api.routes import task_routes as tasks_route
 from api.routes import websocket as websocket_route
-from core.device_manager import DeviceManager
-from core.lan_discovery import LanDeviceDiscovery
+from core.device_manager import get_device_manager
+from core.cloud_probe_service import get_cloud_probe_service
 from core.task_control import get_task_controller
 from engine.actions._rpc_bootstrap import is_rpc_enabled
 from engine.runner import Runner, strict_plugin_unknown_inputs_enabled
@@ -23,25 +25,42 @@ from hardware_adapters.browser_client import BrowserClient
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
 
+def _cleanup_stale_browser_profiles() -> None:
+    base_dir = Path(os.environ.get("MYT_USER_DATA_DIR", "/tmp/webrpa_browser_profiles"))
+    if not base_dir.exists():
+        return
+    cutoff = time.time() - 3600
+    cleaned = 0
+    for d in base_dir.iterdir():
+        if d.is_dir() and d.stat().st_mtime < cutoff:
+            shutil.rmtree(d, ignore_errors=True)
+            cleaned += 1
+    if cleaned:
+        logging.info(f"Cleaned up {cleaned} stale browser profile(s) from {base_dir}")
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     # 注册 WebSocket 日志广播桥接
-    from api.routes.websocket import get_event_broadcaster
+    import asyncio
+    from api.routes.websocket import get_event_broadcaster, start_db_event_poller
     get_task_controller()._events.subscribe(get_event_broadcaster())
+    start_db_event_poller(asyncio.get_event_loop())
 
-    device_manager = DeviceManager()
-    discovery = LanDeviceDiscovery()
-    discovery.start()
+    # 清理残留的 browser profile 目录（超过 1 小时未修改的视为泄露）
+    _cleanup_stale_browser_profiles()
+
+    device_manager = get_device_manager()
     device_manager.validate_topology_or_raise()
     controller = get_task_controller()
     controller.start()
-    device_manager.start_cloud_probe_worker()
+    probe_service = get_cloud_probe_service()
+    probe_service.start()
     try:
         yield
     finally:
-        device_manager.stop_cloud_probe_worker()
+        probe_service.stop()
         controller.stop()
-        discovery.stop()
 
 
 app = FastAPI(title="MYT New Standalone API", version="0.1.0", lifespan=lifespan)
@@ -64,6 +83,7 @@ app.include_router(websocket_route.router)
 # Mount static files first
 app.mount("/static", StaticFiles(directory=str(WEB_DIR)), name="static")
 
+
 @app.get("/")
 def root():
     return RedirectResponse(url="/web", status_code=307)
@@ -77,6 +97,9 @@ def web_index():
 @app.get("/health")
 def health():
     rpc_enabled = is_rpc_enabled()
+    from engine.plugin_loader import get_shared_plugin_loader
+    loader = get_shared_plugin_loader()
+    loaded_plugins = loader.names
     return {
         "status": "ok",
         "runtime": "skeleton",
@@ -84,6 +107,10 @@ def health():
         "task_policy": {
             "strict_plugin_unknown_inputs": strict_plugin_unknown_inputs_enabled(),
             "stale_running_seconds": _stale_running_seconds(),
+        },
+        "plugins": {
+            "loaded": loaded_plugins,
+            "count": len(loaded_plugins),
         },
     }
 

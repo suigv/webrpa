@@ -53,7 +53,7 @@ def test_browser_ui_state_adapter_matches_exists_and_keeps_lazy_context(monkeypa
     def _fake_browser_client_class():
         class _Factory(FakeBrowser):
             def __init__(self):
-                super().__init__(existing={"#login"}, url="https://x.com/login")
+                super().__init__(existing={"#login"}, url="https://example.com/login")
                 created.append(self)
 
         return _Factory
@@ -68,28 +68,28 @@ def test_browser_ui_state_adapter_matches_exists_and_keeps_lazy_context(monkeypa
     assert result.status == "matched"
     assert result.state.state_id == "exists:#login"
     assert result.evidence.selector == "#login"
-    assert result.evidence.url == "https://x.com/login"
+    assert result.evidence.url == "https://example.com/login"
     assert context.browser is created[0]
 
 
 def test_browser_ui_state_adapter_matches_html() -> None:
     service = BrowserUIStateService()
     context = ExecutionContext(payload={})
-    context.browser = FakeBrowser(html="<body>Welcome Home</body>", url="https://x.com/home")
+    context.browser = FakeBrowser(html="<body>Welcome Home</body>", url="https://example.com/home")
 
     result = service.match_state(context, expected_state_ids=["html:welcome home"])
 
     assert result.ok is True
     assert result.state.state_id == "html:welcome home"
     assert result.evidence.text == "welcome home"
-    assert result.evidence.url == "https://x.com/home"
+    assert result.evidence.url == "https://example.com/home"
     observations = cast(list[dict[str, object]], result.raw_details["observations"])
     assert observations[0]["kind"] == "html"
 
 
 def test_browser_ui_state_adapter_matches_url_via_wait_primitive() -> None:
     service = BrowserUIStateService()
-    browser = FakeBrowser(url="https://x.com/home", wait_result=True)
+    browser = FakeBrowser(url="https://example.com/home", wait_result=True)
     context = ExecutionContext(payload={})
     context.browser = browser
 
@@ -98,7 +98,7 @@ def test_browser_ui_state_adapter_matches_url_via_wait_primitive() -> None:
     assert result.ok is True
     assert result.operation == "wait_until"
     assert result.state.state_id == "url:/home"
-    assert result.evidence.url == "https://x.com/home"
+    assert result.evidence.url == "https://example.com/home"
     assert browser.wait_calls == [("/home", 2)]
 
 
@@ -106,7 +106,7 @@ def test_browser_ui_state_adapter_returns_no_match_without_mutating_context_vars
     service = BrowserUIStateService()
     context = ExecutionContext(payload={})
     context.vars["sentinel"] = "keep"
-    context.browser = FakeBrowser(existing={"#other"}, html="<body>Other</body>", url="https://x.com/login")
+    context.browser = FakeBrowser(existing={"#other"}, html="<body>Other</body>", url="https://example.com/login")
 
     result = service.match_state(context, expected_state_ids=["exists:#missing", "html:welcome", "url:/home"])
 
@@ -120,7 +120,7 @@ def test_browser_ui_state_adapter_returns_no_match_without_mutating_context_vars
 
 def test_browser_ui_state_adapter_returns_timeout_for_unmet_url_wait() -> None:
     service = BrowserUIStateService()
-    browser = FakeBrowser(url="https://x.com/login", wait_result=False)
+    browser = FakeBrowser(url="https://example.com/login", wait_result=False)
     context = ExecutionContext(payload={})
     context.browser = browser
 
@@ -129,7 +129,7 @@ def test_browser_ui_state_adapter_returns_timeout_for_unmet_url_wait() -> None:
     assert result.ok is False
     assert result.code == "timeout"
     assert result.status == "timeout"
-    assert result.evidence.url == "https://x.com/login"
+    assert result.evidence.url == "https://example.com/login"
     assert result.evidence.missing == ["/home"]
     assert browser.wait_calls == [("/home", 3)]
 

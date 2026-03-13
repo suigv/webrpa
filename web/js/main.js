@@ -1,12 +1,14 @@
 // Main Entry Point
-import { store } from './state/store.js';
-import { toast } from './ui/toast.js';
-import { fetchJson } from './utils/api.js';
-import { initDevices, loadDevices, closeDetail } from './features/devices.js';
-import { initLogs } from './features/logs.js';
-import { initTasks, loadTasks } from './features/tasks.js';
-import { initConfig, loadConfig } from './features/config.js';
-import { initAccounts, loadAccounts } from './features/accounts.js';
+
+import { store } from '/static/js/state/store.js';
+import { toast } from '/static/js/ui/toast.js';
+import { fetchJson } from '/static/js/utils/api.js';
+import { initDevices, loadDevices, closeDetail } from '/static/js/features/devices.js';
+import { initLogs } from '/static/js/features/logs.js';
+import { initTasks, loadTasks } from '/static/js/features/tasks.js';
+import { initConfig, loadConfig } from '/static/js/features/config.js';
+import { initAccounts, loadAccounts } from '/static/js/features/accounts.js';
+import { initMetrics, loadMetrics } from '/static/js/features/metrics.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -27,38 +29,32 @@ function setRefreshButtonLoading(refreshBtn, loading) {
 async function init() {
     console.log("WebRPA 控制中心启动...");
 
-    setupNavigation();
-
-    // 核心初始化顺序
-    initDevices();
-    initLogs();
-    initTasks();
-    initConfig();
-    initAccounts();
-
-    // 异步执行健康检查，不阻塞
-    loadHealth();
-
-    const refreshBtn = $("refreshAll");
-    if(refreshBtn) {
-        refreshBtn.onclick = async () => {
-             setRefreshButtonLoading(refreshBtn, true);
-             try {
-                 await Promise.all([
-                     loadHealth(),
-                     loadDevices(),
-                     loadTasks(),
-                     loadConfig(),
-                     loadAccounts(),
-                 ]);
-                 toast.success("全局数据与状态已同步");
-             } catch(e) {
-                 toast.error("同步过程中发生异常");
-             } finally {
-                 setRefreshButtonLoading(refreshBtn, false);
-             }
-        };
+    // 1. 基础导航初始化
+    try {
+        setupNavigation();
+    } catch (e) {
+        console.error("Navigation init failed:", e);
     }
+
+    // 2. 各功能模块初始化
+    const modules = [
+        { name: "Devices", fn: initDevices },
+        { name: "Logs", fn: initLogs },
+        { name: "Tasks", fn: initTasks },
+        { name: "Config", fn: initConfig },
+        { name: "Accounts", fn: initAccounts },
+        { name: "Metrics", fn: initMetrics }
+    ];
+
+    for (const mod of modules) {
+        try {
+            mod.fn();
+        } catch (e) {
+            console.warn(`Module [${mod.name}] init failed:`, e);
+        }
+    }
+
+    loadHealth();
     toast.info("系统就绪");
 }
 
@@ -74,63 +70,42 @@ function setupNavigation() {
             navItems.forEach(b => b.classList.remove('active'));
             panes.forEach(p => {
                 p.classList.remove('active');
-                p.style.display = '';
+                p.style.display = 'none';
             });
 
             btn.classList.add('active');
             const targetPane = document.getElementById(targetId);
-            if(targetPane) targetPane.classList.add('active');
-
-            closeDetail(false);
-
-            const titleMap = {
-                'tab-main': '仪表盘',
-                'tab-tasks': '任务中心',
-                'tab-accounts': '账号池',
-                'tab-config': '系统设置'
-            };
-            const viewTitle = document.getElementById('viewTitle');
-            if(viewTitle && titleMap[targetId]) {
-                viewTitle.textContent = titleMap[targetId];
+            if(targetPane) {
+                targetPane.classList.add('active');
+                targetPane.style.display = 'block';
             }
 
-            store.setState({ currentTab: targetId });
+            closeDetail(false);
         });
     });
 }
 
 async function loadHealth() {
     try {
-        const r = await fetchJson("/health");
-        const apiEl = $("apiStatus");
-        const rpcEl = $("rpcStatus");
-
+        const r = await fetchJson("/health", { silentErrors: true });
         if (r.ok && r.data) {
+            const apiEl = $("apiStatus");
             if (apiEl) {
                 apiEl.className = "status-badge status-ok";
                 apiEl.innerHTML = '<span class="dot"></span> 已连接';
             }
-
+            const rpcEl = $("rpcStatus");
             if (rpcEl) {
-                const enabled = r.data.rpc_enabled;
-                rpcEl.className = `status-badge ${enabled ? "status-ok" : "status-warning"}`;
-                rpcEl.innerHTML = `<span class="dot"></span> RPC ${enabled ? "开启" : "关闭"}`;
+                if (r.data.rpc_enabled) {
+                    rpcEl.className = "status-badge status-ok";
+                    rpcEl.innerHTML = '<span class="dot"></span> RPC 已启用';
+                } else {
+                    rpcEl.className = "status-badge status-warn";
+                    rpcEl.innerHTML = '<span class="dot"></span> RPC 已禁用';
+                }
             }
-        } else {
-            throw new Error("API responded with error");
         }
-    } catch (e) {
-        const apiEl = $("apiStatus");
-        if (apiEl) {
-            apiEl.className = "status-badge status-error";
-            apiEl.innerHTML = '<span class="dot"></span> 连接中断';
-        }
-        const rpcEl = $("rpcStatus");
-        if (rpcEl) {
-            rpcEl.className = "status-badge status-error";
-            rpcEl.innerHTML = `<span class="dot"></span> RPC 未知`;
-        }
-    }
+    } catch (e) {}
 }
 
 document.addEventListener('DOMContentLoaded', init);

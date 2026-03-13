@@ -1,12 +1,14 @@
 # pyright: reportMissingImports=false, reportUnknownVariableType=false, reportUnknownMemberType=false, reportUnknownParameterType=false, reportMissingParameterType=false
 
-from typing import Optional, cast, final
+from typing import cast, final
 
+import pytest
 from _pytest.monkeypatch import MonkeyPatch
 
 from engine.actions import state_actions
-from engine.models.runtime import ExecutionContext
+from engine.models.runtime import ActionResult, ExecutionCancelled, ExecutionContext
 from engine.ui_state_native_adapter import NativeUIStateAdapter
+from engine.ui_state_native_bindings import NativeStateBinding
 
 
 def test_native_adapter_login_stage_match_returns_structured_evidence(monkeypatch: MonkeyPatch) -> None:
@@ -40,9 +42,9 @@ def test_native_adapter_login_stage_match_returns_structured_evidence(monkeypatc
             self.query_text = str(value)
             return True
 
-        def execQueryOne(self, selector: object) -> Optional[int]:
+        def execQueryOne(self, selector: object) -> int | None:
             _ = selector
-            return 1 if self.query_text == "已有账号" else None
+            return 1 if self.query_text == "账号" else None
 
         def free_selector(self, selector: object) -> bool:
             _ = selector
@@ -58,13 +60,13 @@ def test_native_adapter_login_stage_match_returns_structured_evidence(monkeypatc
     assert result.status == "matched"
     assert result.platform == "native"
     assert result.state.state_id == "account"
-    assert result.evidence.summary == "matched native X login stage 'account'"
+    assert result.evidence.summary == "matched native login stage 'account'"
     assert result.evidence.text == "account"
     assert result.evidence.matched == ["account"]
     assert result.evidence.missing == ["home"]
     assert result.raw_details["stage"] == "account"
     assert result.raw_details["target_stages"] == ["account", "home"]
-    assert result.raw_details["supported_state_ids"] == ["home", "two_factor", "captcha", "password", "account", "unknown"]
+    assert result.raw_details["supported_state_ids"] == ["home", "two_factor", "captcha", "password", "account", "login_entry", "unknown"]
     assert result.timing.attempt == 1
     assert result.timing.samples == 1
 
@@ -100,7 +102,7 @@ def test_native_adapter_login_stage_no_match_preserves_evidence(monkeypatch: Mon
             self.query_text = str(value)
             return True
 
-        def execQueryOne(self, selector: object) -> Optional[int]:
+        def execQueryOne(self, selector: object) -> int | None:
             _ = selector
             return 1 if self.query_text == "password" else None
 
@@ -117,7 +119,7 @@ def test_native_adapter_login_stage_no_match_preserves_evidence(monkeypatch: Mon
     assert result.ok is False
     assert result.code == "no_match"
     assert result.state.state_id == "password"
-    assert result.evidence.summary == "detected native X login stage 'password'"
+    assert result.evidence.summary == "detected native login stage 'password'"
     assert result.evidence.matched == []
     assert result.evidence.missing == ["home"]
     assert result.raw_details["stage"] == "password"
@@ -167,7 +169,7 @@ def test_native_adapter_wait_until_timeout_returns_structured_timeout(monkeypatc
             self.query_text = str(value)
             return True
 
-        def execQueryOne(self, selector: object) -> Optional[int]:
+        def execQueryOne(self, selector: object) -> int | None:
             _ = selector
             return 1 if self.query_text == "password" else None
 
@@ -200,6 +202,98 @@ def test_native_adapter_wait_until_timeout_returns_structured_timeout(monkeypatc
     assert result.timing.attempt == 1
     assert result.timing.samples == 1
     assert result.evidence.missing == ["home"]
+
+
+def test_native_adapter_wait_until_cancellation_raises(monkeypatch: MonkeyPatch) -> None:
+    wait_calls: list[dict[str, object]] = []
+
+    def _match_action(params: dict[str, object], context: ExecutionContext) -> ActionResult:
+        _ = (params, context)
+        return ActionResult(ok=True, code="ok", data={"stage": "home"})
+
+    def _wait_action(params: dict[str, object], context: ExecutionContext) -> ActionResult:
+        _ = context
+        wait_calls.append(params)
+        return ActionResult(ok=True, code="ok", data={"stage": "home", "attempt": 1, "elapsed_ms": 0})
+
+    def _normalize_state_id(state_id: str) -> str:
+        return "home" if state_id == "home" else "unknown"
+
+    def _state_id_from_action_result(result: ActionResult) -> str:
+        return cast(str, result.data.get("stage", "unknown"))
+
+    binding = NativeStateBinding(
+        binding_id="cancel_wait",
+        display_name="cancel wait",
+        state_noun="stage",
+        supported_state_ids=("home",),
+        normalize_state_id=_normalize_state_id,
+        state_id_from_action_result=_state_id_from_action_result,
+        match_action=_match_action,
+        wait_action=_wait_action,
+    )
+
+    def _resolve_binding(binding_id: str) -> NativeStateBinding:
+        _ = binding_id
+        return binding
+
+    monkeypatch.setattr("engine.ui_state_native_adapter.resolve_native_state_binding", _resolve_binding)
+
+    service = NativeUIStateAdapter(binding_id="cancel_wait")
+    ctx = ExecutionContext(payload={"device_ip": "192.168.1.214"})
+    cancel_calls = 0
+
+    def _should_cancel() -> bool:
+        nonlocal cancel_calls
+        cancel_calls += 1
+        return cancel_calls >= 3
+
+    ctx.should_cancel = _should_cancel
+
+    with pytest.raises(ExecutionCancelled):
+        _ = service.wait_until(ctx, expected_state_ids=["home"], timeout_ms=50, interval_ms=1)
+
+    assert wait_calls
+    assert cancel_calls == 3
+
+
+def test_wait_login_stage_cancellation_interrupts_loop(monkeypatch: MonkeyPatch) -> None:
+    @final
+    class FakeRpc:
+        def init(self, ip: object, port: object, timeout: object) -> bool:
+            _ = (ip, port, timeout)
+            return True
+
+        def close(self) -> None:
+            return None
+
+    detect_calls = 0
+
+    def _detect_stage(rpc: object, _params: dict[str, object], _context: ExecutionContext) -> str:
+        nonlocal detect_calls
+        _ = (rpc, _params, _context)
+        detect_calls += 1
+        return "unknown"
+
+    monkeypatch.setattr(state_actions, "_is_rpc_enabled", lambda: True)
+    monkeypatch.setattr(state_actions, "MytRpc", FakeRpc)
+    monkeypatch.setattr(state_actions, "_detect_login_stage_with_rpc", _detect_stage)
+
+    ctx = ExecutionContext(payload={"device_ip": "192.168.1.214", "_target": {"device_id": 1, "cloud_id": 3}})
+    cancel_calls = 0
+
+    def _should_cancel() -> bool:
+        nonlocal cancel_calls
+        cancel_calls += 1
+        return cancel_calls >= 3
+
+    ctx.should_cancel = _should_cancel
+
+    with pytest.raises(ExecutionCancelled):
+        _ = state_actions.wait_login_stage({"timeout_ms": 50, "interval_ms": 1, "target_stages": ["home"]}, ctx)
+
+    assert detect_calls == 1
+    assert cancel_calls == 3
 
 
 def test_native_adapter_wait_until_rpc_disabled_returns_structured_error(monkeypatch: MonkeyPatch) -> None:
@@ -270,7 +364,7 @@ def test_native_adapter_presence_binding_treats_missing_as_matched_state(monkeyp
     monkeypatch.setattr(state_actions, "MytRpc", FakeRpc)
 
     service = NativeUIStateAdapter(binding_id="dm_last_message")
-    ctx = ExecutionContext(payload={"device_ip": "192.168.1.214", "package": "com.twitter.android"})
+    ctx = ExecutionContext(payload={"device_ip": "192.168.1.214", "package": "com.example.app"})
     result = service.match_state(ctx, expected_state_ids=["available", "missing"])
 
     assert result.ok is True
@@ -296,8 +390,8 @@ def test_native_adapter_dm_unread_binding_exposes_first_target_alias(monkeypatch
             _ = (work_mode, timeout_ms)
             return """
             <hierarchy>
-              <node text="" resource-id="" class="android.widget.FrameLayout" package="com.twitter.android" bounds="[0,0][1080,2200]">
-                <node text="未読 1" content-desc="Unread conversation" class="android.view.View" package="com.twitter.android" bounds="[30,500][980,680]"/>
+              <node text="" resource-id="" class="android.widget.FrameLayout" package="com.example.app" bounds="[0,0][1080,2200]">
+                <node text="未読 1" content-desc="Unread conversation" class="android.view.View" package="com.example.app" bounds="[30,500][980,680]"/>
               </node>
             </hierarchy>
             """
@@ -309,7 +403,7 @@ def test_native_adapter_dm_unread_binding_exposes_first_target_alias(monkeypatch
     monkeypatch.setattr(state_actions, "MytRpc", FakeRpc)
 
     service = NativeUIStateAdapter(binding_id="dm_unread")
-    ctx = ExecutionContext(payload={"device_ip": "192.168.1.214", "package": "com.twitter.android"})
+    ctx = ExecutionContext(payload={"device_ip": "192.168.1.214", "package": "com.example.app"})
     result = service.match_state(ctx, expected_state_ids=["available", "missing"])
     targets = cast(list[object], result.raw_details["targets"])
 
@@ -332,9 +426,9 @@ def test_native_adapter_timeline_candidates_binding_exposes_first_candidate_alia
             _ = (work_mode, timeout_ms)
             return """
             <hierarchy>
-              <node text="" resource-id="" class="android.widget.FrameLayout" package="com.twitter.android" bounds="[0,0][1080,2200]">
-                <node text="" resource-id="com.twitter.android:id/row" class="android.widget.LinearLayout" package="com.twitter.android" bounds="[0,420][1080,980]">
-                  <node text="PayPay 配布 5000円" class="android.widget.TextView" package="com.twitter.android" bounds="[50,450][900,520]"/>
+              <node text="" resource-id="" class="android.widget.FrameLayout" package="com.example.app" bounds="[0,0][1080,2200]">
+                <node text="" resource-id="com.example.app:id/row" class="android.widget.LinearLayout" package="com.example.app" bounds="[0,420][1080,980]">
+                  <node text="PayPay 配布 5000円" class="android.widget.TextView" package="com.example.app" bounds="[50,450][900,520]"/>
                 </node>
               </node>
             </hierarchy>
@@ -347,7 +441,7 @@ def test_native_adapter_timeline_candidates_binding_exposes_first_candidate_alia
     monkeypatch.setattr(state_actions, "MytRpc", FakeRpc)
 
     service = NativeUIStateAdapter(binding_id="timeline_candidates")
-    ctx = ExecutionContext(payload={"device_ip": "192.168.1.214", "package": "com.twitter.android"})
+    ctx = ExecutionContext(payload={"device_ip": "192.168.1.214", "package": "com.example.app"})
     result = service.match_state(ctx, expected_state_ids=["available", "missing"])
     candidates = cast(list[object], result.raw_details["candidates"])
 
@@ -378,7 +472,7 @@ def test_native_adapter_follow_targets_binding_treats_missing_as_matched_state(m
     monkeypatch.setattr(state_actions, "MytRpc", FakeRpc)
 
     service = NativeUIStateAdapter(binding_id="follow_targets")
-    ctx = ExecutionContext(payload={"device_ip": "192.168.1.214", "package": "com.twitter.android"})
+    ctx = ExecutionContext(payload={"device_ip": "192.168.1.214", "package": "com.example.app"})
     result = service.match_state(ctx, expected_state_ids=["available", "missing"])
 
     assert result.ok is True

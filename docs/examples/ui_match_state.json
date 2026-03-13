@@ -1,0 +1,17 @@
+{
+  "native_login": {
+    "action": "ui.match_state",
+    "params": {
+      "binding_id": "login_stage",
+      "expected_state_ids": ["login_entry", "home"],
+      "package": "com.example.app"
+    }
+  },
+  "browser_url": {
+    "action": "ui.match_state",
+    "params": {
+      "binding_id": "browser",
+      "expected_state_ids": ["url:example.com/"]
+    }
+  }
+}

@@ -2,12 +2,28 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime
+import os
 from typing import Any
 import urllib.parse
 
 import pyotp
 
 from engine.models.runtime import ActionResult, ExecutionContext
+
+
+def _resolve_app(params: dict[str, Any], payload: dict[str, Any]) -> str:
+    """从 params.app > payload.app > payload.package 顺序推断 app 配置名，默认 DEFAULT_APP_NAME。"""
+    app = str(params.get("app") or payload.get("app") or "").strip().lower()
+    if app:
+        return app
+    package = str(payload.get("package") or "").strip()
+    _pkg_map = {
+        "com.instagram.android": "instagram",
+        "com.facebook.katana": "facebook",
+        "com.tiktok.android": "tiktok",
+    }
+    default_app = str(os.getenv("MYT_DEFAULT_APP", "default") or "default").strip().lower() or "default"
+    return _pkg_map.get(package, default_app)
 
 
 def extract_cloud_status_payload(result: dict[str, Any]) -> tuple[str, Any]:
@@ -147,7 +163,7 @@ def resolve_daily_counter_key(
     *,
     resolve_shared_key: Callable[[dict[str, Any], ExecutionContext | None], str],
 ) -> str:
-    base_key = str(params.get("key") or "nurture_daily_count").strip()
+    base_key = str(params.get("key") or "daily_count").strip()
     resolved = resolve_shared_key(
         {"key": base_key, "scope": params.get("scope"), "scope_value": params.get("scope_value")},
         context,
@@ -220,13 +236,17 @@ def load_ui_value_action(
     params: dict[str, Any],
     *,
     load_ui_config_document: Callable[[], dict[str, Any]],
+    load_app_config_document: Callable[[str], dict[str, Any]],
     resolve_ui_key: Callable[[Any, str], Any],
+    context: Any = None,
 ) -> ActionResult:
     key = str(params.get("key") or "").strip()
     if not key:
         return ActionResult(ok=False, code="invalid_params", message="key is required")
+    payload = context.payload if context is not None and isinstance(getattr(context, "payload", None), dict) else {}
+    app = _resolve_app(params, payload)
     try:
-        document = load_ui_config_document()
+        document = load_app_config_document(app)
     except Exception as exc:
         return ActionResult(ok=False, code="ui_config_unavailable", message=str(exc))
 
@@ -243,6 +263,7 @@ def load_ui_selector_action(
     context: ExecutionContext | None,
     *,
     load_ui_config_document: Callable[[], dict[str, Any]],
+    load_app_config_document: Callable[[str], dict[str, Any]],
     resolve_ui_key: Callable[[Any, str], Any],
     resolve_localized_entry: Callable[[Any, str], Any],
 ) -> ActionResult:
@@ -251,8 +272,9 @@ def load_ui_selector_action(
         return ActionResult(ok=False, code="invalid_params", message="key is required")
     payload = context.payload if context is not None and isinstance(context.payload, dict) else {}
     locale = str(params.get("locale") or payload.get("locale") or "default").strip().lower()
+    app = _resolve_app(params, payload)
     try:
-        document = load_ui_config_document()
+        document = load_app_config_document(app)
     except Exception as exc:
         return ActionResult(ok=False, code="ui_config_unavailable", message=str(exc))
 
@@ -279,28 +301,109 @@ def load_ui_selector_action(
     )
 
 
+def load_ui_selectors_action(
+    params: dict[str, Any],
+    context: ExecutionContext | None,
+    *,
+    load_ui_config_document: Callable[[], dict[str, Any]],
+    load_app_config_document: Callable[[str], dict[str, Any]],
+    resolve_ui_key: Callable[[Any, str], Any],
+    resolve_localized_entry: Callable[[Any, str], Any],
+) -> ActionResult:
+    selector_defs = params.get("selectors")
+    if not isinstance(selector_defs, list) or not selector_defs:
+        return ActionResult(ok=False, code="invalid_params", message="selectors must be a non-empty list")
+    payload = context.payload if context is not None and isinstance(context.payload, dict) else {}
+    locale = str(params.get("locale") or payload.get("locale") or "default").strip().lower()
+    app = _resolve_app(params, payload)
+    try:
+        document = load_app_config_document(app)
+    except Exception as exc:
+        return ActionResult(ok=False, code="ui_config_unavailable", message=str(exc))
+
+    selectors = document.get("selectors", {})
+    resolved: dict[str, Any] = {}
+    missing: list[str] = []
+    invalid: list[str] = []
+
+    for entry in selector_defs:
+        if isinstance(entry, str):
+            key = entry.strip()
+            alias = key
+        elif isinstance(entry, dict):
+            key = str(entry.get("key") or "").strip()
+            alias = str(entry.get("alias") or entry.get("name") or key).strip()
+        else:
+            invalid.append(str(entry))
+            continue
+
+        if not key:
+            invalid.append(str(entry))
+            continue
+        if not alias:
+            alias = key
+        if alias in resolved:
+            return ActionResult(ok=False, code="invalid_params", message=f"duplicate selector alias: {alias}")
+
+        selector_entry = resolve_localized_entry(resolve_ui_key(selectors, key), locale)
+        if not isinstance(selector_entry, dict):
+            missing.append(key)
+            continue
+
+        selector_type = str(selector_entry.get("type") or "").strip().lower()
+        mode = str(selector_entry.get("mode") or "equal").strip().lower()
+        value = selector_entry.get("value")
+        if not selector_type or value in (None, ""):
+            invalid.append(key)
+            continue
+
+        resolved[alias] = {
+            "key": key,
+            "locale": locale,
+            "type": selector_type,
+            "mode": mode,
+            "value": value,
+        }
+
+    if missing or invalid:
+        message_parts: list[str] = []
+        if missing:
+            message_parts.append(f"missing selectors: {', '.join(missing)}")
+        if invalid:
+            message_parts.append(f"invalid selectors: {', '.join(invalid)}")
+        return ActionResult(ok=False, code="ui_selector_missing", message="; ".join(message_parts))
+
+    return ActionResult(ok=True, code="ok", data=resolved)
+
+
 def load_ui_scheme_action(
     params: dict[str, Any],
     *,
     load_ui_config_document: Callable[[], dict[str, Any]],
+    load_app_config_document: Callable[[str], dict[str, Any]],
     resolve_ui_key: Callable[[Any, str], Any],
+    rpc: Any | None = None,
 ) -> ActionResult:
     key = str(params.get("key") or "").strip()
     if not key:
         return ActionResult(ok=False, code="invalid_params", message="key is required")
+    payload = {}
+    if "package" in params:
+        payload["package"] = params.get("package")
+    app = _resolve_app(params, payload)
     try:
-        document = load_ui_config_document()
+        document = load_app_config_document(app)
     except Exception as exc:
         return ActionResult(ok=False, code="ui_config_unavailable", message=str(exc))
 
     schemes = document.get("schemes", {})
     entry = resolve_ui_key(schemes, key)
     if entry is None:
-        return ActionResult(ok=False, code="ui_scheme_missing", message=f"ui scheme not found: {key}")
+        return ActionResult(ok=False, code="ui_scheme_missing", message=f"ui scheme not found: {app}.{key}")
 
     template = entry.get("template") if isinstance(entry, dict) else entry
     if not isinstance(template, str) or not template.strip():
-        return ActionResult(ok=False, code="ui_scheme_invalid", message=f"ui scheme invalid: {key}")
+        return ActionResult(ok=False, code="ui_scheme_invalid", message=f"ui scheme invalid: {app}.{key}")
 
     args = params.get("args")
     kwargs = params.get("kwargs")
@@ -315,13 +418,22 @@ def load_ui_scheme_action(
     except Exception as exc:
         return ActionResult(ok=False, code="ui_scheme_format_failed", message=str(exc))
 
+    cmd = f'am start -a android.intent.action.VIEW -d "{url}"'
+    if rpc is not None:
+        try:
+            _output, ok = rpc.exec_cmd(cmd)
+            if not ok:
+                return ActionResult(ok=False, code="scheme_launch_failed", message=f"exec_cmd failed: {_output}")
+        except Exception as exc:
+            return ActionResult(ok=False, code="scheme_launch_failed", message=str(exc))
+
     return ActionResult(
         ok=True,
         code="ok",
         data={
+            "app": app,
             "key": key,
-            "template": template,
             "url": url,
-            "command": f'am start -a android.intent.action.VIEW -d "{url}" &',
+            "executed": rpc is not None,
         },
     )

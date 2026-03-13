@@ -1,51 +1,134 @@
-import time
-from typing import Any, cast
+# pyright: reportPrivateUsage=false
 
+import threading
+from typing import cast
+
+from _pytest.monkeypatch import MonkeyPatch
+
+from core.cloud_probe_service import CloudProbeService
 from core.config_loader import ConfigLoader
 from core.device_manager import DeviceManager
+from core.port_calc import calculate_ports
 
 
-def test_device_info_available_only_filters_by_probe_cache():
+class _FakeProbeService:
+    def __init__(self, model_map: dict[int, dict[str, object]]):
+        self.model_map: dict[int, dict[str, object]] = model_map
+        self.calls: list[tuple[str, bool]] = []
+
+    def query_cloud_model_map(self, device_ip: str, refresh_if_missing: bool = False) -> dict[int, dict[str, object]]:
+        self.calls.append((device_ip, refresh_if_missing))
+        return self.model_map
+
+
+class _ProbeManager:
+    def __init__(self) -> None:
+        self.updates: list[tuple[int, int, bool, int | None, str]] = []
+        self.refresh_called: bool = False
+
+    def _update_probe_cache(self, device_id: int, cloud_id: int, ok: bool, latency_ms: int | None, reason: str) -> None:
+        self.updates.append((device_id, cloud_id, ok, latency_ms, reason))
+
+    def _refresh_device_snapshots(self) -> None:
+        self.refresh_called = True
+
+
+def _reset_manager_state(manager: DeviceManager) -> None:
+    with manager._probe_lock:
+        manager._probe_cache.clear()
+    with manager._device_snapshot_lock:
+        manager._device_snapshot_cache.clear()
+        manager._device_snapshot_at.clear()
+    with manager._devices_lock:
+        manager._devices = {}
+
+
+def test_device_snapshot_filters_available_clouds_and_uses_probe_service_model_map(monkeypatch: MonkeyPatch):
     backup = ConfigLoader._config
     manager = DeviceManager()
-    manager.stop_cloud_probe_worker()
     try:
+        _reset_manager_state(manager)
+        monkeypatch.setattr("core.device_manager.get_cloud_machines_per_device", lambda: 2)
         ConfigLoader._config = {
             "schema_version": 2,
             "allocation_version": 1,
-            "host_ip": "127.0.0.1",
-            "device_ips": {},
+            "host_ip": "10.0.0.1",
+            "device_ips": {"1": "10.0.0.11"},
             "total_devices": 1,
-            "cloud_machines_per_device": 3,
+            "cloud_machines_per_device": 2,
             "sdk_port": 8000,
         }
 
-        now = time.time()
-        with manager._probe_lock:
-            manager._probe_cache.clear()
-            for cloud_id in range(1, 13):
-                manager._probe_cache[(1, cloud_id)] = {
-                    "state": "available" if cloud_id == 2 else "unavailable",
-                    "success_streak": 2 if cloud_id == 2 else 0,
-                    "failure_streak": 0 if cloud_id == 2 else 3,
-                    "state_changed_at": now,
-                    "last_checked_at": now,
-                    "latency_ms": 50,
-                    "reason": "ok" if cloud_id == 2 else "connect_failed",
+        api_port, _rpa_port = calculate_ports(1, 1, 2)
+        fake_probe = _FakeProbeService(
+            {
+                api_port: {
+                    "machine_model_name": "Pixel 9",
+                    "machine_model_id": "model-1",
                 }
+            }
+        )
+        monkeypatch.setattr("core.cloud_probe_service.get_cloud_probe_service", lambda: fake_probe)
 
-        all_info = manager.get_device_info(1, availability="all")
-        only_available_info = manager.get_device_info(1, availability="available_only")
+        manager._update_probe_cache(1, 1, True, 11, "ok")
+        manager._update_probe_cache(1, 2, False, 70, "connect_failed")
 
-        assert all_info["cloud_slots_total"] == 12
-        all_clouds = cast(list[dict[str, Any]], all_info["cloud_machines"])
-        available_clouds = cast(list[dict[str, Any]], only_available_info["cloud_machines"])
+        snapshot = manager.get_devices_snapshot(availability="available_only")
+        assert len(snapshot) == 1
+        device = snapshot[0]
+        assert device["available_cloud_count"] == 1
 
-        assert len(all_clouds) == 12
-        assert all_info["available_cloud_count"] == 1
+        clouds = cast(list[dict[str, object]], device["cloud_machines"])
+        assert len(clouds) == 1
+        cloud = clouds[0]
+        assert cloud["cloud_id"] == 1
+        assert cloud["availability_state"] == "available"
+        assert cloud["availability_reason"] == "ok"
+        assert isinstance(cloud["last_checked_at"], str)
+        assert cloud["machine_model_name"] == "Pixel 9"
+        assert cloud["machine_model_id"] == "model-1"
+        assert fake_probe.calls == [("10.0.0.11", False)]
+    finally:
+        ConfigLoader._config = backup
 
-        assert len(available_clouds) == 1
-        assert available_clouds[0]["cloud_id"] == 2
-        assert available_clouds[0]["availability_state"] == "available"
+
+def test_cloud_probe_service_drives_probe_cache_updates(monkeypatch: MonkeyPatch):
+    backup = ConfigLoader._config
+    try:
+        monkeypatch.setattr("core.cloud_probe_service.get_cloud_machines_per_device", lambda: 1)
+        ConfigLoader._config = {
+            "schema_version": 2,
+            "allocation_version": 1,
+            "host_ip": "10.0.0.1",
+            "device_ips": {"1": "10.0.0.11"},
+            "total_devices": 1,
+            "cloud_machines_per_device": 1,
+            "sdk_port": 8000,
+        }
+
+        service = CloudProbeService()
+        manager = _ProbeManager()
+        def _fake_probe_rpa_port(_ip: str, _port: int) -> tuple[bool, int, str]:
+            return True, 5, "ok"
+
+        monkeypatch.setattr(service, "_probe_rpa_port", _fake_probe_rpa_port)
+
+        model_calls: list[tuple[str, bool]] = []
+        model_lock = threading.Lock()
+
+        def _record_model_call(device_ip: str, refresh_if_missing: bool = False) -> dict[int, dict[str, object]]:
+            with model_lock:
+                model_calls.append((device_ip, refresh_if_missing))
+            return {}
+
+        monkeypatch.setattr(service, "query_cloud_model_map", _record_model_call)
+
+        service._run_probe_sweep(manager)
+
+        cloud_count = 1
+        expected_updates = [(1, cloud_id, True, 5, "ok") for cloud_id in range(1, cloud_count + 1)]
+        assert manager.updates == expected_updates
+        assert manager.refresh_called is True
+        assert model_calls == [("10.0.0.11", True)]
     finally:
         ConfigLoader._config = backup

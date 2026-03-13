@@ -1,12 +1,14 @@
 import json
 import logging
 import asyncio
+import threading
 from typing import Dict, Any, Callable
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
 
 from common.logger import log_manager
+from core.task_events import TaskEventStore
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -34,6 +36,55 @@ def get_event_broadcaster() -> Callable[[Any], None]:
 
     return _on_event
 # --- 桥接逻辑结束 ---
+
+_db_poll_started = False
+_db_poll_lock = threading.Lock()
+
+def start_db_event_poller(loop: asyncio.AbstractEventLoop) -> None:
+    """启动后台线程，轮询 SQLite 新事件并广播到 WebSocket（用于 process 模式下的子进程事件）"""
+    global _db_poll_started
+    with _db_poll_lock:
+        if _db_poll_started:
+            return
+        _db_poll_started = True
+
+    def _poll_loop() -> None:
+        event_store = TaskEventStore()
+        last_event_id = 0
+        # 启动时跳过历史事件，只广播新事件
+        try:
+            events = event_store.list_events_after(0, limit=1)
+            # 获取当前最大 event_id 作为起点
+            import sqlite3
+            with event_store._connect() as conn:
+                row = conn.execute("SELECT MAX(event_id) FROM task_events").fetchone()
+                if row and row[0]:
+                    last_event_id = int(row[0])
+        except Exception:
+            pass
+
+        while True:
+            try:
+                new_events = event_store.list_events_after(last_event_id, limit=50)
+                for event in new_events:
+                    last_event_id = event.event_id
+                    payload = {
+                        "event_type": event.event_type,
+                        "task_id": event.task_id,
+                        "timestamp": event.created_at,
+                        "data": event.payload,
+                        "target": event.payload.get("target", "SYS"),
+                        "level": "info",
+                    }
+                    json_str = json.dumps(payload, ensure_ascii=False)
+                    if loop.is_running():
+                        asyncio.run_coroutine_threadsafe(_broadcast(json_str), loop)
+            except Exception:
+                pass
+            threading.Event().wait(timeout=0.5)
+
+    t = threading.Thread(target=_poll_loop, name="ws-db-event-poller", daemon=True)
+    t.start()
 
 # Track active WebSocket clients and their optional filters
 # _clients[websocket] = {"filter_target": "Unit #1-1", "filter_task": "..."}

@@ -45,10 +45,10 @@
 
 ```json
 {
-  "task": "x_mobile_login",
+  "task": "device_reboot",
   "payload": {
-    "acc": "demo_user",
-    "pwd": "demo_pass"
+    "device_ip": "192.168.1.2",
+    "name": "cloud-1"
   },
   "targets": [
     { "device_id": 1, "cloud_id": 2 }
@@ -74,7 +74,7 @@
 {
   "task_id": "...",
   "task_type": "script",
-  "task_name": "x_mobile_login",
+  "task_name": "device_reboot",
   "devices": [1],
   "targets": [{ "device_id": 1, "cloud_id": 2 }],
   "status": "pending",
@@ -115,11 +115,13 @@
 - YAML 插件通过 `engine/plugin_loader.py` 加载并交给解释器执行
 - 运行时与 `GET /api/tasks/catalog` 共用同一插件缓存视图；catalog 的显式 refresh 会同步更新现有 runtime 视图
 - 内置动作注册器（浏览器动作、凭据动作等）
+- 复用的 selector workflow 已收口到 composite actions（如 `core.load_ui_selectors`、`ui.selector_click_with_fallback`），避免脚本重复加载/点击逻辑
 - Golden Run 离线蒸馏工具 `tools/distill_golden_run.py` 会从一条成功轨迹生成可审阅的 `manifest.yaml` + `script.yaml` 草稿，要求保留参数化输入；草稿不会自动安装到 `plugins/`，只有通过 parse + replay smoke 后才算可用
 - `wait_until` 已补齐 success-before-timeout、`on_timeout goto`、`on_fail`、取消态与动态重轮询语义
 - `ExecutionContext.session.defaults` 已作为最小任务级默认值接缝落地，保持显式 action 参数优先，其次 session defaults，最后回退到原始 payload
 - `ExecutionContext.runtime` 已承接任务运行时信封；target / task_id / cloud_target_label 等控制面信息不再通过 payload 私有字段注入
 - 任务可通过 payload `_runtime_profile` / `_runtime` / `_llm` / `_vlm` / `_uitars` 覆写运行时配置；profile 文件放在 `config/<name>.json`
+- `gpt_executor` 的 VLM 路径默认关闭；需要时设置 `MYT_ENABLE_VLM=1` 并在 `fallback_modalities` 中显式启用
 - 新增 `ai.locate_point` 动作：输入截图+提示词，返回点击坐标（支持像素/归一化坐标换算）
 - `UIStateService` 的结果构造、timing 与 browser polling 语义已收口到共享 helper；native bindings 也已拆到独立 registry，降低 browser/native 平行演化风险
 
@@ -140,14 +142,14 @@
 
 ### 7) 已内置插件示例
 
-- `plugins/x_mobile_login`
-  - 当前主分支内置的 X/Twitter 移动端登录工作流
-  - 负责登录阶段状态判定与运行时接线验证
-  - 已验证可通过 manifest 输入默认值与 `_target` 派生的 session defaults 收口重复接线；当前回归只明确覆盖 `device_ip` 无需在步骤里重复传递，且相关步骤不必再显式重复声明 `package`，同时保持既有 status / message 契约
 - `plugins/hezi_sdk_probe`
   - SDK 能力探测与基础连通性验证
 - `plugins/mytos_device_setup`
   - 设备准备与运行时初始化类流程
+- `plugins/device_reboot`
+  - 设备硬件重启
+- `plugins/device_soft_reset`
+  - 设备软件复位（需显式提供 `package`）
 
 ---
 
@@ -185,6 +187,8 @@ python3 -m venv .venv
  MYT_ENABLE_RPC=0 ./.venv/bin/python -m uvicorn api.server:app --host 127.0.0.1 --port 8001
 ```
 
+说明：如根目录存在 `.env`，设置 `MYT_LOAD_DOTENV=1` 后服务启动时会加载到环境变量。
+
 ### 3) 健康检查
 
 ```bash
@@ -221,14 +225,15 @@ curl http://127.0.0.1:8001/health
 
 - 文档层级约定，单点可判定：
   - `README.md` = entrypoint / summary only
-  - `docs/project_progress.md` + `docs/current_main_status.md` = canonical status / progress
+  - `docs/project_progress.md` + `docs/project_progress.md` = canonical status / progress
   - `docs/HANDOFF.md` = continuation / runbook / evidence workflow
   - `docs/README.md` = optional index, not canonical
 
 - 进度与功能清单：`docs/project_progress.md`
-- 当前 main 已完成/未完成事项：`docs/current_main_status.md`
+- 当前 main 已完成/未完成事项：`docs/project_progress.md`
 - 跨对话交接模板：`docs/HANDOFF.md`
-- 插件输入契约与灰度策略：`docs/plugin_input_contract.md`
+- 插件输入契约与灰度策略：`docs/PLUGIN_CONTRACT.md`
+- 历史/辅助文档归档：`docs/archive/`
 - 原子化问题分类：`docs/reference/功能原子化问题分类说明.md`
 - 原子化修复结果：`docs/reference/功能原子化修复结果.md`
 - 自动刷新快照（建议每次有意义变更后执行）：

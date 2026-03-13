@@ -13,8 +13,7 @@ inputs:
     required: true
   - name: package
     type: string
-    required: false
-    default: "com.twitter.android"
+    required: true
   - name: name
     type: string
     required: true

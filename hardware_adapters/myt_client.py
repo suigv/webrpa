@@ -187,6 +187,14 @@ class MytSdkClient:
         guessed, _ = mimetypes.guess_type(file_path)
         return guessed or "application/octet-stream"
 
+    @staticmethod
+    def _normalize_payload_keys(payload: Mapping[str, Any], mapping: Mapping[str, str]) -> Dict[str, Any]:
+        body = dict(payload)
+        for src, dst in mapping.items():
+            if src in body and dst not in body:
+                body[dst] = body.pop(src)
+        return body
+
     def get_device_info(self) -> Dict[str, Any]:
         return self.http.get("/info/device")
 
@@ -248,7 +256,18 @@ class MytSdkClient:
         return self.http.get("/android", query=query or None)
 
     def create_android(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
-        body = dict(payload)
+        body = self._normalize_payload_keys(
+            payload,
+            {
+                "image_url": "imageUrl",
+                "model_id": "modelId",
+                "model_name": "modelName",
+                "local_model": "localModel",
+                "model_static": "modelStatic",
+                "index_num": "indexNum",
+                "port_mappings": "portMappings",
+            },
+        )
         name_invalid = self._require_non_empty(str(body.get("name", "")), "name")
         if name_invalid is not None:
             return name_invalid
@@ -261,7 +280,18 @@ class MytSdkClient:
         return self.http.post("/android", payload=body)
 
     def reset_android(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
-        body = dict(payload)
+        body = self._normalize_payload_keys(
+            payload,
+            {
+                "image_url": "imageUrl",
+                "model_id": "modelId",
+                "model_name": "modelName",
+                "local_model": "localModel",
+                "model_static": "modelStatic",
+                "index_num": "indexNum",
+                "port_mappings": "portMappings",
+            },
+        )
         name_invalid = self._require_non_empty(str(body.get("name", "")), "name")
         if name_invalid is not None:
             return name_invalid
@@ -281,6 +311,18 @@ class MytSdkClient:
         if image_invalid is not None:
             return image_invalid
         return self.http.post("/android/switchImage", payload={"name": name, "imageUrl": image_url, **kwargs})
+
+    def change_image_batch(self, container_names: list[str] | str, image: str) -> Dict[str, Any]:
+        if isinstance(container_names, str):
+            container_list = [name.strip() for name in container_names.split(",") if name.strip()]
+        else:
+            container_list = [str(name).strip() for name in container_names if str(name).strip()]
+        if not container_list:
+            return self._invalid("containerNames is required")
+        image_invalid = self._require_non_empty(image, "image")
+        if image_invalid is not None:
+            return image_invalid
+        return self.http.post("/android/change-image", payload={"containerNames": container_list, "image": image})
 
     def switch_model(self, name: str, model_id: str = "", **kwargs: Any) -> Dict[str, Any]:
         name_invalid = self._require_non_empty(name, "name")
@@ -302,6 +344,23 @@ class MytSdkClient:
         payload.pop("local_model", None)
         payload.pop("model_static", None)
         return self.http.post("/android/switchModel", payload=payload)
+
+    def copy_android(self, name: str, index_num: int | None = None, count: int | None = None) -> Dict[str, Any]:
+        invalid = self._require_non_empty(name, "name")
+        if invalid is not None:
+            return invalid
+        query: Dict[str, Any] = {"name": name}
+        if index_num is not None:
+            query["indexNum"] = int(index_num)
+        if count is not None:
+            query["count"] = int(count)
+        return self.http.get("/android/copy", query=query)
+
+    def get_task_status(self, task_id: str) -> Dict[str, Any]:
+        invalid = self._require_non_empty(task_id, "taskId")
+        if invalid is not None:
+            return invalid
+        return self.http.get("/android/task-status", query={"taskId": task_id})
 
     def pull_image(self, image_url: str) -> Dict[str, Any]:
         invalid = self._require_non_empty(image_url, "imageUrl")
@@ -389,6 +448,72 @@ class MytSdkClient:
             },
         )
 
+    def create_android_v2(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
+        body = self._normalize_payload_keys(
+            payload,
+            {
+                "image_url": "imageUrl",
+                "index_num": "indexNum",
+                "sandbox_size": "sandboxSize",
+            },
+        )
+        name_invalid = self._require_non_empty(str(body.get("name", "")), "name")
+        if name_invalid is not None:
+            return name_invalid
+        image_invalid = self._require_non_empty(str(body.get("imageUrl", "")), "imageUrl")
+        if image_invalid is not None:
+            return image_invalid
+        dns_invalid = self._require_non_empty(str(body.get("dns", "")), "dns")
+        if dns_invalid is not None:
+            return dns_invalid
+        return self.http.post("/androidV2", payload=body)
+
+    def reset_android_v2(self, name: str) -> Dict[str, Any]:
+        invalid = self._require_non_empty(name, "name")
+        if invalid is not None:
+            return invalid
+        return self.http.put("/androidV2", payload={"name": name})
+
+    def change_image_batch_v2(self, container_names: list[str] | str, image: str) -> Dict[str, Any]:
+        if isinstance(container_names, str):
+            container_list = [name.strip() for name in container_names.split(",") if name.strip()]
+        else:
+            container_list = [str(name).strip() for name in container_names if str(name).strip()]
+        if not container_list:
+            return self._invalid("containerNames is required")
+        image_invalid = self._require_non_empty(image, "image")
+        if image_invalid is not None:
+            return image_invalid
+        return self.http.post("/androidV2/change-image", payload={"containerNames": container_list, "image": image})
+
+    def copy_android_v2(self, name: str, index_num: int | None = None, count: int | None = None) -> Dict[str, Any]:
+        invalid = self._require_non_empty(name, "name")
+        if invalid is not None:
+            return invalid
+        query: Dict[str, Any] = {"name": name}
+        if index_num is not None:
+            query["indexNum"] = int(index_num)
+        if count is not None:
+            query["count"] = int(count)
+        return self.http.get("/androidV2/copy", query=query)
+
+    def switch_image_v2(self, name: str, image_url: str, **kwargs: Any) -> Dict[str, Any]:
+        name_invalid = self._require_non_empty(name, "name")
+        if name_invalid is not None:
+            return name_invalid
+        image_invalid = self._require_non_empty(image_url, "imageUrl")
+        if image_invalid is not None:
+            return image_invalid
+        payload = self._normalize_payload_keys(
+            kwargs,
+            {
+                "adb_port": "adbPort",
+                "dobox_dpi": "doboxDpi",
+            },
+        )
+        payload.update({"name": name, "imageUrl": image_url})
+        return self.http.post("/androidV2/switchImage", payload=payload)
+
     def list_phone_models_online(self) -> Dict[str, Any]:
         return self.http.get("/android/phoneModel")
 
@@ -401,6 +526,36 @@ class MytSdkClient:
         if name_invalid is not None:
             return name_invalid
         return self.http.post("/android/macvlan", payload=body)
+
+    def list_macvlan(self) -> Dict[str, Any]:
+        return self.http.get("/macvlan")
+
+    def create_macvlan(self, gw: str, subnet: str, private: bool | None = None) -> Dict[str, Any]:
+        gw_invalid = self._require_non_empty(gw, "gw")
+        if gw_invalid is not None:
+            return gw_invalid
+        subnet_invalid = self._require_non_empty(subnet, "subnet")
+        if subnet_invalid is not None:
+            return subnet_invalid
+        payload: Dict[str, Any] = {"gw": gw, "subnet": subnet}
+        if private is not None:
+            payload["private"] = bool(private)
+        return self.http.post("/macvlan", payload=payload)
+
+    def update_macvlan(self, gw: str, subnet: str, private: bool | None = None) -> Dict[str, Any]:
+        gw_invalid = self._require_non_empty(gw, "gw")
+        if gw_invalid is not None:
+            return gw_invalid
+        subnet_invalid = self._require_non_empty(subnet, "subnet")
+        if subnet_invalid is not None:
+            return subnet_invalid
+        payload: Dict[str, Any] = {"gw": gw, "subnet": subnet}
+        if private is not None:
+            payload["private"] = bool(private)
+        return self.http.put("/macvlan", payload=payload)
+
+    def delete_macvlan(self) -> Dict[str, Any]:
+        return self.http.delete("/macvlan")
 
     def prune_images(self) -> Dict[str, Any]:
         return self.http.post("/android/pruneImages")
@@ -562,12 +717,21 @@ class MytSdkClient:
     def add_vpc_rule(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
         return self.http.post("/mytVpc/addRule", payload=dict(payload))
 
+    def add_vpc_rule_batch(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
+        return self.http.post("/mytVpc/addRule/batch", payload=dict(payload))
+
     def list_vpc_container_rules(self, **query: Any) -> Dict[str, Any]:
         normalized = {k: v for k, v in query.items() if v is not None and str(v).strip()}
         return self.http.get("/mytVpc/containerRule", query=normalized or None)
 
     def delete_vpc_node(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
         return self.http.delete("/mytVpc", payload=dict(payload))
+
+    def delete_vpc_rule(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
+        return self.http.post("/mytVpc/delRule", payload=dict(payload))
+
+    def delete_vpc_rule_batch(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
+        return self.http.post("/mytVpc/delRule/batch", payload=dict(payload))
 
     def update_vpc_group(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
         return self.http.post("/mytVpc/group/update", payload=dict(payload))
@@ -577,6 +741,33 @@ class MytSdkClient:
 
     def set_vpc_whitelist_dns(self, enabled: bool) -> Dict[str, Any]:
         return self.http.post("/mytVpc/whiteListDns", payload={"enable": bool(enabled)})
+
+    def get_container_domain_filter(self, container_id: str) -> Dict[str, Any]:
+        invalid = self._require_non_empty(container_id, "containerID")
+        if invalid is not None:
+            return invalid
+        return self.http.get("/mytVpc/domainFilter", query={"containerID": container_id})
+
+    def set_container_domain_filter(self, container_id: str, domains: list[str]) -> Dict[str, Any]:
+        invalid = self._require_non_empty(container_id, "containerID")
+        if invalid is not None:
+            return invalid
+        return self.http.post("/mytVpc/domainFilter", payload={"containerID": container_id, "domains": domains})
+
+    def clear_container_domain_filter(self, container_id: str) -> Dict[str, Any]:
+        invalid = self._require_non_empty(container_id, "containerID")
+        if invalid is not None:
+            return invalid
+        return self.http.post("/mytVpc/domainFilter", payload={"containerID": container_id})
+
+    def get_global_domain_filter(self) -> Dict[str, Any]:
+        return self.http.post("/mytVpc/domainFilter/global")
+
+    def set_global_domain_filter(self, domains: list[str]) -> Dict[str, Any]:
+        return self.http.post("/mytVpc/domainFilter/global", payload={"domains": domains})
+
+    def clear_global_domain_filter(self) -> Dict[str, Any]:
+        return self.http.post("/mytVpc/domainFilter/global", payload={"domains": []})
 
     def test_vpc_latency(self, **query: Any) -> Dict[str, Any]:
         normalized = {k: v for k, v in query.items() if v is not None and str(v).strip()}
@@ -678,6 +869,12 @@ class MytSdkClient:
     def get_lm_models(self) -> Dict[str, Any]:
         return self.http.get("/lm/models")
 
+    def chat_completions(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
+        return self.http.post("/v1/chat/completions", payload=dict(payload))
+
+    def embeddings(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
+        return self.http.post("/v1/embeddings", payload=dict(payload))
+
     def reset_lm_device(self) -> Dict[str, Any]:
         return self.http.post("/lm/reset")
 
@@ -692,411 +889,6 @@ class MytSdkClient:
         if invalid is not None:
             return invalid
         return self.http.post("/lm/workMode", payload={"mode": mode})
-
-    def query_s5_proxy(self) -> Dict[str, Any]:
-        return self.http.get("/proxy/status")
-
-    def set_s5_proxy(self, s5_config: Mapping[str, Any]) -> Dict[str, Any]:
-        config = dict(s5_config)
-        proxy_ip = str(config.get("s5IP") or "").strip()
-        proxy_port = config.get("s5Port")
-        username = str(config.get("s5User") or "").strip()
-        password = str(config.get("s5Password") or "").strip()
-        if not proxy_ip:
-            return self._invalid("proxy ip is required")
-        if proxy_port is None:
-            return self._invalid("proxy port is required")
-        if not username:
-            return self._invalid("proxy usr is required")
-        if not password:
-            return self._invalid("proxy pwd is required")
-        proxy_type = int(config.get("s5Type") or 2)
-        return self.http.post(
-            "/proxy/set",
-            payload={
-                "s5IP": proxy_ip,
-                "s5Port": int(proxy_port),
-                "s5User": username,
-                "s5Password": password,
-                "s5Type": proxy_type,
-            },
-        )
-
-    def stop_s5_proxy(self) -> Dict[str, Any]:
-        return self.http.post("/proxy/stop")
-
-    def set_s5_filter(self, filter_rules: Mapping[str, Any]) -> Dict[str, Any]:
-        rules = dict(filter_rules)
-        domains = rules.get("domains")
-        if isinstance(domains, str):
-            domain_values = [x.strip() for x in domains.split(",") if x.strip()]
-        elif isinstance(domains, list):
-            domain_values = [str(x).strip() for x in domains if str(x).strip()]
-        else:
-            domain_values = []
-        if not domain_values:
-            return self._invalid("domains is required")
-        return self.http.post("/proxy/filter", payload={"domains": domain_values})
-
-    def get_clipboard(self) -> Dict[str, Any]:
-        return self.http.get("/clipboard")
-
-    def set_clipboard(self, content: str) -> Dict[str, Any]:
-        invalid = self._require_non_empty(content, "content")
-        if invalid is not None:
-            return invalid
-        return self.http.post("/clipboard", payload={"content": content})
-
-    def download_file(self, remote_path: str, local_path: str) -> Dict[str, Any]:
-        remote_invalid = self._require_non_empty(remote_path, "path")
-        if remote_invalid is not None:
-            return remote_invalid
-        local_invalid = self._require_non_empty(local_path, "local_path")
-        if local_invalid is not None:
-            return local_invalid
-        result = self.http.request_bytes("GET", "/download", query={"path": remote_path})
-        if not result.get("ok"):
-            return result
-        Path(local_path).write_bytes(bytes(result.get("data", b"")))
-        return {"ok": True, "data": {"saved": local_path}}
-
-    def upload_file(self, local_path: str = "", remote_path: str = "", file_url: str = "") -> Dict[str, Any]:
-        if file_url.strip():
-            return self.http.get("/", query={"task": "upload", "file": file_url})
-        local_invalid = self._require_non_empty(local_path, "local_path")
-        if local_invalid is not None:
-            return local_invalid
-        if not Path(local_path).exists():
-            return self._invalid(f"file not found: {local_path}")
-        content = Path(local_path).read_bytes()
-        fields: Dict[str, Any] = {}
-        if str(remote_path).strip():
-            fields["path"] = remote_path
-        return self.http.post_multipart(
-            "/upload",
-            fields=fields,
-            files={
-                "file": (
-                    Path(local_path).name,
-                    content,
-                    self._infer_content_type(local_path),
-                )
-            },
-        )
-
-    def export_app_info(self, package: str) -> Dict[str, Any]:
-        invalid = self._require_non_empty(package, "package")
-        if invalid is not None:
-            return invalid
-        return self.http.post("/app/exportInfo", payload={"package": package})
-
-    def import_app_info(self, package: str, data: Mapping[str, Any]) -> Dict[str, Any]:
-        invalid = self._require_non_empty(package, "package")
-        if invalid is not None:
-            return invalid
-        return self.http.post("/app/importInfo", payload={"package": package, "data": dict(data)})
-
-    def backup_app_info(self, package: str, save_to: str = "") -> Dict[str, Any]:
-        invalid = self._require_non_empty(package, "package")
-        if invalid is not None:
-            return invalid
-        query: Dict[str, Any] = {"cmd": "backup", "pkg": package}
-        if save_to.strip():
-            query["saveto"] = save_to
-        return self.http.get("/backrestore", query=query)
-
-    def restore_app_info(self, backup_path: str) -> Dict[str, Any]:
-        invalid = self._require_non_empty(backup_path, "backup_path")
-        if invalid is not None:
-            return invalid
-        return self.http.get("/backrestore", query={"cmd": "recovery", "path": backup_path})
-
-    def batch_install_apps(self, app_paths: list[str]) -> Dict[str, Any]:
-        if not app_paths:
-            return self._invalid("app_paths is required")
-        return self.http.post("/app/batchInstall", payload={"apps": app_paths})
-
-    def mytos_screenshot(self, image_type: int = 0, quality: int = 80, save_path: str | None = None) -> Dict[str, Any]:
-        query = {"type": int(image_type), "quality": int(quality)}
-        result = self.http.request_bytes("GET", "/device/screenshot", query=query)
-        if not result.get("ok"):
-            return result
-        payload = bytes(result.get("data", b""))
-        if save_path and str(save_path).strip():
-            Path(save_path).write_bytes(payload)
-            return {"ok": True, "data": {"saved": save_path, "byte_length": len(payload), "path": "/device/screenshot"}}
-        return {"ok": True, "data": {"bytes": payload, "byte_length": len(payload), "path": "/device/screenshot"}}
-
-    def get_version(self) -> Dict[str, Any]:
-        return self.http.get("/device/version")
-
-    def get_container_info(self) -> Dict[str, Any]:
-        return self.http.get("/device/container")
-
-    def receive_sms(self, address: str = "", mbody: str = "", scaddress: str = "") -> Dict[str, Any]:
-        payload: Dict[str, Any] = {}
-        if address.strip():
-            payload["address"] = address
-        if mbody.strip():
-            payload["mbody"] = mbody
-        if scaddress.strip():
-            payload["scaddress"] = scaddress
-        return self.http.post("/sms/receive", payload=payload or None)
-
-    def get_call_records(self, **query_params: Any) -> Dict[str, Any]:
-        query = {k: v for k, v in query_params.items() if v is not None and str(v).strip()}
-        return self.http.get("/call/records", query=query or None)
-
-    def refresh_location(self) -> Dict[str, Any]:
-        return self.http.post("/location/refresh")
-
-    def ip_geolocation(self, ip: str = "", language: str | None = None) -> Dict[str, Any]:
-        query: Dict[str, Any] = {}
-        if str(ip).strip():
-            query["ip"] = ip
-        if language is not None and str(language).strip():
-            query["language"] = str(language).strip()
-        return self.http.get("/location/ip", query=query or None)
-
-    def query_adb_permission(self) -> Dict[str, Any]:
-        return self.http.get("/system/adb")
-
-    def switch_adb_permission(self, enabled: bool) -> Dict[str, Any]:
-        return self.http.post("/system/adb", payload={"enabled": enabled})
-
-    def set_google_id(self, adid: str) -> Dict[str, Any]:
-        invalid = self._require_non_empty(adid, "adid")
-        if invalid is not None:
-            return invalid
-        return self.http.post("/identity/googleId", payload={"adid": adid})
-
-    def get_google_id(self) -> Dict[str, Any]:
-        return self.http.get("/identity/googleId")
-
-    def module_manager(self, cmd: str, module: str) -> Dict[str, Any]:
-        cmd_invalid = self._require_non_empty(cmd, "cmd")
-        if cmd_invalid is not None:
-            return cmd_invalid
-        module_invalid = self._require_non_empty(module, "module")
-        if module_invalid is not None:
-            return module_invalid
-        return self.http.post("/system/module", payload={"cmd": cmd, "module": module})
-
-    def install_magisk(self) -> Dict[str, Any]:
-        return self.module_manager("install", "magisk")
-
-    def upload_google_cert(self, cert_path: str) -> Dict[str, Any]:
-        invalid = self._require_non_empty(cert_path, "cert_path")
-        if invalid is not None:
-            return invalid
-        file_path = Path(cert_path)
-        if not file_path.exists():
-            return self._invalid(f"file not found: {cert_path}")
-        return self.http.post_multipart(
-            "/uploadkeybox",
-            files={
-                "file": (
-                    file_path.name,
-                    file_path.read_bytes(),
-                    self._infer_content_type(str(file_path)),
-                )
-            },
-        )
-
-    def export_app_data(self, package: str) -> Dict[str, Any]:
-        invalid = self._require_non_empty(package, "package")
-        if invalid is not None:
-            return invalid
-        return self.http.get("/backrestore", query={"cmd": "backup", "package": package})
-
-    def import_app_data(self, package: str, data_path: str) -> Dict[str, Any]:
-        package_invalid = self._require_non_empty(package, "package")
-        if package_invalid is not None:
-            return package_invalid
-        path_invalid = self._require_non_empty(data_path, "data_path")
-        if path_invalid is not None:
-            return path_invalid
-        file_path = Path(data_path)
-        if not file_path.exists():
-            return self._invalid(f"file not found: {data_path}")
-        return self.http.post_multipart(
-            "/backrestore",
-            fields={"cmd": "recovery", "package": package},
-            files={
-                "file": (
-                    file_path.name,
-                    file_path.read_bytes(),
-                    self._infer_content_type(str(file_path)),
-                )
-            },
-        )
-
-    def auto_click(
-        self,
-        enabled: bool | None = None,
-        interval_ms: int | None = None,
-        *,
-        action: str = "",
-        finger_id: int = 0,
-        x: int | None = None,
-        y: int | None = None,
-        code: str = "",
-    ) -> Dict[str, Any]:
-        if action.strip():
-            normalized = action.strip().lower()
-            query: Dict[str, Any] = {"action": normalized}
-            if normalized in {"down", "up", "move", "click"}:
-                if x is None or y is None:
-                    return self._invalid("x and y are required")
-                query.update({"id": int(finger_id), "x": int(x), "y": int(y)})
-            elif normalized == "keypress":
-                code_invalid = self._require_non_empty(code, "code")
-                if code_invalid is not None:
-                    return code_invalid
-                query["code"] = code
-            else:
-                return self._invalid("unsupported autoclick action")
-            return self.http.post("/autoclick", payload=query)
-        query = {"enable": int(bool(enabled if enabled is not None else True))}
-        if interval_ms is not None:
-            query["interval"] = int(interval_ms)
-        return self.http.post("/autoclick", payload=query)
-
-    def camera_hot_start(self, enabled: bool = True, path: str = "") -> Dict[str, Any]:
-        query: Dict[str, Any] = {"cmd": "start" if enabled else "stop"}
-        if path.strip():
-            query["path"] = path
-        return self.http.post("/camera", payload=query)
-
-    def set_background_keepalive(self, enabled: bool | None = None, cmd: int | None = None, package: str = "") -> Dict[str, Any]:
-        if cmd is None:
-            cmd = 2 if bool(enabled) else 3
-        query: Dict[str, Any] = {"cmd": int(cmd)}
-        if package.strip():
-            query["package"] = package
-        return self.http.post("/background", payload=query)
-
-    def query_background_keepalive(self) -> Dict[str, Any]:
-        return self.set_background_keepalive(cmd=1)
-
-    def add_background_keepalive(self, package: str) -> Dict[str, Any]:
-        return self.set_background_keepalive(cmd=2, package=package)
-
-    def remove_background_keepalive(self, package: str) -> Dict[str, Any]:
-        return self.set_background_keepalive(cmd=3, package=package)
-
-    def update_background_keepalive(self, package: str) -> Dict[str, Any]:
-        return self.set_background_keepalive(cmd=4, package=package)
-
-    def set_key_block(self, key_code: str = "", blocked: bool = True, enabled: bool | None = None) -> Dict[str, Any]:
-        if enabled is not None:
-            blocked = enabled
-        query: Dict[str, Any]
-        if str(key_code).strip():
-            query = {"key": key_code, "enable": int(bool(blocked))}
-        else:
-            query = {"value": 1 if bool(blocked) else 0}
-        return self.http.post("/disablekey", payload=query)
-
-    def add_contact(
-        self,
-        name: str = "",
-        number: str = "",
-        contacts: list[Mapping[str, Any]] | None = None,
-    ) -> Dict[str, Any]:
-        normalized: list[dict[str, str]] = []
-        for item in contacts or []:
-            user = str(item.get("user") or item.get("name") or "").strip()
-            tel = str(item.get("tel") or item.get("number") or "").strip()
-            if user and tel:
-                normalized.append({"user": user, "tel": tel})
-        if not normalized:
-            name_invalid = self._require_non_empty(name, "name")
-            if name_invalid is not None:
-                return name_invalid
-            number_invalid = self._require_non_empty(number, "number")
-            if number_invalid is not None:
-                return number_invalid
-            normalized = [{"user": name, "tel": number}]
-        return self.http.post("/addcontact", payload=normalized)
-
-    def get_root_allowed_apps(self) -> Dict[str, Any]:
-        return self.http.get("/modifydev", query={"cmd": 10, "action": "list"})
-
-    def set_root_allowed_app(self, package: str, allowed: bool) -> Dict[str, Any]:
-        invalid = self._require_non_empty(package, "package")
-        if invalid is not None:
-            return invalid
-        query = {"cmd": 10, "pkg": package, "root": "true" if allowed else "false"}
-        return self.http.get("/modifydev", query=query)
-
-    def set_virtual_camera_source(
-        self,
-        path: str = "",
-        type: str = "",
-        resolution: str = "",
-    ) -> Dict[str, Any]:
-        final_path = str(path).strip()
-        final_type = str(type).strip()
-        final_resolution = str(resolution).strip()
-        if not final_path and not final_resolution:
-            return self._invalid("path or resolution is required")
-        query: Dict[str, Any] = {"cmd": 4}
-        if final_path:
-            query["path"] = final_path
-        if final_type:
-            query["type"] = final_type
-        if final_resolution:
-            query["resolution"] = final_resolution
-        return self.http.get("/modifydev", query=query)
-
-    def get_app_bootstart_list(self) -> Dict[str, Any]:
-        return self.http.get("/appbootstart", query={"cmd": 1})
-
-    def set_app_bootstart(self, package: str = "", enabled: bool = True, packages: list[str] | None = None) -> Dict[str, Any]:
-        normalized = [str(item).strip() for item in (packages or []) if str(item).strip()]
-        if not normalized and str(package).strip():
-            normalized = [str(package).strip()]
-        if not normalized:
-            return self._invalid("package is required")
-        if enabled:
-            return self.http.request_json("POST", "/appbootstart", payload=normalized, query={"cmd": 2})
-        return self.http.request_json("POST", "/appbootstart", payload=normalized, query={"cmd": 3})
-
-    def set_language_country(self, language: str, country: str) -> Dict[str, Any]:
-        language_invalid = self._require_non_empty(language, "language")
-        if language_invalid is not None:
-            return language_invalid
-        country_invalid = self._require_non_empty(country, "country")
-        if country_invalid is not None:
-            return country_invalid
-        return self.http.get("/modifydev", query={"cmd": 13, "language": language, "country": country})
-
-    def get_webrtc_player_url(self, index: int, token: str = "") -> Dict[str, Any]:
-        idx = int(index)
-        stream_port = 30000 + (idx - 1) * 100 + 7
-        rtc_port = 30000 + (idx - 1) * 100 + 8
-        query = {
-            "shost": self.http.host,
-            "sport": stream_port,
-            "q": 1,
-            "v": "h264",
-            "rtc_i": self.http.host,
-            "rtc_p": rtc_port,
-        }
-        if token.strip():
-            query["token"] = token.strip()
-        url = f"http://{self.http.host}:{self.http.port}/webplayer/play.html?{parse.urlencode(query)}"
-        return {
-            "ok": True,
-            "data": {
-                "url": url,
-                "player_port": self.http.port,
-                "stream_port": stream_port,
-                "rtc_port": rtc_port,
-                "index": idx,
-            },
-        }
 
 
 def make_sdk_client(device_ip: str, sdk_port: int = 8000) -> MytSdkClient:

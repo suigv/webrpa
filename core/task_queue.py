@@ -21,12 +21,18 @@ class QueueBackend(Protocol):
     def dequeue(self, timeout_seconds: int = 1) -> str | None: ...
 
 
+_AGING_INTERVAL_SECONDS = int(os.environ.get("MYT_QUEUE_AGING_INTERVAL", "120"))
+_AGING_BOOST = int(os.environ.get("MYT_QUEUE_AGING_BOOST", "10"))
+
+
 class InMemoryTaskQueue:
     def __init__(self) -> None:
         self._q: queue.PriorityQueue[tuple[int, int, str]] = queue.PriorityQueue()
         self._delayed: list[tuple[float, int, int, str]] = []
         self._lock = threading.Lock()
         self._counter = 0
+        # task_id -> (enqueue_time, original_prio)
+        self._enqueue_meta: dict[str, tuple[float, int]] = {}
 
     def enqueue(
         self,
@@ -40,6 +46,7 @@ class InMemoryTaskQueue:
         if not has_delay:
             with self._lock:
                 self._counter += 1
+                self._enqueue_meta[task_id] = (time.time(), prio)
                 self._q.put((-prio, self._counter, task_id))
             return
         if run_at_epoch is not None:
@@ -48,6 +55,7 @@ class InMemoryTaskQueue:
             due = time.time() + float(delay_seconds)
         with self._lock:
             self._counter += 1
+            self._enqueue_meta[task_id] = (due, prio)
             heapq.heappush(self._delayed, (due, -prio, self._counter, task_id))
 
     def _promote_due(self) -> None:
@@ -57,12 +65,38 @@ class InMemoryTaskQueue:
                 _due, prio, order, task_id = heapq.heappop(self._delayed)
                 self._q.put((prio, order, task_id))
 
+    def _apply_aging(self) -> None:
+        """对等待超过 AGING_INTERVAL 的任务临时提升优先级。"""
+        if _AGING_INTERVAL_SECONDS <= 0 or _AGING_BOOST <= 0:
+            return
+        now = time.time()
+        tmp: list[tuple[int, int, str]] = []
+        try:
+            while True:
+                item = self._q.get_nowait()
+                tmp.append(item)
+        except queue.Empty:
+            pass
+        for prio, order, task_id in tmp:
+            meta = self._enqueue_meta.get(task_id)
+            if meta is not None:
+                enqueue_time, orig_prio = meta
+                waited = now - enqueue_time
+                boosts = int(waited // _AGING_INTERVAL_SECONDS)
+                if boosts > 0:
+                    boosted_prio = max(-100, prio - boosts * _AGING_BOOST)
+                    self._q.put((boosted_prio, order, task_id))
+                    continue
+            self._q.put((prio, order, task_id))
+
     def dequeue(self, timeout_seconds: int = 1) -> str | None:
         deadline = time.time() + max(0, int(timeout_seconds))
         while True:
             self._promote_due()
+            self._apply_aging()
             try:
                 _prio, _order, task_id = self._q.get(timeout=0.1)
+                self._enqueue_meta.pop(task_id, None)
                 return task_id
             except queue.Empty:
                 if time.time() >= deadline:
@@ -77,6 +111,10 @@ class RedisTaskQueue:
             raise RuntimeError("redis package is required for RedisTaskQueue") from exc
 
         self._client = redis.from_url(redis_url, decode_responses=True)
+        try:
+            self._client.ping()
+        except Exception as exc:
+            raise RuntimeError("redis is not reachable") from exc
         self._queue_key = queue_key
         self._delayed_key = f"{queue_key}:delayed"
         self._seq_key = f"{queue_key}:seq"

@@ -2,12 +2,11 @@ from __future__ import annotations
 
 import importlib
 import random
-import shutil
 import string
 import sys
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from core.config_loader import get_humanized_wrapper_config
 from models.humanized import HumanizedWrapperConfig
@@ -17,25 +16,292 @@ def _vendor_root() -> Path:
     return Path(__file__).resolve().parents[1] / "vendor"
 
 
-def _ensure_vendor_path() -> None:
-    root = _vendor_root()
-    root_str = str(root)
-    if root_str not in sys.path:
-        sys.path.insert(0, root_str)
+def _ensure_vendor_on_path() -> None:
+    vendor_path = _vendor_root()
+    if vendor_path.exists():
+        vendor_text = str(vendor_path)
+        if vendor_text not in sys.path:
+            sys.path.insert(0, vendor_text)
 
 
 def _detect_browser_binary() -> str | None:
-    candidates = [
-        "chromium",
-        "chromium-browser",
-        "google-chrome",
-        "google-chrome-stable",
-    ]
-    for name in candidates:
-        path = shutil.which(name)
-        if path:
-            return path
-    return None
+    try:
+        from DrissionPage._functions.browser import get_binary
+
+        return get_binary() or None
+    except Exception:
+        return None
+
+
+def _to_point(value: Any) -> tuple[float, float] | None:
+    if not isinstance(value, (tuple, list)) or len(value) < 2:
+        return None
+    try:
+        return float(value[0]), float(value[1])
+    except (TypeError, ValueError):
+        return None
+
+
+def _element_bounds(raw_element: Any) -> tuple[float, float, float, float] | None:
+    rect = getattr(raw_element, "rect", None)
+    if rect is None:
+        return None
+    location = _to_point(getattr(rect, "location", None))
+    size = _to_point(getattr(rect, "size", None))
+    if location is None or size is None:
+        return None
+    left, top = location
+    width, height = size
+    if width <= 0 or height <= 0:
+        return None
+    right = left + width - 1
+    bottom = top + height - 1
+    return left, top, right, bottom
+
+
+def _viewport_bounds(page: Any) -> tuple[int, int, int, int] | None:
+    viewport = getattr(page, "viewport_size", None)
+    if not isinstance(viewport, (tuple, list)) or len(viewport) < 2:
+        return None
+    try:
+        width = int(viewport[0])
+        height = int(viewport[1])
+    except (TypeError, ValueError):
+        return None
+    if width <= 0 or height <= 0:
+        return None
+    return 0, 0, width - 1, height - 1
+
+
+def _clamp(value: float, min_value: float, max_value: float) -> float:
+    return min(max(value, min_value), max_value)
+
+
+def _clamp_point(
+    x: float,
+    y: float,
+    bounds: tuple[float, float, float, float],
+    viewport: tuple[int, int, int, int] | None,
+) -> tuple[float, float]:
+    left, top, right, bottom = bounds
+    x = _clamp(x, left, right)
+    y = _clamp(y, top, bottom)
+    if viewport is None:
+        return x, y
+    v_left, v_top, v_right, v_bottom = viewport
+    x = _clamp(x, v_left, v_right)
+    y = _clamp(y, v_top, v_bottom)
+    return x, y
+
+
+def _is_word_boundary(char: str) -> bool:
+    return char.isspace() or char in string.punctuation
+
+
+def _pick_typo_char(rng: random.Random, original: str) -> str:
+    pool = string.ascii_lowercase + string.digits
+    if not pool:
+        return "x"
+    if original and original in pool and len(pool) > 1:
+        pool = pool.replace(original, "")
+    return rng.choice(pool)
+
+
+class HumanizedElement:
+    def __init__(
+        self,
+        raw_element: Any,
+        page: Any,
+        config: HumanizedWrapperConfig,
+        rng: random.Random,
+    ) -> None:
+        self._raw = raw_element
+        self._page = page
+        self._config = config
+        self._rng = rng
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._raw, name)
+
+    def _fallback_input(self, text: str, reason: str) -> None:
+        policy = self._config.fallback_policy
+        if policy == "skip":
+            return
+        if policy == "raise":
+            raise RuntimeError(reason)
+        if hasattr(self._raw, "input"):
+            self._raw.input(text)
+
+    def _fallback_click(self, reason: str) -> None:
+        policy = self._config.fallback_policy
+        if policy == "skip":
+            return
+        if policy == "raise":
+            raise RuntimeError(reason)
+        if hasattr(self._raw, "click"):
+            self._raw.click()
+
+    def input(self, text: str) -> None:
+        if not self._config.enabled:
+            if hasattr(self._raw, "input"):
+                self._raw.input(text)
+            return
+
+        actions = getattr(self._page, "actions", None)
+        if actions is None or not hasattr(actions, "type"):
+            self._fallback_input(text, "actions.type missing")
+            return
+
+        enable_typo = bool(getattr(self._config, "enable_typo_simulation", False))
+
+        for char in text:
+            delay = self._rng.uniform(self._config.typing_delay_min, self._config.typing_delay_max)
+            if delay > 0:
+                time.sleep(delay)
+
+            if enable_typo and self._rng.random() < self._config.typo_probability:
+                wrong_char = _pick_typo_char(self._rng, char)
+                actions.type(wrong_char)
+                typo_delay = self._rng.uniform(self._config.typo_delay_min, self._config.typo_delay_max)
+                if typo_delay > 0:
+                    time.sleep(typo_delay)
+                actions.type("\b")
+                backspace_delay = self._rng.uniform(self._config.backspace_delay_min, self._config.backspace_delay_max)
+                if backspace_delay > 0:
+                    time.sleep(backspace_delay)
+
+            actions.type(char)
+
+            if _is_word_boundary(char) and self._rng.random() < self._config.word_pause_probability:
+                pause = self._rng.uniform(self._config.word_pause_min, self._config.word_pause_max)
+                if pause > 0:
+                    time.sleep(pause)
+
+    def _select_target(self, bounds: tuple[float, float, float, float]) -> tuple[float, float]:
+        left, top, right, bottom = bounds
+        width = max(1.0, right - left + 1)
+        height = max(1.0, bottom - top + 1)
+
+        strategy = self._config.target_strategy
+        if strategy == "center":
+            target_x = left + width / 2
+            target_y = top + height / 2
+        elif strategy == "random_inside":
+            target_x = self._rng.randint(int(left), int(right))
+            target_y = self._rng.randint(int(top), int(bottom))
+        else:
+            if self._rng.random() < self._config.target_center_bias_probability:
+                target_x = left + width / 2
+                target_y = top + height / 2
+            else:
+                target_x = self._rng.randint(int(left), int(right))
+                target_y = self._rng.randint(int(top), int(bottom))
+
+        offset_x = self._rng.randint(self._config.click_offset_x_min, self._config.click_offset_x_max)
+        offset_y = self._rng.randint(self._config.click_offset_y_min, self._config.click_offset_y_max)
+        target_x += offset_x
+        target_y += offset_y
+
+        viewport = _viewport_bounds(self._page)
+        target_x, target_y = _clamp_point(target_x, target_y, bounds, viewport)
+        return target_x, target_y
+
+    def _build_moves(
+        self,
+        actions: Any,
+        bounds: tuple[float, float, float, float],
+        target: tuple[float, float],
+    ) -> list[tuple[tuple[int, int], float]]:
+        start_x = float(getattr(actions, "curr_x", 0))
+        start_y = float(getattr(actions, "curr_y", 0))
+        target_x, target_y = target
+        steps = self._rng.randint(self._config.move_steps_min, self._config.move_steps_max)
+        steps = max(1, steps)
+        viewport = _viewport_bounds(self._page)
+
+        moves: list[tuple[tuple[int, int], float]] = []
+        for step in range(1, steps + 1):
+            t = step / steps
+            x = start_x + (target_x - start_x) * t
+            y = start_y + (target_y - start_y) * t
+            if step < steps and self._rng.random() < self._config.movement_jitter_probability:
+                x += self._rng.randint(-2, 2)
+                y += self._rng.randint(-2, 2)
+            x, y = _clamp_point(x, y, bounds, viewport)
+            duration = self._rng.uniform(self._config.move_duration_min, self._config.move_duration_max)
+            moves.append(((int(round(x)), int(round(y))), duration))
+
+        if self._rng.random() < self._config.movement_overshoot_probability and len(moves) >= 1:
+            span = max(1, int(min(bounds[2] - bounds[0] + 1, bounds[3] - bounds[1] + 1) * 0.2))
+            over_x = target_x + self._rng.randint(-span, span)
+            over_y = target_y + self._rng.randint(-span, span)
+            over_x, over_y = _clamp_point(over_x, over_y, bounds, viewport)
+            duration = self._rng.uniform(self._config.move_duration_min, self._config.move_duration_max)
+            moves.insert(-1, ((int(round(over_x)), int(round(over_y))), duration))
+
+        if self._config.pre_hover_enabled:
+            pre_hover_delay = self._rng.uniform(self._config.pre_hover_delay_min, self._config.pre_hover_delay_max)
+            moves.append(((int(round(target_x)), int(round(target_y))), pre_hover_delay))
+
+        return moves
+
+    def click(self) -> None:
+        if not self._config.enabled:
+            if hasattr(self._raw, "click"):
+                self._raw.click()
+            return
+
+        actions = getattr(self._page, "actions", None)
+        if actions is None or not hasattr(actions, "move_to"):
+            self._fallback_click("actions.move_to missing")
+            return
+
+        bounds = _element_bounds(self._raw)
+        if bounds is None:
+            self._fallback_click("element bounds unavailable")
+            return
+
+        target = self._select_target(bounds)
+        moves = self._build_moves(actions, bounds, target)
+
+        for (x, y), duration in moves:
+            actions.move_to((x, y), duration=duration)
+
+        pre_pause = self._rng.uniform(self._config.pre_click_pause_min, self._config.pre_click_pause_max)
+        if pre_pause > 0:
+            time.sleep(pre_pause)
+
+        if hasattr(actions, "click"):
+            actions.click()
+        elif hasattr(actions, "down") and hasattr(actions, "up"):
+            actions.down()
+            hold = self._rng.uniform(self._config.click_hold_min, self._config.click_hold_max)
+            if hold > 0:
+                time.sleep(hold)
+            actions.up()
+        else:
+            self._fallback_click("actions click unavailable")
+            return
+
+        post_pause = self._rng.uniform(self._config.post_click_pause_min, self._config.post_click_pause_max)
+        if post_pause > 0:
+            time.sleep(post_pause)
+
+
+class HumanizedWrapper:
+    def __init__(self, page: Any, config: HumanizedWrapperConfig) -> None:
+        self._page = page
+        self._config = config
+        self._rng = random.Random(config.random_seed)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._page, name)
+
+    def ele(self, selector: str) -> Any:
+        raw = self._page.ele(selector)
+        if raw is None:
+            return None
+        return HumanizedElement(raw, self._page, self._config, self._rng)
 
 
 class BrowserClient:
@@ -48,49 +314,45 @@ class BrowserClient:
         self._humanized_page: Any = None
         self._web_page_cls: Any = None
         self._chromium_options_cls: Any = None
-        self._humanized_config = humanized_config or self._load_runtime_humanized_config()
+        self._current_profile_dir: Optional[Path] = None
+
+        if humanized_config is None:
+            humanized_config = get_humanized_wrapper_config()
+        self._humanized_config = humanized_config
+
         self._load()
 
-    def _load_runtime_humanized_config(self) -> HumanizedWrapperConfig:
-        try:
-            return get_humanized_wrapper_config()
-        except Exception:
-            return HumanizedWrapperConfig()
-
     def _load(self) -> None:
-        _ensure_vendor_path()
+        _ensure_vendor_on_path()
+        self._available = False
         self._error = ""
         self._error_code = ""
         self._browser_binary = ""
+
         try:
             importlib.import_module("DrissionGet")
         except Exception as exc:
-            self._available = False
+            self._error = str(exc)
             self._error_code = "missing_dependency"
-            self._error = f"missing DrissionGet: {exc}"
             return
 
         try:
-            dp = importlib.import_module("DrissionPage")
-            self._web_page_cls = getattr(dp, "WebPage", None)
-            self._chromium_options_cls = getattr(dp, "ChromiumOptions", None)
-            if self._web_page_cls is None:
-                self._available = False
-                self._error_code = "invalid_runtime"
-                self._error = "DrissionPage classes not found"
-                return
-            browser_binary = _detect_browser_binary()
-            if browser_binary is None:
-                self._available = False
-                self._error_code = "browser_not_found"
-                self._error = "no chromium/chrome binary found"
-                return
-            self._browser_binary = browser_binary
-            self._available = True
+            dp_module = importlib.import_module("DrissionPage")
         except Exception as exc:
-            self._available = False
-            self._error_code = "missing_dependency"
             self._error = str(exc)
+            self._error_code = "missing_dependency"
+            return
+
+        browser_binary = _detect_browser_binary()
+        if not browser_binary:
+            self._error = "browser binary not found"
+            self._error_code = "browser_not_found"
+            return
+
+        self._browser_binary = str(browser_binary)
+        self._web_page_cls = getattr(dp_module, "WebPage", None)
+        self._chromium_options_cls = getattr(dp_module, "ChromiumOptions", None)
+        self._available = True
 
     @property
     def available(self) -> bool:
@@ -108,11 +370,11 @@ class BrowserClient:
     def browser_binary(self) -> str:
         return self._browser_binary
 
-    @classmethod
-    def startup_diagnostics(cls) -> dict[str, object]:
-        _ensure_vendor_path()
-        drissionget_ok = False
+    @staticmethod
+    def startup_diagnostics() -> dict[str, Any]:
+        _ensure_vendor_on_path()
         drissionpage_ok = False
+        drissionget_ok = False
         try:
             importlib.import_module("DrissionGet")
             drissionget_ok = True
@@ -125,7 +387,7 @@ class BrowserClient:
             drissionpage_ok = False
 
         browser_binary = _detect_browser_binary()
-        client = cls()
+        client = BrowserClient()
         return {
             "ready": client.available,
             "error": client.error,
@@ -141,21 +403,23 @@ class BrowserClient:
             return False
         try:
             options = None
+            self._current_profile_dir = None
             if self._chromium_options_cls is not None:
                 options = self._chromium_options_cls()
                 if hasattr(options, "headless"):
                     options.headless(on_off=headless)
                 if profile_id:
-                    # Implement browser profile isolation
                     import hashlib
                     import os
-                    safe_id = hashlib.md5(profile_id.encode('utf-8')).hexdigest()
+
+                    safe_id = hashlib.md5(profile_id.encode("utf-8")).hexdigest()
                     base_dir = os.environ.get("MYT_USER_DATA_DIR", "/tmp/webrpa_browser_profiles")
                     profile_dir = Path(base_dir) / safe_id
                     profile_dir.mkdir(parents=True, exist_ok=True)
+                    self._current_profile_dir = profile_dir
                     if hasattr(options, "set_user_data_path"):
                         options.set_user_data_path(str(profile_dir))
-            
+
             self._page = self._web_page_cls(chromium_options=options) if options else self._web_page_cls()
             self._humanized_page = HumanizedWrapper(self._page, self._humanized_config)
             self._page.get(url)
@@ -163,79 +427,6 @@ class BrowserClient:
         except Exception as exc:
             self._error = str(exc)
             return False
-
-    def html(self) -> str:
-        if self._page is None:
-            return ""
-        try:
-            return str(getattr(self._page, "html", ""))
-        except Exception:
-            return ""
-
-    def _get_element(self, selector: str):
-        if self._page is None:
-            return None
-        try:
-            page = self._humanized_page if self._humanized_page is not None else self._page
-            if hasattr(page, "ele"):
-                return page.ele(selector)
-        except Exception:
-            return None
-        return None
-
-    def exists(self, selector: str) -> bool:
-        return self._get_element(selector) is not None
-
-    def input(self, selector: str, text: str) -> bool:
-        element = self._get_element(selector)
-        if element is None:
-            return False
-        try:
-            if hasattr(element, "clear"):
-                element.clear()
-            if hasattr(element, "input"):
-                element.input(text)
-                return True
-            if hasattr(element, "type"):
-                element.type(text)
-                return True
-            if hasattr(element, "send_keys"):
-                element.send_keys(text)
-                return True
-        except Exception as exc:
-            self._error = str(exc)
-            return False
-        return False
-
-    def click(self, selector: str) -> bool:
-        element = self._get_element(selector)
-        if element is None:
-            return False
-        try:
-            if hasattr(element, "click"):
-                element.click()
-                return True
-        except Exception as exc:
-            self._error = str(exc)
-            return False
-        return False
-
-    def current_url(self) -> str:
-        if self._page is None:
-            return ""
-        try:
-            return str(getattr(self._page, "url", ""))
-        except Exception:
-            return ""
-
-    def wait_url_contains(self, fragment: str, timeout_seconds: int) -> bool:
-        timeout = max(1, int(timeout_seconds))
-        start = time.time()
-        while time.time() - start <= timeout:
-            if fragment in self.current_url():
-                return True
-            time.sleep(0.2)
-        return False
 
     def close(self) -> None:
         if self._page is None:
@@ -247,476 +438,77 @@ class BrowserClient:
                 self._page.quit()
         except Exception:
             pass
-        self._page = None
-        self._humanized_page = None
 
+        if self._current_profile_dir and self._current_profile_dir.exists():
+            import shutil
 
-class HumanizedElement:
-    def __init__(self, raw_element: Any, page: Any, config: HumanizedWrapperConfig, rng: random.Random) -> None:
-        self._raw = raw_element
-        self._page = page
-        self._config = config
-        self._rng = rng
-
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self._raw, name)
-
-    def _sleep(self, seconds: float) -> None:
-        if seconds <= 0:
-            return
-        time.sleep(seconds)
-
-    def _rand_range(self, lo: float, hi: float) -> float:
-        if hi <= lo:
-            return float(lo)
-        return float(self._rng.uniform(lo, hi))
-
-    @staticmethod
-    def _clamp(value: float, lo: float, hi: float) -> float:
-        if value < lo:
-            return float(lo)
-        if value > hi:
-            return float(hi)
-        return float(value)
-
-    @staticmethod
-    def _to_point(value: Any) -> tuple[float, float] | None:
-        if not isinstance(value, (tuple, list)) or len(value) < 2:
-            return None
-        try:
-            return float(value[0]), float(value[1])
-        except (TypeError, ValueError):
-            return None
-
-    @staticmethod
-    def _safe_positive(value: float, fallback: float = 1.0) -> float:
-        if value <= 0:
-            return float(fallback)
-        return float(value)
-
-    @staticmethod
-    def _safe_float(value: Any, default: float = 0.0) -> float:
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return float(default)
-
-    @staticmethod
-    def _is_word_boundary_char(ch: str) -> bool:
-        if not ch:
-            return False
-        return ch.isspace() or ch in string.punctuation
-
-    def _should_simulate_typo(self) -> bool:
-        # Optional stub: disabled unless explicitly enabled by runtime config.
-        if not bool(getattr(self._config, "enable_typo_simulation", False)):
-            return False
-        return self._rng.random() < self._config.typo_probability
-
-    def _bounded_move_steps(self) -> tuple[float, int, float]:
-        total_duration = self._rand_range(self._config.move_duration_min, self._config.move_duration_max)
-        steps = int(max(1, self._rng.randint(self._config.move_steps_min, self._config.move_steps_max)))
-        segment = max(0.02, float(total_duration) / float(max(1, steps)))
-        return total_duration, steps, segment
-
-    def _maybe_jitter_point(
-        self,
-        x: float,
-        y: float,
-        width: float,
-        height: float,
-        move_x_min: float,
-        move_y_min: float,
-        move_x_max: float,
-        move_y_max: float,
-    ) -> tuple[float, float]:
-        if self._rng.random() >= self._config.movement_jitter_probability:
-            return x, y
-
-        jitter_span = max(1.0, min(self._safe_positive(width), self._safe_positive(height)) * 0.08)
-        jx = self._rng.uniform(-jitter_span, jitter_span)
-        jy = self._rng.uniform(-jitter_span, jitter_span)
-        return (
-            self._clamp(x + float(jx), move_x_min, move_x_max),
-            self._clamp(y + float(jy), move_y_min, move_y_max),
-        )
-
-    def _maybe_overshoot_point(
-        self,
-        start_x: float,
-        start_y: float,
-        target_x: float,
-        target_y: float,
-        move_x_min: float,
-        move_y_min: float,
-        move_x_max: float,
-        move_y_max: float,
-    ) -> tuple[float, float] | None:
-        if self._rng.random() >= self._config.movement_overshoot_probability:
-            return None
-
-        dx = target_x - start_x
-        dy = target_y - start_y
-        distance = (dx * dx + dy * dy) ** 0.5
-        if distance <= 0:
-            return None
-
-        unit_x = dx / distance
-        unit_y = dy / distance
-        overshoot_distance = min(32.0, max(2.0, distance * self._rng.uniform(0.04, 0.12)))
-        return (
-            self._clamp(target_x + unit_x * overshoot_distance, move_x_min, move_x_max),
-            self._clamp(target_y + unit_y * overshoot_distance, move_y_min, move_y_max),
-        )
-
-    def _run_move_segment(
-        self,
-        move_fn: Any,
-        start_x: float,
-        start_y: float,
-        target_x: float,
-        target_y: float,
-        steps: int,
-        segment: float,
-        width: float,
-        height: float,
-        move_x_min: float,
-        move_y_min: float,
-        move_x_max: float,
-        move_y_max: float,
-    ) -> None:
-        safe_steps = max(1, int(steps))
-        for i in range(1, safe_steps + 1):
-            t = float(i) / float(safe_steps)
-            eased = t * t
-            x = start_x + (target_x - start_x) * eased
-            y = start_y + (target_y - start_y) * eased
-            x, y = self._maybe_jitter_point(x, y, width, height, move_x_min, move_y_min, move_x_max, move_y_max)
-            move_fn((x, y), duration=segment)
-
-    def _extract_viewport_bounds(self) -> tuple[float, float, float, float] | None:
-        def _extract_from(source: Any) -> tuple[float, float, float, float] | None:
-            if source is None:
-                return None
-
-            viewport_size = getattr(source, "viewport_size", None)
-            size = self._to_point(viewport_size)
-            if size is not None and size[0] > 0 and size[1] > 0:
-                return 0.0, 0.0, size[0] - 1.0, size[1] - 1.0
-
-            rect = getattr(source, "rect", None)
-            if rect is not None:
-                rect_size = self._to_point(getattr(rect, "size", None))
-                if rect_size is not None and rect_size[0] > 0 and rect_size[1] > 0:
-                    rect_location = self._to_point(getattr(rect, "location", None))
-                    origin_x, origin_y = rect_location if rect_location is not None else (0.0, 0.0)
-                    return origin_x, origin_y, origin_x + rect_size[0] - 1.0, origin_y + rect_size[1] - 1.0
-
-            generic_size = self._to_point(getattr(source, "size", None))
-            if generic_size is not None and generic_size[0] > 0 and generic_size[1] > 0:
-                return 0.0, 0.0, generic_size[0] - 1.0, generic_size[1] - 1.0
-
-            return None
-
-        page = self._page
-        tab = getattr(page, "tab", None)
-        for candidate in (tab, page):
-            bounds = _extract_from(candidate)
-            if bounds is not None:
-                return bounds
-        return None
-
-    @staticmethod
-    def _callable_attr(obj: Any, name: str) -> Any | None:
-        fn = getattr(obj, name, None)
-        return fn if callable(fn) else None
-
-    def _fallback_raw_input(self, payload: str) -> None:
-        input_fn = self._callable_attr(self._raw, "input")
-        if input_fn is not None:
-            input_fn(payload)
-            return
-
-        type_fn = self._callable_attr(self._raw, "type")
-        if type_fn is not None:
-            type_fn(payload)
-            return
-
-        send_keys_fn = self._callable_attr(self._raw, "send_keys")
-        if send_keys_fn is not None:
-            send_keys_fn(payload)
-
-    def _fallback_raw_click(self) -> None:
-        click_fn = self._callable_attr(self._raw, "click")
-        if click_fn is not None:
-            click_fn()
-
-    def _apply_fallback(self, op: str, payload: str = "", exc: Exception | None = None) -> None:
-        policy = str(getattr(self._config, "fallback_policy", "raw") or "raw")
-        if policy == "raise":
-            if exc is not None:
-                raise exc
-            raise RuntimeError(f"humanized {op} fallback triggered")
-        if policy == "skip":
-            return
-
-        try:
-            if op == "input":
-                self._fallback_raw_input(payload)
-            elif op == "click":
-                self._fallback_raw_click()
-        except Exception:
-            # Raw fallback must remain non-fatal for robust degraded mode.
-            return
-
-    def _try_action_click_with_hold(self, actions: Any, hold_seconds: float) -> bool:
-        hold = max(0.0, float(hold_seconds))
-
-        click_fn = self._callable_attr(actions, "click")
-        if click_fn is not None:
-            if hold > 0:
-                try:
-                    click_fn(hold=hold)
-                    return True
-                except TypeError:
-                    pass
-
-        down_up_pairs = (
-            ("down", "up"),
-            ("mouse_down", "mouse_up"),
-            ("press", "release"),
-        )
-        for down_name, up_name in down_up_pairs:
-            down_fn = self._callable_attr(actions, down_name)
-            up_fn = self._callable_attr(actions, up_name)
-            if down_fn is None or up_fn is None:
-                continue
             try:
-                down_fn()
-                self._sleep(hold)
-                up_fn()
-                return True
-            except Exception:
-                continue
-
-        if click_fn is not None:
-            try:
-                click_fn()
-                return True
+                shutil.rmtree(self._current_profile_dir, ignore_errors=True)
             except Exception:
                 pass
 
+        self._page = None
+        self._humanized_page = None
+        self._current_profile_dir = None
+
+    def html(self) -> str:
+        if self._page is None:
+            return ""
+        try:
+            return str(getattr(self._page, "html", ""))
+        except Exception:
+            return ""
+
+    def _get_element_raw(self, selector: str) -> Any:
+        if self._page is None:
+            return None
+        try:
+            if hasattr(self._page, "ele"):
+                return self._page.ele(selector)
+            return None
+        except Exception:
+            return None
+
+    def _get_element(self, selector: str) -> Any:
+        if self._page is None:
+            return None
+        try:
+            page = self._humanized_page if self._humanized_page is not None else self._page
+            if hasattr(page, "ele"):
+                return page.ele(selector)
+            return None
+        except Exception:
+            return None
+
+    def exists(self, selector: str) -> bool:
+        return self._get_element_raw(selector) is not None
+
+    def click(self, selector: str) -> bool:
+        el = self._get_element(selector)
+        if el:
+            try:
+                el.click()
+                return True
+            except Exception:
+                return False
         return False
 
-    def input(self, text: str) -> None:
-        payload = str(text)
+    def input(self, selector: str, text: str) -> bool:
+        el = self._get_element(selector)
+        if el:
+            try:
+                el.input(text)
+                return True
+            except Exception:
+                return False
+        return False
+
+    def wait_url_contains(self, text: str, timeout_seconds: int = 10) -> bool:
+        if self._page is None:
+            return False
         try:
-            clear_fn = self._callable_attr(self._raw, "clear")
-            if clear_fn is not None:
-                clear_fn()
+            if hasattr(self._page, "wait_url_contains"):
+                return bool(self._page.wait_url_contains(text, timeout=timeout_seconds))
+            return False
         except Exception:
-            pass
-
-        actions = getattr(self._page, "actions", None)
-        if not self._config.enabled:
-            self._apply_fallback("input", payload=payload)
-            return
-
-        if actions is None:
-            self._apply_fallback("input", payload=payload)
-            return
-
-        type_fn = self._callable_attr(actions, "type")
-        if type_fn is None:
-            self._apply_fallback("input", payload=payload)
-            return
-
-        try:
-            if hasattr(self._raw, "click"):
-                self._raw.click()
-        except Exception:
-            pass
-
-        prev: str | None = None
-        try:
-            for ch in payload:
-                if self._should_simulate_typo():
-                    wrong = self._rng.choice("abcdefghijklmnopqrstuvwxyz")
-                    type_fn(wrong)
-                    self._sleep(self._rand_range(self._config.typo_delay_min, self._config.typo_delay_max))
-                    type_fn("\b")
-                    self._sleep(self._rand_range(self._config.backspace_delay_min, self._config.backspace_delay_max))
-
-                type_fn(ch)
-                self._sleep(self._rand_range(self._config.typing_delay_min, self._config.typing_delay_max))
-                if prev is not None and (not self._is_word_boundary_char(prev)) and self._is_word_boundary_char(ch):
-                    if self._rng.random() < self._config.word_pause_probability:
-                        self._sleep(self._rand_range(self._config.word_pause_min, self._config.word_pause_max))
-                prev = ch
-        except Exception as exc:
-            self._apply_fallback("input", payload=payload, exc=exc)
-
-    def click(self) -> None:
-        if not self._config.enabled:
-            self._apply_fallback("click")
-            return
-
-        actions = getattr(self._page, "actions", None)
-        if actions is None:
-            self._apply_fallback("click")
-            return
-
-        move_fn = self._callable_attr(actions, "move_to")
-        if move_fn is None:
-            self._apply_fallback("click")
-            return
-
-        try:
-            rect = getattr(self._raw, "rect", None)
-            if rect is None:
-                self._apply_fallback("click")
-                return
-            location = self._to_point(getattr(rect, "location", None))
-            size = self._to_point(getattr(rect, "size", None))
-            if location is None or size is None:
-                self._apply_fallback("click")
-                return
-
-            left, top = location
-            width, height = size
-            if width <= 0 or height <= 0:
-                self._apply_fallback("click")
-                return
-
-            elem_x_min = float(left)
-            elem_y_min = float(top)
-            elem_x_max = elem_x_min + float(width) - 1.0
-            elem_y_max = elem_y_min + float(height) - 1.0
-
-            viewport_bounds = self._extract_viewport_bounds()
-            if viewport_bounds is not None:
-                viewport_x_min, viewport_y_min, viewport_x_max, viewport_y_max = viewport_bounds
-                x_min = max(elem_x_min, viewport_x_min)
-                y_min = max(elem_y_min, viewport_y_min)
-                x_max = min(elem_x_max, viewport_x_max)
-                y_max = min(elem_y_max, viewport_y_max)
-                if x_min > x_max or y_min > y_max:
-                    self._apply_fallback("click")
-                    return
-            else:
-                x_min, y_min, x_max, y_max = elem_x_min, elem_y_min, elem_x_max, elem_y_max
-
-            center_x = elem_x_min + float(width) / 2.0
-            center_y = elem_y_min + float(height) / 2.0
-
-            strategy = self._config.target_strategy
-            if strategy == "random_inside":
-                base_x = self._rand_range(x_min, x_max)
-                base_y = self._rand_range(y_min, y_max)
-            elif strategy == "center_bias":
-                if self._rng.random() < self._config.target_center_bias_probability:
-                    base_x = center_x
-                    base_y = center_y
-                else:
-                    base_x = self._rand_range(x_min, x_max)
-                    base_y = self._rand_range(y_min, y_max)
-            else:
-                base_x = center_x
-                base_y = center_y
-
-            offset_x = int(self._rng.randint(self._config.click_offset_x_min, self._config.click_offset_x_max))
-            offset_y = int(self._rng.randint(self._config.click_offset_y_min, self._config.click_offset_y_max))
-
-            target_x = self._clamp(base_x + float(offset_x), x_min, x_max)
-            target_y = self._clamp(base_y + float(offset_y), y_min, y_max)
-
-            _total_duration, steps, segment = self._bounded_move_steps()
-
-            start_x = self._safe_float(getattr(actions, "curr_x", 0.0), default=0.0)
-            start_y = self._safe_float(getattr(actions, "curr_y", 0.0), default=0.0)
-
-            if viewport_bounds is not None:
-                move_x_min, move_y_min, move_x_max, move_y_max = viewport_bounds
-            else:
-                move_x_min = min(start_x, elem_x_min)
-                move_y_min = min(start_y, elem_y_min)
-                move_x_max = max(start_x, elem_x_max)
-                move_y_max = max(start_y, elem_y_max)
-
-            overshoot = self._maybe_overshoot_point(
-                start_x,
-                start_y,
-                target_x,
-                target_y,
-                move_x_min,
-                move_y_min,
-                move_x_max,
-                move_y_max,
-            )
-
-            if overshoot is not None:
-                over_x, over_y = overshoot
-                over_steps = max(1, min(4, steps // 3))
-                self._run_move_segment(
-                    move_fn,
-                    start_x,
-                    start_y,
-                    over_x,
-                    over_y,
-                    over_steps,
-                    segment,
-                    width,
-                    height,
-                    move_x_min,
-                    move_y_min,
-                    move_x_max,
-                    move_y_max,
-                )
-                start_x, start_y = over_x, over_y
-
-            self._run_move_segment(
-                move_fn,
-                start_x,
-                start_y,
-                target_x,
-                target_y,
-                steps,
-                segment,
-                width,
-                height,
-                move_x_min,
-                move_y_min,
-                move_x_max,
-                move_y_max,
-            )
-
-            if self._config.pre_hover_enabled:
-                pre_hover_delay = self._rand_range(self._config.pre_hover_delay_min, self._config.pre_hover_delay_max)
-                move_fn((target_x, target_y), duration=pre_hover_delay)
-
-            self._sleep(self._rand_range(self._config.pre_click_pause_min, self._config.pre_click_pause_max))
-
-            hold_seconds = self._rand_range(self._config.click_hold_min, self._config.click_hold_max)
-            if not self._try_action_click_with_hold(actions, hold_seconds):
-                self._apply_fallback("click")
-                return
-
-            self._sleep(self._rand_range(self._config.post_click_pause_min, self._config.post_click_pause_max))
-        except Exception as exc:
-            self._apply_fallback("click", exc=exc)
-
-
-class HumanizedWrapper:
-    def __init__(self, page: Any, config: HumanizedWrapperConfig | None = None) -> None:
-        self._page = page
-        self._config = config or HumanizedWrapperConfig()
-        self._rng = random.Random(self._config.random_seed)
-
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self._page, name)
-
-    def ele(self, selector: str) -> Any:
-        raw = self._page.ele(selector)
-        if raw is None:
-            return None
-        return HumanizedElement(raw, self._page, self._config, self._rng)
+            return False

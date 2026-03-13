@@ -6,21 +6,21 @@ steps:
     action: app.stop
     params:
       device_ip: "${payload.device_ip}"
-      package: "${payload.package:-com.twitter.android}"
+      package: "${payload.package}"
 
   - label: 清理应用缓存数据
     kind: action
     action: app.clear_data
     params:
       device_ip: "${payload.device_ip}"
-      package: "${payload.package:-com.twitter.android}"
+      package: "${payload.package}"
 
   - label: 重新启动应用
     kind: action
     action: app.start
     params:
       device_ip: "${payload.device_ip}"
-      package: "${payload.package:-com.twitter.android}"
+      package: "${payload.package}"
 
   - label: 软件复位完成
     kind: stop

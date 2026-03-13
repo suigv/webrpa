@@ -1,13 +1,13 @@
 from engine.models.manifest import PluginInput, PluginManifest
 from engine.models.runtime import ActionResult, ExecutionContext
 from engine.models.ui_state import (
-    X_LOGIN_STAGE_VALUES,
+    LOGIN_STAGE_VALUES,
     UIStateEvidence,
     UIStateIdentity,
     UIStateObservationResult,
     UIStateTiming,
     UIStateTransition,
-    normalize_x_login_stage,
+    normalize_login_stage,
 )
 from engine.models.workflow import (
     ActionStep,
@@ -42,10 +42,10 @@ __all__ = [
     "UIStateObservationResult",
     "UIStateTiming",
     "UIStateTransition",
-    "X_LOGIN_STAGE_VALUES",
+    "LOGIN_STAGE_VALUES",
     "Step",
     "StopStep",
     "WaitUntilStep",
     "WorkflowScript",
-    "normalize_x_login_stage",
+    "normalize_login_stage",
 ]

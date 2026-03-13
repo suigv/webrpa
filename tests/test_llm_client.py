@@ -1,15 +1,20 @@
 # pyright: reportUnknownParameterType=false, reportMissingParameterType=false, reportUnknownMemberType=false, reportUnknownVariableType=false
 
+from typing import cast
+
+import httpx
+
 from ai_services.llm_client import (
     DEFAULT_LLM_MODEL,
     DEFAULT_LLM_PROVIDER,
     LLMClient,
     LLMError,
     LLMRequest,
-    LLMResponse,
     ProviderInvocationError,
     ResolvedLLMRequest,
+    retry_backoff_seconds,
 )
+from ai_services.vlm_client import VLMClient
 
 
 class FakeProvider:
@@ -70,7 +75,8 @@ def test_llm_client_uses_runtime_over_environment_and_config_overrides(monkeypat
     assert provider.requests[0].model == "runtime-model"
 
 
-def test_llm_client_normalizes_success_envelope():
+def test_llm_client_normalizes_success_envelope(monkeypatch):
+    monkeypatch.setenv("MYT_LLM_MODEL", "gpt-5.2")
     provider = FakeProvider(
         response={
             "provider_request_id": "provider-123",
@@ -115,7 +121,7 @@ def test_llm_client_normalizes_success_envelope():
         "model_metadata": {
             "provider": DEFAULT_LLM_PROVIDER,
             "provider_request_id": "provider-123",
-            "configured_model": DEFAULT_LLM_MODEL,
+            "configured_model": "gpt-5.2",
             "planning": {"mode": "structured_state_first"},
             "response_format": {"type": "json_schema", "name": "plan_state"},
         },
@@ -160,3 +166,136 @@ def test_llm_client_normalizes_provider_errors(monkeypatch):
         retryable=True,
         details={"limit": "rpm"},
     )
+
+
+def test_llm_client_retries_retryable_provider_errors():
+    sleep_calls: list[int] = []
+
+    def _fake_sleep(duration: float) -> None:
+        sleep_calls.append(int(duration))
+
+    class _SequencedProvider:
+        provider_name: str = "fake"
+
+        def __init__(self, results: list[dict[str, object] | Exception]):
+            self._results: list[dict[str, object] | Exception] = list(results)
+            self.requests: list[ResolvedLLMRequest] = []
+
+        def invoke(self, request: ResolvedLLMRequest) -> dict[str, object]:
+            self.requests.append(request)
+            result = self._results.pop(0)
+            if isinstance(result, Exception):
+                raise result
+            return result
+
+    provider = _SequencedProvider(
+        results=[
+            ProviderInvocationError(
+                code="provider_http_error",
+                message="temporary upstream failure",
+                provider_status=503,
+                retryable=True,
+            ),
+            ProviderInvocationError(
+                code="provider_http_error",
+                message="temporary upstream failure",
+                provider_status=503,
+                retryable=True,
+            ),
+            {"model": DEFAULT_LLM_MODEL, "output_text": "ok"},
+        ]
+    )
+    client = LLMClient(
+        provider_registry={DEFAULT_LLM_PROVIDER: provider},
+        config_resolver=lambda: {},
+        request_id_factory=lambda: "req-retry",
+        sleep=_fake_sleep,
+    )
+
+    response = client.evaluate(LLMRequest(prompt="retry please"))
+
+    assert response.ok is True
+    assert response.output_text == "ok"
+    assert len(provider.requests) == 3
+    assert sleep_calls == [retry_backoff_seconds(0), retry_backoff_seconds(1)]
+
+
+class _FakeVLMResponse:
+    def __init__(self, payload: dict[str, object]):
+        self._payload: dict[str, object] = payload
+
+    def raise_for_status(self) -> None:
+        return None
+
+    def json(self) -> dict[str, object]:
+        return self._payload
+
+
+class _FakeVLMHttpClient:
+    def __init__(self, *args, **kwargs):
+        _ = (args, kwargs)
+        self.posts: list[dict[str, object]] = []
+
+    def post(
+        self,
+        url: str,
+        *,
+        json: dict[str, object],
+        headers: dict[str, str],
+        timeout: float | None = None,
+        **kwargs: object,
+    ):
+        _ = (timeout, kwargs)
+        self.posts.append({"url": url, "json": json, "headers": headers})
+        return _FakeVLMResponse(
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": "Action: click(start_box='<|box_start|>(500,250)<|box_end|>')"
+                        }
+                    }
+                ]
+            }
+        )
+def test_vlm_client_predict_converts_normalized_coordinates_to_pixels():
+    fake_http = _FakeVLMHttpClient()
+
+    client = VLMClient(
+        base_url="http://vlm.local/v1",
+        model="ui-tars-test",
+        api_key="secret",
+        http_client=cast(httpx.Client, cast(object, fake_http)),
+    )
+
+    action = client.predict("data:image/png;base64,AA==", "tap the button", screen_width=200, screen_height=100)
+
+    assert action.action == "ui.click"
+    assert action.coord_space == "pixel"
+    assert action.x == 100
+    assert action.y == 25
+    assert action.params["x"] == 100
+    assert action.params["y"] == 25
+    assert fake_http.posts[0]["url"] == "http://vlm.local/v1/chat/completions"
+
+
+def test_vlm_client_exposes_explicit_cleanup_lifecycle():
+    close_calls: list[bool] = []
+
+    class _FakeSharedClient:
+        def post(self, *args, **kwargs):
+            _ = (args, kwargs)
+            raise AssertionError("should not be used in this test")
+
+        def close(self) -> None:
+            close_calls.append(True)
+
+    fake_shared = _FakeSharedClient()
+
+    client = VLMClient(http_client=cast(httpx.Client, cast(object, fake_shared)))
+    peer = VLMClient(http_client=cast(httpx.Client, cast(object, fake_shared)))
+
+    assert hasattr(client, "close")
+    assert client.close() is None
+    assert peer.close() is None
+    assert close_calls == []

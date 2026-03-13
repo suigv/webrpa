@@ -1,12 +1,13 @@
-import { fetchJson } from '../utils/api.js';
-import { toast } from '../ui/toast.js';
-import { renderCommonFields } from '../utils/ui_utils.js';
-import { getTaskCatalog, apiSubmitTask, buildTaskRequest, collectTaskPayload } from './task_service.js';
+import { fetchJson } from '/static/js/utils/api.js';
+import { toast } from '/static/js/ui/toast.js';
+import { renderCommonFields } from '/static/js/utils/ui_utils.js';
+import { getTaskCatalog, apiSubmitTask, buildTaskRequest, collectTaskPayload } from '/static/js/features/task_service.js';
 
 const $ = (id) => document.getElementById(id);
 
 let pluginCatalog = [];
 let selectedTaskName = '';
+let currentEventSource = null;
 
 function clearElement(element) {
     if (element) {
@@ -22,46 +23,28 @@ function formatTargetText(targets) {
 
 function createInfoRow(labelText, valueText) {
     const row = document.createElement('div');
-    row.className = 'info-row';
+    row.style.cssText = 'margin-bottom: 12px;';
 
-    const label = document.createElement('span');
-    label.className = 'info-label';
+    const label = document.createElement('div');
+    label.className = 'text-xs text-muted mb-1';
     label.textContent = labelText;
 
-    const value = document.createElement('span');
-    value.className = 'info-value';
+    const value = document.createElement('div');
+    value.className = 'text-sm font-medium break-all';
     value.textContent = valueText;
 
     row.append(label, value);
     return row;
 }
 
-function resolveTargetsFromForm() {
-    const deviceValue = ($('targetDeviceId')?.value || '').trim();
-    const cloudValue = ($('targetCloudId')?.value || '').trim();
-
-    if (!deviceValue && !cloudValue) {
-        toast.warn('请明确填写设备 ID 和云机 ID');
-        return { ok: false };
+const closeTaskModal = () => {
+    const modal = $('taskModal');
+    if (modal) modal.style.display = 'none';
+    if (currentEventSource) {
+        currentEventSource.close();
+        currentEventSource = null;
     }
-
-    if (!deviceValue || !cloudValue) {
-        toast.warn('设备 ID 和云机 ID 需要同时填写');
-        return { ok: false };
-    }
-
-    const deviceId = Number(deviceValue);
-    const cloudId = Number(cloudValue);
-    if (!Number.isInteger(deviceId) || deviceId < 1 || !Number.isInteger(cloudId) || cloudId < 1) {
-        toast.warn('目标设备参数必须是大于 0 的整数');
-        return { ok: false };
-    }
-
-    return {
-        ok: true,
-        targets: [{ device_id: deviceId, cloud_id: cloudId }],
-    };
-}
+};
 
 export function initTasks() {
     const submitBtn = $('submitTask');
@@ -74,13 +57,9 @@ export function initTasks() {
     if (clearBtn) clearBtn.onclick = clearAllTasks;
     if (stopAllBtn) stopAllBtn.onclick = stopAllTasks;
 
-    const toggleBtn = $('toggleTasksAdvancedBtn');
-    if (toggleBtn) {
-        toggleBtn.onclick = () => {
-            const el = $('tasksAdvanced');
-            if (el) el.style.display = (el.style.display === 'block') ? 'none' : 'block';
-        };
-    }
+    const refreshTargetsBtn = $('refreshTaskTargets');
+    if (refreshTargetsBtn) refreshTargetsBtn.onclick = loadTaskTargets;
+    loadTaskTargets();
 
     document.querySelectorAll('.close-task-modal-btn').forEach(btn => {
         btn.onclick = closeTaskModal;
@@ -90,103 +69,123 @@ export function initTasks() {
     loadTasks();
 }
 
-const closeTaskModal = () => {
+async function loadTaskDetail(taskId) {
+    const r = await fetchJson(`/api/tasks/${taskId}`);
+    if (!r.ok) return;
+    const t = r.data;
+    
     const modal = $('taskModal');
-    if (modal) modal.style.display = 'none';
-};
-
-async function clearAllTasks() {
-    if (!confirm('此操作会清空托管任务状态与事件流水，运行中的任务不会被清空，是否继续？')) return;
-    const btn = $('clearTasks');
-    if (btn) btn.disabled = true;
-    try {
-        const r = await fetchJson('/api/tasks/', { method: 'DELETE', silentErrors: true });
-        if (r.ok) {
-            toast.success('任务历史已清理');
-            clearElement($('tasksList'));
-            await loadTasks();
-            return;
-        }
-        toast.error(r.data?.detail || '清理任务历史失败');
-    } finally { if (btn) btn.disabled = false; }
-}
-
-async function stopAllTasks() {
-    if (!confirm('确定要停止所有正在运行或等待中的任务吗？')) return;
-    const btn = $('stopAllTasks');
-    if (btn) btn.disabled = true;
-
-    try {
-        const r = await fetchJson('/api/tasks/');
-        if (!r.ok) return;
-        const tasks = r.data;
-        const activeTasks = tasks.filter(t => t.status === 'pending' || t.status === 'running');
-        
-        if (activeTasks.length === 0) {
-            toast.info('当前没有需要停止的任务');
-            return;
-        }
-
-        let successCount = 0;
-        for (const t of activeTasks) {
-            const res = await fetchJson(`/api/tasks/${t.task_id}/cancel`, { method: 'POST', silentErrors: true });
-            if (res.ok) successCount++;
-        }
-        
-        toast.success(`正在强制终止任务: ${successCount}/${activeTasks.length}`);
-        await loadTasks();
-    } finally {
-        if (btn) btn.disabled = false;
+    if (modal) modal.style.display = 'flex';
+    
+    // 1. 渲染左侧详情
+    const infoBox = $('taskInfoContent');
+    clearElement(infoBox);
+    
+    let finalName = t.display_name;
+    if (!finalName && pluginCatalog.length > 0) {
+        const matched = pluginCatalog.find(p => p.task === t.task_name);
+        if (matched) finalName = matched.display_name;
     }
-}
 
-async function cancelTask(taskId) {
-    const res = await fetchJson(`/api/tasks/${taskId}/cancel`, { method: 'POST', silentErrors: true });
-    if (res.ok) {
-        toast.success('正在停止任务并回收资源...');
-        await loadTasks();
-    } else {
-        toast.error('任务停止失败');
+    infoBox.append(
+        createInfoRow('任务 ID', t.task_id),
+        createInfoRow('驱动程序', finalName || t.task_name || '未知插件'),
+        createInfoRow('指派节点', formatTargetText(t.targets)),
+        createInfoRow('开始时间', t.started_at || '-'),
+        createInfoRow('结束时间', t.finished_at || '-')
+    );
+
+    // 状态 Badge
+    const badge = $('taskModalStatusBadge');
+    badge.className = `badge badge-${t.status === 'completed' ? 'ok' : (t.status === 'failed' ? 'warn' : 'default')}`;
+    badge.textContent = t.status.toUpperCase();
+
+    // 停止按钮状态
+    const cancelBtn = $('taskCancelBtn');
+    if (cancelBtn) {
+        cancelBtn.disabled = !['pending', 'running'].includes(t.status);
+        cancelBtn.onclick = () => cancelTask(t.task_id);
     }
+
+    // 2. 建立 SSE 连接
+    startTaskEventStream(taskId);
 }
 
-async function initPluginSelector() {
-    pluginCatalog = await getTaskCatalog();
-    renderPluginSelector();
-}
+function startTaskEventStream(taskId) {
+    if (currentEventSource) {
+        currentEventSource.close();
+    }
 
-function renderPluginSelector() {
-    const host = $('taskPluginHost');
-    if (!host) return;
-    clearElement(host);
-    pluginCatalog.forEach(p => {
-        const btn = document.createElement('div');
-        btn.className = 'plugin-item';
-        if (selectedTaskName === p.task) btn.classList.add('selected');
-        btn.textContent = p.display_name || p.task;
-        btn.onclick = () => {
-            selectedTaskName = p.task;
-            renderPluginSelector();
-            renderFields();
-        };
-        host.appendChild(btn);
+    const timeline = $('taskEventTimeline');
+    const statusText = $('eventStreamStatus');
+    clearElement(timeline);
+    statusText.textContent = '连接中...';
+
+    let streamClosed = false;
+    currentEventSource = new EventSource(`/api/tasks/${taskId}/events`);
+
+    currentEventSource.onopen = () => {
+        statusText.textContent = '🟢 实时同步中';
+    };
+
+    currentEventSource.onerror = () => {
+        if (!streamClosed) {
+            statusText.textContent = '⚪ 连接已断开';
+        }
+        currentEventSource.close();
+    };
+
+    // 监听所有自定义事件
+    const eventTypes = [
+        'task.created', 'task.started', 'task.completed', 'task.failed', 'task.cancelled',
+        'interpreter.step_start', 'interpreter.step_result',
+        'action.executing', 'action.success', 'action.failed',
+        'humanized.click', 'humanized.typing'
+    ];
+
+    eventTypes.forEach(type => {
+        currentEventSource.addEventListener(type, (e) => {
+            const data = JSON.parse(e.data);
+            appendEventToTimeline(type, data);
+            if (['task.completed', 'task.failed', 'task.cancelled'].includes(type)) {
+                streamClosed = true;
+                statusText.textContent = '🏁 执行结束';
+            }
+        });
     });
 }
 
-function renderFields() {
-    const p = pluginCatalog.find(x => x.task === selectedTaskName);
-    const container = $('taskPayloadFields');
-    renderCommonFields(container, p, false);
+function appendEventToTimeline(type, data) {
+    const timeline = $('taskEventTimeline');
+    const line = document.createElement('div');
+    line.style.marginBottom = '8px';
+    line.style.borderLeft = '2px solid var(--border)';
+    line.style.paddingLeft = '8px';
 
-    const showMoreFields = $('showMoreFields');
-    if (showMoreFields && container) {
-        showMoreFields.onclick = () => {
-            const fields = container.querySelectorAll('.field-optional');
-            const isHidden = fields[0]?.style.display === 'none';
-            fields.forEach(el => el.style.display = isHidden ? 'flex' : 'none');
-            showMoreFields.textContent = isHidden ? '收起可选参数' : '显示高级参数';
-        };
+    const timestamp = new Date().toLocaleTimeString();
+    let content = `<span class="text-muted">[${timestamp}]</span> `;
+    
+    // 根据事件类型定制显示
+    if (type.startsWith('humanized.')) {
+        content += `<span style="color:var(--primary-soft)">[仿真]</span> `;
+        if (type === 'humanized.click') {
+            content += `点击偏移: ${data.offset}, 按压: ${data.hold_ms}ms`;
+        } else {
+            content += `打字序列生成, 平均延迟: ${data.avg_delay_ms}ms`;
+        }
+    } else if (type === 'interpreter.step_start') {
+        content += `<span style="color:var(--info)">[步骤]</span> 执行: ${data.label || data.pc}`;
+    } else if (type === 'action.failed') {
+        content += `<span class="text-error">[错误]</span> ${data.message || '动作执行失败'}`;
+    } else if (type === 'task.completed') {
+        content += `<span class="text-success">[成功]</span> 任务已圆满结束`;
+    } else {
+        content += `${type}: ${JSON.stringify(data)}`;
     }
+
+    line.innerHTML = content;
+    timeline.appendChild(line);
+    timeline.scrollTop = timeline.scrollHeight;
 }
 
 export async function loadTasks() {
@@ -208,9 +207,6 @@ function renderTasksList(tasks) {
         const title = document.createElement('span');
         title.className = 'list-item-title';
         
-        // 1. 优先使用后端返回的 display_name
-        // 2. 其次尝试从本地插件目录缓存匹配
-        // 3. 最后使用 task_name 或 '未知任务'
         let finalName = t.display_name;
         if (!finalName && pluginCatalog.length > 0) {
             const matched = pluginCatalog.find(p => p.task === t.task_name);
@@ -230,11 +226,11 @@ function renderTasksList(tasks) {
 
         const detailBtn = document.createElement('button');
         detailBtn.className = 'btn btn-secondary btn-sm';
-        detailBtn.textContent = '详情';
+        detailBtn.textContent = '追踪轨迹';
         detailBtn.onclick = () => loadTaskDetail(t.task_id);
         buttonGroup.appendChild(detailBtn);
 
-        if (t.status === 'pending' || t.status === 'running') {
+        if (['pending', 'running'].includes(t.status)) {
             const cancelBtn = document.createElement('button');
             cancelBtn.className = 'btn btn-danger btn-sm';
             cancelBtn.textContent = '停止';
@@ -250,74 +246,118 @@ function renderTasksList(tasks) {
     });
 }
 
-async function loadTaskDetail(taskId) {
-    const r = await fetchJson(`/api/tasks/${taskId}`);
-    if (!r.ok) return;
-    const t = r.data;
-    const modal = $('taskModal');
-    const body = $('taskDetailBody');
-    if (modal) modal.style.display = 'flex';
-    if (body) {
-        clearElement(body);
+async function cancelTask(taskId) {
+    const res = await fetchJson(`/api/tasks/${taskId}/cancel`, { method: "POST", silentErrors: true });
+    if (res.ok) {
+        toast.success('正在停止任务并回收资源...');
+        await loadTasks();
+        // 如果正在看详情，刷新状态
+        const badge = $('taskModalStatusBadge');
+        if (badge) badge.textContent = 'CANCELLING';
+    } else {
+        toast.error('任务停止失败');
+    }
+}
 
-        const STATUS_LABELS = {
-            'pending': '⏳ 等待中',
-            'running': '⚙️ 运行中',
-            'completed': '✅ 任务成功',
-            'failed': '❌ 执行失败',
-            'cancelled': '⏹️ 已取消'
-        };
+async function clearAllTasks() {
+    if (!confirm('此操作会清空托管任务状态与事件流水，运行中的任务不会被清空，是否继续？')) return;
+    const btn = $('clearTasks');
+    if (btn) btn.disabled = true;
+    try {
+        const r = await fetchJson('/api/tasks/', { method: 'DELETE', silentErrors: true });
+        if (r.ok) {
+            toast.success('任务历史已清理');
+            await loadTasks();
+            return;
+        }
+        toast.error(r.data?.detail || '清理任务历史失败');
+    } finally { if (btn) btn.disabled = false; }
+}
 
-        const infoGrid = document.createElement('div');
-        infoGrid.className = 'info-grid';
+async function stopAllTasks() {
+    if (!confirm('确定要停止所有正在运行或等待中的任务吗？')) return;
+    const btn = $('stopAllTasks');
+    if (btn) btn.disabled = true;
+
+    try {
+        const r = await fetchJson('/api/tasks/');
+        if (!r.ok) return;
+        const tasks = r.data;
+        const activeTasks = tasks.filter(t => ['pending', 'running'].includes(t.status));
         
-        // 查找中文任务名
-        let finalName = t.display_name;
-        if (!finalName && pluginCatalog.length > 0) {
-            const matched = pluginCatalog.find(p => p.task === t.task_name);
-            if (matched) finalName = matched.display_name;
+        if (activeTasks.length === 0) {
+            toast.info('当前没有需要停止的任务');
+            return;
         }
 
-        infoGrid.append(
-            createInfoRow('任务 ID', t.task_id),
-            createInfoRow('驱动程序', finalName || t.task_name || '未知插件'),
-            createInfoRow('实时状态', STATUS_LABELS[t.status] || t.status),
-            createInfoRow('指派节点', formatTargetText(t.targets)),
-        );
-        body.appendChild(infoGrid);
-
-        if (t.result !== undefined && t.result !== null) {
-            const wrapper = document.createElement('div');
-            wrapper.className = 'mt-4';
-
-            const label = document.createElement('div');
-            label.className = 'info-label mb-2';
-            label.textContent = '详细执行报告 (JSON)';
-
-            const code = document.createElement('div');
-            code.className = 'code-block';
-            code.textContent = JSON.stringify(t.result, null, 2);
-
-            wrapper.append(label, code);
-            body.appendChild(wrapper);
+        let successCount = 0;
+        for (const t of activeTasks) {
+            const res = await fetchJson(`/api/tasks/${t.task_id}/cancel`, { method: 'POST', silentErrors: true });
+            if (res.ok) successCount++;
         }
+        
+        toast.success(`正在强制终止任务: ${successCount}/${activeTasks.length}`);
+        await loadTasks();
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
 
-        if (t.error) {
-            const errorWrapper = document.createElement('div');
-            errorWrapper.className = 'mt-4';
-            
-            const errLabel = document.createElement('div');
-            errLabel.className = 'info-label mb-2 text-error';
-            errLabel.textContent = '异常错误摘要';
+async function initPluginSelector() {
+    pluginCatalog = await getTaskCatalog();
+    renderPluginSelector();
+}
 
-            const error = document.createElement('div');
-            error.className = 'p-3 bg-app rounded border border-error text-error text-xs';
-            error.style.whiteSpace = 'pre-wrap';
-            error.textContent = t.error;
-            
-            errorWrapper.append(errLabel, error);
-            body.appendChild(errorWrapper);
-        }
+function renderPluginSelector() {
+    const host = $('taskPluginHost');
+    if (!host) return;
+    clearElement(host);
+
+    // Group by category
+    const groups = {};
+    pluginCatalog.forEach(p => {
+        const cat = p.category || '其他';
+        if (!groups[cat]) groups[cat] = [];
+        groups[cat].push(p);
+    });
+
+    Object.entries(groups).forEach(([cat, plugins]) => {
+        const label = document.createElement('div');
+        label.className = 'plugin-category-label';
+        label.textContent = cat;
+        host.appendChild(label);
+
+        const grid = document.createElement('div');
+        grid.className = 'plugin-grid';
+        plugins.forEach(p => {
+            const btn = document.createElement('div');
+            btn.className = 'plugin-item';
+            if (selectedTaskName === p.task) btn.classList.add('selected');
+            btn.textContent = p.display_name || p.task;
+            btn.onclick = () => {
+                selectedTaskName = p.task;
+                renderPluginSelector();
+                renderFields();
+            };
+            grid.appendChild(btn);
+        });
+        host.appendChild(grid);
+    });
+}
+
+function renderFields() {
+    const p = pluginCatalog.find(x => x.task === selectedTaskName);
+    const container = $('taskPayloadFields');
+    renderCommonFields(container, p, false);
+
+    const showMoreFields = $('showMoreFields');
+    if (showMoreFields && container) {
+        showMoreFields.onclick = () => {
+            const fields = container.querySelectorAll('.field-optional');
+            const isHidden = fields[0]?.style.display === 'none';
+            fields.forEach(el => el.style.display = isHidden ? 'flex' : 'none');
+            showMoreFields.textContent = isHidden ? '收起可选参数' : '显示高级参数';
+        };
     }
 }
 
@@ -347,4 +387,49 @@ async function submitTask() {
     } finally {
         if (btn) btn.disabled = false;
     }
+}
+
+async function loadTaskTargets() {
+    const container = $('taskTargetList');
+    const hint = $('taskTargetHint');
+    if (!container) return;
+    try {
+        const r = await fetchJson('/api/devices/');
+        if (!r.ok) return;
+        const units = [];
+        (r.data || []).forEach(d => {
+            (d.cloud_machines || []).forEach(u => {
+                if (u.availability_state === 'available') {
+                    units.push({ device_id: d.device_id, cloud_id: u.cloud_id, label: `#${d.device_id}-${u.cloud_id}` });
+                }
+            });
+        });
+        container.replaceChildren();
+        if (units.length === 0) {
+            container.innerHTML = '<span class="text-muted" style="font-size:12px;">暂无在线节点</span>';
+            return;
+        }
+        units.forEach(u => {
+            const label = document.createElement('label');
+            label.className = 'custom-checkbox inline-flex items-center gap-1';
+            label.innerHTML = `<input type="checkbox" class="task-target-cb" data-device="${u.device_id}" data-cloud="${u.cloud_id}"><span class="checkmark"></span><span>${u.label}</span>`;
+            container.appendChild(label);
+        });
+        if (hint) hint.textContent = `共 ${units.length} 个在线节点，可多选`;
+    } catch(e) {
+        if (hint) hint.textContent = '加载节点失败';
+    }
+}
+
+function resolveTargetsFromForm() {
+    const checked = document.querySelectorAll('.task-target-cb:checked');
+    if (checked.length === 0) {
+        toast.warn('请至少勾选一个目标节点');
+        return { ok: false };
+    }
+    const targets = Array.from(checked).map(cb => ({
+        device_id: parseInt(cb.dataset.device),
+        cloud_id: parseInt(cb.dataset.cloud),
+    }));
+    return { ok: true, targets };
 }

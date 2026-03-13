@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from collections import deque
-from collections.abc import Callable
 from dataclasses import dataclass
-from typing import cast
+from typing import Any
 
+from engine.actions import ui_state_actions
 from engine.models.runtime import ActionResult, ExecutionContext
 
 
@@ -13,15 +13,17 @@ class RouteDefinition:
     route_id: str
     display_name: str
     binding_id: str
-    current_state_ids: tuple[str, ...] = ("available", "missing")
-    arrival_state_ids: tuple[str, ...] = ("available", "missing")
+    platform: str
+    current_state_ids: tuple[str, ...]
+    arrival_state_ids: tuple[str, ...]
 
 
 @dataclass(frozen=True)
 class RouteAttempt:
     attempt_id: str
     description: str
-    runner: Callable[[dict[str, object], ExecutionContext], ActionResult]
+    action: str
+    params: dict[str, object]
 
 
 @dataclass(frozen=True)
@@ -32,242 +34,246 @@ class RouteHop:
     attempts: tuple[RouteAttempt, ...]
 
 
-_ROUTES: dict[str, RouteDefinition] = {
-    "home_timeline": RouteDefinition(
-        route_id="home_timeline",
-        display_name="home timeline",
-        binding_id="timeline_candidates",
-    ),
-    "search_results": RouteDefinition(
-        route_id="search_results",
-        display_name="search results",
-        binding_id="search_candidates",
-    ),
-    "messages_inbox": RouteDefinition(
-        route_id="messages_inbox",
-        display_name="messages inbox",
-        binding_id="dm_unread",
-    ),
-}
+def _coerce_state_ids(raw: object, *, fallback: tuple[str, ...]) -> tuple[str, ...]:
+    if raw is None:
+        return fallback
+    if isinstance(raw, str):
+        values = tuple(part.strip() for part in raw.split(",") if part.strip())
+        return values or fallback
+    if isinstance(raw, (list, tuple)):
+        values = tuple(str(part).strip() for part in raw if str(part).strip())
+        return values or fallback
+    return fallback
 
 
-def _load_ui_scheme(params: dict[str, object], context: ExecutionContext) -> ActionResult:
-    from engine.actions import sdk_actions
-
-    return sdk_actions.load_ui_scheme(params, context)
-
-
-def _load_ui_selector(params: dict[str, object], context: ExecutionContext) -> ActionResult:
-    from engine.actions import sdk_actions
-
-    return sdk_actions.load_ui_selector(params, context)
+def _common_params(params: dict[str, object], context: ExecutionContext) -> dict[str, object]:
+    common = params.get("common_params")
+    if isinstance(common, dict):
+        return dict(common)
+    session_common = context.get_session_default("common_params")
+    if isinstance(session_common, dict):
+        return dict(session_common)
+    return {}
 
 
-def _exec_command(params: dict[str, object], context: ExecutionContext) -> ActionResult:
-    from engine.actions import ui_actions
+def _build_routes(params: dict[str, object], context: ExecutionContext) -> tuple[dict[str, RouteDefinition], ActionResult | None]:
+    raw_routes = params.get("routes") or context.get_session_default("routes")
+    if not isinstance(raw_routes, dict) or not raw_routes:
+        return {}, ActionResult(ok=False, code="invalid_params", message="routes is required")
 
-    return ui_actions.exec_command(params, context)
-
-
-def _app_open(params: dict[str, object], context: ExecutionContext) -> ActionResult:
-    from engine.actions import ui_actions
-
-    return ui_actions.app_open(params, context)
-
-
-def _selector_click_one(params: dict[str, object], context: ExecutionContext) -> ActionResult:
-    from engine.actions import ui_actions
-
-    return ui_actions.selector_click_one(params, context)
-
-
-def _ui_match_state(params: dict[str, object], context: ExecutionContext) -> ActionResult:
-    from engine.actions import ui_state_actions
-
-    return ui_state_actions.ui_match_state(params, context)
-
-
-def _resolve_device_ip(params: dict[str, object], context: ExecutionContext) -> str:
-    payload = context.payload
-    return str(
-        params.get("device_ip")
-        or context.get_session_default("device_ip")
-        or payload.get("device_ip")
-        or ""
-    ).strip()
+    routes: dict[str, RouteDefinition] = {}
+    for route_id, raw in raw_routes.items():
+        if not route_id:
+            continue
+        if not isinstance(raw, dict):
+            return {}, ActionResult(ok=False, code="invalid_params", message=f"invalid route definition: {route_id}")
+        binding_id = str(raw.get("binding_id") or "").strip()
+        if not binding_id:
+            return {}, ActionResult(ok=False, code="invalid_params", message=f"binding_id is required for route: {route_id}")
+        display_name = str(raw.get("display_name") or route_id).strip() or str(route_id)
+        platform = str(raw.get("platform") or "native").strip().lower() or "native"
+        current_state_ids = _coerce_state_ids(raw.get("current_state_ids"), fallback=("available", "missing"))
+        arrival_state_ids = _coerce_state_ids(raw.get("arrival_state_ids"), fallback=current_state_ids)
+        routes[str(route_id)] = RouteDefinition(
+            route_id=str(route_id),
+            display_name=display_name,
+            binding_id=binding_id,
+            platform=platform,
+            current_state_ids=current_state_ids,
+            arrival_state_ids=arrival_state_ids,
+        )
+    if not routes:
+        return {}, ActionResult(ok=False, code="invalid_params", message="routes is required")
+    return routes, None
 
 
-def _resolve_package(params: dict[str, object], context: ExecutionContext) -> str:
-    payload = context.payload
-    return str(
-        params.get("package")
-        or context.get_session_default("package")
-        or payload.get("package")
-        or "com.twitter.android"
-    ).strip()
+def _build_hops(params: dict[str, object], context: ExecutionContext) -> tuple[tuple[RouteHop, ...], ActionResult | None]:
+    raw_hops = params.get("hops") or context.get_session_default("hops") or []
+    if not isinstance(raw_hops, list):
+        return (), ActionResult(ok=False, code="invalid_params", message="hops must be a list")
+    if not raw_hops:
+        return (), None
+
+    hops: list[RouteHop] = []
+    for idx, raw in enumerate(raw_hops):
+        if not isinstance(raw, dict):
+            return (), ActionResult(ok=False, code="invalid_params", message=f"invalid hop definition at index {idx}")
+        from_route = str(raw.get("from_route") or "").strip()
+        to_route = str(raw.get("to_route") or "").strip()
+        if not from_route or not to_route:
+            return (), ActionResult(ok=False, code="invalid_params", message=f"from_route/to_route required at hop index {idx}")
+        hop_id = str(raw.get("hop_id") or f"{from_route}_to_{to_route}").strip()
+        raw_attempts = raw.get("attempts")
+        if not isinstance(raw_attempts, list) or not raw_attempts:
+            return (), ActionResult(ok=False, code="invalid_params", message=f"attempts required at hop index {idx}")
+
+        attempts: list[RouteAttempt] = []
+        for attempt_idx, attempt_raw in enumerate(raw_attempts):
+            if not isinstance(attempt_raw, dict):
+                return (), ActionResult(ok=False, code="invalid_params", message=f"invalid attempt at hop {hop_id} index {attempt_idx}")
+            action = str(attempt_raw.get("action") or "").strip()
+            if not action:
+                return (), ActionResult(ok=False, code="invalid_params", message=f"action required at hop {hop_id} index {attempt_idx}")
+            attempt_id = str(attempt_raw.get("attempt_id") or f"{hop_id}_{attempt_idx}").strip()
+            description = str(attempt_raw.get("description") or action).strip()
+            attempt_params = attempt_raw.get("params")
+            if attempt_params is None:
+                attempt_params = {}
+            if not isinstance(attempt_params, dict):
+                return (), ActionResult(ok=False, code="invalid_params", message=f"invalid params at hop {hop_id} index {attempt_idx}")
+            attempts.append(
+                RouteAttempt(
+                    attempt_id=attempt_id,
+                    description=description,
+                    action=action,
+                    params=dict(attempt_params),
+                )
+            )
+        hops.append(
+            RouteHop(
+                hop_id=hop_id,
+                from_route=from_route,
+                to_route=to_route,
+                attempts=tuple(attempts),
+            )
+        )
+    return tuple(hops), None
 
 
-def _build_common_params(params: dict[str, object], context: ExecutionContext) -> dict[str, object]:
-    common: dict[str, object] = {}
-    device_ip = _resolve_device_ip(params, context)
-    package = _resolve_package(params, context)
-    if device_ip:
-        common["device_ip"] = device_ip
-    if package:
-        common["package"] = package
-    return common
+def _build_graph(hops: tuple[RouteHop, ...]) -> dict[str, tuple[RouteHop, ...]]:
+    graph: dict[str, tuple[RouteHop, ...]] = {}
+    for hop in hops:
+        existing = graph.get(hop.from_route, tuple())
+        graph[hop.from_route] = (*existing, hop)
+    return graph
 
 
-def _run_home_scheme(params: dict[str, object], context: ExecutionContext) -> ActionResult:
-    scheme = _load_ui_scheme({"key": "home"}, context)
-    if not scheme.ok:
-        return scheme
-    command = str((scheme.data or {}).get("command") or "").strip()
-    if not command:
-        return ActionResult(ok=False, code="ui_scheme_invalid", message="home scheme missing command")
-    return _exec_command({**_build_common_params(params, context), "command": command}, context)
+def _probe_route(route: RouteDefinition, params: dict[str, object], context: ExecutionContext, state_ids: tuple[str, ...]) -> dict[str, object]:
+    probe_params = {
+        **_common_params(params, context),
+        "platform": route.platform,
+        "binding_id": route.binding_id,
+        "expected_state_ids": list(state_ids),
+    }
+    result = ui_state_actions.ui_match_state(probe_params, context)
+    state = result.data.get("state") or {}
+    state_id = str(getattr(state, "get", lambda *_: "unknown")("state_id") or "unknown")
+    return {
+        "binding_id": route.binding_id,
+        "matched": bool(result.ok and state_id in state_ids),
+        "code": result.code,
+        "state_id": state_id,
+        "message": result.message,
+    }
 
 
-def _run_open_app(params: dict[str, object], context: ExecutionContext) -> ActionResult:
-    return _app_open(_build_common_params(params, context), context)
+def _resolve_current_route(routes: dict[str, RouteDefinition], params: dict[str, object], context: ExecutionContext) -> dict[str, object]:
+    matched_routes: list[str] = []
+    probes: dict[str, dict[str, object]] = {}
+    for route_id, route in routes.items():
+        probe = _probe_route(route, params, context, state_ids=route.current_state_ids)
+        probes[route_id] = probe
+        if probe["matched"]:
+            matched_routes.append(route_id)
+    if len(matched_routes) == 1:
+        return {"route_id": matched_routes[0], "probes": probes}
+    return {"route_id": None, "probes": probes}
 
 
-def _run_home_tab_click(params: dict[str, object], context: ExecutionContext) -> ActionResult:
-    selector = _load_ui_selector({"key": "home.nav_home"}, context)
-    if not selector.ok:
-        return selector
-    selector_params = {**_build_common_params(params, context), **dict(selector.data or {})}
-    _ = selector_params.pop("key", None)
-    _ = selector_params.pop("locale", None)
-    return _selector_click_one(selector_params, context)
+def _resolve_path(graph: dict[str, tuple[RouteHop, ...]], start: str, target: str) -> list[RouteHop]:
+    queue: deque[tuple[str, list[RouteHop]]] = deque([(start, [])])
+    visited = {start}
+    while queue:
+        node, path = queue.popleft()
+        for hop in graph.get(node, ()):  # pragma: no branch
+            next_path = [*path, hop]
+            if hop.to_route == target:
+                return next_path
+            if hop.to_route in visited:
+                continue
+            visited.add(hop.to_route)
+            queue.append((hop.to_route, next_path))
+    return []
 
 
-def _resolve_search_query(params: dict[str, object]) -> str:
-    return str(params.get("query") or params.get("search_query") or "").strip()
+def _run_attempt(attempt: RouteAttempt, params: dict[str, object], context: ExecutionContext) -> ActionResult:
+    from engine.action_registry import resolve_action
+
+    handler = resolve_action(attempt.action)
+    merged_params = {**_common_params(params, context), **attempt.params}
+    return handler(merged_params, context)
 
 
-def _run_search_scheme(params: dict[str, object], context: ExecutionContext) -> ActionResult:
-    query = _resolve_search_query(params)
-    if not query:
-        return ActionResult(ok=False, code="invalid_params", message="query is required for search_results")
-    scheme = _load_ui_scheme({"key": "search_query", "kwargs": {"query": query}}, context)
-    if not scheme.ok:
-        return scheme
-    command = str((scheme.data or {}).get("command") or "").strip()
-    if not command:
-        return ActionResult(ok=False, code="ui_scheme_invalid", message="search scheme missing command")
-    return _exec_command({**_build_common_params(params, context), "command": command}, context)
+def _execute_hop(
+    routes: dict[str, RouteDefinition],
+    hop: RouteHop,
+    params: dict[str, object],
+    context: ExecutionContext,
+    *,
+    active_route: str,
+) -> dict[str, object]:
+    attempts: list[dict[str, object]] = []
+    destination = routes[hop.to_route]
+    for attempt in hop.attempts:
+        action_result = _run_attempt(attempt, params, context)
+        attempts.append(
+            {
+                "attempt_id": attempt.attempt_id,
+                "description": attempt.description,
+                "action_ok": action_result.ok,
+                "action_code": action_result.code,
+                "action_message": action_result.message,
+            }
+        )
+        destination_probe = _probe_route(destination, params, context, state_ids=destination.arrival_state_ids)
+        attempts[-1]["postcondition"] = destination_probe
+        if destination_probe["matched"]:
+            return {"code": "ok", "message": f"reached {destination.display_name}", "attempts": attempts}
 
-
-def _run_messages_scheme(params: dict[str, object], context: ExecutionContext) -> ActionResult:
-    scheme = _load_ui_scheme({"key": "messages"}, context)
-    if not scheme.ok:
-        return scheme
-    command = str((scheme.data or {}).get("command") or "").strip()
-    if not command:
-        return ActionResult(ok=False, code="ui_scheme_invalid", message="messages scheme missing command")
-    return _exec_command({**_build_common_params(params, context), "command": command}, context)
-
-
-def _run_messages_tab_click(params: dict[str, object], context: ExecutionContext) -> ActionResult:
-    selector = _load_ui_selector({"key": "dm.nav_messages"}, context)
-    if not selector.ok:
-        return selector
-    selector_params = {**_build_common_params(params, context), **dict(selector.data or {})}
-    _ = selector_params.pop("key", None)
-    _ = selector_params.pop("locale", None)
-    return _selector_click_one(selector_params, context)
-
-
-_HOPS: tuple[RouteHop, ...] = (
-    RouteHop(
-        hop_id="home_to_search_results",
-        from_route="home_timeline",
-        to_route="search_results",
-        attempts=(RouteAttempt("open_search_scheme", "open search results scheme", _run_search_scheme),),
-    ),
-    RouteHop(
-        hop_id="search_to_home_timeline",
-        from_route="search_results",
-        to_route="home_timeline",
-        attempts=(
-            RouteAttempt("open_home_scheme", "open home timeline scheme", _run_home_scheme),
-            RouteAttempt("open_app_home", "open app for home fallback", _run_open_app),
-            RouteAttempt("tap_home_tab", "tap home tab fallback", _run_home_tab_click),
-        ),
-    ),
-    RouteHop(
-        hop_id="home_to_messages_inbox",
-        from_route="home_timeline",
-        to_route="messages_inbox",
-        attempts=(
-            RouteAttempt("open_messages_scheme", "open messages scheme", _run_messages_scheme),
-            RouteAttempt("tap_messages_tab", "tap messages tab fallback", _run_messages_tab_click),
-        ),
-    ),
-    RouteHop(
-        hop_id="messages_to_home_timeline",
-        from_route="messages_inbox",
-        to_route="home_timeline",
-        attempts=(
-            RouteAttempt("open_home_scheme", "open home timeline scheme", _run_home_scheme),
-            RouteAttempt("open_app_home", "open app for home fallback", _run_open_app),
-            RouteAttempt("tap_home_tab", "tap home tab fallback", _run_home_tab_click),
-        ),
-    ),
-)
-
-_GRAPH: dict[str, tuple[RouteHop, ...]] = {}
-for _hop in _HOPS:
-    existing = _GRAPH.get(_hop.from_route, tuple())
-    _GRAPH[_hop.from_route] = (*existing, _hop)
+    observed_route = _resolve_current_route(routes, params, context)
+    observed_id = observed_route["route_id"]
+    if observed_id is not None and observed_id != active_route:
+        observed = routes[str(observed_id)]
+        return {
+            "code": "state_drift_detected",
+            "message": f"navigation drifted to {observed.display_name} while targeting {destination.display_name}",
+            "attempts": attempts,
+            "observed_route": observed_id,
+        }
+    return {
+        "code": "target_unreachable",
+        "message": f"unable to reach {destination.display_name} from {active_route}",
+        "attempts": attempts,
+        "observed_route": observed_id,
+    }
 
 
 def navigate_to(params: dict[str, object], context: ExecutionContext) -> ActionResult:
+    routes, err = _build_routes(params, context)
+    if err is not None:
+        return err
+    hops, err = _build_hops(params, context)
+    if err is not None:
+        return err
+
     target = str(params.get("target") or "").strip()
-    route = _ROUTES.get(target)
+    if not target:
+        return ActionResult(ok=False, code="invalid_params", message="target is required")
+    route = routes.get(target)
     if route is None:
-        return ActionResult(ok=False, code="target_unreachable", message=f"unsupported navigation target: {target or 'unknown'}")
+        return ActionResult(ok=False, code="target_unreachable", message=f"unsupported navigation target: {target}")
 
-    # --- 增强：启发式识别与自愈逻辑 ---
-    current_route = _resolve_current_route(params, context)
-    
-    # 如果第一次识别失败，尝试启动“清道夫”自愈一次
+    current_route = _resolve_current_route(routes, params, context)
     if current_route["route_id"] is None:
-        if context.emit_event:
-            context.emit_event("task.action_result", {
-                "step": "自愈",
-                "label": "当前页面状态模糊，正在尝试自动排除环境干扰...",
-                "ok": True
-            })
-
-        from engine.actions import state_actions
-        rpc, _ = state_actions._connect_rpc(params, context)
-        if rpc:
-            from engine.actions import _state_detection_support
-            cleaned = _state_detection_support.auto_clean_interstitials(rpc, context=context)
-            state_actions._close_rpc(rpc)
-            if cleaned > 0:
-                # 清理后重新探测
-                current_route = _resolve_current_route(params, context)
-
-    if current_route["route_id"] is None:
-        # 如果依然失败，尝试通过“核心锚点”进行兜底判定
-        current_route = _resolve_by_anchors(params, context)
-
-    if current_route["route_id"] is None:
-        # 在报错前，尝试向日志推送详细的失败诊断
-        from engine.actions import ui_actions
-        probes = current_route.get("probes", {})
-        diag_msg = " | ".join([f"{k}:{v.get('state_id','?')}" for k,v in probes.items()])
-        
+        probes_obj = current_route.get("probes")
+        probes = probes_obj if isinstance(probes_obj, dict) else {}
+        diag_msg = " | ".join(f"{key}:{value.get('state_id', '?')}" for key, value in probes.items())
         return ActionResult(
             ok=False,
             code="unknown_current_state",
-            message=f"无法确定当前状态。探测详情: {diag_msg}",
+            message=f"unable to determine current state. probes: {diag_msg}",
             data={"target": target, "probes": probes},
         )
-    # --- 增强结束 ---
 
     current_id = str(current_route["route_id"])
     if current_id == target:
@@ -278,7 +284,8 @@ def navigate_to(params: dict[str, object], context: ExecutionContext) -> ActionR
             data={"target": target, "current_route": current_id, "noop": True, "path": []},
         )
 
-    path = _resolve_path(current_id, target)
+    graph = _build_graph(hops)
+    path = _resolve_path(graph, current_id, target)
     if not path:
         return ActionResult(
             ok=False,
@@ -290,7 +297,7 @@ def navigate_to(params: dict[str, object], context: ExecutionContext) -> ActionR
     history: list[dict[str, object]] = []
     active_route = current_id
     for hop in path:
-        hop_result = _execute_hop(hop, params, context, active_route=active_route)
+        hop_result = _execute_hop(routes, hop, params, context, active_route=active_route)
         history.append(hop_result)
         if hop_result["code"] != "ok":
             return ActionResult(
@@ -310,148 +317,11 @@ def navigate_to(params: dict[str, object], context: ExecutionContext) -> ActionR
         ok=True,
         code="ok",
         message=f"navigated to {route.display_name}",
-        data={"target": target, "current_route": active_route, "noop": False, "path": [hop.hop_id for hop in path], "history": history},
-    )
-
-
-def _resolve_current_route(params: dict[str, object], context: ExecutionContext) -> dict[str, object]:
-    matched_routes: list[str] = []
-    probes: dict[str, dict[str, object]] = {}
-    for route_id, route in _ROUTES.items():
-        probe = _probe_route(route, params, context, state_ids=route.current_state_ids)
-        probes[route_id] = probe
-        if probe["matched"]:
-            matched_routes.append(route_id)
-    if len(matched_routes) == 1:
-        return {"route_id": matched_routes[0], "probes": probes}
-    return {"route_id": None, "probes": probes}
-
-
-def _resolve_by_anchors(params: dict[str, object], context: ExecutionContext) -> dict[str, object]:
-    """
-    通过核心锚点（如导航栏）进行强行判定，无视页面中间的干扰。
-    """
-    from engine.actions import state_actions
-    rpc, _ = state_actions._connect_rpc(params, context)
-    if not rpc:
-        return {"route_id": None, "probes": {}}
-    
-    try:
-        # 定义锚点语义匹配规则 (匹配文字, 对应的页面)
-        ANCHOR_PATTERNS = [
-            (["主页", "Home", "ホーム"], "home_timeline"),
-            (["搜索", "Search", "探索", "Explore"], "search_results"),
-            (["私信", "Messages", "聊天"], "messages_inbox"),
-        ]
-        
-        # 抓取当前所有选中的节点
-        xml_text = rpc.dump_node_xml(False)
-        if not xml_text:
-            return {"route_id": None, "probes": {}}
-            
-        import xml.etree.ElementTree as ET
-        root = ET.fromstring(xml_text)
-        
-        for node in root.iter("node"):
-            # 只有处于 selected 状态的导航按钮才作为判定锚点
-            # 修正：从 node.attrib 中读取属性，而非 getattr
-            if node.attrib.get("selected") == "true":
-                desc = str(node.attrib.get("content-desc") or "").strip()
-                text = str(node.attrib.get("text") or "").strip()
-                combined = f"{desc} {text}"
-                
-                for markers, route_id in ANCHOR_PATTERNS:
-                    if any(m in combined for m in markers):
-                        return {"route_id": route_id, "probes": {"anchor_semantic": "matched"}}
-    except Exception as e:
-        print(f"DEBUG: 锚点判定过程出现异常: {e}")
-    finally:
-        state_actions._close_rpc(rpc)
-        
-    return {"route_id": None, "probes": {}}
-
-
-def _probe_route(
-    route: RouteDefinition,
-    params: dict[str, object],
-    context: ExecutionContext,
-    *,
-    state_ids: tuple[str, ...],
-) -> dict[str, object]:
-    result = _ui_match_state(
-        {
-            **_build_common_params(params, context),
-            "platform": "native",
-            "binding_id": route.binding_id,
-            "expected_state_ids": list(state_ids),
+        data={
+            "target": target,
+            "current_route": active_route,
+            "noop": False,
+            "path": [hop.hop_id for hop in path],
+            "history": history,
         },
-        context,
     )
-    state = cast(dict[str, object], result.data.get("state") or {})
-    state_id = str(state.get("state_id") or "unknown")
-    return {
-        "binding_id": route.binding_id,
-        "matched": bool(result.ok and state_id in state_ids),
-        "code": result.code,
-        "state_id": state_id,
-        "message": result.message,
-    }
-
-
-def _resolve_path(start: str, target: str) -> list[RouteHop]:
-    queue: deque[tuple[str, list[RouteHop]]] = deque([(start, [])])
-    visited = {start}
-    while queue:
-        node, path = queue.popleft()
-        for hop in _GRAPH.get(node, ()):  # pragma: no branch - bounded table
-            next_path = [*path, hop]
-            if hop.to_route == target:
-                return next_path
-            if hop.to_route in visited:
-                continue
-            visited.add(hop.to_route)
-            queue.append((hop.to_route, next_path))
-    return []
-
-
-def _execute_hop(
-    hop: RouteHop,
-    params: dict[str, object],
-    context: ExecutionContext,
-    *,
-    active_route: str,
-) -> dict[str, object]:
-    attempts: list[dict[str, object]] = []
-    destination = _ROUTES[hop.to_route]
-    for attempt in hop.attempts:
-        action_result = attempt.runner(params, context)
-        attempts.append(
-            {
-                "attempt_id": attempt.attempt_id,
-                "description": attempt.description,
-                "action_ok": action_result.ok,
-                "action_code": action_result.code,
-                "action_message": action_result.message,
-            }
-        )
-        destination_probe = _probe_route(destination, params, context, state_ids=destination.arrival_state_ids)
-        attempts[-1]["postcondition"] = destination_probe
-        if destination_probe["matched"]:
-            return {"code": "ok", "message": f"reached {destination.display_name}", "attempts": attempts}
-
-    observed_route = _resolve_current_route(params, context)
-    observed_id = observed_route["route_id"]
-    if observed_id is not None and observed_id != active_route:
-        observed = _ROUTES[str(observed_id)]
-        return {
-            "code": "state_drift_detected",
-            "message": f"navigation drifted to {observed.display_name} while targeting {destination.display_name}",
-            "attempts": attempts,
-            "observed_route": observed_id,
-        }
-    return {
-        "code": "target_unreachable",
-        "message": f"unable to reach {destination.display_name} from {active_route}",
-        "attempts": attempts,
-        "observed_route": observed_id,
-    }

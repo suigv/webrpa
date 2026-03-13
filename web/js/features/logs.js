@@ -1,4 +1,4 @@
-import { store } from '../state/store.js';
+import { store } from '/static/js/state/store.js';
 
 const unitLogBox = document.getElementById("unitLogBox");
 const globalLogBox = document.getElementById("globalLogBox");
@@ -98,6 +98,39 @@ function appendDetailedLog(log) {
 
     // --- 核心修复：绝对互斥逻辑 ---
     
+    // 情况 A0：观察事件
+    if (eventType === "task.observation") {
+        if (unitLogBox && store.getState().currentUnitLogTarget) {
+            const step = data.step || "?";
+            const modality = data.modality || "unknown";
+            const stateIds = Array.isArray(data.observed_state_ids) && data.observed_state_ids.length
+                ? data.observed_state_ids.join(", ")
+                : (data.ok ? "已识别" : "未识别");
+            appendSegments(unitLogBox, [
+                { text: `${ts} `, color: 'var(--text-muted)' },
+                { text: `[步骤 ${step}] 观察: ${stateIds}`, color: 'var(--text-muted)' },
+                { text: ` (${modality})`, color: '#555' },
+            ]);
+        }
+        return;
+    }
+
+    // 情况 A1：规划事件
+    if (eventType === "task.planning") {
+        if (unitLogBox && store.getState().currentUnitLogTarget) {
+            const step = data.step || "?";
+            const action = data.action || "?";
+            const params = data.params || {};
+            const paramStr = Object.entries(params).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(", ");
+            appendSegments(unitLogBox, [
+                { text: `${ts} `, color: 'var(--text-muted)' },
+                { text: `[步骤 ${step}] AI决策: `, color: 'var(--info)' },
+                { text: `${action}(${paramStr})`, color: 'var(--primary)' },
+            ]);
+        }
+        return;
+    }
+
     // 情况 A：这是结构化的任务步骤结果
     if (eventType === "task.action_result") {
         if (unitLogBox) {
@@ -116,6 +149,22 @@ function appendDetailedLog(log) {
             ]);
         }
         return; // 强制截断，绝不向下执行
+    }
+
+    // 情况 B1：任务终态事件（task.failed / task.completed / task.dispatch_result / task.retry_scheduled）
+    // 这些事件没有 target 字段，但需要显示在当前打开的云机日志窗口中
+    const terminalEvents = new Set(["task.failed", "task.completed", "task.dispatch_result", "task.retry_scheduled", "task.cancelled"]);
+    if (terminalEvents.has(eventType) && unitLogBox && store.getState().currentUnitLogTarget) {
+        const isOk = eventType === "task.completed";
+        const status = data.status || eventType.replace("task.", "");
+        const error = data.error || "";
+        const mainMsg = `[${status}]${error ? ': ' + error : ''}`;
+        appendSegments(unitLogBox, [
+            { text: `${ts} `, color: 'var(--text-muted)' },
+            { text: mainMsg, color: isOk ? 'var(--success)' : 'var(--error)' },
+        ]);
+        unitLogBox.scrollTop = unitLogBox.scrollHeight;
+        return;
     }
 
     // 情况 B：普通文本日志（如：业务已启动、同步环境等）

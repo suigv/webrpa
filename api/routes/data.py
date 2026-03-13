@@ -1,15 +1,25 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
-from typing import Any, Dict, List, Optional
-import json
+from typing import Any, Dict, Optional
 
-from core.account_parser import parse_accounts_lines, parse_accounts_advanced, parse_accounts_text
-from core.data_store import read_lines, read_text, write_lines, write_text
-from datetime import datetime
-import threading
+from anyio.to_thread import run_sync
+from core.account_service import (
+    get_accounts_raw_text,
+    import_accounts_content,
+    list_accounts,
+    pop_account as pop_account_from_pool,
+    reset_accounts as reset_accounts_store,
+    update_account_fields,
+    update_account_status as set_account_status,
+)
+from core.data_text_service import (
+    get_location_text,
+    get_website_text,
+    set_location_text,
+    set_website_text,
+)
 
 router = APIRouter()
-_accounts_lock = threading.Lock()
 
 
 class DataUpdate(BaseModel):
@@ -30,200 +40,87 @@ class AccountStatusUpdate(BaseModel):
 
 
 @router.get("/accounts")
-def get_accounts():
-    """获取原始存储文本"""
-    return {"data": read_text("accounts")}
+async def get_accounts():
+    """获取原始存储文本 (兼容性接口)"""
+    text = await run_sync(get_accounts_raw_text)
+    return {"data": text}
 
 
 @router.post("/accounts/import")
-def import_accounts(data: AccountsImportRequest):
+async def import_accounts(data: AccountsImportRequest):
     """通过高级解析逻辑导入账号"""
-    # 关键修复：JSON 传输会将 mapping 的 Key 转为字符串，需转回 int
-    clean_mapping = {}
-    if data.mapping:
-        for k, v in data.mapping.items():
-            try:
-                clean_mapping[int(k)] = v
-            except ValueError:
-                continue
-    
-    parsed: dict[str, Any]
-    if data.delimiter is None and not clean_mapping:
-        parsed = parse_accounts_text(data.content)
-    else:
-        parsed = parse_accounts_advanced(data.content, delimiter=data.delimiter or "", mapping=clean_mapping or None)
-
-    normalized_lines_obj = parsed.get("normalized_lines", [])
-    if isinstance(normalized_lines_obj, list):
-        new_lines: list[str] = [line for line in normalized_lines_obj if isinstance(line, str)]
-    else:
-        new_lines = []
-    errors = parsed.get("errors", [])
-    valid_raw = parsed.get("valid", len(new_lines))
-    if isinstance(valid_raw, (int, float, str)):
-        valid = int(valid_raw)
-    else:
-        valid = len(new_lines)
-    invalid_raw = parsed.get("invalid", 0)
-    if isinstance(invalid_raw, (int, float, str)):
-        invalid = int(invalid_raw)
-    else:
-        invalid = 0
-
-    if data.overwrite:
-        merged_lines: list[str] = new_lines
-    else:
-        existing_lines = [line for line in read_lines("accounts") if isinstance(line, str)]
-        merged_lines = existing_lines + new_lines
-
-    write_lines("accounts", merged_lines)
-    return {
-        "status": "ok",
-        "stored": len(merged_lines),
-        "imported": len(new_lines),
-        "valid": valid,
-        "invalid": invalid,
-        "errors": errors if isinstance(errors, list) else [],
-    }
+    return await run_sync(
+        import_accounts_content,
+        data.content,
+        data.overwrite,
+        data.delimiter,
+        data.mapping,
+    )
 
 
 class AccountUpdate(BaseModel):
-    old_account: str  # Used to find the account
+    old_account: str
     new_data: Dict[str, Any]
 
 
 @router.post("/accounts/update")
-def update_account(data: AccountUpdate):
-    """更新账号所有字段 (要求存储格式为 JSON 行)"""
-    lines = read_lines("accounts")
-    updated_lines = []
-    found = False
-    
-    for line in lines:
-        try:
-            item = json.loads(line)
-            if item.get("account") == data.old_account:
-                # Update with new data
-                for k, v in data.new_data.items():
-                    item[k] = v
-                updated_lines.append(json.dumps(item, ensure_ascii=False))
-                found = True
-            else:
-                updated_lines.append(line)
-        except Exception:
-            updated_lines.append(line)
-                
-    if found:
-        write_lines("accounts", updated_lines)
+async def update_account(data: AccountUpdate):
+    """更新账号所有字段"""
+    ok = await run_sync(update_account_fields, data.old_account, data.new_data)
+    if ok:
         return {"status": "ok", "message": f"Account {data.old_account} updated"}
     return {"status": "error", "message": "Account not found"}
 
 
 @router.post("/accounts/status")
-def update_account_status(data: AccountStatusUpdate):
-    """更新账号状态 (要求存储格式为 JSON 行)"""
-    lines = read_lines("accounts")
-    updated_lines = []
-    found = False
-    
-    for line in lines:
-        try:
-            item = json.loads(line)
-            if item.get("account") == data.account:
-                item["status"] = data.status
-                if data.error_msg:
-                    item["error_msg"] = data.error_msg
-                updated_lines.append(json.dumps(item, ensure_ascii=False))
-                found = True
-            else:
-                updated_lines.append(line)
-        except Exception:
-            # 非 JSON 行在严谨模式下不再尝试猜测，直接原样保留或过滤
-            updated_lines.append(line)
-                
-    if found:
-        write_lines("accounts", updated_lines)
+async def update_account_status(data: AccountStatusUpdate):
+    """更新账号状态"""
+    ok = await run_sync(set_account_status, data.account, data.status, data.error_msg)
+    if ok:
         return {"status": "ok", "message": f"Account {data.account} status updated to {data.status}"}
     return {"status": "error", "message": "Account not found"}
 
 
 @router.post("/accounts/pop")
-def pop_account():
-    """原子化获取下一个待处理账号，实现‘账号池-1’逻辑"""
-    global _accounts_lock
-    with _accounts_lock:
-        lines = read_lines("accounts")
-        updated_lines = []
-        target_account = None
-        
-        for line in lines:
-            try:
-                item = json.loads(line)
-                if target_account is None and item.get("status") == "ready":
-                    item["status"] = "in_progress"
-                    item["last_used"] = str(datetime.now()) # 简单记录时间
-                    target_account = item
-                    updated_lines.append(json.dumps(item, ensure_ascii=False))
-                else:
-                    updated_lines.append(line)
-            except Exception:
-                updated_lines.append(line)
-        
-        if target_account:
-            write_lines("accounts", updated_lines)
-            return {"status": "ok", "account": target_account}
-        
+async def pop_account():
+    """原子化获取下一个待处理账号"""
+    account = await run_sync(pop_account_from_pool)
+    if account:
+        return {"status": "ok", "account": account}
     return {"status": "error", "message": "No ready accounts available in pool"}
 
 
 @router.get("/accounts/parsed")
-def get_accounts_parsed():
+async def get_accounts_parsed():
     """获取所有解析后的账号对象"""
-    return {"accounts": parse_accounts_lines(read_lines("accounts"))}
+    accounts = await run_sync(list_accounts)
+    return {"accounts": accounts}
 
 
 @router.post("/accounts/reset")
-def reset_accounts():
+async def reset_accounts():
     """将所有账号状态重置为就绪 (ready)"""
-    lines = read_lines("accounts")
-    updated_lines = []
-    count = 0
-    
-    for line in lines:
-        try:
-            item = json.loads(line)
-            # 只有处于 执行中 或 错误 状态的账号才需要重置
-            if item.get("status") in ["in_progress", "bad_auth", "banned", "2fa_issue"]:
-                item["status"] = "ready"
-                item["error_msg"] = None
-                updated_lines.append(json.dumps(item, ensure_ascii=False))
-                count += 1
-            else:
-                updated_lines.append(line)
-        except Exception:
-            updated_lines.append(line)
-                
-    write_lines("accounts", updated_lines)
+    count = await run_sync(reset_accounts_store)
     return {"status": "ok", "message": f"Successfully reset {count} accounts to ready"}
 
 
 @router.get("/location")
 def get_location():
-    return {"data": read_text("location")}
+    return {"data": get_location_text()}
 
 
 @router.put("/location")
 def update_location(data: DataUpdate):
-    write_text("location", data.content)
+    set_location_text(data.content)
     return {"status": "ok"}
 
 
 @router.get("/website")
 def get_website():
-    return {"data": read_text("website")}
+    return {"data": get_website_text()}
 
 
 @router.put("/website")
 def update_website(data: DataUpdate):
-    write_text("website", data.content)
+    set_website_text(data.content)
     return {"status": "ok"}

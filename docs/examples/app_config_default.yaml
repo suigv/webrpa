@@ -1,0 +1,34 @@
+version: v1
+package_name: "com.example.app"
+values:
+  urls:
+    home: "https://example.com/"
+    help: "https://example.com/help"
+  timeouts:
+    short_ms: 1500
+    long_ms: 10000
+schemes:
+  open_profile:
+    template: "myapp://profile/{user_id}"
+  open_web:
+    template: "https://example.com/{path}"
+selectors:
+  login_button:
+    default:
+      type: "text"
+      mode: "contains"
+      value: "登录"
+    en:
+      type: "text"
+      mode: "contains"
+      value: "Log in"
+  search_input:
+    default:
+      type: "resource_id"
+      mode: "equal"
+      value: "com.example.app:id/search_input"
+  feed_list:
+    default:
+      type: "class"
+      mode: "contains"
+      value: "RecyclerView"

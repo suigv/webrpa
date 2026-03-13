@@ -1,55 +1,59 @@
+"""Tests for AndroidApiClient (30001 port) and mytos.* action registry.
+
+Previously tested MytSdkClient methods that have been migrated to AndroidApiClient.
+Now validates the correct 30001 paths per official MYTOS API documentation.
+"""
 import importlib
 from pathlib import Path
 
 
-def _load_action_registry_module():
-    for name in ("engine.action_registry", "engine.action_registry"):
-        try:
-            return importlib.import_module(name)
-        except ModuleNotFoundError:
-            continue
-    raise ModuleNotFoundError("cannot import action_registry module")
+def _load_android_api_client():
+    return importlib.import_module("hardware_adapters.android_api_client")
 
 
 def _load_myt_client_module():
-    for name in ("hardware_adapters.myt_client", "hardware_adapters.myt_client"):
-        try:
-            return importlib.import_module(name)
-        except ModuleNotFoundError:
-            continue
-    raise ModuleNotFoundError("cannot import myt_client module")
+    return importlib.import_module("hardware_adapters.myt_client")
 
 
-def test_mytos_api_method_mapping(monkeypatch):
-    mod = _load_myt_client_module()
-    BaseHTTPClient = mod.BaseHTTPClient
-    MytSdkClient = mod.MytSdkClient
-    called: list[tuple[str, str]] = []
+def test_android_api_client_proxy_paths(monkeypatch):
+    """AndroidApiClient uses correct 30001 paths per documentation."""
+    mod = _load_android_api_client()
+    base_mod = _load_myt_client_module()
+    BaseHTTPClient = base_mod.BaseHTTPClient
+    AndroidApiClient = mod.AndroidApiClient
+
+    called: list[tuple[str, str, dict]] = []
 
     def fake_request_json(self, method, path, payload=None, query=None):
-        called.append((method, path))
+        called.append((method, path, query or {}))
         return {"ok": True, "data": {"path": path}}
 
     monkeypatch.setattr(BaseHTTPClient, "request_json", fake_request_json)
-    sdk = MytSdkClient("10.0.0.2", 8000)
+    client = AndroidApiClient("10.0.0.2", 30001)
 
-    assert sdk.query_s5_proxy()["ok"] is True
-    assert sdk.set_s5_proxy({"s5IP": "1.1.1.1", "s5Port": 1080, "s5User": "u", "s5Password": "p"})["ok"] is True
-    assert sdk.stop_s5_proxy()["ok"] is True
-    assert sdk.set_s5_filter({"domains": ["x.com"]})["ok"] is True
-    assert sdk.get_clipboard()["ok"] is True
-    assert sdk.set_clipboard("abc")["ok"] is True
+    assert client.query_s5_proxy()["ok"] is True
+    assert client.set_s5_proxy("1.1.1.1", 1080, "u", "p")["ok"] is True
+    assert client.stop_s5_proxy()["ok"] is True
+    assert client.set_s5_filter(["example.com"])["ok"] is True
+    assert client.get_clipboard()["ok"] is True
+    assert client.set_clipboard("abc")["ok"] is True
 
-    assert ("GET", "/proxy/status") in called
-    assert ("POST", "/proxy/set") in called
-    assert ("POST", "/proxy/stop") in called
-    assert ("POST", "/proxy/filter") in called
-    assert ("GET", "/clipboard") in called
-    assert ("POST", "/clipboard") in called
+    paths = [(m, p) for m, p, _ in called]
+    # Per documentation: proxy calls use /proxy with cmd param; filter uses POST
+    assert ("GET", "/proxy") in paths
+    assert ("POST", "/proxy") in paths
+    assert ("GET", "/clipboard") in paths
+
+    # Verify cmd params for proxy
+    proxy_calls = [(m, p, q) for m, p, q in called if p == "/proxy"]
+    cmds = [q.get("cmd") for _, _, q in proxy_calls]
+    assert 2 in cmds  # set_s5_proxy
+    assert 3 in cmds  # stop_s5_proxy
+    assert 4 in cmds  # set_s5_filter
 
 
 def test_registry_registers_new_ui_actions(monkeypatch):
-    reg_mod = _load_action_registry_module()
+    reg_mod = importlib.import_module("engine.action_registry")
     ActionRegistry = reg_mod.ActionRegistry
     register_defaults = reg_mod.register_defaults
     reg = ActionRegistry()
@@ -63,10 +67,12 @@ def test_registry_registers_new_ui_actions(monkeypatch):
     assert reg.has("app.stop")
 
 
-def test_mytos_extended_api_method_mapping(monkeypatch, tmp_path: Path):
-    mod = _load_myt_client_module()
-    BaseHTTPClient = mod.BaseHTTPClient
-    MytSdkClient = mod.MytSdkClient
+def test_android_api_client_extended_paths(monkeypatch, tmp_path: Path):
+    """AndroidApiClient extended methods use correct 30001 paths."""
+    mod = _load_android_api_client()
+    base_mod = _load_myt_client_module()
+    BaseHTTPClient = base_mod.BaseHTTPClient
+    AndroidApiClient = mod.AndroidApiClient
 
     called: list[tuple[str, str]] = []
 
@@ -86,93 +92,82 @@ def test_mytos_extended_api_method_mapping(monkeypatch, tmp_path: Path):
     monkeypatch.setattr(BaseHTTPClient, "request_bytes", fake_request_bytes)
     monkeypatch.setattr(BaseHTTPClient, "post_multipart", fake_post_multipart)
 
-    sdk = MytSdkClient("10.0.0.2", 8000)
+    client = AndroidApiClient("10.0.0.2", 30001)
 
     local_download = tmp_path / "d.json"
     local_upload = tmp_path / "u.txt"
     local_upload.write_text("hello", encoding="utf-8")
-    import_zip = tmp_path / "model.zip"
-    import_zip.write_text("zip", encoding="utf-8")
-
-    assert sdk.download_file("/tmp/a.txt", str(local_download))["ok"] is True
-    assert sdk.upload_file(str(local_upload), "/tmp/u.txt")["ok"] is True
-    assert sdk.export_app_info("com.demo")["ok"] is True
-    assert sdk.import_app_info("com.demo", {"k": "v"})["ok"] is True
-    assert sdk.backup_app_info("com.demo", "/tmp/demo.bak")["ok"] is True
-    assert sdk.restore_app_info("/tmp/demo.bak")["ok"] is True
-    assert sdk.batch_install_apps(["a.apk"])["ok"] is True
-    assert sdk.mytos_screenshot()["ok"] is True
-    assert sdk.get_version()["ok"] is True
-    assert sdk.get_container_info()["ok"] is True
-    assert sdk.receive_sms()["ok"] is True
-    assert sdk.get_call_records()["ok"] is True
-    assert sdk.refresh_location()["ok"] is True
-    assert sdk.ip_geolocation("23.247.138.215", "en")["ok"] is True
-    assert sdk.query_adb_permission()["ok"] is True
-    assert sdk.switch_adb_permission(True)["ok"] is True
-    assert sdk.set_google_id("adid-1")["ok"] is True
-    assert sdk.get_google_id()["ok"] is True
-    assert sdk.module_manager("check", "magisk")["ok"] is True
-    assert sdk.install_magisk()["ok"] is True
     cert = tmp_path / "cert.pem"
     cert.write_text("pem", encoding="utf-8")
-    assert sdk.upload_google_cert(str(cert))["ok"] is True
-    backup = tmp_path / "backup.zip"
-    backup.write_text("zip", encoding="utf-8")
-    assert sdk.export_app_data("com.demo")["ok"] is True
-    assert sdk.import_app_data("com.demo", str(backup))["ok"] is True
-    assert sdk.auto_click(action="down", finger_id=1, x=120, y=240)["ok"] is True
-    assert sdk.auto_click(action="keypress", code="KEYCODE_BACK")["ok"] is True
-    assert sdk.camera_hot_start(True, "/sdcard/DCIM/Camera/hot.mp4")["ok"] is True
-    assert sdk.query_background_keepalive()["ok"] is True
-    assert sdk.add_background_keepalive("com.demo.keepalive")["ok"] is True
-    assert sdk.update_background_keepalive("com.demo.keepalive")["ok"] is True
-    assert sdk.remove_background_keepalive("com.demo.keepalive")["ok"] is True
-    assert sdk.set_key_block(enabled=True)["ok"] is True
-    assert sdk.add_contact(contacts=[{"user": "demo", "tel": "10086"}])["ok"] is True
-    assert sdk.get_root_allowed_apps()["ok"] is True
-    assert sdk.set_root_allowed_app("com.demo", True)["ok"] is True
-    assert sdk.set_virtual_camera_source(path="/sdcard/cam.mp4", type="video", resolution="1280x720")["ok"] is True
-    assert sdk.get_app_bootstart_list()["ok"] is True
-    assert sdk.set_app_bootstart(packages=["com.demo", "com.demo.second"])["ok"] is True
-    assert sdk.set_language_country("en", "US")["ok"] is True
-    assert sdk.get_webrtc_player_url(2)["ok"] is True
-    assert sdk.import_model(str(import_zip))["ok"] is True
-    assert sdk.list_models()["ok"] is True
 
-    expected = {
+    assert client.download_file("/tmp/a.txt", str(local_download))["ok"] is True
+    assert client.upload_file(str(local_upload), "/tmp/u.txt")["ok"] is True
+    assert client.backup_app("com.demo")["ok"] is True
+    assert client.restore_app("/tmp/demo.bak")["ok"] is True
+    assert client.install_apks(["a.apk"])["ok"] is True
+    assert client.screenshot()["ok"] is True
+    assert client.get_version()["ok"] is True
+    assert client.get_container_info()["ok"] is True
+    assert client.receive_sms()["ok"] is True
+    assert client.get_call_records()["ok"] is True
+    assert client.refresh_location()["ok"] is True
+    assert client.ip_geolocation("23.247.138.215")["ok"] is True
+    assert client.query_adb_permission()["ok"] is True
+    assert client.switch_adb_permission(True)["ok"] is True
+    assert client.set_google_id("adid-1")["ok"] is True
+    assert client.get_google_id()["ok"] is True
+    assert client.install_magisk()["ok"] is True
+    assert client.upload_google_cert(str(cert))["ok"] is True
+    assert client.autoclick_action("down", x=120, y=240)["ok"] is True
+    assert client.autoclick_action("keypress", code="KEYCODE_BACK")["ok"] is True
+    assert client.camera_hot_start(True)["ok"] is True
+    assert client.set_key_block(True)["ok"] is True
+    assert client.add_contact("demo", "10086")["ok"] is True
+    assert client.get_root_allowed_apps()["ok"] is True
+    assert client.set_root_allowed_app("com.demo", True)["ok"] is True
+    assert client.get_boot_apps()["ok"] is True
+    assert client.set_language_country("en", "US")["ok"] is True
+
+    # Verify correct 30001 paths per documentation
+    expected_paths = {
         ("GET", "/download"),
         ("POST", "/upload"),
-        ("POST", "/app/exportInfo"),
-        ("POST", "/app/importInfo"),
         ("GET", "/backrestore"),
-        ("POST", "/app/batchInstall"),
-        ("GET", "/device/screenshot"),
-        ("GET", "/device/version"),
-        ("GET", "/device/container"),
-        ("POST", "/sms/receive"),
-        ("GET", "/call/records"),
-        ("POST", "/location/refresh"),
-        ("GET", "/location/ip"),
-        ("GET", "/system/adb"),
-        ("POST", "/system/adb"),
-        ("POST", "/identity/googleId"),
-        ("GET", "/identity/googleId"),
-        ("POST", "/system/module"),
-        ("POST", "/uploadkeybox"),
-        ("POST", "/autoclick"),
-        ("POST", "/camera"),
-        ("POST", "/background"),
-        ("POST", "/disablekey"),
-        ("POST", "/addcontact"),
+        ("GET", "/snapshot"),
+        ("GET", "/queryversion"),
+        ("GET", "/info"),
+        ("POST", "/sms"),
+        ("GET", "/callog"),
+        ("GET", "/task"),
         ("GET", "/modifydev"),
+        ("GET", "/adb"),
+        ("GET", "/adid"),
+        ("GET", "/modulemgr"),
+        ("POST", "/uploadkeybox"),
+        ("GET", "/autoclick"),
+        ("GET", "/camera"),
+        ("GET", "/disablekey"),
+        ("GET", "/addcontact"),
         ("GET", "/appbootstart"),
-        ("POST", "/appbootstart"),
-        ("POST", "/android/backup/modelImport"),
-        ("GET", "/lm/local"),
     }
-    assert expected.issubset(set(called))
-    webrtc = sdk.get_webrtc_player_url(2)["data"]
-    assert "shost=10.0.0.2" in webrtc["url"]
-    assert "sport=30107" in webrtc["url"]
-    assert "rtc_p=30108" in webrtc["url"]
+    assert expected_paths.issubset(set(called))
+
+
+def test_mytos_actions_registered(monkeypatch):
+    """mytos.* actions are registered and proxy to AndroidApiClient."""
+    reg_mod = importlib.import_module("engine.action_registry")
+    ActionRegistry = reg_mod.ActionRegistry
+    register_defaults = reg_mod.register_defaults
+    reg = ActionRegistry()
+    monkeypatch.setattr(reg_mod, "_registry", reg)
+    register_defaults()
+
+    mytos_actions = [
+        "mytos.query_s5_proxy", "mytos.set_s5_proxy", "mytos.stop_s5_proxy",
+        "mytos.get_clipboard", "mytos.set_clipboard",
+        "mytos.screenshot", "mytos.download_file", "mytos.upload_file",
+        "mytos.set_language_country", "mytos.refresh_location",
+        "mytos.get_google_id", "mytos.install_magisk",
+    ]
+    for action in mytos_actions:
+        assert reg.has(action), f"Missing action: {action}"

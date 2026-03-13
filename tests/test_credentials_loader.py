@@ -6,8 +6,8 @@ import pytest
 from core.credentials_loader import load_credentials_from_ref
 
 
-def test_credentials_loader_happy_path(tmp_path: Path, monkeypatch):
-    cred_file = tmp_path / "x_credentials.json"
+def test_login_stage_credentials_loader_happy_path(tmp_path: Path, monkeypatch):
+    cred_file = tmp_path / "credentials.json"
     cred_file.write_text(
         json.dumps({"username_or_email": "demo@example.com", "password": "secret"}),
         encoding="utf-8",
@@ -19,12 +19,12 @@ def test_credentials_loader_happy_path(tmp_path: Path, monkeypatch):
     assert creds.password == "secret"
 
 
-def test_credentials_loader_rejects_path_outside_allowlist(tmp_path: Path, monkeypatch):
+def test_login_stage_credentials_loader_rejects_path_outside_allowlist(tmp_path: Path, monkeypatch):
     allowed_root = tmp_path / "allowed"
     blocked_root = tmp_path / "blocked"
     allowed_root.mkdir()
     blocked_root.mkdir()
-    cred_file = blocked_root / "x_credentials.json"
+    cred_file = blocked_root / "credentials.json"
     cred_file.write_text(
         json.dumps({"username_or_email": "demo@example.com", "password": "secret"}),
         encoding="utf-8",
@@ -35,7 +35,7 @@ def test_credentials_loader_rejects_path_outside_allowlist(tmp_path: Path, monke
         load_credentials_from_ref(str(cred_file))
 
 
-def test_credentials_loader_rejects_symlink(tmp_path: Path, monkeypatch):
+def test_login_stage_credentials_loader_rejects_symlink(tmp_path: Path, monkeypatch):
     source = tmp_path / "source.json"
     source.write_text(
         json.dumps({"username_or_email": "demo@example.com", "password": "secret"}),

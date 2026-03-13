@@ -1,0 +1,24 @@
+{
+  "goal": "打开示例页面并确认已进入首页",
+  "expected_state_ids": ["url:example.com/"],
+  "allowed_actions": [
+    "browser.open",
+    "browser.click",
+    "browser.input",
+    "browser.wait_url",
+    "ui.click",
+    "ui.input_text",
+    "ui.key_press"
+  ],
+  "max_steps": 6,
+  "stagnant_limit": 2,
+  "fallback_modalities": ["vision"],
+  "observation": {
+    "binding_id": "browser",
+    "timeout_ms": 3000,
+    "platform": "browser"
+  },
+  "llm": {
+    "model": "gpt-5.4"
+  }
+}

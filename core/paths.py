@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -29,3 +30,7 @@ def traces_dir() -> Path:
 
 def task_db_path() -> Path:
     return data_dir() / "tasks.db"
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()

@@ -7,6 +7,7 @@ from pytest import MonkeyPatch
 
 from api.server import app
 from engine.actions import _rpc_bootstrap
+from engine.models.runtime import ActionResult, ErrorType
 
 
 def _load_ui_actions_module() -> Any:
@@ -160,6 +161,9 @@ def test_bootstrap_rpc_surfaces_shared_connect_failure_contract() -> None:
         is_enabled=lambda: True,
         resolve_params=_rpc_bootstrap.resolve_connection_params,
         rpc_factory=_FailingRpc,
+        result_factory=ActionResult,
+        error_type_env=ErrorType.ENV_ERROR,
+        error_type_business=ErrorType.BUSINESS_ERROR,
     )
 
     assert rpc is None
