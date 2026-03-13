@@ -119,6 +119,9 @@ export function initDevices() {
     if (closeAiBtn) closeAiBtn.onclick = closeUnitAiDialog;
     if (cancelAiBtn) cancelAiBtn.onclick = closeUnitAiDialog;
     if (submitAiBtn) submitAiBtn.onclick = submitUnitAiTask;
+
+    const templateSelect = $("unitAiPromptTemplate");
+    if (templateSelect) templateSelect.onchange = updateAiSystemPromptTemplate;
     
     if (toggleAiAdvancedBtn) {
         toggleAiAdvancedBtn.onclick = () => {
@@ -711,6 +714,53 @@ async function loadAiDialogAccounts() {
     } catch (e) {}
 }
 
+let _promptTemplates = {};
+
+async function loadPromptTemplates() {
+    const select = $("unitAiPromptTemplate");
+    if (!select) return;
+    try {
+        const res = await fetch("/api/tasks/prompt_templates");
+        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+        const data = await res.json();
+        
+        _promptTemplates = {};
+        select.innerHTML = "";
+        
+        (data.templates || []).forEach(t => {
+            _promptTemplates[t.key] = t.content;
+            const opt = document.createElement("option");
+            opt.value = t.key;
+            opt.textContent = t.name;
+            select.appendChild(opt);
+        });
+
+        const customOpt = document.createElement("option");
+        customOpt.value = "custom";
+        customOpt.textContent = "自定义";
+        select.appendChild(customOpt);
+
+        // 设置默认选中的第一个模板
+        if (data.templates && data.templates.length > 0) {
+            select.value = data.templates[0].key;
+            updateAiSystemPromptTemplate();
+        }
+    } catch (e) {
+        console.error("加载提示词模板失败:", e);
+    }
+}
+
+function updateAiSystemPromptTemplate() {
+    const templateSelect = $("unitAiPromptTemplate");
+    const systemPrompt = $("unitAiSystemPrompt");
+    if (templateSelect && systemPrompt) {
+        const val = templateSelect.value;
+        if (val !== 'custom') {
+            systemPrompt.value = _promptTemplates[val] || "";
+        }
+    }
+}
+
 function openUnitAiDialog(unit) {
     if (!unit) return;
     const modal = $("unitAiModal");
@@ -739,10 +789,7 @@ function openUnitAiDialog(unit) {
     const bindingInput = $("unitAiBindingId");
     if (bindingInput) bindingInput.value = "";
 
-    const systemPrompt = $("unitAiSystemPrompt");
-    if (systemPrompt) {
-        systemPrompt.value = "你是云机自动化助手，严格遵守以下规则：\n\n1. 【坐标规则】点击或输入前，必须先调用 ai.locate_point 获取元素坐标，禁止编造或猜测坐标值。\n\n2. 【未知状态处理】当界面状态为 unknown 时，不要停止任务。先尝试 ui.swipe 向上滑动刷新界面，再重新调用 ai.locate_point 观察当前内容，然后继续执行。\n\n3. 【加载等待】如果页面正在加载或内容尚未出现，重复调用 ai.locate_point 等待目标元素出现，最多尝试 3 次。\n\n4. 【2FA 处理】如果出现二步验证页面且已有验证码（payload.two_factor_code），直接输入；如果没有验证码，跳过并尝试其他方式继续。\n\n5. 【任务完成】只有确认进入 X 首页（看到推文列表）才返回 done:true。";
-    }
+    loadPromptTemplates();
 
     const useUitars = $("unitAiUseUitars");
     if (useUitars) useUitars.checked = false;

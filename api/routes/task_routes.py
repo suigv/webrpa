@@ -98,6 +98,13 @@ def task_catalog():
     return {"tasks": catalog}
 
 
+@router.get("/prompt_templates")
+def list_prompt_templates():
+    from engine.prompt_templates import get_prompt_templates
+
+    return {"templates": get_prompt_templates()}
+
+
 # 蒸馏门槛定义（与 docs/STATUS.md 保持一致）
 _DISTILL_THRESHOLDS: dict[str, int] = {
     "device_reboot": 3,

@@ -50,6 +50,7 @@ WebRPA 采用三层架构模型：
 - **账号池**：`config/data/accounts.db` (SQLite)
 - **AI 决策轨迹**：`config/data/traces/`
 - **插件目录**：`plugins/`
+- **场景提示词模板**：`engine/prompt_templates.py`（`PROMPT_TEMPLATES` 列表常量，`GET /api/tasks/prompt_templates` 路由对外暴露，前端动态拉取）
 - **UI 配置**：`config/apps/*.yaml`（默认 `config/apps/default.yaml`，可通过 `MYT_DEFAULT_APP` 指定回退配置）
 - **UI 状态绑定**：`config/apps/*.yaml`（按 `package_name` 动态加载，`xml_filter`/`states` 与选择器统一存放，缺失时走 binding-free 观察）
 - **驱动库 (SO/DLL)**：`lib/`（libmytrpc，支持 macOS/Linux/Windows）
