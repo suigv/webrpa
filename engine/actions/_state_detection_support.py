@@ -438,18 +438,37 @@ def collect_blogger_candidates(
         max_bottom = int(params.get("max_bottom", 2200) or 2200)
         stop_when_stalled = bool(params.get("stop_when_stalled", True))
 
-        swipe_x0 = int(params.get("swipe_x0", 540) or 540)
-        swipe_y0 = int(params.get("swipe_y0", 1750) or 1750)
-        swipe_x1 = int(params.get("swipe_x1", 540) or 540)
-        swipe_y1 = int(params.get("swipe_y1", 620) or 620)
-
         collected: list[dict[str, Any]] = []
         seen: set[str] = set()
         rounds: list[dict[str, Any]] = []
         swipe_count = 0
+        swipe_x0: int | None = None
+        swipe_y0: int | None = None
+        swipe_x1: int | None = None
+        swipe_y1: int | None = None
 
         for round_index in range(max_rounds):
             xml_text = dump_xml_for_candidates(rpc, timeout_ms)
+            if swipe_x0 is None:
+                _sw: int = int(params.get("swipe_x0") or 0) or 0
+                _sh_top: int = int(params.get("swipe_y0") or 0) or 0
+                _sw2: int = int(params.get("swipe_x1") or 0) or 0
+                _sh_bot: int = int(params.get("swipe_y1") or 0) or 0
+                if not (_sw and _sh_top and _sw2 and _sh_bot):
+                    _m = re.search(r'bounds="\[0,0\]\[(\d+),(\d+)\]"', xml_text)
+                    if _m:
+                        _W, _H = int(_m.group(1)), int(_m.group(2))
+                        swipe_x0 = _sw or _W // 2
+                        swipe_y0 = _sh_top or int(_H * 0.85)
+                        swipe_x1 = _sw2 or _W // 2
+                        swipe_y1 = _sh_bot or int(_H * 0.30)
+                    else:
+                        swipe_x0 = _sw or 540
+                        swipe_y0 = _sh_top or 1750
+                        swipe_x1 = _sw2 or 540
+                        swipe_y1 = _sh_bot or 620
+                else:
+                    swipe_x0, swipe_y0, swipe_x1, swipe_y1 = _sw, _sh_top, _sw2, _sh_bot
             extracted = extract_candidates_from_xml(
                 xml_text=xml_text,
                 package=package,
