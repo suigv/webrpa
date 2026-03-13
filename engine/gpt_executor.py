@@ -566,11 +566,38 @@ class GptExecutorRuntime:
             return None
         entry = self._binding_cache.get(app_package)
         if not entry:
+            self._bootstrap_app_config(app_package)
             return None
         xml_filter = entry.get("xml_filter")
         if isinstance(xml_filter, Mapping):
             return {str(k): int(v) for k, v in xml_filter.items() if str(k) in {"max_text_len", "max_desc_len"}}
         return None
+
+    def _bootstrap_app_config(self, app_package: str) -> None:
+        """首次遇到未知 package 时，自动创建 config/apps/<app>.yaml 骨架文件。"""
+        try:
+            from engine.actions.sdk_config_support import app_config_path, app_from_package
+            import yaml as _yaml
+            app_name = app_from_package(app_package)
+            if not app_name:
+                return
+            path = app_config_path(app_name)
+            if path.exists():
+                # 已存在但未被 cache 加载（如启动后新建），补充加入 cache
+                data = _yaml.safe_load(path.read_text(encoding="utf-8"))
+                if isinstance(data, dict):
+                    self._binding_cache[app_package] = {
+                        "xml_filter": self._normalize_xml_filter(data.get("xml_filter")),
+                        "states": data.get("states") if isinstance(data.get("states"), list) else [],
+                    }
+                return
+            path.parent.mkdir(parents=True, exist_ok=True)
+            skeleton = {"version": "v1", "package_name": app_package, "schemes": {}, "selectors": {}}
+            path.write_text(_yaml.safe_dump(skeleton, sort_keys=False, allow_unicode=True), encoding="utf-8")
+            self._binding_cache[app_package] = {"xml_filter": None, "states": []}
+            logger.info("bootstrapped app config for package %s at %s", app_package, path)
+        except Exception as exc:
+            logger.warning("Failed to bootstrap app config for %s: %s", app_package, exc)
 
     @staticmethod
     def _extract_xml_package(xml: str) -> str:
