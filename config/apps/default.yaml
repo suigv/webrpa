@@ -1,4 +1,59 @@
+# config/apps/<app>.yaml — 应用配置文件
+#
+# 命名规则：文件名即 app 名，与 sdk_config_support._PACKAGE_TO_APP 的值对应。
+# 例：com.twitter.android → x → config/apps/x.yaml
+#
+# package_name 为空时此文件不会被 GPT 执行器加载（作为回退默认配置使用）。
+# 新增 app 时复制此文件，填入 package_name 即可激活。
+
 version: v1
+
+# Android 包名，GPT 执行器按此字段匹配当前前台 app。
+# 留空表示不激活（default.yaml 作为占位模板）。
 package_name: ""
+
+# XML 过滤参数（可选）
+# GPT 执行器将屏幕 XML 发给 LLM 前，按此截断 text/content-desc 属性长度。
+# 0 或不填 = 不截断（全量发送，token 消耗大）。
+# 建议根据 app UI 文本长度分布设置，蒸馏流程会自动计算 P90 并更新此值。
+# xml_filter:
+#   max_text_len: 60    # text 属性最大长度，超出截断
+#   max_desc_len: 100   # content-desc 属性最大长度，超出截断
+
+# UI 状态列表（可选）
+# 描述 AI 在此 app 中可能遇到的界面状态，供 GPT 执行器感知当前界面。
+# id: 状态唯一标识（snake_case），description: 对 AI 的自然语言描述。
+# 蒸馏流程会自动从 trace XML 提取并追加新状态，不覆盖已有条目。
+# states:
+#   - id: home
+#     description: 应用首页，主导航栏可见
+#   - id: login_entry
+#     description: 登录入口页，输入账号
+#   - id: unknown
+#     description: 无法识别的状态
+
+# Deep link / URL scheme（可选）
+# 供 core.load_ui_scheme + navigate.to action 使用。
+# key 为逻辑名，value 为 scheme 模板（{} 内为参数占位符）。
+# 需人工维护，参考 app 官方文档。
+# schemes:
+#   user_profile: "appscheme://user?id={user_id}"
+#   home: "appscheme://home"
+
+# UI 选择器（可选）
+# 供 core.load_ui_selector / core.load_ui_selectors action 使用。
+# key 为逻辑名，type 为定位方式（text/resource_id/xpath），
+# mode 为匹配模式（equal/contains/starts_with），value 为匹配值。
+# 蒸馏流程会自动从成功 trace 中提取稳定 selector 并追加，不覆盖已有条目。
+# selectors:
+#   follow_button:
+#     type: text
+#     mode: equal
+#     value: Follow
+#   username_input:
+#     type: resource_id
+#     mode: equal
+#     value: com.example.app:id/username_field
+
 schemes: {}
 selectors: {}
