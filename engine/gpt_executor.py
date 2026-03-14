@@ -849,10 +849,20 @@ class GptExecutorRuntime:
             client = self._vlm_client(config)
             request_trace["system_prompt"] = client.system_prompt
             request_trace["model"] = client.model
+            _pw = screen_meta.get("physical_width")
+            _ph = screen_meta.get("physical_height")
             _sw = screen_meta.get("screen_width")
             _sh = screen_meta.get("screen_height")
-            _screen_w = int(_sw) if isinstance(_sw, (int, float, str)) and str(_sw).strip().isdigit() else None
-            _screen_h = int(_sh) if isinstance(_sh, (int, float, str)) and str(_sh).strip().isdigit() else None
+            
+            def _to_int_safe(v: Any) -> int | None:
+                if isinstance(v, (int, float, str)) and str(v).strip().isdigit():
+                    return int(v)
+                return None
+            
+            # 优先使用物理分辨率
+            _screen_w = _to_int_safe(_pw) or _to_int_safe(_sw)
+            _screen_h = _to_int_safe(_ph) or _to_int_safe(_sh)
+            
             action = client.predict(image_ref, prompt, screen_width=_screen_w, screen_height=_screen_h)
             response_trace = {
                 "ok": True,
@@ -1127,15 +1137,16 @@ class GptExecutorRuntime:
             step_index=step_index,
         )
         if screenshot:
-            # 从 XML 证据注入屏幕分辨率到截图 metadata
+            # 从 XML 证据注入屏幕分辨率到截图 metadata（如果截图自带元数据缺失）
             if native_xml:
+                metadata = _json_dict(screenshot.get("metadata"))
                 sw = native_xml.get("screen_width")
                 sh = native_xml.get("screen_height")
-                if sw and sh:
-                    metadata = _json_dict(screenshot.get("metadata"))
+                if sw and not metadata.get("screen_width"):
                     metadata["screen_width"] = sw
+                if sh and not metadata.get("screen_height"):
                     metadata["screen_height"] = sh
-                    screenshot["metadata"] = metadata
+                screenshot["metadata"] = metadata
             evidence["screen_capture"] = screenshot
         return evidence
 

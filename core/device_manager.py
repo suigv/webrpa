@@ -27,6 +27,8 @@ class Device:
         self.current_task: Optional[str] = None
         self.message: Optional[str] = None
         self.updated_at = datetime.now()
+        self.physical_width: Optional[int] = None
+        self.physical_height: Optional[int] = None
 
 
 class DeviceManager:
@@ -53,6 +55,7 @@ class DeviceManager:
             self._device_snapshot_lock = threading.Lock()
             self._device_snapshot_cache: dict[str, list[dict[str, Any]]] = {}
             self._device_snapshot_at: dict[str, float] = {}
+            self._resolution_cache: Dict[int, tuple[int, int]] = {}
             self._initialized = True
 
     def _resolve_device_endpoints(self) -> list[tuple[int, str]]:
@@ -229,6 +232,25 @@ class DeviceManager:
             self._device_snapshot_cache[availability] = snapshot
             self._device_snapshot_at[availability] = time.time()
         return snapshot
+
+    def update_device_resolution(self, device_id: int, width: int, height: int) -> None:
+        with self._devices_lock:
+            if device_id in self._devices:
+                device = self._devices[device_id]
+                device.physical_width = width
+                device.physical_height = height
+            self._resolution_cache[device_id] = (width, height)
+
+    def get_device_resolution(self, device_id: int) -> tuple[int, int] | None:
+        with self._devices_lock:
+            val = self._resolution_cache.get(device_id)
+            if val:
+                return val
+            if device_id in self._devices:
+                device = self._devices[device_id]
+                if device.physical_width is not None and device.physical_height is not None:
+                    return (device.physical_width, device.physical_height)
+            return None
 
     def get_device_info(self, device_id: int, availability: Literal["all", "available_only"] = "all") -> dict[str, Any]:
         from .cloud_probe_service import get_cloud_probe_service

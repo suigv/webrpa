@@ -48,7 +48,11 @@
     - 新增 `POST /api/tasks/distill/{plugin}`，一键触发多轮蒸馏生成 YAML 草稿。
     - 新增 `tools/distill_multi_run.py`，多 trace 聚合蒸馏工具。
     - 前端「运行洞察」新增「插件蒸馏进度」面板，带进度条和蒸馏按钮。
-  - **VLM 屏幕元数据修复**：`capture_compressed` 从 JPEG/PNG 字节解析真实屏幕宽高，注入 trace 并传给 `VLMClient.predict()`，修复 VLM 坐标补偿精度。
+  - **VLM 视觉坐标完美映射补偿 (2026-03-14)**：
+    - **物理分辨率感知 (Physical Resolution Awareness)**：在 `DeviceManager` 中引入物理宽高追踪，并在 `capture_compressed` 中集成 `wm size` 自动探测与缓存机制，彻底解决 VLM 观察分辨率与执行分辨率不匹配的点击偏移。
+    - **坐标换算加固**：重构 `ai.locate_point` 逻辑，强制优先使用探测到的物理分辨率进行 `norm_1000` 坐标强制转换，确保模型在大屏幕或缩放屏幕下的定位精度。
+    - **规划器同步校准**：同步更新 `gpt_executor` 的 VLM 决策逻辑及证据采集链路，确保端到端的视觉坐标一致性。
+    - **验证体系**：新增 `tests/test_coordinate_mapping.py` 覆盖不同屏幕比例下的缩放补偿逻辑。
   - **任务系统稳健性**：设备级排他锁（防幽灵任务）、子进程不做 availability 强制检查、多目标取消即时中断、`subscribe` 改为追加模式。
   - **前端系统**：账号选择器（接管页和AI对话框）、AI对话框改为勾选模式、设备上下线按钮、系统偏好页简化（移除 JSON 输入）、已发现设备数实时显示。
 

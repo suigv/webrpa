@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import re
 from typing import Any, Dict
 
 from engine.actions import _rpc_bootstrap
@@ -9,6 +10,7 @@ from engine.models.runtime import ActionResult, ErrorType, ExecutionContext
 from hardware_adapters import mytRpc as _myt_rpc_module
 from hardware_adapters.mytRpc import MytRpc
 from engine.action_registry import ActionMetadata
+from core.device_manager import get_device_manager
 
 
 CLICK_METADATA = ActionMetadata(
@@ -84,7 +86,7 @@ LONG_CLICK_METADATA = ActionMetadata(
 )
 
 CAPTURE_COMPRESSED_METADATA = ActionMetadata(
-    description="Capture compressed screenshot (JPEG/PNG)",
+    description="Capture compressed screenshot (JPEG/PNG) and discover physical resolution",
     params_schema={
         "type": "object",
         "properties": {
@@ -103,7 +105,9 @@ CAPTURE_COMPRESSED_METADATA = ActionMetadata(
             "byte_length": {"type": "integer"},
             "save_path": {"type": "string", "nullable": True},
             "screen_width": {"type": "integer", "nullable": True},
-            "screen_height": {"type": "integer", "nullable": True}
+            "screen_height": {"type": "integer", "nullable": True},
+            "physical_width": {"type": "integer", "nullable": True},
+            "physical_height": {"type": "integer", "nullable": True}
         }
     }
 )
@@ -575,14 +579,53 @@ def capture_compressed(params: Dict[str, Any], context: ExecutionContext) -> Act
         except Exception:
             pass
 
+        # 发现物理分辨率
+        physical_width: int | None = None
+        physical_height: int | None = None
+        device_id = context.device_id
+        if device_id > 0:
+            res = get_device_manager().get_device_resolution(device_id)
+            if res:
+                physical_width, physical_height = res
+            elif rpc is not None:
+                physical_width, physical_height = _discover_physical_resolution(rpc, device_id)
+
         return ActionResult(ok=True, code="ok", data={
             "byte_length": len(payload),
             "save_path": save_path or None,
             "screen_width": screen_width,
             "screen_height": screen_height,
+            "physical_width": physical_width,
+            "physical_height": physical_height,
         })
     finally:
         _close_rpc(rpc)
+
+
+def _discover_physical_resolution(rpc: MytRpc, device_id: int) -> tuple[int, int] | tuple[None, None]:
+    """通过 wm size 获取物理分辨率并解析。"""
+    try:
+        output, ok = rpc.exec_cmd("wm size")
+        if not ok or not output:
+            return None, None
+            
+        # 优先匹配 Override size，然后是 Physical size
+        # 格式示例: "Physical size: 1080x1920\nOverride size: 720x1280"
+        override_match = re.search(r"Override size:\s*(\d+)x(\d+)", str(output))
+        if override_match:
+            w, h = int(override_match.group(1)), int(override_match.group(2))
+            get_device_manager().update_device_resolution(device_id, w, h)
+            return w, h
+            
+        physical_match = re.search(r"Physical size:\s*(\d+)x(\d+)", str(output))
+        if physical_match:
+            w, h = int(physical_match.group(1)), int(physical_match.group(2))
+            get_device_manager().update_device_resolution(device_id, w, h)
+            return w, h
+            
+        return None, None
+    except Exception:
+        return None, None
 
 
 def get_display_rotate(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:

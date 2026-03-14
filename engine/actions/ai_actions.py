@@ -41,7 +41,7 @@ VLM_EVALUATE_METADATA = ActionMetadata(
 )
 
 LOCATE_POINT_METADATA = ActionMetadata(
-    description="Locate a specific point/UI element using AI description",
+    description="Locate a specific point/UI element using AI description (physical-resolution aware)",
     params_schema={
         "type": "object",
         "properties": {
@@ -276,6 +276,11 @@ def locate_point(params: dict[str, object], context: ExecutionContext) -> Action
         if not capture_result.ok:
             return ActionResult(ok=False, code=capture_result.code, message=capture_result.message)
         image_ref = str(capture_result.data.get("save_path") or save_path)
+        # 优先使用物理分辨率进行坐标换算
+        physical_w = capture_result.data.get("physical_width")
+        physical_h = capture_result.data.get("physical_height")
+        if physical_w and physical_h:
+            screen_width, screen_height = int(physical_w), int(physical_h)
 
     image_url, size = _encode_image_ref(
         image_ref,
