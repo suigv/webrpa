@@ -21,6 +21,7 @@ from core.model_trace_store import ModelTraceContext, ModelTraceStore
 from core.paths import traces_dir
 from engine.action_registry import ActionRegistry, get_registry
 from engine.models.runtime import ExecutionContext
+from engine.planners import BasePlanner, PlannerInput, PlannerOutput, resolve_planner
 
 
 class LLMClientLike(Protocol):
@@ -139,11 +140,13 @@ class GptExecutorRuntime:
         registry: ActionRegistry | None = None,
         llm_client_factory: Callable[[], LLMClientLike] | None = None,
         trace_store: ModelTraceStore | None = None,
+        planner: BasePlanner | None = None,
     ) -> None:
         self._registry = registry or get_registry()
         self._llm_client_factory = llm_client_factory or LLMClient
         self._trace_store = trace_store or ModelTraceStore()
         self._binding_cache: dict[str, dict[str, object]] = self._load_binding_cache()
+        self._planner: BasePlanner = planner or resolve_planner(self)
 
     def run(
         self,
@@ -293,16 +296,21 @@ class GptExecutorRuntime:
 
             plan: dict[str, Any] = {"ok": False, "message": "uninitialized"}
             max_planner_retries = 3
+            planner_input = PlannerInput(
+                goal=config.goal,
+                step_index=step_index,
+                allowed_actions=config.allowed_actions,
+                observation=observation_state if isinstance(observation_state, dict) else {},
+                last_action=last_action,
+                fallback_enabled=not observation.ok,
+                fallback_evidence=fallback_evidence,
+                fallback_modalities=config.fallback_modalities,
+                system_prompt=config.system_prompt,
+                llm_runtime=config.llm_runtime,
+            )
             for attempt in range(max_planner_retries):
-                plan = self._plan_next_step(
-                    llm_client=llm_client,
-                    config=config,
-                    step_index=step_index,
-                    observation=observation_state if isinstance(observation_state, dict) else {},
-                    last_action=last_action,
-                    fallback_enabled=not observation.ok,
-                    fallback_evidence=fallback_evidence,
-                )
+                planner_output = self._planner.plan(planner_input)
+                plan = planner_output.to_legacy_dict()
                 if plan.get("ok") is not False:
                     break
                 

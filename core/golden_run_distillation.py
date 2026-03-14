@@ -583,3 +583,269 @@ class GoldenRunDistiller:
             yaml.safe_dump(doc, sort_keys=False, allow_unicode=True),
             encoding="utf-8",
         )
+
+    # ------------------------------------------------------------------
+    # LLM Draft Refiner (旁路增强)
+    # ------------------------------------------------------------------
+
+    def refine_draft(
+        self,
+        draft: GoldenRunDraft,
+        records: list[dict[str, object]],
+        *,
+        llm_client: object | None = None,
+    ) -> GoldenRunDraft:
+        """Optionally refine a draft using LLM-based parametrization.
+
+        This is a **side-car** enhancement: if the LLM fails or returns
+        garbage, the original draft is returned unchanged. The caller
+        should never see an exception from this method.
+        """
+        refiner = LLMDraftRefiner(llm_client=llm_client)
+        return refiner.refine(draft, records)
+
+
+# ==========================================================================
+# LLMDraftRefiner – 旁路增强蒸馏器
+# ==========================================================================
+
+_LLM_REFINER_SYSTEM_PROMPT = """\
+You are a YAML workflow parametrization expert. You will be given:
+1. A YAML workflow script generated from a successful automation trace.
+2. The raw JSON trace records that produced this YAML.
+
+Your task: identify **hardcoded business-specific values** in the YAML that
+should be abstracted into reusable `${payload.xxx}` template variables, so the
+workflow can be re-used with different inputs.
+
+## What to parameterize
+- Search terms, usernames, email addresses, message text, URLs
+- Specific product names, order IDs, phone numbers
+- Any value that would change between different runs of the same workflow
+
+## What NOT to parameterize
+- Action names (e.g. `ui.click`, `ui.input_text`)
+- Selector keys (`text`, `resource_id`) that identify UI elements
+- Timeout values, interval values, coordinates
+- State IDs, step labels
+
+## Output Contract (strict JSON)
+Return a JSON object with a single key `"replacements"` containing an array.
+Each replacement is:
+```json
+{
+  "original_value": "the exact hardcoded string in the YAML",
+  "variable_name": "descriptive_snake_case_name",
+  "input_type": "string",
+  "description": "brief description of what this parameter is"
+}
+```
+
+If nothing should be parameterized, return `{"replacements": []}`.
+"""
+
+
+class LLMDraftRefiner:
+    """Side-car LLM-based parametrization refiner.
+
+    Takes a baseline ``GoldenRunDraft`` produced by the heuristic distiller
+    and asks an LLM to identify additional hardcoded business values that
+    should be abstracted into ``${payload.xxx}`` template variables.
+
+    **Safety guarantee**: if the LLM is unreachable, returns bad JSON, or
+    suggests replacements that break the YAML structure, the original draft
+    is returned unchanged.
+    """
+
+    def __init__(self, *, llm_client: object | None = None) -> None:
+        self._llm_client = llm_client
+
+    def _get_client(self) -> object:
+        if self._llm_client is not None:
+            return self._llm_client
+        from ai_services.llm_client import LLMClient
+        return LLMClient()
+
+    def refine(
+        self,
+        draft: GoldenRunDraft,
+        records: list[dict[str, object]],
+    ) -> GoldenRunDraft:
+        """Attempt LLM-based refinement. Returns original draft on any failure."""
+        import logging
+        logger = logging.getLogger(__name__)
+
+        try:
+            return self._refine_impl(draft, records)
+        except Exception as exc:
+            logger.warning("LLMDraftRefiner: refinement failed, returning base draft: %s", exc)
+            return draft
+
+    def _refine_impl(
+        self,
+        draft: GoldenRunDraft,
+        records: list[dict[str, object]],
+    ) -> GoldenRunDraft:
+        import json as _json
+
+        # --- Build the prompt ---
+        script_yaml = draft.script_path.read_text(encoding="utf-8")
+        manifest_yaml = draft.manifest_path.read_text(encoding="utf-8")
+
+        # Compress trace records for the LLM (only action + params + observation summary)
+        compressed_trace: list[dict[str, object]] = []
+        for record in records:
+            if str(record.get("record_type") or "") != "step":
+                continue
+            compressed_trace.append({
+                "step": record.get("step_index"),
+                "action": record.get("chosen_action"),
+                "params": record.get("action_params"),
+            })
+
+        prompt_payload = {
+            "script_yaml": script_yaml,
+            "manifest_yaml": manifest_yaml,
+            "trace_summary": compressed_trace,
+        }
+
+        from ai_services.llm_client import LLMRequest
+        request = LLMRequest(
+            prompt=_json.dumps(prompt_payload, ensure_ascii=False),
+            system_prompt=_LLM_REFINER_SYSTEM_PROMPT,
+            response_format={"type": "json_object"},
+        )
+
+        client = self._get_client()
+        response = client.evaluate(request)  # type: ignore[union-attr]
+
+        if not bool(getattr(response, "ok", False)):
+            import logging
+            logging.getLogger(__name__).warning(
+                "LLMDraftRefiner: LLM returned error, skipping refinement"
+            )
+            return draft
+
+        output_text = str(getattr(response, "output_text", "") or "").strip()
+        if not output_text:
+            return draft
+
+        result = _json.loads(output_text)
+        if not isinstance(result, dict):
+            return draft
+
+        replacements = result.get("replacements")
+        if not isinstance(replacements, list) or not replacements:
+            return draft
+
+        # --- Apply replacements ---
+        return self._apply_replacements(draft, replacements)
+
+    def _apply_replacements(
+        self,
+        draft: GoldenRunDraft,
+        replacements: list[dict[str, object]],
+    ) -> GoldenRunDraft:
+        """Apply LLM-suggested replacements to the YAML files.
+
+        Rewrites the YAML text and updates the manifest inputs.
+        If any replacement would break the YAML, we bail out entirely.
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+
+        script_text = draft.script_path.read_text(encoding="utf-8")
+        manifest_text = draft.manifest_path.read_text(encoding="utf-8")
+
+        # Collect existing input names from manifest
+        existing_input_names = {inp.name for inp in draft.manifest.inputs}
+        new_inputs: list[dict[str, object]] = []
+        applied_count = 0
+
+        for replacement in replacements:
+            if not isinstance(replacement, dict):
+                continue
+            original = str(replacement.get("original_value") or "").strip()
+            var_name = str(replacement.get("variable_name") or "").strip()
+            input_type = str(replacement.get("input_type") or "string").strip()
+
+            if not original or not var_name:
+                continue
+
+            # Safety: don't replace action names or structural keys
+            if original in {"ui.click", "ui.input_text", "ui.swipe", "ui.long_click",
+                            "ui.key_press", "ui.wait_until", "ui.match_state",
+                            "action", "kind", "label", "stop", "success"}:
+                continue
+
+            # Safety: variable name must be valid identifier
+            if not var_name.replace("_", "").isalnum():
+                continue
+
+            template_ref = f"${{payload.{var_name}}}"
+
+            # Check if replacement would actually affect the script
+            if original not in script_text:
+                continue
+
+            script_text = script_text.replace(original, template_ref)
+            applied_count += 1
+
+            if var_name not in existing_input_names:
+                new_inputs.append({
+                    "name": var_name,
+                    "type": input_type if input_type in {"string", "integer", "number", "boolean"} else "string",
+                    "required": True,
+                })
+                existing_input_names.add(var_name)
+
+        if applied_count == 0:
+            return draft
+
+        # Validate the modified YAML is still parseable
+        try:
+            yaml.safe_load(script_text)
+        except Exception as exc:
+            logger.warning("LLMDraftRefiner: modified YAML is invalid, reverting: %s", exc)
+            return draft
+
+        # Update manifest with new inputs
+        if new_inputs:
+            manifest_data = yaml.safe_load(manifest_text)
+            if isinstance(manifest_data, dict):
+                existing_inputs = manifest_data.get("inputs", [])
+                if isinstance(existing_inputs, list):
+                    existing_inputs.extend(new_inputs)
+                    manifest_data["inputs"] = existing_inputs
+                manifest_text = yaml.safe_dump(manifest_data, sort_keys=False, allow_unicode=True)
+
+        # Add vars mapping for new payload inputs
+        script_data = yaml.safe_load(script_text)
+        if isinstance(script_data, dict):
+            existing_vars = script_data.get("vars", {})
+            if isinstance(existing_vars, dict):
+                for inp in new_inputs:
+                    name = str(inp.get("name", ""))
+                    if name and name not in existing_vars:
+                        existing_vars[name] = f"${{payload.{name}}}"
+                script_data["vars"] = existing_vars
+            script_text = yaml.safe_dump(script_data, sort_keys=False, allow_unicode=True)
+
+        # Write back
+        draft.script_path.write_text(script_text, encoding="utf-8")
+        draft.manifest_path.write_text(manifest_text, encoding="utf-8")
+
+        # Rebuild models from updated YAML
+        updated_manifest = PluginManifest.model_validate(yaml.safe_load(manifest_text))
+        updated_script = WorkflowScript.model_validate(yaml.safe_load(script_text))
+
+        logger.info("LLMDraftRefiner: applied %d replacements", applied_count)
+
+        return GoldenRunDraft(
+            manifest=updated_manifest,
+            script=updated_script,
+            output_dir=draft.output_dir,
+            manifest_path=draft.manifest_path,
+            script_path=draft.script_path,
+        )
+

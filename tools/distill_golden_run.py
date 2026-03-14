@@ -28,6 +28,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--display-name")
     parser.add_argument("--category", default="AI Drafts")
     parser.add_argument("--traces-root", type=Path)
+    parser.add_argument("--use-llm-refiner", action="store_true", help="Run LLM-based parametrization refinement after base distillation")
     return parser
 
 
@@ -51,6 +52,10 @@ def main() -> int:
     except GoldenRunDistillationError as exc:
         print(json.dumps(exc.to_dict(), ensure_ascii=False, sort_keys=True))
         return 1
+
+    if args.use_llm_refiner:
+        records = distiller._trace_store.read_records(context)
+        draft = distiller.refine_draft(draft, records)
 
     print(
         json.dumps(

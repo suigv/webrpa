@@ -76,6 +76,11 @@
     - **AI 引导升级**：新建 `docs/AI_ONBOARDING.md` 作为 AI 进入项目的第一站，明确了知识检索优先级与职责边界。
 
 - 最近重点 (本会话)：
+  - **决策层完全解耦 (Architectural Decoupling)**：
+    - **Planner 抽象层 (防波堤 1)**：新增 `engine/planners.py`，将 `GptExecutorRuntime` 中的硬编码决策逻辑（LLM/VLM 调用、Prompt 组装）抽离为 `BasePlanner` 协议。引入 `StructuredPlanner`（生产基线）和 `OmniVisionPlanner`（实验性多模态，`MYT_EXPERIMENTAL_OMNIVISION=1` 开启）。执行器循环现在通过不可变的 `PlannerInput`/`PlannerOutput` 契约与决策大脑通信，实现物理隔离。
+    - **旁路蒸馏增强 (防波堤 2)**：在 `core/golden_run_distillation.py` 中新增 `LLMDraftRefiner`。在启发式参数化完成后，通过可选的 LLM 旁路分析 YAML 寻找额外的硬编码业务参数并抽取为 `${payload.xxx}`。完全静默失败回退机制保证了核心蒸馏流程的绝对稳定性（新增 `--use-llm-refiner` CLI 支持）。
+
+- 最近重点 (本会话)：
   - **场景提示词模板服务化**：
     - 新建 `engine/prompt_templates.py`，集中定义 4 个模板常量（通用自动化、账号登录/切换、社交媒体 X/Twitter、内容采集/数据爬取），作为项目唯一数据源。
     - 新增 `GET /api/tasks/prompt_templates` 路由，动态返回模板列表（key/name/content）。
