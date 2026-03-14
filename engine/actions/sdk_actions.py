@@ -10,6 +10,39 @@ from typing import Any
 from engine.models.runtime import ActionResult, ExecutionContext
 from hardware_adapters.myt_client import MytSdkClient
 from core.data_store import _resolve_root_path, write_json_atomic
+from engine.action_registry import ActionMetadata
+
+
+SAVE_SHARED_METADATA = ActionMetadata(
+    description="Save a value to the persistent shared store",
+    params_schema={
+        "type": "object",
+        "properties": {
+            "key": {"type": "string", "description": "Key to store the value under"},
+            "value": {"type": "any", "description": "Value to store"}
+        },
+        "required": ["key", "value"]
+    },
+    tags=["skill"]
+)
+
+LOAD_SHARED_REQUIRED_METADATA = ActionMetadata(
+    description="Load a required value from the shared store. Fails if not found.",
+    params_schema={
+        "type": "object",
+        "properties": {
+            "key": {"type": "string", "description": "Key to retrieve"}
+        },
+        "required": ["key"]
+    },
+    returns_schema={
+        "type": "object",
+        "properties": {
+            "value": {"type": "any"}
+        }
+    },
+    tags=["skill"]
+)
 
 
 _SHARED_STORE_LOCK = threading.Lock()

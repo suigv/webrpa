@@ -139,5 +139,5 @@ class ScriptParser:
             else:
                 action = f"noop_{index}"
                 params = {}
-            normalized_steps.append({"action": action, "params": params})
+            normalized_steps.append({"kind": "action", "action": action, "params": params})
         return {"task": task, "steps": normalized_steps}

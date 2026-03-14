@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import os
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict
+from typing import Any, Callable, Dict, Optional
 
 from engine.action_registry import get_registry
 from engine.gpt_executor import GptExecutorRuntime
@@ -66,14 +66,59 @@ class Runner:
                 message=f"unsupported task: {task_name}",
             )
 
-        # Anonymous stub
+        # Anonymous script execution
+        if plan.get("steps"):
+            return self._run_anonymous_script(task_name, script_payload, plan, should_cancel, runtime, emit_event)
+
+        # Empty anonymous stub
         return {
             "ok": True,
             "task": task_name,
-            "step_count": len(plan.get("steps", [])),
+            "step_count": 0,
             "status": "stub_executed",
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
+
+    def _run_anonymous_script(
+        self,
+        task_name: str,
+        payload: Dict[str, Any],
+        plan: Dict[str, Any],
+        should_cancel: Callable[[], bool] | None = None,
+        runtime: Dict[str, Any] | None = None,
+        emit_event: Optional[Callable[[str, Dict[str, Any]], None]] = None,
+    ) -> Dict[str, Any]:
+        try:
+            # Construct a WorkflowScript model for validation and execution
+            script = WorkflowScript(
+                version="v1",
+                workflow=task_name or "anonymous",
+                steps=[ActionStep(**step) for step in plan.get("steps", [])]
+            )
+
+            # Validate actions
+            action_error = self._validate_script_actions(script)
+            if action_error is not None:
+                return self._dispatch_error(task_name=task_name, **action_error)
+
+            # Execute via interpreter
+            result = self._interpreter.execute(
+                script,
+                payload,
+                should_cancel=should_cancel,
+                runtime=runtime,
+                emit_event=emit_event,
+            )
+            result.setdefault("task", task_name)
+            result.setdefault("timestamp", datetime.now(timezone.utc).isoformat())
+            return result
+        except Exception as exc:
+            logger.exception("anonymous script execution failed")
+            return self._dispatch_error(
+                task_name=task_name,
+                code="script_execution_error",
+                message=str(exc),
+            )
 
     def _run_yaml_plugin(
         self,

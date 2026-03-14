@@ -21,7 +21,8 @@ CLICK_METADATA = ActionMetadata(
             "finger_id": {"type": "integer", "default": 0, "description": "Finger index for touch"}
         },
         "required": ["x", "y"]
-    }
+    },
+    tags=["skill"]
 )
 
 SWIPE_METADATA = ActionMetadata(
@@ -37,6 +38,73 @@ SWIPE_METADATA = ActionMetadata(
             "finger_id": {"type": "integer", "default": 0}
         },
         "required": ["x0", "y0", "x1", "y1"]
+    },
+    tags=["skill"]
+)
+
+INPUT_TEXT_METADATA = ActionMetadata(
+    description="Input text into current focus",
+    params_schema={
+        "type": "object",
+        "properties": {
+            "text": {"type": "string", "description": "Text to input"}
+        },
+        "required": ["text"]
+    },
+    tags=["skill"]
+)
+
+KEY_PRESS_METADATA = ActionMetadata(
+    description="Press a system key",
+    params_schema={
+        "type": "object",
+        "properties": {
+            "key": {
+                "type": "string", 
+                "enum": ["back", "home", "enter", "recent"],
+                "description": "Key name"
+            }
+        },
+        "required": ["key"]
+    }
+)
+
+LONG_CLICK_METADATA = ActionMetadata(
+    description="Long click on screen coordinates (x, y)",
+    params_schema={
+        "type": "object",
+        "properties": {
+            "x": {"type": "integer", "description": "X coordinate"},
+            "y": {"type": "integer", "description": "Y coordinate"},
+            "duration": {"type": "number", "default": 0.5, "description": "Duration in seconds"},
+            "finger_id": {"type": "integer", "default": 0}
+        },
+        "required": ["x", "y"]
+    }
+)
+
+CAPTURE_COMPRESSED_METADATA = ActionMetadata(
+    description="Capture compressed screenshot (JPEG/PNG)",
+    params_schema={
+        "type": "object",
+        "properties": {
+            "image_type": {"type": "integer", "default": 0, "description": "0 for JPEG, 1 for PNG"},
+            "quality": {"type": "integer", "default": 80, "description": "Compression quality (1-100)"},
+            "save_path": {"type": "string", "description": "Optional local path to save the image"},
+            "left": {"type": "integer", "description": "Optional crop left"},
+            "top": {"type": "integer", "description": "Optional crop top"},
+            "right": {"type": "integer", "description": "Optional crop right"},
+            "bottom": {"type": "integer", "description": "Optional crop bottom"}
+        }
+    },
+    returns_schema={
+        "type": "object",
+        "properties": {
+            "byte_length": {"type": "integer"},
+            "save_path": {"type": "string", "nullable": True},
+            "screen_width": {"type": "integer", "nullable": True},
+            "screen_height": {"type": "integer", "nullable": True}
+        }
     }
 )
 
@@ -545,6 +613,43 @@ def get_sdk_version(params: Dict[str, Any], context: ExecutionContext) -> Action
         return ActionResult(ok=True, code="ok", data={"version": version})
     finally:
         _close_rpc(rpc)
+
+
+APP_OPEN_METADATA = ActionMetadata(
+    description="Start an Android application by package name",
+    params_schema={
+        "type": "object",
+        "properties": {
+            "package_name": {"type": "string", "description": "Android package name (e.g. com.example.app)"}
+        },
+        "required": ["package_name"]
+    },
+    tags=["skill"]
+)
+
+APP_STOP_METADATA = ActionMetadata(
+    description="Force stop an Android application",
+    params_schema={
+        "type": "object",
+        "properties": {
+            "package_name": {"type": "string", "description": "Android package name"}
+        },
+        "required": ["package_name"]
+    },
+    tags=["skill"]
+)
+
+APP_ENSURE_RUNNING_METADATA = ActionMetadata(
+    description="Ensure an application is running in the foreground",
+    params_schema={
+        "type": "object",
+        "properties": {
+            "package_name": {"type": "string", "description": "Android package name"}
+        },
+        "required": ["package_name"]
+    },
+    tags=["skill"]
+)
 
 
 def check_connect_state(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:

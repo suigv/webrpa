@@ -64,8 +64,8 @@ class TaskTargetRuntimeResolver:
             cloud_id_raw = target.get("cloud_id")
             if device_id_raw is None or cloud_id_raw is None:
                 raise ValueError("missing target keys")
-            device_id = int(device_id_raw)
-            cloud_id = int(cloud_id_raw)
+            device_id = int(device_id_raw or 0)
+            cloud_id = int(cloud_id_raw or 0)
         except Exception:
             device_id = 0
             cloud_id = 0
@@ -128,6 +128,7 @@ class TaskTargetRuntimeResolver:
                 "message": f"cloud_id out of range for device {device_id}: {cloud_id}",
             }
 
+        assert cloud is not None
         availability_state = str(cloud.get("availability_state") or "unknown")
         if enforce_availability and availability_state != "available":
             return None, {
@@ -152,6 +153,14 @@ class TaskTargetRuntimeResolver:
                     }
             except Exception:
                 pass
+
+        if cloud is None or not isinstance(info, dict):
+            return None, {
+                "ok": False,
+                "status": "failed_target_validation",
+                "code": "cloud_not_found",
+                "message": f"unexpected state reflecting cloud {device_id}-{cloud_id}",
+            }
 
         return {
             "device_id": device_id,
@@ -194,7 +203,13 @@ class TaskDispatchRuntimeResolver:
             rpc_enabled = _env_rpc.strip() not in ("0", "false", "False")
         else:
             rpc_enabled = get_rpc_enabled()
-        should_resolve_target = rpc_enabled and (self._plugin_loader.has(task_name) or task_name == "gpt_executor")
+        is_anonymous = (task_name == "anonymous" or not task_name)
+        has_steps = bool(payload_for_run.get("steps"))
+        should_resolve_target = rpc_enabled and (
+            self._plugin_loader.has(task_name) 
+            or task_name == "gpt_executor" 
+            or (is_anonymous and has_steps)
+        )
 
         prepared_targets: list[PreparedTaskTarget] = []
         for target in dispatch_targets:

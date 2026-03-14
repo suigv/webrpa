@@ -16,6 +16,7 @@ class ActionMetadata(BaseModel):
     description: str = ""
     params_schema: Optional[Dict[str, Any]] = None
     returns_schema: Optional[Dict[str, Any]] = None
+    tags: List[str] = Field(default_factory=list)
 
 
 class ActionRegistry:
@@ -38,8 +39,14 @@ class ActionRegistry:
     def get_metadata(self, name: str) -> ActionMetadata | None:
         return self._metadata.get(name)
 
-    def describe_all(self) -> dict[str, ActionMetadata]:
-        return dict(self._metadata)
+    def describe_all(self, tag: str | None = None) -> dict[str, ActionMetadata]:
+        if not tag:
+            return dict(self._metadata)
+        return {
+            name: meta
+            for name, meta in self._metadata.items()
+            if tag in meta.tags
+        }
 
     def has(self, name: str) -> bool:
         return name in self._actions
@@ -148,7 +155,14 @@ def register_defaults() -> None:
         node_get_text,
         node_long_click,
         CLICK_METADATA,
-        SWIPE_METADATA
+        SWIPE_METADATA,
+        INPUT_TEXT_METADATA,
+        KEY_PRESS_METADATA,
+        LONG_CLICK_METADATA,
+        CAPTURE_COMPRESSED_METADATA,
+        APP_OPEN_METADATA,
+        APP_STOP_METADATA,
+        APP_ENSURE_RUNNING_METADATA
     )
     from .actions.login_actions import (
         click_selector_or_tap,
@@ -193,6 +207,8 @@ def register_defaults() -> None:
         load_shared_required,
         resolve_first_non_empty,
         save_shared,
+        SAVE_SHARED_METADATA,
+        LOAD_SHARED_REQUIRED_METADATA
     )
     from .actions.state_actions import (
         collect_blogger_candidates,
@@ -208,7 +224,10 @@ def register_defaults() -> None:
         open_first_unread_dm,
         wait_login_stage,
     )
-    from .actions.ai_actions import llm_evaluate, vlm_evaluate, locate_point
+    from .actions.ai_actions import (
+        llm_evaluate, vlm_evaluate, locate_point,
+        LLM_EVALUATE_METADATA, VLM_EVALUATE_METADATA, LOCATE_POINT_METADATA
+    )
 
     _registry.register("browser.open", browser_open)
     _registry.register("browser.input", browser_input)
@@ -223,8 +242,8 @@ def register_defaults() -> None:
     _registry.register("browser.close", browser_close)
     _registry.register("credentials.load", credentials_load)
     _registry.register("credentials.checkout", credentials_checkout)
-    _registry.register("core.save_shared", save_shared)
-    _registry.register("core.load_shared_required", load_shared_required)
+    _registry.register("core.save_shared", save_shared, metadata=SAVE_SHARED_METADATA)
+    _registry.register("core.load_shared_required", load_shared_required, metadata=LOAD_SHARED_REQUIRED_METADATA)
     _registry.register("core.load_shared_optional", load_shared_optional)
     _registry.register("core.append_shared_unique", append_shared_unique)
     _registry.register("core.increment_shared_counter", increment_shared_counter)
@@ -261,9 +280,9 @@ def register_defaults() -> None:
     _registry.register("core.open_first_unread_dm", open_first_unread_dm)
     _registry.register("core.extract_follow_targets", extract_follow_targets)
     _registry.register("core.follow_visible_targets", follow_visible_targets)
-    _registry.register("ai.llm_evaluate", llm_evaluate)
-    _registry.register("ai.vlm_evaluate", vlm_evaluate)
-    _registry.register("ai.locate_point", locate_point)
+    _registry.register("ai.llm_evaluate", llm_evaluate, metadata=LLM_EVALUATE_METADATA)
+    _registry.register("ai.vlm_evaluate", vlm_evaluate, metadata=VLM_EVALUATE_METADATA)
+    _registry.register("ai.locate_point", locate_point, metadata=LOCATE_POINT_METADATA)
     _registry.register("ui.click", click, metadata=CLICK_METADATA)
     _registry.register("ui.match_state", ui_match_state)
     _registry.register("ui.touch_down", touch_down)
@@ -272,22 +291,22 @@ def register_defaults() -> None:
     _registry.register("ui.wait_until", ui_wait_until)
     _registry.register("ui.observe_transition", ui_observe_transition)
     _registry.register("ui.swipe", swipe, metadata=SWIPE_METADATA)
-    _registry.register("ui.long_click", long_click)
-    _registry.register("ui.input_text", input_text)
+    _registry.register("ui.long_click", long_click, metadata=LONG_CLICK_METADATA)
+    _registry.register("ui.input_text", input_text, metadata=INPUT_TEXT_METADATA)
     _registry.register("ui.fill_form", fill_form)
     _registry.register("ui.input_text_with_shell_fallback", input_text_with_shell_fallback)
     _registry.register("ui.focus_and_input_with_shell_fallback", focus_and_input_with_shell_fallback)
-    _registry.register("ui.key_press", key_press)
+    _registry.register("ui.key_press", key_press, metadata=KEY_PRESS_METADATA)
     _registry.register("ui.click_selector_or_tap", click_selector_or_tap)
     _registry.register("ui.navigate_to", navigate_to)
-    _registry.register("app.open", app_open)
-    _registry.register("app.stop", app_stop)
-    _registry.register("app.ensure_running", app_ensure_running)
+    _registry.register("app.open", app_open, metadata=APP_OPEN_METADATA)
+    _registry.register("app.stop", app_stop, metadata=APP_STOP_METADATA)
+    _registry.register("app.ensure_running", app_ensure_running, metadata=APP_ENSURE_RUNNING_METADATA)
     _registry.register("app.grant_permissions", app_grant_permissions)
     _registry.register("app.dismiss_popups", app_dismiss_popups)
     _registry.register("device.screenshot", screenshot)
     _registry.register("device.capture_raw", capture_raw)
-    _registry.register("device.capture_compressed", capture_compressed)
+    _registry.register("device.capture_compressed", capture_compressed, metadata=CAPTURE_COMPRESSED_METADATA)
     _registry.register("device.get_display_rotate", get_display_rotate)
     _registry.register("device.get_sdk_version", get_sdk_version)
     _registry.register("device.check_connect_state", check_connect_state)

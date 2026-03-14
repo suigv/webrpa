@@ -98,13 +98,17 @@ class Interpreter:
                 if not context.jumped:
                     context.pc += 1
             # Fell through all steps without explicit stop
-            return {
+            res = {
                 "ok": True,
                 "workflow": script.workflow,
                 "status": "completed",
                 "message": "workflow finished",
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
+            if context.last_result:
+                res["data"] = context.last_result.data
+                res["code"] = context.last_result.code
+            return res
 
         except InterpreterError as exc:
             return {
@@ -229,12 +233,12 @@ class Interpreter:
                     remaining_ms = timeout_ms
                     first_iteration = False
                 else:
-                    remaining_ms = int(max(0, (deadline - time.monotonic()) * 1000))
+                    remaining_ms = int(max(0.0, (deadline - time.monotonic()) * 1000))
                 if remaining_ms <= 0:
                     break
 
                 # 每次最多让 Service 等待 2s，以便 Interpreter 及时收回控制权检查取消信号
-                chunk_timeout_ms = min(remaining_ms, 2000)
+                chunk_timeout_ms = int(min(float(remaining_ms), 2000.0))
 
                 try:
                     result = BrowserUIStateService().wait_until(
@@ -307,8 +311,8 @@ class Interpreter:
                         wait_signal.notify()
                         return
                     stop_event.wait(poll_interval)
-            finally:
-                return
+            except Exception:
+                pass
 
         thread = threading.Thread(target=_poll, name="wait-until-poll", daemon=True)
         thread.start()
@@ -421,6 +425,7 @@ class Interpreter:
                 f"action failed at step {context.pc}: [{result.code}] {result.message}"
             )
 
+        assert on_fail is not None
         if on_fail.strategy == FailStrategy.skip:
             return result
 

@@ -10,6 +10,56 @@ from typing import cast
 from ai_services.llm_client import JSONDict, LLMClient, LLMRequest, LLMResponse
 from engine.actions.ui_actions import capture_compressed
 from engine.models.runtime import ActionResult, ExecutionContext
+from engine.action_registry import ActionMetadata
+
+
+LLM_EVALUATE_METADATA = ActionMetadata(
+    description="Evaluate a text-based LLM prompt",
+    params_schema={
+        "type": "object",
+        "properties": {
+            "prompt": {"type": "string", "description": "The prompt to send to LLM"},
+            "system_prompt": {"type": "string", "description": "Optional system personality/instructions"}
+        },
+        "required": ["prompt"]
+    },
+    tags=["skill"]
+)
+
+VLM_EVALUATE_METADATA = ActionMetadata(
+    description="Evaluate a vision-based LLM prompt with an image",
+    params_schema={
+        "type": "object",
+        "properties": {
+            "prompt": {"type": "string", "description": "The prompt to send to VLM"},
+            "image_url": {"type": "string", "description": "Image URL or base64 data"},
+            "system_prompt": {"type": "string"}
+        },
+        "required": ["prompt"]
+    },
+    tags=["skill"]
+)
+
+LOCATE_POINT_METADATA = ActionMetadata(
+    description="Locate a specific point/UI element using AI description",
+    params_schema={
+        "type": "object",
+        "properties": {
+            "prompt": {"type": "string", "description": "Natural language description of the target (e.g. 'the like button')"},
+            "image_url": {"type": "string", "description": "Optional image data (will screenshot if omitted)"}
+        },
+        "required": ["prompt"]
+    },
+    returns_schema={
+        "type": "object",
+        "properties": {
+            "x": {"type": "integer"},
+            "y": {"type": "integer"},
+            "found": {"type": "boolean"}
+        }
+    },
+    tags=["skill"]
+)
 
 
 def _runtime_ai_config(context: ExecutionContext) -> JSONDict:
