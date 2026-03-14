@@ -106,6 +106,22 @@ class ExecutionContext:
             self._wait_signal = WaitSignal(name=f"wait-signal-{id(self):x}")
         return self._wait_signal
 
+    @property
+    def physical_width(self) -> int | None:
+        return self.session.get("physical_width")
+
+    @physical_width.setter
+    def physical_width(self, value: int | None) -> None:
+        self.session["physical_width"] = value
+
+    @property
+    def physical_height(self) -> int | None:
+        return self.session.get("physical_height")
+
+    @physical_height.setter
+    def physical_height(self, value: int | None) -> None:
+        self.session["physical_height"] = value
+
     def notify_wait_signal(self) -> None:
         if self._wait_signal is not None:
             self._wait_signal.notify()

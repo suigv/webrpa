@@ -262,6 +262,9 @@ def locate_point(params: dict[str, object], context: ExecutionContext) -> Action
     screen_height = _to_int(params.get("screen_height")) if params.get("screen_height") is not None else None
 
     image_ref = str(params.get("image_url") or params.get("image_ref") or params.get("image_data") or "").strip()
+    physical_width: int | None = None
+    physical_height: int | None = None
+
     if not image_ref:
         save_dir = Path(str(params.get("save_dir") or "/tmp/webrpa_ai")).resolve()
         save_dir.mkdir(parents=True, exist_ok=True)
@@ -276,11 +279,19 @@ def locate_point(params: dict[str, object], context: ExecutionContext) -> Action
         if not capture_result.ok:
             return ActionResult(ok=False, code=capture_result.code, message=capture_result.message)
         image_ref = str(capture_result.data.get("save_path") or save_path)
-        # 优先使用物理分辨率进行坐标换算
+        # 提取物理及截图分辨率
         physical_w = capture_result.data.get("physical_width")
         physical_h = capture_result.data.get("physical_height")
-        if physical_w and physical_h:
-            screen_width, screen_height = int(physical_w), int(physical_h)
+        physical_width = int(physical_w) if physical_w else None
+        physical_height = int(physical_h) if physical_h else None
+
+        # 如果用户未显式传入截图比例，使用截图中提取的比例 (VLM看到的比例)
+        raw_screen_w = capture_result.data.get("screen_width")
+        raw_screen_h = capture_result.data.get("screen_height")
+        if screen_width is None and raw_screen_w:
+            screen_width = int(raw_screen_w)
+        if screen_height is None and raw_screen_h:
+            screen_height = int(raw_screen_h)
 
     image_url, size = _encode_image_ref(
         image_ref,
@@ -333,7 +344,11 @@ def locate_point(params: dict[str, object], context: ExecutionContext) -> Action
 
     coord_mode = str(params.get("coord_mode") or "pixel")
     clamp = bool(params.get("clamp", True))
-    x, y = _coerce_point(
+
+    # 第一步：根据 AI 返回值和它所看到的图片尺寸（screen_width/height）计算出它在图片上的真实相对位置（归一化）
+    # 由于 VLM 在返回 pixel 坐标时，基于的是我们提供的 prompt 里的 screen_widthxscreen_height，
+    # 因此使用 _coerce_point 并指定当前 coord_mode 和 screen_width/height，能得到它在图片上的真实像素。
+    img_x, img_y = _coerce_point(
         point[0],
         point[1],
         width=screen_width,
@@ -341,6 +356,24 @@ def locate_point(params: dict[str, object], context: ExecutionContext) -> Action
         coord_mode=coord_mode,
         clamp=clamp,
     )
+
+    # 第二步：将图片上的像素位置重新投影到物理屏幕尺寸上 (如果可用)
+    # 因为设备底层 RPC 的 touch/click 指令必须按照物理屏幕的尺径发送。
+    x, y = img_x, img_y
+    if physical_width and physical_height and screen_width and screen_height:
+        # 检测是否因横屏导致物理宽高的含义发生了互换
+        # screen_width > screen_height 意味着当前截获的法向图片是横板的，
+        # 而 bottom-level 的 physical_width/height 通常是硬件的固定方向（如 1080x1920，竖板短宽长高）。
+        # 判断横屏或竖屏：如果图片长宽关系不同步于物理长宽关系，就进行反转投影
+        screen_is_landscape = screen_width > screen_height
+        physical_is_landscape = physical_width > physical_height
+        
+        target_physical_w, target_physical_h = physical_width, physical_height
+        if screen_is_landscape != physical_is_landscape:
+            target_physical_w, target_physical_h = physical_height, physical_width
+
+        x = int(round((float(img_x) / float(screen_width)) * float(target_physical_w)))
+        y = int(round((float(img_y) / float(screen_height)) * float(target_physical_h)))
 
     return ActionResult(
         ok=True,
@@ -350,6 +383,8 @@ def locate_point(params: dict[str, object], context: ExecutionContext) -> Action
             "y": y,
             "screen_width": screen_width,
             "screen_height": screen_height,
+            "physical_width": physical_width,
+            "physical_height": physical_height,
             "raw": payload,
             "model": response.model,
         },

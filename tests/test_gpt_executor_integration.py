@@ -234,11 +234,15 @@ def test_gpt_executor_collects_fallback_evidence_into_planner_and_trace(tmp_path
 
 def test_gpt_executor_retryable_planner_error_is_retried_with_backoff(monkeypatch):
     sleep_calls: list[float] = []
+    curr_time = 1000.0
 
     def _fake_sleep(duration: float) -> None:
+        nonlocal curr_time
         sleep_calls.append(duration)
+        curr_time += duration
 
     monkeypatch.setattr("engine.gpt_executor.time.sleep", _fake_sleep)
+    monkeypatch.setattr("engine.gpt_executor.time.monotonic", lambda: curr_time)
     llm_client = _SequencedLLMClient(
         responses=[
             LLMResponse(
@@ -303,7 +307,7 @@ def test_gpt_executor_retryable_planner_error_is_retried_with_backoff(monkeypatc
     planner_error = cast(dict[str, object], cast(dict[str, object], planner["response"])["error"])
     assert planner_error["retryable"] is True
     assert len(llm_client.calls) == 3
-    assert sleep_calls == [retry_backoff_seconds(0), retry_backoff_seconds(1)]
+    assert sum(sleep_calls) == (retry_backoff_seconds(0) + retry_backoff_seconds(1))
 
 
 def test_gpt_executor_repeated_actions_without_stagnation_only_hit_step_budget():

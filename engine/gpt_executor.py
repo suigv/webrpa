@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 from ai_services.llm_client import LLMClient, LLMRequest
 from ai_services.vlm_client import VLMClient
+from core.app_config import AppConfigManager
 from core.model_trace_store import ModelTraceContext, ModelTraceStore
 from core.paths import traces_dir
 from engine.action_registry import ActionRegistry, get_registry
@@ -145,7 +146,6 @@ class GptExecutorRuntime:
         self._registry = registry or get_registry()
         self._llm_client_factory = llm_client_factory or LLMClient
         self._trace_store = trace_store or ModelTraceStore()
-        self._binding_cache: dict[str, dict[str, object]] = self._load_binding_cache()
         self._planner: BasePlanner = planner or resolve_planner(self)
 
     def run(
@@ -318,7 +318,9 @@ class GptExecutorRuntime:
                 if plan.get("retryable") and attempt < max_planner_retries - 1:
                     backoff = 2 ** (attempt + 1)
                     logger.warning(f"Planner failed (retryable), backing off {backoff}s: {plan.get('message')}")
-                    time.sleep(backoff)
+                    if self._interruptible_sleep(backoff, should_cancel):
+                        # 如果休眠期间被取消，立即跳出重试循环，外层循环会处理取消逻辑
+                        break
                     continue
                 break
 
@@ -540,74 +542,39 @@ class GptExecutorRuntime:
         except Exception:
             return None
 
-    def _load_binding_cache(self) -> dict[str, dict[str, object]]:
-        try:
-            from core.paths import config_dir
-            apps_dir = config_dir() / "apps"
-            if not apps_dir.exists():
-                return {}
-            cache: dict[str, dict[str, object]] = {}
-            for app_path in sorted(apps_dir.glob("*.yaml")):
-                try:
-                    import yaml as _yaml
-                    data = _yaml.safe_load(app_path.read_text(encoding="utf-8"))
-                except Exception as exc:
-                    logger.warning("Failed to read app config file %s: %s", app_path, exc)
-                    continue
-                if not isinstance(data, dict):
-                    continue
-                app_package = str(data.get("package_name") or "").strip()
-                if not app_package:
-                    continue
-                entry = {
-                    "xml_filter": self._normalize_xml_filter(data.get("xml_filter")),
-                    "states": data.get("states") if isinstance(data.get("states"), list) else [],
-                }
-                if app_package in cache:
-                    logger.warning("Duplicate package_name in app configs: %s", app_package)
-                cache[app_package] = entry
-            return cache
-        except Exception as exc:
-            logger.warning("Failed to build binding cache: %s", exc)
-            return {}
-
     def _binding_xml_filter(self, app_package: str) -> dict[str, int] | None:
         if not app_package:
             return None
-        entry = self._binding_cache.get(app_package)
-        if not entry:
-            self._bootstrap_app_config(app_package)
+        
+        # 委托给核心管理器进行发现和加载
+        app_name = AppConfigManager.find_app_by_package(app_package)
+        if not app_name:
+            AppConfigManager.bootstrap_app_config(app_package)
             return None
-        xml_filter = entry.get("xml_filter")
-        if isinstance(xml_filter, Mapping):
+            
+        data = AppConfigManager.load_app_config(app_name)
+        xml_filter = data.get("xml_filter")
+        if isinstance(xml_filter, list):
+            # 将列表形式的 filter 转换为 dict
+            return self._normalize_xml_filter(xml_filter)
+        elif isinstance(xml_filter, Mapping):
             return {str(k): int(v) for k, v in xml_filter.items() if str(k) in {"max_text_len", "max_desc_len"}}
         return None
 
-    def _bootstrap_app_config(self, app_package: str) -> None:
-        """首次遇到未知 package 时，自动创建 config/apps/<app>.yaml 骨架文件。"""
-        try:
-            from engine.actions.sdk_config_support import app_config_path, app_from_package
-            import yaml as _yaml
-            app_name = app_from_package(app_package)
-            if not app_name:
-                return
-            path = app_config_path(app_name)
-            if path.exists():
-                # 已存在但未被 cache 加载（如启动后新建），补充加入 cache
-                data = _yaml.safe_load(path.read_text(encoding="utf-8"))
-                if isinstance(data, dict):
-                    self._binding_cache[app_package] = {
-                        "xml_filter": self._normalize_xml_filter(data.get("xml_filter")),
-                        "states": data.get("states") if isinstance(data.get("states"), list) else [],
-                    }
-                return
-            path.parent.mkdir(parents=True, exist_ok=True)
-            skeleton = {"version": "v1", "package_name": app_package, "schemes": {}, "selectors": {}}
-            path.write_text(_yaml.safe_dump(skeleton, sort_keys=False, allow_unicode=True), encoding="utf-8")
-            self._binding_cache[app_package] = {"xml_filter": None, "states": []}
-            logger.info("bootstrapped app config for package %s at %s", app_package, path)
-        except Exception as exc:
-            logger.warning("Failed to bootstrap app config for %s: %s", app_package, exc)
+    def _interruptible_sleep(self, seconds: float, should_cancel: Callable[[], bool] | None) -> bool:
+        """执行可中断的休眠。如果休眠期间触发了取消，返回 True。"""
+        if seconds <= 0:
+            return False
+            
+        deadline = time.monotonic() + seconds
+        # 使用 0.5s 作为最小轮询颗粒度
+        step = 0.5
+        
+        while time.monotonic() < deadline:
+            if should_cancel is not None and should_cancel():
+                return True
+            time.sleep(min(step, deadline - time.monotonic()))
+        return False
 
     @staticmethod
     def _extract_xml_package(xml: str) -> str:

@@ -10,47 +10,11 @@ import yaml
 
 from core.data_store import _resolve_root_path, write_json_atomic
 
-# 动态缓存映射表
-_cached_package_map: Dict[str, str] = {}
-_last_scan_time: float = 0
-_SCAN_TTL = 60.0  # 缓存 60 秒
-
-def _scan_apps_for_packages() -> Dict[str, str]:
-    """扫描 config/apps/*.yaml 并根据 package_name 字段构建映射表。"""
-    mapping: Dict[str, str] = {}
-    repo_root = Path(__file__).resolve().parents[2]
-    
-    # 搜索路径：优先 resolve_root_path()，回退 repo root
-    search_dirs = [Path(_resolve_root_path()) / "config" / "apps", repo_root / "config" / "apps"]
-    
-    seen_apps = set()
-    for apps_dir in search_dirs:
-        if not apps_dir.exists():
-            continue
-        for yaml_path in apps_dir.glob("*.yaml"):
-            app_name = yaml_path.stem
-            if app_name in seen_apps:
-                continue
-            try:
-                with open(yaml_path, "r", encoding="utf-8") as f:
-                    doc = yaml.safe_load(f)
-                    if isinstance(doc, dict) and "package_name" in doc:
-                        pkg = str(doc["package_name"]).strip()
-                        if pkg:
-                            mapping[pkg] = app_name
-                seen_apps.add(app_name)
-            except Exception:
-                continue
-    return mapping
+from core.app_config import AppConfigManager
 
 def get_package_to_app_map() -> Dict[str, str]:
-    """获取包名到 App 名的映射表（带缓存）。"""
-    global _cached_package_map, _last_scan_time
-    now = time.time()
-    if not _cached_package_map or (now - _last_scan_time) > _SCAN_TTL:
-        _cached_package_map = _scan_apps_for_packages()
-        _last_scan_time = now
-    return _cached_package_map
+    """向后兼容：从 core.app_config 获取映射。"""
+    return AppConfigManager.get_package_to_app_map()
 
 DEFAULT_APP_NAME = (os.getenv("MYT_DEFAULT_APP", "default") or "default").strip().lower() or "default"
 
@@ -87,14 +51,11 @@ def app_config_path(app: str) -> Path:
 
 
 def load_app_config_document(app: str) -> dict[str, Any]:
-    """加载 config/apps/{app}.yaml。"""
-    path = app_config_path(app)
-    if path.exists():
-        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
-        if isinstance(raw, dict):
-            return raw
-        raise ValueError(f"app config must be a mapping: {path}")
-    raise FileNotFoundError(f"config/apps/{app}.yaml not found")
+    """向后兼容：从 core.app_config 加载。"""
+    conf = AppConfigManager.load_app_config(app)
+    if not conf:
+        raise FileNotFoundError(f"config/apps/{app}.yaml not found or invalid")
+    return conf
 
 
 def load_ui_config_document() -> dict[str, Any]:

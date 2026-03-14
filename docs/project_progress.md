@@ -100,7 +100,12 @@
     - 所有兜底值从 `"volc"` 改为 `"default"`，`nurture_keywords.yaml` 新增 `default` strategy section。
     - **新增模式只需改配置，零框架改动**。
 
-- 下一步优先级：
+- 最近重点 (2026-03-14)：
+  - **视觉坐标系统与稳定性加固 (Hardening)**：
+    - **VLM 坐标映射修正**：彻底解决了 `ai.locate_point` 中因物理尺寸与截图尺寸混淆导致的点击偏移。确立了“原图坐标系空间观察 -> 物理屏幕空间映射”的标准转换链路，完美支持像素模式与横屏动态补偿。
+    - **任务取消灵敏度优化**：为 `gpt_executor` 引入了 `_interruptible_sleep` 机制，将 Planner 级退避重试改为短脉冲轮询，确保在 8s 级重试回退期间仍能实现 2s 内的任务取消响应。
+    - **架构解耦 (App Config)**：建立了核心层 `core/app_config.py` (AppConfigManager)，将应用配置发现、骨架生成从 `gpt_executor` 与 `sdk_config_support` 中抽离，消除了执行层对动作辅助模块的反向依赖。
+    - **性能底座优化**：在 `ExecutionContext` 中引入了物理分辨率会话级缓存，将 `wm size` 的 RPC 调用开销降至最低。
   - [x] 提取数据库基类 (`BaseStore`)，消除 `TaskStore` 与 `TaskEventStore` 的重复代码（待验证）。
   - [x] 废弃 `common/config_manager.py`，全面收敛至 `core/config_loader.py`（待验证）。
   - [x] 引入 Pydantic 重构配置解析逻辑，替代手动 JSON 校验（待验证）。
@@ -137,13 +142,12 @@
 
 | Metric | Value |
 |---|---:|
-| API route decorators (`api/routes`) | 35 |
+| API route decorators (`api/routes`) | 36 |
 | App-level route decorators (`api/server.py`) | 5 |
 | Plugin count (`plugins/*/manifest.yaml`) | 4 |
 | SDK action bindings (`engine/actions/sdk_actions.py`) | 154 |
-| Test files (`tests/test_*.py`) | 50 |
-| Test functions (`def test_*`) | 245 |
-| Documentation files (`docs/*.md`) | 16 |
+| Test files (`tests/test_*.py`) | 52 |
+| Test functions (`def test_*`) | 255 |
 <!-- AUTO_PROGRESS_SNAPSHOT:END -->
 
 ## 4. 维护说明

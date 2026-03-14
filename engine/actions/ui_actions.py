@@ -579,16 +579,22 @@ def capture_compressed(params: Dict[str, Any], context: ExecutionContext) -> Act
         except Exception:
             pass
 
-        # 发现物理分辨率
-        physical_width: int | None = None
-        physical_height: int | None = None
+        # 发现物理分辨率 (带 context 级短效缓存)
+        physical_width: int | None = context.physical_width
+        physical_height: int | None = context.physical_height
         device_id = context.device_id
-        if device_id > 0:
+        
+        if (physical_width is None or physical_height is None) and device_id > 0:
             res = get_device_manager().get_device_resolution(device_id)
             if res:
                 physical_width, physical_height = res
             elif rpc is not None:
                 physical_width, physical_height = _discover_physical_resolution(rpc, device_id)
+            
+            # 写入 context 缓存
+            if physical_width and physical_height:
+                context.physical_width = physical_width
+                context.physical_height = physical_height
 
         return ActionResult(ok=True, code="ok", data={
             "byte_length": len(payload),
