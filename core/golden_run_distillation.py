@@ -182,7 +182,7 @@ class GoldenRunDistiller:
                 )
             data = observation.get("data")
             modality = str(observation.get("modality") or "").strip().lower()
-            if not isinstance(data, dict) and modality not in {"vision", "vlm", "uitars", "ui-tars"}:
+            if not isinstance(data, dict) and modality not in {"vision", "vlm"}:
                 raise GoldenRunDistillationError(
                     code="bad_golden_run",
                     message="golden run step is missing structured observation data",

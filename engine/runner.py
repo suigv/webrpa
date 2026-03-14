@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Dict, Optional
 
 from engine.action_registry import get_registry
-from engine.gpt_executor import GptExecutorRuntime
+from engine.agent_executor import AgentExecutorRuntime
 from engine.interpreter import Interpreter
 from engine.models.manifest import InputType, PluginInput
 from engine.models.workflow import ActionStep, WorkflowScript
@@ -24,11 +24,11 @@ def strict_plugin_unknown_inputs_enabled() -> bool:
 
 
 class Runner:
-    def __init__(self, *, gpt_executor_runtime: GptExecutorRuntime | None = None) -> None:
+    def __init__(self, *, agent_executor_runtime: AgentExecutorRuntime | None = None) -> None:
         self._parser = ScriptParser()
         self._plugin_loader = get_shared_plugin_loader()
         self._interpreter = Interpreter()
-        self._gpt_executor_runtime = gpt_executor_runtime or GptExecutorRuntime()
+        self._agent_executor_runtime = agent_executor_runtime or AgentExecutorRuntime()
 
     def run(
         self,
@@ -50,8 +50,8 @@ class Runner:
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
 
-        if task_name == self._gpt_executor_runtime.task_name:
-            return self._gpt_executor_runtime.run(script_payload, should_cancel=should_cancel, runtime=runtime)
+        if task_name == self._agent_executor_runtime.task_name:
+            return self._agent_executor_runtime.run(script_payload, should_cancel=should_cancel, runtime=runtime)
 
         # Try YAML plugin first
         plugin = self._plugin_loader.get(task_name)

@@ -3,12 +3,14 @@ from __future__ import annotations
 import base64
 import os
 import threading
+import time
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Protocol, Mapping, Callable
 
 import httpx
 
-from core.vlm.uitars_output_parser import UITarsOutputParser, UITarsAction
+from core.vlm.vlm_output_parser import VLMOutputParser, VLMAction
+from core.system_settings_loader import get_vlm_provider, get_vlm_provider_config, get_vlm_api_key
 
 _shared_http_client: httpx.Client | None = None
 _CLIENT_LOCK = threading.Lock()
@@ -27,11 +29,121 @@ def _get_shared_http_client(timeout: float = 60.0) -> httpx.Client:
     return _shared_http_client
 
 
-class VLMClient:
-    """Client for UI-TARS visual language model."""
+class VLMProvider(Protocol):
+    """Protocol for VLM service providers."""
+    def predict(
+        self,
+        image_b64: str,
+        task: str,
+        history: Optional[list[dict[str, object]]] = None,
+        *,
+        screen_width: int | None = None,
+        screen_height: int | None = None,
+        timeout: float | None = None,
+    ) -> VLMAction:
+        ...
 
-    DEFAULT_BASE_URL = "http://127.0.0.1:9000/v1"
-    DEFAULT_MODEL = "UI-TARS-1.5-7B-6bit"
+    def close(self) -> None:
+        ...
+
+
+class StandardVLMProvider:
+    """Standard VLM provider using OpenAI-compatible chat completions API."""
+    
+    def __init__(
+        self,
+        base_url: str,
+        model: str,
+        api_key: str,
+        system_prompt: str,
+        http_client: httpx.Client,
+    ) -> None:
+        self.base_url = base_url.rstrip("/")
+        self.model = model
+        self.api_key = api_key
+        self.system_prompt = system_prompt
+        self._http = http_client
+        self._parser = VLMOutputParser()
+
+    def predict(
+        self,
+        image_b64: str,
+        task: str,
+        history: Optional[list[dict[str, object]]] = None,
+        *,
+        screen_width: int | None = None,
+        screen_height: int | None = None,
+        timeout: float | None = None,
+    ) -> VLMAction:
+        messages = self._build_messages(image_b64, task, history or [])
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "max_tokens": 512,
+            "temperature": 0.0,
+        }
+        headers = {"Authorization": f"Bearer {self.api_key}"}
+        resp = self._http.post(
+            f"{self.base_url}/chat/completions",
+            json=payload,
+            headers=headers,
+            timeout=timeout or 60.0,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        raw_text = data["choices"][0]["message"]["content"]
+        return self._parser.parse(raw_text, screen_width=screen_width, screen_height=screen_height)
+
+    def _build_messages(
+        self,
+        image_b64: str,
+        task: str,
+        history: list[dict[str, object]],
+    ) -> list[dict[str, object]]:
+        user_content = [
+            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_b64}"}},
+            {"type": "text", "text": task},
+        ]
+        messages: list[dict[str, object]] = [{"role": "system", "content": self.system_prompt}]
+        messages.extend(history)
+        messages.append({"role": "user", "content": user_content})
+        return messages
+
+    def close(self) -> None:
+        pass
+
+
+def create_vlm_provider_by_type(
+    provider_type: str,
+    provider_name: str,
+    http_client: httpx.Client,
+    system_prompt: str,
+) -> VLMProvider:
+    """Factory function to create VLM providers."""
+    config = get_vlm_provider_config(provider_name)
+    api_key = get_vlm_api_key(provider_name)
+    
+    if provider_type == "standard":
+        return StandardVLMProvider(
+            base_url=config.base_url,
+            model=config.model,
+            api_key=api_key,
+            system_prompt=system_prompt,
+            http_client=http_client
+        )
+    # Default fallback
+    return StandardVLMProvider(
+        base_url=config.base_url,
+        model=config.model,
+        api_key=api_key,
+        system_prompt=system_prompt,
+        http_client=http_client
+    )
+
+
+class VLMClient:
+    """Client for Visual Language Models with multi-provider support."""
+
     DEFAULT_SYSTEM_PROMPT = (
         "You are a GUI automation agent. "
         "Given a screenshot and a task description, output the next action to perform. "
@@ -40,24 +152,30 @@ class VLMClient:
 
     def __init__(
         self,
-        base_url: Optional[str] = None,
-        model: Optional[str] = None,
-        api_key: Optional[str] = None,
+        provider: Optional[str] = None,
         system_prompt: Optional[str] = None,
         timeout: float = 60.0,
         http_client: httpx.Client | None = None,
     ) -> None:
-        from core.system_settings_loader import get_vlm_base_url, get_vlm_model, get_vlm_api_key
-        self.base_url = (base_url or get_vlm_base_url()).rstrip("/")
-        self.model = model or get_vlm_model()
-        self.api_key = api_key or get_vlm_api_key() or os.environ.get("UITARS_API_KEY", "token")
+        self.provider_name = provider or get_vlm_provider()
         self.system_prompt = system_prompt or self.DEFAULT_SYSTEM_PROMPT
         self.timeout = timeout
-        self._parser = UITarsOutputParser()
         self._http = http_client or _get_shared_http_client(timeout=timeout)
+        self._providers: dict[str, VLMProvider] = {}
+
+    def _get_provider(self, name: str) -> VLMProvider:
+        if name not in self._providers:
+            config = get_vlm_provider_config(name)
+            p_type = getattr(config, "provider_type", "standard")
+            self._providers[name] = create_vlm_provider_by_type(
+                p_type, name, self._http, self.system_prompt
+            )
+        return self._providers[name]
 
     def close(self) -> None:
-        return None
+        for p in self._providers.values():
+            p.close()
+        self._providers.clear()
 
     def evaluate(
         self,
@@ -66,6 +184,7 @@ class VLMClient:
         *,
         screen_width: int | None = None,
         screen_height: int | None = None,
+        provider: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Legacy single-shot evaluate (keeps backward compat with stub interface)."""
         action = self.predict(
@@ -73,13 +192,13 @@ class VLMClient:
             prompt,
             screen_width=screen_width,
             screen_height=screen_height,
+            provider=provider,
         )
-        raw = getattr(action, "raw", None)
         return {
             "ok": True,
             "image_ref": image_ref,
             "prompt": prompt,
-            "result": raw,
+            "result": action.raw_text,
             "action": action.to_dict(),
         }
 
@@ -91,17 +210,27 @@ class VLMClient:
         *,
         screen_width: int | None = None,
         screen_height: int | None = None,
-    ) -> UITarsAction:
-        """Send screenshot + task to UI-TARS, return parsed action."""
+        provider: Optional[str] = None,
+    ) -> VLMAction:
+        """Send screenshot + task to VLM, return parsed action."""
+        p_name = provider or self.provider_name
+        vlm = self._get_provider(p_name)
+        
         image_b64, size = self._load_image_payload(
             image_ref,
             screen_width=screen_width,
             screen_height=screen_height,
         )
-        messages = self._build_messages(image_b64, task, history or [])
-        raw_text = self._call_api(messages)
         screen_width, screen_height = size if size else (None, None)
-        return self._parser.parse(raw_text, screen_width=screen_width, screen_height=screen_height)
+        
+        return vlm.predict(
+            image_b64,
+            task,
+            history=history,
+            screen_width=screen_width,
+            screen_height=screen_height,
+            timeout=self.timeout
+        )
 
     def _load_image_payload(
         self,
@@ -125,39 +254,6 @@ class VLMClient:
             size = (int(screen_width), int(screen_height)) if screen_width and screen_height else _image_size_from_bytes(raw_bytes)
             return base64.b64encode(raw_bytes).decode(), size
         return image_ref, (int(screen_width), int(screen_height)) if screen_width and screen_height else None
-
-    def _build_messages(
-        self,
-        image_b64: str,
-        task: str,
-        history: list[dict[str, object]],
-    ) -> list[dict[str, object]]:
-        user_content = [
-            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_b64}"}},
-            {"type": "text", "text": task},
-        ]
-        messages: list[dict[str, object]] = [{"role": "system", "content": self.system_prompt}]
-        messages.extend(history)
-        messages.append({"role": "user", "content": user_content})
-        return messages
-
-    def _call_api(self, messages: list[dict[str, object]]) -> str:
-        payload = {
-            "model": self.model,
-            "messages": messages,
-            "max_tokens": 512,
-            "temperature": 0.0,
-        }
-        headers = {"Authorization": f"Bearer {self.api_key}"}
-        resp = self._http.post(
-            f"{self.base_url}/chat/completions",
-            json=payload,
-            headers=headers,
-            timeout=self.timeout,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        return data["choices"][0]["message"]["content"]
 
 
 def _safe_b64decode(value: str) -> bytes:

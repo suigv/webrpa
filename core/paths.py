@@ -32,6 +32,10 @@ def task_db_path() -> Path:
     return data_dir() / "tasks.db"
 
 
+def account_db_path() -> Path:
+    return data_dir() / "accounts.json.db"
+
+
 def browser_profiles_dir() -> Path:
     """Browser profile cache directory (configurable via config/system.yaml)."""
     from core.system_settings_loader import get_browser_profiles_dir

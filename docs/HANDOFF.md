@@ -31,7 +31,8 @@ WebRPA 采用三层架构模型：
 ### 2.2 解释器与 AI 韧性 (Interpreter & AI Agent)
 - **Runner**：双轨分发。
 - **Interpreter**：支持 2s 级短脉冲取消检测。
-- **AI 韧性**：`GptExecutor` 自带指数退避重试与动作死循环熔断。
+- **AI 韧性**：`AgentExecutor` 自带指数退避重试与动作死循环熔断。
+- **BindingDistiller**：由 AI 驱动的 UI 特征蒸馏服务，支持实时界面分析与识别代码生成。
 
 ### 2.3 设备管理服务化 (Device Management)
 - **DeviceManager**：纯粹的状态 Registry，负责快照生成。
@@ -55,7 +56,7 @@ WebRPA 采用三层架构模型：
 ## 4. 关键路径 (Key Paths)
 
 - **主数据库**：`config/data/tasks.db`
-- **账号池**：`config/data/accounts.db` (SQLite)
+- **账号池**：`config/data/accounts.json.db`（SQLite 格式，原 `accounts.json` 自动迁移）
 - **AI 决策轨迹**：`config/data/traces/`
 - **插件目录**：`plugins/`
 - **场景提示词模板**：`engine/prompt_templates.py`（`PROMPT_TEMPLATES` 列表常量，`GET /api/tasks/prompt_templates` 路由对外暴露，前端动态拉取）

@@ -7,12 +7,50 @@ from typing import Any
 
 from core.account_parser import parse_accounts_advanced, parse_accounts_lines, parse_accounts_text
 from core.data_store import read_lines, read_text, write_lines
+from core.account_store import AccountStore
 
 _accounts_lock = threading.Lock()
+_account_store: AccountStore | None = None
+
+
+def _get_store() -> AccountStore:
+    global _account_store
+    if _account_store is not None:
+        return _account_store
+        
+    with _accounts_lock:
+        if _account_store is None:
+            store = AccountStore()
+            # 自动迁移检查
+            from core.paths import data_dir
+            import os
+            json_path = data_dir() / "accounts.json"
+            if json_path.exists() and store.count_accounts() == 0:
+                try:
+                    # 使用已有的 core.data_store.read_lines 加载 JSON 行
+                    lines = read_lines("accounts")
+                    for line in lines:
+                        try:
+                            data = json.loads(line)
+                            if isinstance(data, dict) and "account" in data:
+                                store.upsert_account(data)
+                        except Exception:
+                            continue
+                    # 迁移完成后重命名旧文件
+                    target_bak = json_path.with_suffix(".json.migrated")
+                    if not target_bak.exists():
+                        os.rename(json_path, target_bak)
+                except Exception as e:
+                    import logging
+                    logging.getLogger(__name__).error(f"Failed to migrate accounts from JSON: {e}")
+            _account_store = store
+        return _account_store
 
 
 def get_accounts_raw_text() -> str:
-    return read_text("accounts")
+    """返回所有账号的规整化展示 (模拟旧逻辑)"""
+    accounts = _get_store().list_accounts()
+    return "\n".join([json.dumps(a, ensure_ascii=False) for a in accounts])
 
 
 def import_accounts_content(
@@ -34,36 +72,30 @@ def import_accounts_content(
     else:
         parsed = parse_accounts_advanced(content, delimiter=delimiter or "", mapping=clean_mapping or None)
 
-    normalized_lines_obj = parsed.get("normalized_lines", [])
-    if isinstance(normalized_lines_obj, list):
-        new_lines: list[str] = [line for line in normalized_lines_obj if isinstance(line, str)]
-    else:
-        new_lines = []
+    accounts = parsed.get("accounts", [])
+    if not isinstance(accounts, list):
+        accounts = []
 
     errors = parsed.get("errors", [])
-    valid_raw = parsed.get("valid", len(new_lines))
-    if isinstance(valid_raw, (int, float, str)):
-        valid = int(valid_raw)
-    else:
-        valid = len(new_lines)
-
+    valid = len(accounts)
+    
     invalid_raw = parsed.get("invalid", 0)
-    if isinstance(invalid_raw, (int, float, str)):
-        invalid = int(invalid_raw)
-    else:
-        invalid = 0
+    invalid = int(invalid_raw) if isinstance(invalid_raw, (int, float, str)) else 0
 
+    store = _get_store()
     if overwrite:
-        merged_lines: list[str] = new_lines
-    else:
-        existing_lines = [line for line in read_lines("accounts") if isinstance(line, str)]
-        merged_lines = existing_lines + new_lines
+        store.clear_all()
 
-    write_lines("accounts", merged_lines)
+    for acc_data in accounts:
+        if isinstance(acc_data, dict) and "account" in acc_data:
+            store.upsert_account(acc_data)
+
+    total_stored = store.count_accounts()
+    
     return {
         "status": "ok",
-        "stored": len(merged_lines),
-        "imported": len(new_lines),
+        "stored": total_stored,
+        "imported": len(accounts),
         "valid": valid,
         "invalid": invalid,
         "errors": errors if isinstance(errors, list) else [],
@@ -71,98 +103,23 @@ def import_accounts_content(
 
 
 def update_account_fields(old_account: str, new_data: dict[str, Any]) -> bool:
-    lines = read_lines("accounts")
-    updated_lines: list[str] = []
-    found = False
-
-    for line in lines:
-        try:
-            item = json.loads(line)
-            if item.get("account") == old_account:
-                for key, value in new_data.items():
-                    item[key] = value
-                updated_lines.append(json.dumps(item, ensure_ascii=False))
-                found = True
-            else:
-                updated_lines.append(line)
-        except Exception:
-            updated_lines.append(line)
-
-    if found:
-        write_lines("accounts", updated_lines)
-    return found
+    return _get_store().update_fields(old_account, new_data)
 
 
 def update_account_status(account: str, status: str, error_msg: str | None = None) -> bool:
-    lines = read_lines("accounts")
-    updated_lines: list[str] = []
-    found = False
-
-    for line in lines:
-        try:
-            item = json.loads(line)
-            if item.get("account") == account:
-                item["status"] = status
-                if error_msg:
-                    item["error_msg"] = error_msg
-                updated_lines.append(json.dumps(item, ensure_ascii=False))
-                found = True
-            else:
-                updated_lines.append(line)
-        except Exception:
-            updated_lines.append(line)
-
-    if found:
-        write_lines("accounts", updated_lines)
-    return found
+    return _get_store().update_status(account, status, error_msg)
 
 
 def pop_account() -> dict[str, Any] | None:
-    with _accounts_lock:
-        lines = read_lines("accounts")
-        updated_lines: list[str] = []
-        target_account: dict[str, Any] | None = None
-
-        for line in lines:
-            try:
-                item = json.loads(line)
-                if target_account is None and item.get("status") == "ready":
-                    item["status"] = "in_progress"
-                    item["last_used"] = str(datetime.now())
-                    target_account = item
-                    updated_lines.append(json.dumps(item, ensure_ascii=False))
-                else:
-                    updated_lines.append(line)
-            except Exception:
-                updated_lines.append(line)
-
-        if target_account:
-            write_lines("accounts", updated_lines)
-            return target_account
-    return None
+    return _get_store().pop_ready_account()
 
 
 def list_accounts() -> list[dict[str, Any]]:
-    return parse_accounts_lines(read_lines("accounts"))
+    return _get_store().list_accounts()
 
 
 def reset_accounts() -> int:
-    lines = read_lines("accounts")
-    updated_lines: list[str] = []
-    count = 0
-
-    for line in lines:
-        try:
-            item = json.loads(line)
-            if item.get("status") in ["in_progress", "bad_auth", "banned", "2fa_issue"]:
-                item["status"] = "ready"
-                item["error_msg"] = None
-                updated_lines.append(json.dumps(item, ensure_ascii=False))
-                count += 1
-            else:
-                updated_lines.append(line)
-        except Exception:
-            updated_lines.append(line)
-
-    write_lines("accounts", updated_lines)
-    return count
+    return _get_store().reset_all_status(
+        from_statuses=["in_progress", "bad_auth", "banned", "2fa_issue"],
+        to_status="ready"
+    )

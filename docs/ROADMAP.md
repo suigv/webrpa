@@ -46,11 +46,11 @@ Definition of done: Account system (authentication + basic access control) is pr
 ## Evidence Anchors (Where to Attach Proof)
 - Validation gates: `.sisyphus/evidence/` and `docs/project_progress.md`.
 - Distillation: `core/golden_run_distillation.py`, `tools/distill_golden_run.py`, `tests/test_gpt_distillation.py`.
-- Trace storage: `core/model_trace_store.py` and `engine/gpt_executor.py`.
+- Trace storage: `core/model_trace_store.py` and `engine/agent_executor.py`.
 
 ## Next Evidence Actions (Suggested)
 - Accumulate representative successful runs (need 10 for complex task distillation gate).
 - Run `tools/distill_binding.py` on collected traces to generate login_stage NativeStateBinding draft.
 - Verify binding draft enables structured_state path (observed_state_ids non-empty).
 - Add multi-run distillation design + tests for M3.
-- Run full test suite after recent gpt_executor changes to re-verify M0 gate.
+- Run full test suite after recent agent_executor changes to re-verify M0 gate.

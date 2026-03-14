@@ -515,6 +515,8 @@ function openUnitDetail(unit) {
     const title = $("detailUnitTitle");
     if(title) title.textContent = `云机 #${unit.parent_id}-${unit.cloud_id}`;
     currentUnitDetail = unit;
+    document.body.dataset.currentDeviceId = unit.parent_id;
+    document.body.dataset.currentCloudId = unit.cloud_id;
     const logBox = $("unitLogBox");
     clearElement(logBox);
     store.setState({ currentUnitLogTarget: buildUnitLogTarget(unit) });
@@ -791,8 +793,8 @@ function openUnitAiDialog(unit) {
 
     loadPromptTemplates();
 
-    const useUitars = $("unitAiUseUitars");
-    if (useUitars) useUitars.checked = false;
+    const useVlm = $("unitAiUseVlm");
+    if (useVlm) useVlm.checked = false;
 }
 
 function closeUnitAiDialog() {
@@ -816,7 +818,7 @@ async function submitUnitAiTask() {
     const bindingId = String($("unitAiBindingId")?.value || "").trim();
     const systemPrompt = String($("unitAiSystemPrompt")?.value || "").trim();
     const profileName = String($("unitAiProfile")?.value || "").trim();
-    const useUitars = $("unitAiUseUitars")?.checked || false;
+    const useVlm = $("unitAiUseVlm")?.checked || false;
 
     const payload = {
         device_ip: currentUnitDetail.parent_ip,
@@ -841,10 +843,10 @@ async function submitUnitAiTask() {
     if (bindingId) payload.observation.binding_id = bindingId;
     if (systemPrompt) payload.system_prompt = systemPrompt;
     if (profileName) payload._runtime_profile = profileName;
-    if (useUitars) payload.fallback_modalities = ["uitars"];
+    if (useVlm) payload.fallback_modalities = ["vlm"];
 
     const taskData = buildTaskRequest({
-        task: "gpt_executor",
+        task: "agent_executor",
         payload,
         targets: [{ device_id: currentUnitDetail.parent_id, cloud_id: currentUnitDetail.cloud_id }],
     });

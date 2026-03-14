@@ -51,7 +51,7 @@ def main():
     for i, prompt in enumerate(flows):
         target = online_clouds[i % len(online_clouds)]
         payload = {
-            "task": "gpt_executor",
+            "task": "agent_executor",
             "payload": {
                 "app": "x",
                 "goal": prompt,

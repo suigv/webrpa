@@ -13,7 +13,7 @@
 
 ### 2. 运行时鲁棒性 (Robustness)
 - [x] **深度取消支持**：`ui.click` 和 `browser.wait_until` 等长耗时动作已植入对 `stop_event` 的毫秒级感知。
-- [x] **AI 执行韧性**：`GptExecutor` 具备指数退避重试与动作指纹死循环熔断能力。
+- [x] **AI 执行韧性**：`AgentExecutor` 具备指数退避重试与动作指纹死循环熔断能力。
 - [x] **连接池管理**：`VLMClient` 共享持久连接池，杜绝 FD 泄露。
 
 ### 3. 工程规范 (Refactoring)
@@ -26,7 +26,7 @@
 ## 🟡 持续观测项
 - [ ] 随着设备数突破 1000 台，需评估 `ThreadPoolExecutor` 的线程池饱和度。
 - [x] `navigation_actions.py` 通用化：移除业务残留，改为 routes/hops 驱动。
-- [ ] **GPTExecutor 直接调用 ActionRegistry（解耦缺失）**：`gpt_executor.py:403` 直接调用 `self._registry.resolve(action_name)(action_params, context)`，绕过 Interpreter 统一生命周期。若未来需要全局限流、统一审计或动作拦截，需同时改两处。改进方向：抽象 `ActionDispatcher` 统一分发入口。低优先级。
+- [ ] **GPTExecutor 直接调用 ActionRegistry（解耦缺失）**：`agent_executor.py:403` 直接调用 `self._registry.resolve(action_name)(action_params, context)`，绕过 Interpreter 统一生命周期。若未来需要全局限流、统一审计或动作拦截，需同时改两处。改进方向：抽象 `ActionDispatcher` 统一分发入口。低优先级。
 - [ ] **Interpreter wait_until 阻塞式轮询**：`interpreter.py:251` 使用 `time.sleep(min(interval_s, 1.0))`，最大 1s 盲等。即使设备状态已就绪也无法即时唤醒。改进方向：引入 `anyio.Event` 通知机制，需整个执行栈异步化，改动量大。低优先级。
 - [ ] **设备快照缓存无 TTL**：`DeviceManager.get_devices_snapshot()` 返回内存快照，若 `CloudProbeService` 停止运行或异常，快照可能长期过期。改进方向：加 TTL 判断，超过阈值时强制刷新或标记数据陈旧。低优先级。
 - [x] **任务队列 Aging 机制**：已实现，默认每等待 120s 提升 10 点优先级，可通过 `MYT_QUEUE_AGING_INTERVAL` / `MYT_QUEUE_AGING_BOOST` 环境变量调整（仅 InMemoryQueue）。

@@ -120,7 +120,7 @@ def _vlm_allowed_action_types(allowed_actions: list[str]) -> set[str]:
 
 
 @dataclass(frozen=True)
-class GptExecutorConfig:
+class AgentExecutorConfig:
     goal: str
     expected_state_ids: list[str]
     allowed_actions: list[str]
@@ -132,8 +132,8 @@ class GptExecutorConfig:
     observation_params: dict[str, object]
 
 
-class GptExecutorRuntime:
-    task_name: str = "gpt_executor"
+class AgentExecutorRuntime:
+    task_name: str = "agent_executor"
 
     def __init__(
         self,
@@ -590,24 +590,24 @@ class GptExecutorRuntime:
             return {"code": "invalid_params", "message": str(exc)}
         return None
 
-    def _parse_config(self, payload: Mapping[str, object], *, runtime: Mapping[str, object] | None = None) -> GptExecutorConfig:
+    def _parse_config(self, payload: Mapping[str, object], *, runtime: Mapping[str, object] | None = None) -> AgentExecutorConfig:
         goal = str(payload.get("goal") or "").strip()
         if not goal:
-            raise ValueError("gpt_executor requires non-empty goal")
+            raise ValueError("agent_executor requires non-empty goal")
 
         expected_state_ids = _string_list(payload.get("expected_state_ids") or payload.get("state_ids"))
         if not expected_state_ids:
-            raise ValueError("gpt_executor requires expected_state_ids")
+            raise ValueError("agent_executor requires expected_state_ids")
 
         allowed_actions = _string_list(payload.get("allowed_actions"))
         if not allowed_actions:
-            raise ValueError("gpt_executor requires allowed_actions")
+            raise ValueError("agent_executor requires allowed_actions")
         unknown_actions = [action for action in allowed_actions if not self._registry.has(action)]
         if unknown_actions:
             rendered = ", ".join(sorted(unknown_actions))
-            raise ValueError(f"gpt_executor allowed_actions must reference registered actions: {rendered}")
+            raise ValueError(f"agent_executor allowed_actions must reference registered actions: {rendered}")
         if "ui.match_state" in allowed_actions:
-            raise ValueError("gpt_executor allowed_actions must not include ui.match_state")
+            raise ValueError("agent_executor allowed_actions must not include ui.match_state")
 
         observation_params = _json_dict(payload.get("observation"))
         _ = observation_params.pop("expected_state_ids", None)
@@ -617,7 +617,7 @@ class GptExecutorRuntime:
         payload_llm = _json_dict(payload.get("llm"))
         llm_runtime = {**runtime_llm, **payload_llm} if runtime_llm or payload_llm else {}
 
-        return GptExecutorConfig(
+        return AgentExecutorConfig(
             goal=goal,
             expected_state_ids=expected_state_ids,
             allowed_actions=allowed_actions,
@@ -633,7 +633,7 @@ class GptExecutorRuntime:
         self,
         *,
         llm_client: LLMClientLike,
-        config: GptExecutorConfig,
+        config: AgentExecutorConfig,
         step_index: int,
         observation: dict[str, object],
         last_action: dict[str, object] | None,
@@ -775,7 +775,7 @@ class GptExecutorRuntime:
     def _plan_next_step_vlm(
         self,
         *,
-        config: GptExecutorConfig,
+        config: AgentExecutorConfig,
         step_index: int,
         last_action: dict[str, object] | None,
         fallback_reason: str,
@@ -805,7 +805,7 @@ class GptExecutorRuntime:
         request_trace = {
             "prompt": prompt,
             "system_prompt": "",
-            "provider": "uitars",
+            "provider": "vlm",
             "model": "",
             "request_id": request_id,
             "image_ref": image_ref,
@@ -858,7 +858,7 @@ class GptExecutorRuntime:
                 "params": {},
                 "message": "vlm indicated task completion",
                 "request_id": request_id,
-                "provider": "uitars",
+                "provider": str(client.provider_name),
                 "model": str(client.model),
                 "request": request_trace,
                 "response": response_trace,
@@ -884,7 +884,7 @@ class GptExecutorRuntime:
             "params": dict(action.params),
             "message": "vlm predicted next action",
             "request_id": request_id,
-            "provider": "uitars",
+            "provider": str(client.provider_name),
             "model": str(client.model),
             "request": request_trace,
             "response": response_trace,
@@ -898,7 +898,7 @@ class GptExecutorRuntime:
         if not get_vlm_enabled():
             return False
         normalized = {item.strip().lower() for item in modalities if str(item).strip()}
-        return bool(normalized.intersection({"vlm", "vision", "uitars", "ui-tars"}))
+        return bool(normalized.intersection({"vlm", "vision"}))
 
     @staticmethod
     def _vlm_screen_capture_ref(fallback_evidence: dict[str, object]) -> tuple[str, dict[str, object]]:
@@ -910,7 +910,7 @@ class GptExecutorRuntime:
     @staticmethod
     def _vlm_prompt(
         *,
-        config: GptExecutorConfig,
+        config: AgentExecutorConfig,
         step_index: int,
         last_action: dict[str, object] | None,
     ) -> str:
@@ -925,15 +925,15 @@ class GptExecutorRuntime:
         allowed = _vlm_allowed_action_types(config.allowed_actions)
         if allowed:
             lines.append(f"Allowed action types: {', '.join(sorted(allowed))}")
-        lines.append("Respond with exactly one action in UI-TARS format.")
+        lines.append("Respond with exactly one action in VLM format.")
         lines.append("If the task is complete, respond with: Action: finished()")
         return "\n".join(lines)
 
     @staticmethod
-    def _vlm_client(config: GptExecutorConfig) -> VLMClient:
+    def _vlm_client(config: AgentExecutorConfig) -> VLMClient:
         runtime_config = dict(config.llm_runtime)
         vlm_config = {}
-        for key in ("vlm", "uitars"):
+        for key in ("vlm",):
             value = runtime_config.get(key)
             if isinstance(value, Mapping):
                 vlm_config = _json_dict(value)
@@ -965,10 +965,10 @@ class GptExecutorRuntime:
                         continue
             return None
 
-        base_url = _read_str(["base_url", "vlm_base_url", "uitars_base_url"])
-        model = _read_str(["model", "vlm_model", "uitars_model"])
-        api_key = _read_str(["api_key", "vlm_api_key", "uitars_api_key"])
-        system_prompt = _read_str(["system_prompt", "vlm_system_prompt", "uitars_system_prompt"])
+        base_url = _read_str(["base_url", "vlm_base_url"])
+        model = _read_str(["model", "vlm_model"])
+        api_key = _read_str(["api_key", "vlm_api_key"])
+        system_prompt = _read_str(["system_prompt", "vlm_system_prompt"])
         timeout = _read_float(["timeout", "timeout_seconds", "vlm_timeout"])
 
         return VLMClient(

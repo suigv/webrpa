@@ -195,7 +195,7 @@ def _execute_task(
             runtime = dict(prepared.runtime)
             runtime["emit_event"] = emit_event
 
-            if task_name == "gpt_executor":
+            if task_name == "agent_executor":
                 runtime.update(
                     {
                         "retry_count": record.retry_count,

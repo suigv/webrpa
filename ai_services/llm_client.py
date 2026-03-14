@@ -14,6 +14,8 @@ from typing import Protocol, cast
 from uuid import uuid4
 
 from core.config_loader import ConfigLoader
+from core.paths import project_root
+from core.system_settings_loader import get_llm_provider, get_llm_provider_config, get_llm_api_key
 
 DEFAULT_LLM_PROVIDER = "openai"
 DEFAULT_LLM_MODEL = "gpt-5.4"
@@ -50,30 +52,19 @@ def _coerce_modalities(value: object) -> list[str]:
 
 
 def _get_llm_config() -> JSONDict:
-    from core.system_settings_loader import get_llm_base_url, get_llm_model
-    store = ConfigLoader.load()
-    loaded: JSONDict = store.model_dump(mode="python")
-    raw = loaded.get("llm", {})
-    config = dict(raw) if isinstance(raw, Mapping) else {}
-
-    legacy_provider = str(store.default_ai or "").strip()
-    # default_ai 是设备类型字段（volc/mytos），不是 LLM provider，忽略非 openai 值
-    _known_llm_providers = {"openai", "anthropic", "azure"}
-    if legacy_provider and legacy_provider in _known_llm_providers:
-        _ = config.setdefault("provider", legacy_provider)
-
-    legacy_model = str(loaded.get("llm_model", "")).strip()
-    if legacy_model:
-        _ = config.setdefault("model", legacy_model)
-
-    from core.system_settings_loader import get_llm_provider
-    # Use system.yaml as source for provider, base_url and model defaults
-    _ = config.setdefault("provider", get_llm_provider() or DEFAULT_LLM_PROVIDER)
-    _ = config.setdefault("model", get_llm_model())
-    _ = config.setdefault("base_url", get_llm_base_url())
-    _ = config.setdefault("timeout_seconds", DEFAULT_LLM_TIMEOUT_SECONDS)
-
-    return config
+    from core.system_settings_loader import get_llm_provider, get_llm_provider_config, get_llm_api_key
+    
+    provider_name = get_llm_provider() or DEFAULT_LLM_PROVIDER
+    provider_config = get_llm_provider_config(provider_name)
+    
+    return {
+        "provider": provider_name,
+        "model": provider_config.model or DEFAULT_LLM_MODEL,
+        "base_url": provider_config.base_url or DEFAULT_LLM_BASE_URL,
+        "api_key": get_llm_api_key(provider_name),
+        "provider_type": getattr(provider_config, "provider_type", "openai"),
+        "timeout_seconds": DEFAULT_LLM_TIMEOUT_SECONDS,
+    }
 
 
 def _coerce_timeout_seconds(value: object) -> float | None:
@@ -157,6 +148,7 @@ class LLMRequest:
 @dataclass(slots=True)
 class ResolvedLLMRequest(LLMRequest):
     provider: str = DEFAULT_LLM_PROVIDER
+    provider_type: str = "openai"
     model: str = DEFAULT_LLM_MODEL
     request_id: str = ""
     api_key: str = ""
@@ -466,7 +458,20 @@ class OpenAIChatProvider:
 
 
 def get_default_provider_registry() -> dict[str, LLMProvider]:
+    # This is now just a static mapping for the shell client. 
+    # The actual provider instantiation happens dynamically if needed, 
+    # but for now we keep the default OpenAI chat provider.
     return {"openai": OpenAIChatProvider()}
+
+
+def create_provider_by_type(provider_type: str, provider_name: str) -> LLMProvider:
+    """Factory to create a provider instance based on type."""
+    if provider_type == "openai":
+        return OpenAIChatProvider()
+    # Placeholder for future types
+    # if provider_type == "anthropic":
+    #     return AnthropicChatProvider()
+    return OpenAIChatProvider()
 
 
 class LLMClient:
@@ -493,15 +498,20 @@ class LLMClient:
         resolved = self._resolve_request(llm_request, runtime_config=runtime_config)
         provider = self._providers.get(resolved.provider)
         if provider is None:
-            return self._error_response(
-                resolved,
-                latency_ms=0,
-                error=LLMError(
-                    code="unsupported_provider",
-                    message=f"Unsupported LLM provider: {resolved.provider}",
-                    details={"provider": resolved.provider},
-                ),
-            )
+            # Try to create one dynamically based on type
+            try:
+                provider = create_provider_by_type(resolved.provider_type, resolved.provider)
+                self._providers[resolved.provider] = provider
+            except Exception as e:
+                return self._error_response(
+                    resolved,
+                    latency_ms=0,
+                    error=LLMError(
+                        code="unsupported_provider",
+                        message=f"Failed to create LLM provider {resolved.provider} of type {resolved.provider_type}: {e}",
+                        details={"provider": resolved.provider, "type": resolved.provider_type},
+                    ),
+                )
 
         attempt = 0
         started_at = self._clock()
@@ -574,24 +584,29 @@ class LLMClient:
             or str(config.get("provider") or "").strip()
             or DEFAULT_LLM_PROVIDER
         )
+        
+        # If the provider is different from the default one, load its specific defaults
+        from core.system_settings_loader import get_llm_provider_config, get_llm_api_key
+        p_config = get_llm_provider_config(provider)
+        p_type = getattr(p_config, "provider_type", "openai")
+
         model = (
             request.model.strip()
             or str(runtime_llm.get("model") or "").strip()
             or os.getenv("MYT_LLM_MODEL", "").strip()
-            or str(config.get("model") or "").strip()
+            or str(p_config.model or "").strip()
             or DEFAULT_LLM_MODEL
         )
         api_key = (
             request.api_key.strip()
             or str(runtime_llm.get("api_key") or runtime_llm.get("apikey") or "").strip()
-            or os.getenv("MYT_LLM_API_KEY", "").strip()
-            or str(config.get("api_key") or "").strip()
+            or get_llm_api_key(provider)
         )
         base_url = (
             request.base_url.strip()
             or str(runtime_llm.get("base_url") or runtime_llm.get("api_base_url") or "").strip()
             or os.getenv("MYT_LLM_API_BASE_URL", "").strip()
-            or str(config.get("base_url") or "").strip()
+            or str(p_config.base_url or "").strip()
             or DEFAULT_LLM_BASE_URL
         )
         timeout_seconds = (
@@ -607,6 +622,7 @@ class LLMClient:
             prompt=request.prompt,
             system_prompt=request.system_prompt,
             provider=provider,
+            provider_type=p_type,
             model=model,
             api_key=api_key,
             base_url=base_url,

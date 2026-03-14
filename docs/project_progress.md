@@ -7,6 +7,13 @@
 
 - 阶段：**Web Console Productization & Navigation Engine Hardening**
 - 核心状态：API、任务系统、插件执行、账号池全面可用；Web 控制台完成产品化改造；导航引擎具备自愈与锚点机制；AI 执行引擎接入托管链路。
+- 最近重点 (2026-03-15)：
+  - **账号池架构升级 (SQLite & BaseStore Migration)**：完成了从 JSON 到 SQLite 的原子化迁移与自动平滑解。
+  - **AI 辅助 Binding 工坊集成 (Binding Master)**：内置 UI 特征提取、AI 绑定生成及前端可视化集成。
+  - **AI 术语与命名去硬编码 (Agent Executor)**：确立了厂商中立的智能体运行时架构。
+  - **行为拟真引擎优化 (Behavioral Hardening)**：基于人类行为学研究优化了三档预设参数（延迟、停顿、按压时长），并在前端增加了全方位的「使用建议」引导，助力高风控平台（如 X/TikTok）的对抗能力。
+  - **细节修正与系统稳固性 (本会话)**：修复了 Binding 工坊前端 Typo、接管页参数丢失、以及 VLM 客户端测试崩溃等隐患。
+
 - 最近重点 (2026-03-11)：
   - **工业级稳固性与运维增强 (2026-03-11)**：
     - **跨平台拟真引擎全集成**：建立统一的 `HumanizedHelper`，拟人化偏移与打字节奏已成功注入 **Android Native 动作 (RPC)**，实现全端一致的风险控制。
@@ -32,7 +39,7 @@
   - **导航引擎鲁棒性强化**：
     - 引入“UI 清道夫”自动排除升级引导等干扰项。
     - 引入“语义锚点判定”支持无 ID 环境下的多语言定位。
-  - **AI 执行引擎 (GPT Executor)**：
+  - **AI 执行引擎 (Agent Executor)**：
     - 已接入 `/api/tasks` 托管链路，支持创建、取消、重试及 SSE 事件。
     - 默认采用 `structured-state-first` 观察策略，仅在必要时回退至视觉模态。
     - 原始模型轨迹独立持久化至 `config/data/traces/`。
@@ -51,7 +58,7 @@
   - **VLM 视觉坐标完美映射补偿 (2026-03-14)**：
     - **物理分辨率感知 (Physical Resolution Awareness)**：在 `DeviceManager` 中引入物理宽高追踪，并在 `capture_compressed` 中集成 `wm size` 自动探测与缓存机制，彻底解决 VLM 观察分辨率与执行分辨率不匹配的点击偏移。
     - **坐标换算加固**：重构 `ai.locate_point` 逻辑，强制优先使用探测到的物理分辨率进行 `norm_1000` 坐标强制转换，确保模型在大屏幕或缩放屏幕下的定位精度。
-    - **规划器同步校准**：同步更新 `gpt_executor` 的 VLM 决策逻辑及证据采集链路，确保端到端的视觉坐标一致性。
+    - **规划器同步校准**：同步更新 `agent_executor` 的 VLM 决策逻辑及证据采集链路，确保端到端的视觉坐标一致性。
     - **验证体系**：新增 `tests/test_coordinate_mapping.py` 覆盖不同屏幕比例下的缩放补偿逻辑。
   - **任务系统稳健性**：设备级排他锁（防幽灵任务）、子进程不做 availability 强制检查、多目标取消即时中断、`subscribe` 改为追加模式。
   - **前端系统**：账号选择器（接管页和AI对话框）、AI对话框改为勾选模式、设备上下线按钮、系统偏好页简化（移除 JSON 输入）、已发现设备数实时显示。
@@ -81,7 +88,7 @@
 
 - 最近重点 (本会话)：
   - **决策层完全解耦 (Architectural Decoupling)**：
-    - **Planner 抽象层 (防波堤 1)**：新增 `engine/planners.py`，将 `GptExecutorRuntime` 中的硬编码决策逻辑（LLM/VLM 调用、Prompt 组装）抽离为 `BasePlanner` 协议。引入 `StructuredPlanner`（生产基线）和 `OmniVisionPlanner`（实验性多模态，`MYT_EXPERIMENTAL_OMNIVISION=1` 开启）。执行器循环现在通过不可变的 `PlannerInput`/`PlannerOutput` 契约与决策大脑通信，实现物理隔离。
+    - **Planner 抽象层 (防波堤 1)**：新增 `engine/planners.py`，将 `AgentExecutorRuntime` 中的硬编码决策逻辑（LLM/VLM 调用、Prompt 组装）抽离为 `BasePlanner` 协议。引入 `StructuredPlanner`（生产基线）和 `OmniVisionPlanner`（实验性多模态，`MYT_EXPERIMENTAL_OMNIVISION=1` 开启）。执行器循环现在通过不可变的 `PlannerInput`/`PlannerOutput` 契约与决策大脑通信，实现物理隔离。
     - **旁路蒸馏增强 (防波堤 2)**：在 `core/golden_run_distillation.py` 中新增 `LLMDraftRefiner`。在启发式参数化完成后，通过可选的 LLM 旁路分析 YAML 寻找额外的硬编码业务参数并抽取为 `${payload.xxx}`。完全静默失败回退机制保证了核心蒸馏流程的绝对稳定性（新增 `--use-llm-refiner` CLI 支持）。
 
 - 最近重点 (本会话)：
@@ -100,11 +107,37 @@
     - 所有兜底值从 `"volc"` 改为 `"default"`，`nurture_keywords.yaml` 新增 `default` strategy section。
     - **新增模式只需改配置，零框架改动**。
 
+- 最近重点 (2026-03-15)：
+  - **账号池架构升级 (SQLite & BaseStore Migration)**：
+    - 针对账号库抽号并发与一致性隐患，完成了从 JSON 文本到 SQLite 的全面迁移。
+    - 引入 `AccountStore` 模块实现原子化 `pop_account` 与事务级状态更新。
+    - 实现从 `accounts.json` 到 SQLite 的自动平滑解迁移机制。
+  - **AI 辅助 Binding 工坊集成 (Binding Master)**：
+    - 将 `binding_observer.py` 逻辑提取为 `engine/binding_distiller.py` 核心服务并在 Web 控制台前端实现 UI 集成。
+    - 提供实时 UI 节点特征分析与 AI 驱动的 Python 绑定代码生成。
+  - **AI 术语与命名去硬编码 (Agent Executor)**：
+    - 全量重命名 `GPT Executor` -> `Agent Executor`，确立厂商中立的运行时架构。
+  - **VLM 架构通用化重构**：
+    - 废弃 UI-TARS 专有逻辑，建立通用的 `VLMProvider` 协议，支持多厂商插件化接入。
+  - **细节修正与系统稳固性 (本会话)**：
+    - 修复了 `binding.js` 中的 `json.stringify` 拼写错误。
+    - 修复了接管页面 `currentDeviceId` 丢失导致的采集参数缺失问题。
+    - 修正了 `AccountStore.pop_ready_account` 在 SQLite 事务中的返回对象缺陷。
+    - 修复了 `test_llm_client.py` 中因 `VLMClient` 构造函数变更引起的测试崩溃。
+
 - 最近重点 (2026-03-14)：
+  - **VLM 架构对齐 (VLM Architecture Alignment)**：
+    - **多服务商注册制**：重构了 `vlm_client.py`，引入 `VLMProvider` 协议，使 VLM 架构与 LLM 保持完全一致。
+    - **配置标准化**：`VLMSettings` 现在也支持 `providers` 字典，消除了对 UI-TARS 的硬编码依赖。
+    - **API Key 隔离**：支持 `MYT_VLM_API_KEY_{PROVIDER}` 环境变量，实现了安全的密钥管理。
+  - **LLM 多服务商支持 (Multi-Provider Registry)**：
+    - **配置解耦**：重构了 `system.yaml` 结构，支持在 `services.llm.providers` 下预设多个厂商配置（DeepSeek, OpenAI, SiliconFlow 等）。
+    - **API Key 分级注入**：增强了 `get_llm_api_key`，支持 `MYT_LLM_API_KEY_DEEPSEEK` 这种特定前缀的 Key，确立了“特定服务商 -> 全局兜底”的密钥查找优先级。
+    - **动态协议解析**：`LLMClient` 现支持根据配置的 `provider_type` 动态下发任务，消除了对 OpenAI 协议的硬编码依赖。
   - **视觉坐标系统与稳定性加固 (Hardening)**：
     - **VLM 坐标映射修正**：彻底解决了 `ai.locate_point` 中因物理尺寸与截图尺寸混淆导致的点击偏移。确立了“原图坐标系空间观察 -> 物理屏幕空间映射”的标准转换链路，完美支持像素模式与横屏动态补偿。
-    - **任务取消灵敏度优化**：为 `gpt_executor` 引入了 `_interruptible_sleep` 机制，将 Planner 级退避重试改为短脉冲轮询，确保在 8s 级重试回退期间仍能实现 2s 内的任务取消响应。
-    - **架构解耦 (App Config)**：建立了核心层 `core/app_config.py` (AppConfigManager)，将应用配置发现、骨架生成从 `gpt_executor` 与 `sdk_config_support` 中抽离，消除了执行层对动作辅助模块的反向依赖。
+    - **任务取消灵敏度优化**：为 `agent_executor` 引入了 `_interruptible_sleep` 机制，将 Planner 级退避重试改为短脉冲轮询，确保在 8s 级重试回退期间仍能实现 2s 内的任务取消响应。
+    - **架构解耦 (App Config)**：建立了核心层 `core/app_config.py` (AppConfigManager)，将应用配置发现、骨架生成从 `agent_executor` 与 `sdk_config_support` 中抽离，消除了执行层对动作辅助模块的反向依赖。
     - **性能底座优化**：在 `ExecutionContext` 中引入了物理分辨率会话级缓存，将 `wm size` 的 RPC 调用开销降至最低。
   - [x] 提取数据库基类 (`BaseStore`)，消除 `TaskStore` 与 `TaskEventStore` 的重复代码（待验证）。
   - [x] 废弃 `common/config_manager.py`，全面收敛至 `core/config_loader.py`（待验证）。
@@ -112,7 +145,7 @@
   - [x] 拆分 `DeviceManager`，将云机探测逻辑移至独立服务（待验证）。
   - [x] 修复 AI 模块隐患：VLM 连接泄露处理及基于 `retryable` 标记的退避重试（待验证）。
   - **AI 对话架构改进 (2026-03-11)**：
-    - **修复无 binding 场景下的 fingerprint 计算**：`gpt_executor` 在 `observation.ok=False` 时改用 UI XML 内容计算停滞 fingerprint，防止在无 binding 场景下错误触发死循环熔断。
+    - **修复无 binding 场景下的 fingerprint 计算**：`agent_executor` 在 `observation.ok=False` 时改用 UI XML 内容计算停滞 fingerprint，防止在无 binding 场景下错误触发死循环熔断。
     - **新增 binding 蒸馏工具** (`tools/distill_binding.py`)：从 trace jsonl 自动提取 UI 特征、归纳界面状态，生成 `NativeStateBinding` 代码草稿。
     - **前端 AI 对话修复**：`binding_id` 服务化、allowed_actions 注册名对齐、SSE 事件流稳定性修复。
     - **LLM 调用链路修复**：新增 `OpenAIChatProvider` 并通过 `.env` 注入 key，由于采用了标准 OpenAI 封装协议，系统现在能更稳健地连接到各类代理服务。
@@ -127,7 +160,7 @@
 ### 2.2 引擎与插件
 - Runner + Interpreter 声明式工作流引擎。
 - 支持 YAML 插件模式（`v2` 契约）。
-- 托管 `gpt_executor` 自主智能体运行时。
+- 托管 `agent_executor` 自主智能体运行时。
 - 离线 Golden Run 蒸馏工具。
 
 ### 2.3 适配器与动作

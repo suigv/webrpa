@@ -22,15 +22,15 @@ class ParsedAction:
 
 
 @dataclass
-class UITARSOutput:
-    """Structured output from a single UI-TARS inference step."""
+class VLMOutput:
+    """Structured output from a single VLM inference step."""
     thought: str             # <think>...</think> or empty
     raw_text: str            # full model output text
     actions: list[ParsedAction] = field(default_factory=list)
 
 
 @dataclass
-class UITarsAction:
+class VLMAction:
     """Single mapped action for downstream execution or distillation."""
     raw_text: str
     raw_action: str
@@ -107,9 +107,9 @@ def _extract_coord(value: str) -> tuple[float, float] | None:
 # Public API
 # ---------------------------------------------------------------------------
 
-def parse_uitars_output(text: str) -> UITARSOutput:
+def parse_vlm_output(text: str) -> VLMOutput:
     """
-    Parse raw UI-TARS model output into a structured UITARSOutput.
+    Parse raw VLM model output into a structured VLMOutput.
 
     Handles formats:
       - <think>...</think>\nAction: click(start_box='<|box_start|>(x,y)<|box_end|>')
@@ -142,7 +142,7 @@ def parse_uitars_output(text: str) -> UITARSOutput:
 
         actions.append(pa)
 
-    return UITARSOutput(thought=thought, raw_text=text, actions=actions)
+    return VLMOutput(thought=thought, raw_text=text, actions=actions)
 
 
 def coords_to_pixel(
@@ -152,9 +152,9 @@ def coords_to_pixel(
     screen_height: int,
 ) -> tuple[int, int]:
     """
-    Convert UI-TARS percentage coordinates (0-1000 scale) to pixel coordinates.
+    Convert VLM percentage coordinates (0-1000 scale) to pixel coordinates.
 
-    UI-TARS uses a 1000x1000 normalised coordinate space.
+    VLM uses a 1000x1000 normalised coordinate space.
     """
     px = int(x_pct / 1000.0 * screen_width)
     py = int(y_pct / 1000.0 * screen_height)
@@ -170,10 +170,10 @@ def _clamp(value: int, *, low: int, high: int) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Mapping: UI-TARS action -> project atomic action
+# Mapping: VLM action -> project atomic action
 # ---------------------------------------------------------------------------
 
-# Keys: UI-TARS action names (lowercase)
+# Keys: VLM action names (lowercase)
 # Values: project atomic action strings used by the engine
 _ACTION_MAP: dict[str, str] = {
     "click": "ui.click",
@@ -214,8 +214,8 @@ def map_to_atomic_action(
     if (
         pa.x_pct is not None
         and pa.y_pct is not None
-        and screen_width
-        and screen_height
+        and screen_width is not None
+        and screen_height is not None
         and pa.x_pct <= 1000
         and pa.y_pct <= 1000
     ):
@@ -228,13 +228,11 @@ def map_to_atomic_action(
     elif pa.x is not None and pa.y is not None:
         px = int(pa.x)
         py = int(pa.y)
-        if screen_width and screen_height:
+        if screen_width is not None and screen_height is not None:
             px = _clamp(px, low=0, high=int(screen_width) - 1)
             py = _clamp(py, low=0, high=int(screen_height) - 1)
         params["x"] = px
         params["y"] = py
-        pa.x = px
-        pa.y = py
         pa.coord_space = "pixel"
 
     # Text input
@@ -303,8 +301,8 @@ def map_to_atomic_action(
     return {"chosen_action": atomic, "action_params": params}
 
 
-class UITarsOutputParser:
-    """Parse UI-TARS text output and map to atomic actions."""
+class VLMOutputParser:
+    """Parse VLM text output and map to atomic actions."""
 
     def parse(
         self,
@@ -312,10 +310,10 @@ class UITarsOutputParser:
         *,
         screen_width: int | None = None,
         screen_height: int | None = None,
-    ) -> UITarsAction:
-        parsed = parse_uitars_output(raw_text or "")
+    ) -> VLMAction:
+        parsed = parse_vlm_output(raw_text or "")
         if not parsed.actions:
-            return UITarsAction(
+            return VLMAction(
                 raw_text=raw_text or "",
                 raw_action="",
                 action="",
@@ -324,7 +322,7 @@ class UITarsOutputParser:
 
         action = parsed.actions[0]
         mapped = map_to_atomic_action(action, screen_width=screen_width, screen_height=screen_height)
-        return UITarsAction(
+        return VLMAction(
             raw_text=raw_text or "",
             raw_action=action.raw_action,
             action=str(mapped.get("chosen_action") or ""),

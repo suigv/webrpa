@@ -8,7 +8,7 @@ from typing import cast
 from ai_services.llm_client import LLMError, LLMResponse, retry_backoff_seconds
 from core.model_trace_store import ModelTraceStore
 from engine.action_registry import ActionRegistry
-from engine.gpt_executor import GptExecutorRuntime
+from engine.agent_executor import AgentExecutorRuntime
 from engine.models.runtime import ActionResult
 
 
@@ -30,7 +30,7 @@ def _build_runtime(
     observations: list[ActionResult | Mapping[str, object]],
     trace_store: ModelTraceStore | None = None,
     extra_actions: dict[str, Callable[..., ActionResult]] | None = None,
-) -> GptExecutorRuntime:
+) -> AgentExecutorRuntime:
     registry = ActionRegistry()
     observed: list[ActionResult] = [_coerce_action_result(item) for item in observations]
     fallback_observation = observed[-1]
@@ -47,7 +47,7 @@ def _build_runtime(
     registry.register("ui.click", _ui_click)
     for action_name, handler in (extra_actions or {}).items():
         registry.register(action_name, handler)
-    return GptExecutorRuntime(registry=registry, llm_client_factory=lambda: llm_client, trace_store=trace_store)
+    return AgentExecutorRuntime(registry=registry, llm_client_factory=lambda: llm_client, trace_store=trace_store)
 
 
 def _coerce_action_result(item: ActionResult | Mapping[str, object]) -> ActionResult:
@@ -77,7 +77,7 @@ def _read_trace_records(trace_root: Path) -> list[dict[str, object]]:
     return [json.loads(line) for line in files[0].read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
-def test_gpt_executor_circuit_breaker_step_budget_exhausted(tmp_path: Path):
+def test_agent_executor_circuit_breaker_step_budget_exhausted(tmp_path: Path):
     trace_store = ModelTraceStore(root_dir=tmp_path / "traces")
     runtime = _build_runtime(
         llm_client=_SequencedLLMClient(
@@ -95,7 +95,7 @@ def test_gpt_executor_circuit_breaker_step_budget_exhausted(tmp_path: Path):
 
     result = runtime.run(
         {
-            "task": "gpt_executor",
+            "task": "agent_executor",
             "goal": "keep trying until budget ends",
             "expected_state_ids": ["account"],
             "allowed_actions": ["ui.click"],
@@ -116,7 +116,7 @@ def test_gpt_executor_circuit_breaker_step_budget_exhausted(tmp_path: Path):
     assert records[-1]["status"] == "failed_circuit_breaker"
 
 
-def test_gpt_executor_circuit_breaker_stagnant_state_abort():
+def test_agent_executor_circuit_breaker_stagnant_state_abort():
     observation = {"state": {"state_id": "account"}, "status": "matched"}
     runtime = _build_runtime(
         llm_client=_SequencedLLMClient(
@@ -130,7 +130,7 @@ def test_gpt_executor_circuit_breaker_stagnant_state_abort():
 
     result = runtime.run(
         {
-            "task": "gpt_executor",
+            "task": "agent_executor",
             "goal": "abort on stagnant state",
             "expected_state_ids": ["account"],
             "allowed_actions": ["ui.click"],
@@ -147,7 +147,7 @@ def test_gpt_executor_circuit_breaker_stagnant_state_abort():
     assert result["circuit_breaker"]["stagnant_limit"] == 1
 
 
-def test_gpt_executor_collects_fallback_evidence_into_planner_and_trace(tmp_path: Path):
+def test_agent_executor_collects_fallback_evidence_into_planner_and_trace(tmp_path: Path):
     trace_store = ModelTraceStore(root_dir=tmp_path / "traces")
 
     def _dump_node_xml_ex(params, context):
@@ -193,7 +193,7 @@ def test_gpt_executor_collects_fallback_evidence_into_planner_and_trace(tmp_path
 
     result = runtime.run(
         {
-            "task": "gpt_executor",
+            "task": "agent_executor",
             "goal": "inspect fallback evidence",
             "expected_state_ids": ["account"],
             "allowed_actions": ["ui.click"],
@@ -232,7 +232,7 @@ def test_gpt_executor_collects_fallback_evidence_into_planner_and_trace(tmp_path
     assert planner_screen_capture_metadata["save_path"] == screen_capture_metadata["save_path"]
 
 
-def test_gpt_executor_retryable_planner_error_is_retried_with_backoff(monkeypatch):
+def test_agent_executor_retryable_planner_error_is_retried_with_backoff(monkeypatch):
     sleep_calls: list[float] = []
     curr_time = 1000.0
 
@@ -241,8 +241,8 @@ def test_gpt_executor_retryable_planner_error_is_retried_with_backoff(monkeypatc
         sleep_calls.append(duration)
         curr_time += duration
 
-    monkeypatch.setattr("engine.gpt_executor.time.sleep", _fake_sleep)
-    monkeypatch.setattr("engine.gpt_executor.time.monotonic", lambda: curr_time)
+    monkeypatch.setattr("engine.agent_executor.time.sleep", _fake_sleep)
+    monkeypatch.setattr("engine.agent_executor.time.monotonic", lambda: curr_time)
     llm_client = _SequencedLLMClient(
         responses=[
             LLMResponse(
@@ -290,7 +290,7 @@ def test_gpt_executor_retryable_planner_error_is_retried_with_backoff(monkeypatc
 
     result = runtime.run(
         {
-            "task": "gpt_executor",
+            "task": "agent_executor",
             "goal": "observe retryable planner errors",
             "expected_state_ids": ["account"],
             "allowed_actions": ["ui.click"],
@@ -310,7 +310,7 @@ def test_gpt_executor_retryable_planner_error_is_retried_with_backoff(monkeypatc
     assert sum(sleep_calls) == (retry_backoff_seconds(0) + retry_backoff_seconds(1))
 
 
-def test_gpt_executor_repeated_actions_without_stagnation_only_hit_step_budget():
+def test_agent_executor_repeated_actions_without_stagnation_only_hit_step_budget():
     repeated_plan = LLMResponse(
         ok=True,
         request_id="req-repeat",
@@ -329,7 +329,7 @@ def test_gpt_executor_repeated_actions_without_stagnation_only_hit_step_budget()
 
     result = runtime.run(
         {
-            "task": "gpt_executor",
+            "task": "agent_executor",
             "goal": "surface repeated planner action loops",
             "expected_state_ids": ["account"],
             "allowed_actions": ["ui.click"],
@@ -347,7 +347,7 @@ def test_gpt_executor_repeated_actions_without_stagnation_only_hit_step_budget()
     assert [entry["params"] for entry in history] == [{"x": 10, "y": 20}] * 3
 
 
-def test_gpt_executor_cancellation_writes_terminal_trace_record(tmp_path: Path):
+def test_agent_executor_cancellation_writes_terminal_trace_record(tmp_path: Path):
     trace_store = ModelTraceStore(root_dir=tmp_path / "traces")
     runtime = _build_runtime(
         llm_client=_SequencedLLMClient(
@@ -367,7 +367,7 @@ def test_gpt_executor_cancellation_writes_terminal_trace_record(tmp_path: Path):
 
     result = runtime.run(
         {
-            "task": "gpt_executor",
+            "task": "agent_executor",
             "goal": "cancel after action",
             "expected_state_ids": ["account"],
             "allowed_actions": ["ui.click"],

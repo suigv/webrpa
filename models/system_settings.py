@@ -7,9 +7,8 @@ Single source of truth for system-level settings (services, paths, features).
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
-
-from pydantic import BaseModel, ConfigDict, Field
+from typing import Any, Dict, Optional
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class FeaturesSettings(BaseModel):
@@ -19,21 +18,90 @@ class FeaturesSettings(BaseModel):
     enable_vlm: bool = True
 
 
-class LLMSettings(BaseModel):
+class LLMProviderSettings(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     base_url: str = "https://api.openai.com/v1"
-    model: str = "gpt-4o"
+    model: str = "gpt-5.4"
+    provider_type: str = "openai"
+
+
+class LLMSettings(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    # The currently active provider key (points to an entry in the providers dict)
     provider: str = "openai"
-    # api_key is intentionally absent — must be injected via env var MYT_LLM_API_KEY
+    # Detailed configuration for multiple providers
+    providers: dict[str, LLMProviderSettings] = Field(default_factory=dict)
+
+    # Legacy fields for backward compatibility
+    base_url: str = "https://api.openai.com/v1"
+    model: str = "gpt-5.4"
+
+    @model_validator(mode="before")
+    @classmethod
+    def bootstrap_providers(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+
+        providers = data.get("providers")
+        if not providers:
+            # If providers dict is missing, migrate top-level fields into an 'openai' entry
+            legacy_provider = data.get("provider", "openai")
+            base_url = data.get("base_url", "https://api.openai.com/v1")
+            model = data.get("model", "gpt-5.4")
+            
+            data["providers"] = {
+                legacy_provider: {
+                    "base_url": base_url,
+                    "model": model,
+                    "provider_type": "openai"
+                }
+            }
+        return data
+
+
+class VLMProviderSettings(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    base_url: str = "http://127.0.0.1:9000/v1"
+    model: str = "vlm-model"
+    provider_type: str = "standard"
 
 
 class VLMSettings(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
+    # The currently active provider key
+    provider: str = "vlm"
+    # Detailed configuration for multiple providers
+    providers: dict[str, VLMProviderSettings] = Field(default_factory=dict)
+
+    # Legacy fields for backward compatibility
     base_url: str = "http://127.0.0.1:9000/v1"
-    model: str = "UI-TARS-1.5-7B-6bit"
-    # api_key is intentionally absent — must be injected via env var UITARS_API_KEY
+    model: str = "vlm-model"
+
+    @model_validator(mode="before")
+    @classmethod
+    def bootstrap_providers(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+
+        providers = data.get("providers")
+        if not providers:
+            # If providers dict is missing, migrate top-level fields into a 'vlm' entry
+            legacy_provider = data.get("provider", "vlm")
+            base_url = data.get("base_url", "http://127.0.0.1:9000/v1")
+            model = data.get("model", "vlm-model")
+
+            data["providers"] = {
+                legacy_provider: {
+                    "base_url": base_url,
+                    "model": model,
+                    "provider_type": "standard"
+                }
+            }
+        return data
 
 
 class ServicesSettings(BaseModel):

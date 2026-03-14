@@ -9,7 +9,7 @@
 - `docs/examples/login_stage.json`：模板，需按目标 App 调整 `stage_patterns`。
 - `docs/examples/ui_match_state.json`：结构示例（native + browser 两类）。
 - `docs/examples/plugin_workflow.yaml`：结构示例（插件脚本 + route/hops）。
-- `docs/examples/gpt_executor.json`：结构示例（GptExecutor 最小请求）。
+- `docs/examples/agent_executor.json`：结构示例（AgentExecutor 最小请求）。
 
 日志分析提示：
 - AI 路径事件流里会出现 `task.observation`，其中 `modality` / `fallback_reason` / `fallback_evidence` 可判断是否处于 binding-free 或回退链路。

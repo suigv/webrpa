@@ -45,25 +45,25 @@ const hzInputs = [
 
 const HZ_PRESETS = {
   low: {
-    typo_probability: 0.01, typing_delay_min: 0.02, typing_delay_max: 0.08,
+    typo_probability: 0.01, typing_delay_min: 0.03, typing_delay_max: 0.10,
     typo_delay_min: 0.02, typo_delay_max: 0.06, backspace_delay_min: 0.01,
     backspace_delay_max: 0.03, click_offset_x_min: -2, click_offset_x_max: 2,
     click_offset_y_min: -2, click_offset_y_max: 2, word_pause_probability: 0.02,
-    word_pause_max: 0.15, click_hold_min: 0.01, click_hold_max: 0.03
+    word_pause_max: 0.20, click_hold_min: 0.01, click_hold_max: 0.03
   },
   medium: {
-    typo_probability: 0.03, typing_delay_min: 0.04, typing_delay_max: 0.18,
+    typo_probability: 0.03, typing_delay_min: 0.06, typing_delay_max: 0.22,
     typo_delay_min: 0.04, typo_delay_max: 0.12, backspace_delay_min: 0.02,
     backspace_delay_max: 0.08, click_offset_x_min: -4, click_offset_x_max: 4,
-    click_offset_y_min: -4, click_offset_y_max: 4, word_pause_probability: 0.04,
-    word_pause_max: 0.24, click_hold_min: 0.01, click_hold_max: 0.05
+    click_offset_y_min: -4, click_offset_y_max: 4, word_pause_probability: 0.05,
+    word_pause_max: 0.45, click_hold_min: 0.01, click_hold_max: 0.08
   },
   high: {
-    typo_probability: 0.08, typing_delay_min: 0.06, typing_delay_max: 0.28,
-    typo_delay_min: 0.06, typo_delay_max: 0.20, backspace_delay_min: 0.03,
+    typo_probability: 0.05, typing_delay_min: 0.10, typing_delay_max: 0.35,
+    typo_delay_min: 0.06, typo_delay_max: 0.20, backspace_delay_min: 0.04,
     backspace_delay_max: 0.12, click_offset_x_min: -8, click_offset_x_max: 8,
-    click_offset_y_min: -8, click_offset_y_max: 8, word_pause_probability: 0.10,
-    word_pause_max: 0.50, click_hold_min: 0.02, click_hold_max: 0.10
+    click_offset_y_min: -8, click_offset_y_max: 8, word_pause_probability: 0.15,
+    word_pause_max: 1.20, click_hold_min: 0.04, click_hold_max: 0.15
   },
 };
 

@@ -5,7 +5,7 @@ Loader for config/system.yaml — system-level settings (single source of truth)
 
 Hierarchy:
   config/system.yaml   ← all non-secret settings live here
-  env vars             ← only for secrets: MYT_LLM_API_KEY, UITARS_API_KEY
+  env vars             ← only for secrets: MYT_LLM_API_KEY, MYT_VLM_API_KEY
 
 Usage:
     from core.system_settings_loader import get_redis_url, get_llm_base_url, ...
@@ -18,7 +18,7 @@ import threading
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from models.system_settings import SystemSettings
+from models.system_settings import SystemSettings, VLMProviderSettings
 
 logger = logging.getLogger(__name__)
 
@@ -81,35 +81,99 @@ def get_redis_url() -> str:
 
 
 def get_llm_base_url() -> str:
-    return load().services.llm.base_url
+    return get_llm_provider_config().base_url
 
 
 def get_llm_model() -> str:
-    return load().services.llm.model
+    return get_llm_provider_config().model
 
 
 def get_llm_provider() -> str:
     return load().services.llm.provider
 
 
+def get_vlm_provider() -> str:
+    return load().services.vlm.provider
+
+
+def get_vlm_provider_config(name: Optional[str] = None) -> Any:
+    """Get config for a specific VLM provider, or the active one if name is None."""
+    settings = load().services.vlm
+    provider_name = name or settings.provider
+    config = settings.providers.get(provider_name)
+    if config:
+        return config
+    # Fallback to top-level if not found in dict
+    return VLMProviderSettings(
+        base_url=settings.base_url,
+        model=settings.model,
+        provider_type="standard"
+    )
+
+
+def get_llm_provider_config(name: Optional[str] = None) -> Any:
+    """Get config for a specific provider, or the active one if name is None."""
+    settings = load().services.llm
+    provider_name = name or settings.provider
+    config = settings.providers.get(provider_name)
+    if config:
+        return config
+    # Fallback to top-level if not found in dict
+    from models.system_settings import LLMProviderSettings
+    return LLMProviderSettings(
+        base_url=settings.base_url,
+        model=settings.model,
+        provider_type="openai"
+    )
+
+
 def get_vlm_base_url() -> str:
-    return load().services.vlm.base_url
+    return get_vlm_provider_config().base_url
 
 
 def get_vlm_model() -> str:
-    return load().services.vlm.model
+    return get_vlm_provider_config().model
 
 
 # ─── Secrets (env vars ONLY — never from yaml) ───────────────────────────────
 
-def get_llm_api_key() -> str:
-    """LLM API key — must be set via env var MYT_LLM_API_KEY. Never in yaml."""
+def get_llm_api_key(provider_name: Optional[str] = None) -> str:
+    """
+    LLM API key. 
+    Priority:
+    1. MYT_LLM_API_KEY_{PROVIDER_NAME_UPPER}
+    2. MYT_LLM_API_KEY
+    """
+    if not provider_name:
+        provider_name = get_llm_provider()
+
+    # 1. MYT_LLM_API_KEY_DEEPSEEK
+    suffix = str(provider_name).upper().replace("-", "_")
+    key = os.environ.get(f"MYT_LLM_API_KEY_{suffix}")
+    if key:
+        return key.strip()
+
+    # 2. MYT_LLM_API_KEY (Shared fallback)
     return (os.environ.get("MYT_LLM_API_KEY") or "").strip()
 
 
-def get_vlm_api_key() -> str:
-    """VLM API key — must be set via env var UITARS_API_KEY. Never in yaml."""
-    return (os.environ.get("UITARS_API_KEY") or "").strip()
+def get_vlm_api_key(provider_name: Optional[str] = None) -> str:
+    """
+    VLM API key. 
+    Priority:
+    1. MYT_VLM_API_KEY_{PROVIDER_NAME_UPPER}
+    2. MYT_VLM_API_KEY (Shared fallback)
+    """
+    if not provider_name:
+        provider_name = get_vlm_provider()
+
+    suffix = str(provider_name).upper().replace("-", "_")
+    key = os.environ.get(f"MYT_VLM_API_KEY_{suffix}")
+    if key:
+        return key.strip()
+
+    # 2. MYT_VLM_API_KEY
+    return (os.environ.get("MYT_VLM_API_KEY") or "").strip()
 
 
 # ─── Paths (from yaml) ────────────────────────────────────────────────────────

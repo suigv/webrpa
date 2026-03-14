@@ -1,7 +1,7 @@
 # pyright: reportUnknownArgumentType=false, reportUnknownVariableType=false, reportUnknownMemberType=false, reportMissingParameterType=false
 
 """
-Planner abstraction layer for GptExecutorRuntime.
+Planner abstraction layer for AgentExecutorRuntime.
 
 This module decouples the "decision strategy" (which model to call, what prompt
 to assemble, how to parse the response) from the "execution loop" (observe →
@@ -12,7 +12,7 @@ Current implementations
 -----------------------
 * ``StructuredPlanner`` – the production-grade, structured-state-first planner.
   Wraps the existing LLM + optional VLM fallback logic that was previously
-  inlined inside ``GptExecutorRuntime._plan_next_step``.
+  inlined inside ``AgentExecutorRuntime._plan_next_step``.
 
 * ``OmniVisionPlanner`` – experimental planner optimised for next-gen
   multimodal models (GPT-5.4 / Gemini 3.1) that possess native pixel-level
@@ -128,7 +128,7 @@ class StructuredPlanner:
     """Structured-state-first planner.
 
     This is a thin wrapper that delegates to the *existing* planning helpers on
-    ``GptExecutorRuntime``.  By keeping the actual implementation on the
+    ``AgentExecutorRuntime``.  By keeping the actual implementation on the
     runtime class (for now), we avoid a massive code move in a single commit
     while still providing the protocol-level decoupling that enables
     alternative planners.
@@ -137,15 +137,15 @@ class StructuredPlanner:
     """
 
     def __init__(self, runtime: Any) -> None:
-        # ``runtime`` is a GptExecutorRuntime instance.  We accept Any to
+        # ``runtime`` is a AgentExecutorRuntime instance.  We accept Any to
         # avoid a circular import.
         self._runtime = runtime
 
     def plan(self, inp: PlannerInput) -> PlannerOutput:
-        from engine.gpt_executor import GptExecutorConfig
+        from engine.agent_executor import AgentExecutorConfig
 
         # Reconstruct config that the existing helpers expect.
-        config = GptExecutorConfig(
+        config = AgentExecutorConfig(
             goal=inp.goal,
             expected_state_ids=[],  # not used inside _plan_next_step
             allowed_actions=inp.allowed_actions,
@@ -232,7 +232,7 @@ class OmniVisionPlanner:
         self._runtime = runtime
 
     def plan(self, inp: PlannerInput) -> PlannerOutput:
-        from engine.gpt_executor import _timestamp, _json_dict
+        from engine.agent_executor import _timestamp, _json_dict
 
         planned_at = _timestamp()
         llm_client = self._runtime._llm_client_factory()
@@ -288,8 +288,8 @@ class OmniVisionPlanner:
             "system_prompt": request.system_prompt,
             "has_image_attachment": bool(attachments),
         }
-        from engine.gpt_executor import GptExecutorRuntime
-        response_trace = GptExecutorRuntime._llm_response_trace(response)
+        from engine.agent_executor import AgentExecutorRuntime
+        response_trace = AgentExecutorRuntime._llm_response_trace(response)
 
         if not bool(response.ok):
             error = getattr(response, "error", None)

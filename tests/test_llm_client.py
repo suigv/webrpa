@@ -258,13 +258,17 @@ class _FakeVLMHttpClient:
                 ]
             }
         )
-def test_vlm_client_predict_converts_normalized_coordinates_to_pixels():
+def test_vlm_client_predict_converts_normalized_coordinates_to_pixels(monkeypatch):
     fake_http = _FakeVLMHttpClient()
 
+    def mock_get_config(name):
+        from models.system_settings import VLMProviderSettings
+        return VLMProviderSettings(base_url="http://vlm.local/v1", model="ui-tars-test")
+
+    monkeypatch.setattr("ai_services.vlm_client.get_vlm_provider_config", mock_get_config)
+    monkeypatch.setattr("ai_services.vlm_client.get_vlm_api_key", lambda n: "secret")
+
     client = VLMClient(
-        base_url="http://vlm.local/v1",
-        model="ui-tars-test",
-        api_key="secret",
         http_client=cast(httpx.Client, cast(object, fake_http)),
     )
 

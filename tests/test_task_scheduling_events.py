@@ -20,7 +20,7 @@ from core.task_events import TaskEventStore
 from core.task_queue import InMemoryTaskQueue
 from core.task_store import TaskStore
 from engine.action_registry import ActionRegistry
-from engine.gpt_executor import GptExecutorRuntime
+from engine.agent_executor import AgentExecutorRuntime
 from engine.models.runtime import ActionResult
 from engine.runner import Runner
 from ai_services.llm_client import LLMResponse
@@ -116,8 +116,8 @@ def _build_trace_runner(*, trace_store, observations=None):
             ),
         ]
     )
-    runtime = GptExecutorRuntime(registry=registry, llm_client_factory=lambda: llm_client, trace_store=trace_store)
-    return Runner(gpt_executor_runtime=runtime)
+    runtime = AgentExecutorRuntime(registry=registry, llm_client_factory=lambda: llm_client, trace_store=trace_store)
+    return Runner(agent_executor_runtime=runtime)
 
 
 def test_run_at_delays_execution():
@@ -376,7 +376,7 @@ def test_trace_managed_gpt_execution_persists_jsonl_without_raw_trace_events(tmp
             create = client.post(
                 "/api/tasks/",
                 json={
-                    "task": "gpt_executor",
+                    "task": "agent_executor",
                     "payload": {
                         "goal": "dismiss login interstitial",
                         "expected_state_ids": ["account"],
@@ -438,7 +438,7 @@ def test_trace_persistence_failure_propagates_through_existing_task_failure_path
             create = client.post(
                 "/api/tasks/",
                 json={
-                    "task": "gpt_executor",
+                    "task": "agent_executor",
                     "payload": {
                         "goal": "dismiss login interstitial",
                         "expected_state_ids": ["account"],
@@ -508,7 +508,7 @@ def test_trace_managed_gpt_execution_uses_browser_observation_modality(tmp_path:
             create = client.post(
                 "/api/tasks/",
                 json={
-                    "task": "gpt_executor",
+                    "task": "agent_executor",
                     "payload": {
                         "goal": "dismiss browser interstitial",
                         "expected_state_ids": ["html:login_prompt"],

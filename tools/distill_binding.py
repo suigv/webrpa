@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""从 gpt_executor trace jsonl 文件蒸馏 NativeStateBinding 代码草稿。
+"""从 agent_executor trace jsonl 文件蒸馏 NativeStateBinding 代码草稿。
 
 用法:
     python tools/distill_binding.py <task_id>

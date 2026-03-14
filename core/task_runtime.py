@@ -207,7 +207,7 @@ class TaskDispatchRuntimeResolver:
         has_steps = bool(payload_for_run.get("steps"))
         should_resolve_target = rpc_enabled and (
             self._plugin_loader.has(task_name) 
-            or task_name == "gpt_executor" 
+            or task_name == "agent_executor" 
             or (is_anonymous and has_steps)
         )
 
@@ -256,7 +256,6 @@ def _resolve_runtime_overrides(payload: dict[str, Any]) -> dict[str, Any]:
         ("_llm", "llm"),
         ("_ai", "ai"),
         ("_vlm", "vlm"),
-        ("_uitars", "uitars"),
     ):
         value = payload.pop(key, None)
         if isinstance(value, dict):
@@ -278,8 +277,6 @@ def _extract_runtime_section(source: Any) -> dict[str, Any]:
         runtime["ai"] = dict(section["ai"])
     if "vlm" in section and isinstance(section.get("vlm"), dict):
         runtime["vlm"] = dict(section["vlm"])
-    if "uitars" in section and isinstance(section.get("uitars"), dict):
-        runtime["uitars"] = dict(section["uitars"])
     if "llm" not in runtime and isinstance(section.get("gpt"), dict):
         runtime["llm"] = dict(section["gpt"])
     return runtime

@@ -27,7 +27,7 @@ AI 在当前项目中的定位不是替代插件体系，而是：
 
 当前 main 分支的 AI 基线是一个**受控、边界清晰的 MVP**：
 
-- 托管 `gpt_executor` 通过既有 `/api/tasks` 控制面运行。
+- 托管 `agent_executor` 通过既有 `/api/tasks` 控制面运行。
 - 主观察策略是 structured-state-first。
 - 当前 AI 基线仍然是 bounded、structured-state-first，不是视觉主导执行。
 - fallback 模态是辅助证据，不是默认主路径。
@@ -50,15 +50,17 @@ AI 在当前项目中的定位不是替代插件体系，而是：
 1. `api/server.py` 提供 API 入口与 `/web`。
 2. `/api/tasks` 进入任务控制面。
 3. `core/task_control.py`、`core/task_execution.py`、`core/task_finalizer.py`、`core/task_metrics.py` 共同负责托管任务生命周期。
-4. `engine/runner.py` 负责分发插件任务与 `gpt_executor` 运行时。
-5. 运行时配置可通过 payload `_runtime_profile` / `_runtime` / `_llm` / `_vlm` / `_uitars` 覆写，profile 文件位于 `config/<name>.json`。
+4. `engine/runner.py` 负责分发插件任务与 `agent_executor` 运行时。
+5. 运行时配置可通过 payload `_runtime_profile` / `_runtime` / `_llm` / `_vlm` 覆写，profile 文件位于 `config/<name>.json`。
 
 ### 4.2 AI 执行边界
 
 - `ai_services/llm_client.py`
   - 统一 LLM 请求、provider/model 解析、错误归一与响应标准化。
-- `engine/gpt_executor.py`
+- `engine/agent_executor.py`
   - 负责受控 planner loop：观察、规划、执行、记录、停止。
+- `engine/binding_distiller.py`
+  - 核心蒸馏服务，支持从实时 UI 状态提取特征并生成 Python 绑定代码。
 - `engine/actions/ai_actions.py`
   - 提供 `ai.llm_evaluate`、`ai.vlm_evaluate`、`ai.locate_point` 动作边界。
 - `core/model_trace_store.py`
@@ -70,7 +72,7 @@ AI 在当前项目中的定位不是替代插件体系，而是：
 - `tools/distill_multi_run.py`
   - 多轮 trace 聚合蒸馏，达到门槛（简单 3 次/复杂 10 次）后生成 YAML 草稿。
 - `tools/distill_binding.py`
-  - 从 trace XML 提取界面特征，生成 `NativeStateBinding` 代码草稿。
+  - 从 trace XML 提取界面特征，生成 `NativeStateBinding` 代码草案（核心逻辑已在 `engine/binding_distiller.py` 服务化并在控制台暴露）。
 
 LLM 链路说明：`LLMClient` 使用标准 OpenAI Chat Completions 格式（`/chat/completions`）。LLM base_url 和 model 由 `config/system.yaml` 配置，API Key 则仅通过 `MYT_LLM_API_KEY` 环境变量配置（保证密钥安全）。
 
@@ -125,7 +127,7 @@ AI 相关能力应尽量复用：
 - 现在主执行链仍然是 structured-state-first。
 - 仓库里已有视觉相关配置入口，但当前 VLM 接线仍然很轻，不能写成成熟 dedicated stack。
 - `ai.vlm_evaluate` 已作为动作边界存在，但当前视觉能力还不是成熟的一等公民执行器。
-- `gpt_executor` 的 VLM 路径由环境变量 `MYT_ENABLE_VLM` 控制，默认关闭；开启后才会根据 `fallback_modalities` 触发。
+- `agent_executor` 的 VLM 路径由环境变量 `MYT_ENABLE_VLM` 控制，默认关闭；开启后才会根据 `fallback_modalities` 触发。
 - 因此，若未来走 vision-led exploration，应被视为**目标方向扩展**，不是当前已完成能力。
 - 当前这一波 AI 开发以云机为先，浏览器仍保持兼容支持，但不是当前主 AI 设计驱动面。
 
@@ -137,6 +139,7 @@ AI 相关能力应尽量复用：
 - 多轮样本聚合后的稳定路径抽取
 - 基于多样本而不是单次 golden run 的 distillation
 - draft 到插件的在线 promotion pipeline
+- **AI 辅助 Binding 工坊**：集成在 Web 控制台的实时 UI 特征提取与代码生成链路（已初步实现）。
 - 更强的 workflow stability / consensus extraction
 
 ## 9）Deferred / 不应误写为已完成

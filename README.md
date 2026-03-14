@@ -7,7 +7,9 @@
 - 插件化执行引擎（YAML 工作流 + 动作注册）
 - 浏览器自动化与拟人化交互（可配置移动/点击/输入节奏）
 - Web 控制台入口与日志 WebSocket 路由（`/web` + `/ws/logs`）
-- 云机详情页提供 AI 对话入口，可用自然语言下发 `gpt_executor` 任务并绑定 runtime profile
+- **Binding Master**: 可视化 UI 特征蒸馏工具，提供 AI 驱动的状态识别建议与代码生成。
+- **Account Store (SQLite)**: 账号池全面迁移至 SQLite (BaseStore)，支持高并发原子化抽号与状态管理。
+- 云机详情页提供 AI 对话入口，可用自然语言下发 `agent_executor` 任务。
 
 ---
 
@@ -17,6 +19,8 @@
 
 - `GET /health`：健康检查（含 `task_policy` 运行策略快照）
 - `POST /api/runtime/execute`：debug/internal-only 直跑入口；同步执行 runtime payload，不创建 `/api/tasks` 托管任务、重试、取消、SSE 事件或指标
+- `POST /api/binding/analyze`：捕获 UI XML 并由 AI 建议识别特征与状态 ID
+- `POST /api/binding/draft`：汇总多条 UI 记录并生成 Python 探测代码
 - `GET /web`：控制台静态入口页面（smoke-backed）
 
 ### 2) 设备管理（`/api/devices`）
@@ -28,7 +32,7 @@
 ### 3) 任务系统（`/api/tasks`）
 
 - 创建任务（支持 `priority` / `run_at` / `max_retries` / `retry_backoff_seconds`）
-- 新增托管 `gpt_executor` 任务模式，继续复用同一 `/api/tasks` 创建、重试、取消、SSE 事件与指标链路
+- 新增托管 `agent_executor` 任务模式，继续复用同一 `/api/tasks` 创建、重试、取消、SSE 事件与指标链路
 - 查询任务列表/详情
 - 取消任务
 - 任务目录：`GET /api/tasks/catalog`
@@ -37,7 +41,7 @@
 - 任务控制面内部已拆分为 façade + service：`core/task_control.py` 只保留入口编排，执行循环在 `core/task_execution.py`，终态/重试规则在 `core/task_finalizer.py`，指标聚合与导出在 `core/task_metrics.py`
 - `api/mappers/task_mapper.py` 统一承接 `TaskRecord` -> API DTO 映射，避免在 route 中散落时间/targets 转换逻辑
 - 显式 target 已成为任务控制面的正式字段：route / store / mapper / execution / runtime 统一围绕 `targets` 工作，不再依赖把控制面元数据塞回 `payload`
-- `gpt_executor` 采用 structured-state-first 观察，只有主观察不足时才显式回退到 XML、截图或 browser HTML 等补充模态；执行环必须带 step budget、stagnant-state circuit breaker，并把完整模型轨迹单独追加到 `config/data/traces/` JSONL，而不是塞进任务生命周期事件
+- `agent_executor` 采用 structured-state-first 观察，只有主观察不足时才显式回退到 XML、截图或 browser HTML 等补充模态；执行环必须带 step budget、stagnant-state circuit breaker，并把完整模型轨迹单独追加到 `config/data/traces/` JSONL，而不是塞进任务生命周期事件
 
 #### 3.1) 任务请求/响应契约摘要
 
@@ -120,8 +124,8 @@
 - `wait_until` 已补齐 success-before-timeout、`on_timeout goto`、`on_fail`、取消态与动态重轮询语义
 - `ExecutionContext.session.defaults` 已作为最小任务级默认值接缝落地，保持显式 action 参数优先，其次 session defaults，最后回退到原始 payload
 - `ExecutionContext.runtime` 已承接任务运行时信封；target / task_id / cloud_target_label 等控制面信息不再通过 payload 私有字段注入
-- 任务可通过 payload `_runtime_profile` / `_runtime` / `_llm` / `_vlm` / `_uitars` 覆写运行时配置；profile 文件放在 `config/<name>.json`
-- `gpt_executor` 的 VLM 路径默认关闭；需要时在 `config/system.yaml` 中设置 `enable_vlm: true` 并在 `fallback_modalities` 中显式启用
+- 任务可通过 payload `_runtime_profile` / `_runtime` / `_llm` / `_vlm` 覆写运行时配置；profile 文件放在 `config/<name>.json`
+- `agent_executor` 的 VLM 路径默认关闭；需要时在 `config/system.yaml` 中设置 `enable_vlm: true` 并在 `fallback_modalities` 中显式启用
 - 新增 `ai.locate_point` 动作：输入截图+提示词，返回点击坐标（支持像素/归一化坐标换算）
 - `UIStateService` 的结果构造、timing 与 browser polling 语义已收口到共享 helper；native bindings 也已拆到独立 registry，降低 browser/native 平行演化风险
 

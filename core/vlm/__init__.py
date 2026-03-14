@@ -1,15 +1,15 @@
-from .uitars_output_parser import (
-    UITARSOutput,
+from .vlm_output_parser import (
+    VLMOutput,
     ParsedAction,
-    parse_uitars_output,
+    parse_vlm_output,
     map_to_atomic_action,
     coords_to_pixel,
 )
 
 __all__ = [
-    "UITARSOutput",
+    "VLMOutput",
     "ParsedAction",
-    "parse_uitars_output",
+    "parse_vlm_output",
     "map_to_atomic_action",
     "coords_to_pixel",
 ]
