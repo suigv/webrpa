@@ -8,13 +8,14 @@ This document defines the north-star goals, scope boundaries, and success criter
 - Future: External customers who need a self-serve automation platform.
 
 ## North Star
-Enable business operations to execute scripted tasks across supported applications using vision-capable models, collect sufficient multi-run evidence, and distill stable, model-free YAML plugins that can run without model dependency.
+实现从“AI 驱动”到“技能驱动”的闭环演进。通过视觉模型自主执行复杂任务并收集证据，蒸馏出稳定、确定的 YAML 插件（Skills），最终形成可被 AI 或 引擎直接调用的“业务专家技能库”，摆脱对大模型实时推理的依赖。
 
 ## Core Goals
-- G1: Vision-model execution reliably completes scripted workflows for ops-grade tasks.
-- G2: Multi-run logging captures enough evidence to diagnose failures and support distillation.
-- G3: Distillation produces a model-free YAML plugin that can replay and pass smoke validation.
-- G4: Platform is ready for external users with an account system (authentication + basic access control).
+- G1: **AI 自主执行**：愿景模型能可靠执行业务指令，并实现 self-healing 观察。
+- G2: **证据闭环采集**：多轮运行日志记录完整轨迹，支撑诊断与蒸馏。
+- G3: **技能自动化蒸馏 (Skills Discovery)**：从成功轨迹中自动提取原子动作序列、选择器和业务状态，生成可复用的 Skills。
+- G4: **架构合理化 (Action-to-Skill)**：建立具备自描述能力动作注册表，支持变量隔离、异常闭环，使 Skills 成为一等公民。
+- G5: **平台化能力**：具备完善的账号系统、监控指标与运维看板。
 
 ## Workflow Scope (Ops)
 - All operational workflows target supported application script tasks.

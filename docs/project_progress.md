@@ -68,6 +68,14 @@
   - **蒸馏自动 selector merge**：`GoldenRunDistiller.distill()` 完成后自动扫描 script steps，提取 UI 定位 action（`ui.click` 等 8 种）的未参数化 `text`/`resource_id` 值，merge 写入对应 `config/apps/<app>.yaml` 的 `selectors` 字段；已有 selector 不覆盖。
 
 - 最近重点 (本会话)：
+  - **Skills-Driven 架构演进 (Phase 1 & 2)**：
+    - **Action Registry 元数据增强**：`ActionRegistry` 现在支持 `ActionMetadata`，通过 Pydantic 模型定义每个动作的描述、参数 Schema (JSON Schema) 和返回值 Schema。
+    - **自描述 API**：新增 `GET /api/engine/schema` 接口，全量暴露已注册动作的元数据，方便 AI 代理发现可用技能。
+    - **非破坏性元数据富化**：为 `ui.*`、`app.*`、`core.*` (save/load shared) 以及 `ai.*` (llm/vlm/locate) 等高频核心动作补全了描述和参数规范。
+    - **文档自愈机制**：在 `AGENTS.md` 中确立了“代码变更伴随文档同步”的强制规则，确保架构演进与文档保持物理对齐。
+    - **AI 引导升级**：新建 `docs/AI_ONBOARDING.md` 作为 AI 进入项目的第一站，明确了知识检索优先级与职责边界。
+
+- 最近重点 (本会话)：
   - **场景提示词模板服务化**：
     - 新建 `engine/prompt_templates.py`，集中定义 4 个模板常量（通用自动化、账号登录/切换、社交媒体 X/Twitter、内容采集/数据爬取），作为项目唯一数据源。
     - 新增 `GET /api/tasks/prompt_templates` 路由，动态返回模板列表（key/name/content）。

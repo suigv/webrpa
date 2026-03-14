@@ -30,16 +30,14 @@ Current state (unverified): Evidence collection significantly improved (2026-03-
 - task.observation and task.planning events now emitted per step for real-time log visibility.
 - DB event poller added to broadcast subprocess task events to WebSocket clients.
 
-### M3: Distillation to Model-Free YAML Plugin
-Status: Verified (Stage 1).
-Definition of done: Multi-run evidence can distill a reviewable YAML plugin that passes replay smoke checks without model dependency.
-Distillation gate: simple tasks require 3 successful runs; complex tasks require at most 10 successful runs.
+### M3: 技能化演进与蒸馏 (Skills-ing & Distillation)
+Status: Partial.
+Definition of done: 建立自描述动作注册表；支持变量隔离与异常回退；多轮证据可自动蒸馏为具备“业务专家”语义的稳定 YAML Skills。
 Current state (Verified): 
-- XML 截断问题已通过 `distill_binding.py` 的正则回溯机制解决。
-- 实现了通用的 `app_stage` 探测机制，支持从 `config/apps/*.yaml` 动态加载特征，不再依赖硬编码框架。
-- 成功为 X App 产生了首页 binding 选择器。
-- 自动 Selector Merge 机制已在 GoldenRunDistiller 中闭环。
-- 下一步：支持多 trace 聚合蒸馏 (Multi-run) 以提高 feature 覆盖率。
+- XML 截断问题已通过底层自愈 (Self-Healing) 机制解决。
+- 实现了通用的 `app_stage` 探测机制与自动 Selector Merge。
+- 确立了 [SKILLS_EVOLUTION.md](SKILLS_EVOLUTION.md) 架构路线图。
+- 下一步：实现 `ActionRegistry` 的 Schema-fication，支持 AI 元数据导出。
 
 ### M4: External User Readiness
 Status: Planned.

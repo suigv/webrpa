@@ -15,18 +15,14 @@ This document provides a concise "done vs not-done" view tied to the goal and ro
 | M0 Baseline Compliance and Runtime Stability | Verified | Full gate evidence captured: check_no_legacy_imports OK, pytest 264/264 passed, server startup OK, /health 200 OK. See .sisyphus/evidence/m0-gate-pytest-full.txt |
 | M1 Vision-Model Script Execution MVP | Partial | Vision 路径已在真实设备验证（2026-03-10），screen_width/height 从 XML 根节点 bounds 解析并注入 trace。Binding-free vision path confirmed working. |
 | M2 Evidence Capture and Diagnostics | Partial | XML collected unconditionally per step, saved as full file under traces/xml/ (not truncated). screen_width/height injected into screen_capture.metadata. task.observation and task.planning events emitted per step. DB event poller broadcasts subprocess events to WebSocket. |
-| M3 Distillation to Model-Free YAML Plugin | Partial | Multi-run distillation tool (`tools/distill_multi_run.py`) implemented. Per-plugin success rate API and frontend progress panel added. Single-run distillation also exists. |
-| M4 External User Readiness | Planned | Account system work not started. |
+| M3 技能蒸馏与 Skills 化演进 | Partial | 自动化蒸馏工具 `distill_multi_run.py` 可用；`SKILLS_EVOLUTION.md` 确定了阻力点与演进方案。动作注册表正向 Metadata 化改造。 |
+| M4 平台化与外部就绪 | Planned | 账号系统与权限控制尚未开始。 |
 
-## Recent Implementation Notes (Unverified)
-- BaseStore migration for TaskStore/TaskEventStore completed; validation pending.
-- Config parsing consolidated into Pydantic-based ConfigStore/ConfigLoader; validation pending. ConfigLoader.load() now returns ConfigStore directly.
-- DeviceManager split with CloudProbeService wiring; validation pending.
-- VLM client lifecycle + retry/backoff alignment implemented; validation pending.
-- Port architecture corrected (2026-03-12): 8000/30001/30002 fully separated. AndroidApiClient added for 30001. mytos.* actions now route to android.* (30001) instead of sdk.* (8000).
-- Multi-run distillation pipeline added: tools/distill_multi_run.py, /api/tasks/metrics/plugins, /api/tasks/distill/{plugin}.
-- VLM screen metadata (width/height) now extracted from compressed capture bytes.
-- Device-level exclusive lock added to prevent concurrent task conflicts on same cloud instance.
+- **文本化文档对齐 (2026-03-13)**：完成全量 `docs/` 内容审计，确立了多云机动态端口公式，修复了 SDK/API 文档的陈旧代码引用。
+- **Skills 演进战略确立**：发布了 `docs/SKILLS_EVOLUTION.md`，识别出 ActionRegistry、Variable Scoping、Error Hooks 等核心架构优化点。
+- **AI 观察自愈能力**：针对 X App 复杂界面的 XML 4KB 截断问题实现了自愈式捕获。
+- **App 配置归一化**：移除了硬编码绑定，统一收敛至 `config/apps/*.yaml`，支持动态 App 发现。
+- **场景模板服务化**：AI 提示词场景模板已下沉为 API 服务。
 
 ## Workflow Coverage (Ops Scope)
 Source of truth: current `plugins/` library (representative workflows).
