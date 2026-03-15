@@ -25,4 +25,4 @@ steps:
   - label: 软件复位完成
     kind: stop
     status: success
-    message: "Soft reset completed"
+    message: "Soft reset for ${payload.package} completed"

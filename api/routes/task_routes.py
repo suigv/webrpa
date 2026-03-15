@@ -22,7 +22,6 @@ router = APIRouter()
 
 _PLUGIN_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 
-
 def _validate_plugin_name(name: str) -> str:
     raw = str(name or "").strip()
     if not raw:
@@ -123,6 +122,36 @@ def task_catalog():
             }
         )
     return {"tasks": catalog}
+
+
+@router.get("/catalog/apps")
+def list_apps():
+    """列出 config/apps/ 目录下所有已定义的应用程序。"""
+    from core.paths import config_dir
+    import yaml
+    
+    apps_dir = config_dir() / "apps"
+    if not apps_dir.exists():
+        return {"apps": []}
+    
+    apps = []
+    # 始终包含默认选项
+    apps.append({"id": "default", "name": "默认 (系统)"})
+    
+    for f in apps_dir.glob("*.yaml"):
+        app_id = f.stem
+        if app_id == "default":
+            continue
+        try:
+            with open(f, "r", encoding="utf-8") as stream:
+                data = yaml.safe_load(stream)
+                # 尝试从配置中获取友好名称，如果没有则使用 ID
+                display_name = data.get("name") or data.get("display_name") or app_id.upper()
+                apps.append({"id": app_id, "name": display_name})
+        except Exception:
+            apps.append({"id": app_id, "name": app_id.upper()})
+            
+    return {"apps": apps}
 
 
 @router.get("/prompt_templates")

@@ -58,6 +58,7 @@ def import_accounts_content(
     overwrite: bool,
     delimiter: str | None,
     mapping: dict[int, str] | None,
+    app_id: str | None = "default",
 ) -> dict[str, Any]:
     clean_mapping: dict[int, str] = {}
     if mapping:
@@ -88,6 +89,8 @@ def import_accounts_content(
 
     for acc_data in accounts:
         if isinstance(acc_data, dict) and "account" in acc_data:
+            # 注入所属应用标识
+            acc_data["app_id"] = app_id or "default"
             store.upsert_account(acc_data)
 
     total_stored = store.count_accounts()

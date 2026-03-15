@@ -31,6 +31,7 @@ class AccountsImportRequest(BaseModel):
     overwrite: bool = True
     delimiter: str | None = None
     mapping: Dict[int, str] | None = None
+    app_id: Optional[str] = "default"
 
 
 class AccountStatusUpdate(BaseModel):
@@ -55,6 +56,7 @@ async def import_accounts(data: AccountsImportRequest):
         data.overwrite,
         data.delimiter,
         data.mapping,
+        data.app_id,
     )
 
 

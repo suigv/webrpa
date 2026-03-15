@@ -65,6 +65,7 @@ export function initTasks() {
         btn.onclick = closeTaskModal;
     });
 
+    initAppSelector();
     initPluginSelector();
     loadTasks();
 }
@@ -191,6 +192,21 @@ function appendEventToTimeline(type, data) {
 export async function loadTasks() {
     const r = await fetchJson('/api/tasks/');
     if (r.ok) renderTasksList(r.data);
+}
+
+async function initAppSelector() {
+    const r = await fetchJson('/api/tasks/catalog/apps');
+    if (!r.ok) return;
+    const select = $('taskAppSelector');
+    if (select) {
+        clearElement(select);
+        (r.data.apps || []).forEach(app => {
+            const opt = document.createElement('option');
+            opt.value = app.id;
+            opt.textContent = app.name;
+            select.appendChild(opt);
+        });
+    }
 }
 
 function renderTasksList(tasks) {
@@ -367,13 +383,19 @@ async function submitTask() {
     const resolvedTargets = resolveTargetsFromForm();
     if (!resolvedTargets.ok) return;
 
+    const appId = $('taskAppSelector')?.value || 'default';
+
     const btn = $('submitTask');
     if (btn) btn.disabled = true;
 
     try {
+        const payload = collectTaskPayload($('taskPayloadFields'));
+        // 显式注入应用上下文
+        payload.app_id = appId;
+
         const taskData = buildTaskRequest({
             task: selectedTaskName,
-            payload: collectTaskPayload($('taskPayloadFields')),
+            payload: payload,
             targets: resolvedTargets.targets,
             priority: $('taskPriority')?.value || 50,
             maxRetries: $('taskMaxRetries')?.value || 0,

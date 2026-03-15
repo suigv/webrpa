@@ -67,6 +67,13 @@
           <div class="panel">
             <div class="panel-header"><h3>新建作业</h3></div>
             <div class="panel-body">
+              <div class="form-group mb-4">
+                <label>目标应用 (App context)</label>
+                <select id="taskAppSelector" class="select-full">
+                  <option value="default">默认 (系统)</option>
+                  <option value="x">X (Twitter)</option>
+                </select>
+              </div>
               <div id="taskPluginHost"></div>
               <div id="taskPayloadFields" class="form-grid mt-6"></div>
               <button id="showMoreFields" class="btn btn-text text-muted mt-2 px-0">显示高级参数</button>
@@ -119,6 +126,13 @@
           <div class="panel">
             <div class="panel-header"><h3>凭证注入</h3></div>
             <div class="panel-body flex-col">
+              <div class="form-group mb-4">
+                <label>目标应用 (App ID)</label>
+                <select id="accountImportAppId" class="select-full">
+                  <option value="default">默认 (系统)</option>
+                  <option value="x">X (Twitter)</option>
+                </select>
+              </div>
               <textarea id="accountsInput" class="textarea-large flex-1" placeholder="格式规范: username----password----2fa"></textarea>
               <div id="accountsPreview"></div>
               <div class="flex gap-3 mt-4">

@@ -1,123 +1,111 @@
 from __future__ import annotations
 
 import logging
-import os
-import time
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 import yaml
 
-from core.paths import project_root
+from core.paths import config_dir
 
 logger = logging.getLogger(__name__)
 
-_cached_package_map: Dict[str, str] = {}
-_last_scan_time: float = 0
-_SCAN_TTL = 60.0
+
+def _app_id_safe(app_id: str) -> str:
+    raw = str(app_id or "").strip().lower()
+    return "".join(ch for ch in raw if ch.isalnum() or ch in {"_", "-"})
+
+
+def _app_config_path(app_id: str) -> Path:
+    return config_dir() / "apps" / f"{_app_id_safe(app_id)}.yaml"
+
+
+def _read_yaml_dict(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        logger.warning("Failed to load app config %s: %s", path, exc)
+        return {}
+    return raw if isinstance(raw, dict) else {}
+
+
+def get_app_config(app_id: str) -> dict[str, Any]:
+    app_key = _app_id_safe(app_id)
+    if not app_key:
+        return {}
+    return _read_yaml_dict(_app_config_path(app_key))
+
+
+def resolve_app_payload(app_id: str, current_payload: dict[str, Any]) -> dict[str, Any]:
+    config = get_app_config(app_id)
+    if not config:
+        return current_payload
+
+    resolved = dict(current_payload)
+    if not resolved.get("package") and config.get("package_name"):
+        resolved["package"] = config["package_name"]
+    if config.get("states"):
+        resolved["_app_states"] = config["states"]
+    if config.get("selectors"):
+        resolved["_app_selectors"] = config["selectors"]
+    return resolved
+
 
 class AppConfigManager:
-    """管理应用配置 (*.yaml) 的发现、枚举和自动骨架生成。"""
-    
     @staticmethod
-    def get_apps_dir() -> Path:
-        """返回应用配置文件的搜索目录。"""
-        return project_root() / "config" / "apps"
+    def apps_dir() -> Path:
+        path = config_dir() / "apps"
+        path.mkdir(parents=True, exist_ok=True)
+        return path
 
     @classmethod
-    def get_package_to_app_map(cls, refresh: bool = False) -> Dict[str, str]:
-        """获取 Android 包名到 App 配置文件名的映射。"""
-        global _cached_package_map, _last_scan_time
-        now = time.time()
-        if refresh or not _cached_package_map or (now - _last_scan_time) > _SCAN_TTL:
-            cls._scan_apps()
-            _last_scan_time = now
-        return _cached_package_map
+    def load_app_config(cls, app_id: str) -> dict[str, Any]:
+        return get_app_config(app_id)
 
     @classmethod
-    def _scan_apps(cls):
-        global _cached_package_map
-        mapping: Dict[str, str] = {}
-        
-        search_dirs = [project_root() / "config" / "apps"]
-        seen_apps = set()
-        
-        for apps_dir in search_dirs:
-            if not apps_dir.exists():
+    def get_package_to_app_map(cls) -> dict[str, str]:
+        mapping: dict[str, str] = {}
+        for path in sorted(cls.apps_dir().glob("*.yaml")):
+            document = _read_yaml_dict(path)
+            package_name = str(document.get("package_name") or "").strip()
+            if not package_name:
                 continue
-            for yaml_path in apps_dir.glob("*.yaml"):
-                app_name = yaml_path.stem
-                if app_name in seen_apps:
-                    continue
-                try:
-                    with open(yaml_path, "r", encoding="utf-8") as f:
-                        doc = yaml.safe_load(f)
-                        if isinstance(doc, dict) and "package_name" in doc:
-                            pkg = str(doc["package_name"]).strip()
-                            if pkg:
-                                mapping[pkg] = app_name
-                    seen_apps.add(app_name)
-                except Exception:
-                    continue
-        _cached_package_map = mapping
+            mapping[package_name] = path.stem
+        return mapping
 
     @classmethod
-    def find_app_by_package(cls, package: str) -> Optional[str]:
-        """根据包名查找对应的 App 配置名。"""
+    def find_app_by_package(cls, package_name: str) -> str:
+        package = str(package_name or "").strip()
+        if not package:
+            return ""
+        return cls.get_package_to_app_map().get(package, "")
+
+    @classmethod
+    def bootstrap_app_config(cls, package_name: str) -> Path | None:
+        package = str(package_name or "").strip()
         if not package:
             return None
-        return cls.get_package_to_app_map().get(package.strip())
+        existing = cls.find_app_by_package(package)
+        if existing:
+            return _app_config_path(existing)
 
-    @classmethod
-    def load_app_config(cls, app_name: str) -> Dict[str, Any]:
-        """加载指定的 App 配置文件内容。"""
-        repo_root = project_root()
-        search_paths = [
-            repo_root / "config" / "apps" / f"{app_name}.yaml"
-        ]
-        
-        for path in search_paths:
-            if path.exists():
-                try:
-                    with open(path, "r", encoding="utf-8") as f:
-                        data = yaml.safe_load(f)
-                        if isinstance(data, dict):
-                            return data
-                except Exception as e:
-                    logger.error("Failed to load app config %s: %s", path, e)
-        
-        return {}
+        candidate = _app_id_safe(package.split(".")[-1] or package.replace(".", "_"))
+        if not candidate:
+            return None
 
-    @classmethod
-    def bootstrap_app_config(cls, app_package: str, app_name: Optional[str] = None):
-        """为未知包名创建基础配置文件骨架。"""
-        if not app_package:
-            return
-            
-        app_id = app_name or app_package.split('.')[-1]
-        target_dir = project_root() / "config" / "apps"
-        target_dir.mkdir(parents=True, exist_ok=True)
-        
-        path = target_dir / f"{app_id}.yaml"
+        path = _app_config_path(candidate)
         if path.exists():
-            return
+            return path
 
         skeleton = {
-            "name": app_id.capitalize(),
-            "package_name": app_package,
-            "version": "1.0.0",
-            "description": f"Auto-generated config for {app_package}",
-            "xml_filter": [],
+            "package_name": package,
+            "xml_filter": {"max_text_len": 60, "max_desc_len": 100},
             "states": {},
+            "schemes": {},
             "selectors": {},
-            "schemes": {}
         }
-        
-        try:
-            with open(path, "w", encoding="utf-8") as f:
-                yaml.dump(skeleton, f, sort_keys=False, allow_unicode=True)
-            logger.info("Bootstrapped app config for %s at %s", app_package, path)
-            # 刷新缓存
-            cls.get_package_to_app_map(refresh=True)
-        except Exception as exc:
-            logger.error("Failed to bootstrap app config for %s: %s", app_package, exc)
+        path.write_text(yaml.safe_dump(skeleton, allow_unicode=False, sort_keys=False), encoding="utf-8")
+        logger.info("Bootstrapped app config for %s at %s", package, path)
+        return path

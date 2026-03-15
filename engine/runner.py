@@ -12,6 +12,7 @@ from engine.models.manifest import InputType, PluginInput
 from engine.models.workflow import ActionStep, WorkflowScript
 from engine.parser import ScriptParser, parse_script
 from engine.plugin_loader import get_shared_plugin_loader
+from core.app_config import resolve_app_payload
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +37,11 @@ class Runner:
         should_cancel: Callable[[], bool] | None = None,
         runtime: Dict[str, Any] | None = None,
     ) -> Dict[str, Any]:
-        plan = self._parser.parse(script_payload)
+        # Resolve App Context (App-Awareness)
+        app_id = str(script_payload.get("app_id") or script_payload.get("app") or "default")
+        enhanced_payload = resolve_app_payload(app_id, script_payload)
+
+        plan = self._parser.parse(enhanced_payload)
         task_name = str(plan.get("task") or "")
         emit_event = runtime.get("emit_event") if runtime else None
 
@@ -51,12 +56,12 @@ class Runner:
             }
 
         if task_name == self._agent_executor_runtime.task_name:
-            return self._agent_executor_runtime.run(script_payload, should_cancel=should_cancel, runtime=runtime)
+            return self._agent_executor_runtime.run(enhanced_payload, should_cancel=should_cancel, runtime=runtime)
 
         # Try YAML plugin first
         plugin = self._plugin_loader.get(task_name)
         if plugin is not None:
-            return self._run_yaml_plugin(task_name, script_payload, plugin, should_cancel, runtime, emit_event)
+            return self._run_yaml_plugin(task_name, enhanced_payload, plugin, should_cancel, runtime, emit_event)
 
         # Unknown named task
         if task_name and task_name != "anonymous":
@@ -68,7 +73,7 @@ class Runner:
 
         # Anonymous script execution
         if plan.get("steps"):
-            return self._run_anonymous_script(task_name, script_payload, plan, should_cancel, runtime, emit_event)
+            return self._run_anonymous_script(task_name, enhanced_payload, plan, should_cancel, runtime, emit_event)
 
         # Empty anonymous stub
         return {

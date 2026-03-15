@@ -87,6 +87,7 @@ export function initAccounts() {
         saveAccountBtn.onclick = saveAccount;
     }
 
+    initImportAppSelector();
     loadAccounts();
 }
 
@@ -175,6 +176,21 @@ export async function loadAccounts() {
         }
     } catch (e) {
         console.error("Failed to load inventory:", e);
+    }
+}
+
+async function initImportAppSelector() {
+    const r = await fetchJson('/api/tasks/catalog/apps');
+    if (!r.ok) return;
+    const select = document.getElementById('accountImportAppId');
+    if (select) {
+        clearElement(select);
+        (r.data.apps || []).forEach(app => {
+            const opt = document.createElement('option');
+            opt.value = app.id;
+            opt.textContent = app.name;
+            select.appendChild(opt);
+        });
     }
 }
 
@@ -395,6 +411,8 @@ async function importAccounts(overwrite) {
     const text = accountsInput.value.trim();
     if(!text) return toast.warn("请先输入数据");
 
+    const appId = document.getElementById("accountImportAppId")?.value || "default";
+
     importOverwriteBtn.disabled = true;
     const originalText = importOverwriteBtn.textContent;
     importOverwriteBtn.textContent = "正在处理...";
@@ -407,7 +425,8 @@ async function importAccounts(overwrite) {
                 content: text,
                 overwrite,
                 delimiter: currentDelimiter,
-                mapping: currentMapping
+                mapping: currentMapping,
+                app_id: appId
             }),
         });
 
