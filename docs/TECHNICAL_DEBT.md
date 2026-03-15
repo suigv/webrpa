@@ -31,7 +31,7 @@
 - [x] **设备快照缓存无 TTL（已修复）**：`DeviceManager.get_devices_snapshot()` 现引入 TTL（环境变量 `MYT_DEVICE_SNAPSHOT_TTL_SECONDS`，默认 2s），过期自动重建快照，避免 probe worker 异常时 UI 长期显示陈旧数据。
 - [x] **任务队列 Aging 机制**：已实现，默认每等待 120s 提升 10 点优先级，可通过 `MYT_QUEUE_AGING_INTERVAL` / `MYT_QUEUE_AGING_BOOST` 环境变量调整（仅 InMemoryQueue）。
 - [x] **CloudProbeService → DeviceManager 耦合脆弱（已修复）**：移除 `hasattr`/私有方法兜底调用，统一使用 `DeviceManager.update_cloud_probe()` 与 `DeviceManager.refresh_device_snapshots()` 公共接口。
-- [ ] **设备状态伪实时**：`CloudProbeService` 后台探测结果写入 `DeviceManager` 快照，但任务执行时 RPC 超时才能感知设备离线，无法提前熔断。改进方向：发布-订阅模式，探测状态变动即时推送给活跃 `ExecutionContext`。改动量大，低优先级。
+- [x] **设备状态伪实时 / 提前熔断（已修复）**：`DeviceManager` 现提供云机 probe 订阅接口，线程执行路径会把目标云机离线信号并入 `should_cancel`，子进程执行路径则由父进程监控当前活跃 target 并把熔断理由回传子进程；连续 probe 失败达到 unavailable 阈值后，任务会以 `failed_circuit_breaker` / `target_unavailable` 提前失败，不再只能等 RPC 动作超时后才感知离线。
 - [x] **ConfigLoader 类型冗余**：已修复。`ConfigLoader.load()` 现在直接返回 `ConfigStore` 强类型对象，访问器全部改为直接读取属性，`_to_int`/`_to_bool` 防御性转换已从访问器层移除。
 
 ---

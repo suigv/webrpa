@@ -2,8 +2,10 @@ import logging
 import os
 import threading
 import time
+from collections.abc import Callable
 from datetime import datetime
-from typing import Any, Dict, Literal, Optional
+from enum import Enum
+from typing import Any, Dict, Literal, Optional, cast
 
 from .config_loader import (
     get_allocation_version,
@@ -18,6 +20,8 @@ from .port_calc import calculate_ports
 from models.device import DeviceStatus
 
 logger = logging.getLogger(__name__)
+
+ProbeSubscriber = Callable[[dict[str, Any]], None]
 
 
 class Device:
@@ -49,6 +53,9 @@ class DeviceManager:
             self._devices_lock = threading.Lock()
             self._probe_lock = threading.Lock()
             self._probe_cache: dict[tuple[int, int], dict[str, object]] = {}
+            self._probe_subscribers_lock = threading.Lock()
+            self._probe_subscribers: dict[tuple[int, int], dict[int, ProbeSubscriber]] = {}
+            self._next_probe_subscription_id = 0
             self._probe_stale_seconds = 10.0
             self._probe_success_threshold = 1
             self._probe_failure_threshold = 2
@@ -103,6 +110,7 @@ class DeviceManager:
     ) -> None:
         now = time.time()
         key = (device_id, cloud_id)
+        callbacks: list[ProbeSubscriber] = []
         with self._probe_lock:
             current = self._probe_cache.get(
                 key,
@@ -148,6 +156,20 @@ class DeviceManager:
                 "latency_ms": latency_ms,
                 "reason": reason,
             }
+        with self._probe_subscribers_lock:
+            callbacks = list(self._probe_subscribers.get(key, {}).values())
+
+        if callbacks:
+            snapshot = self.get_cloud_probe_snapshot(device_id, cloud_id)
+            for callback in callbacks:
+                try:
+                    callback(dict(snapshot))
+                except Exception:
+                    logger.exception(
+                        "cloud probe subscriber failed for device %s cloud %s",
+                        device_id,
+                        cloud_id,
+                    )
 
     def update_cloud_probe(
         self,
@@ -160,7 +182,15 @@ class DeviceManager:
         self._update_probe_cache(device_id, cloud_id, ok, latency_ms, reason)
 
     def mark_cloud_released(self, device_id: int, cloud_id: int) -> None:
-        self.update_cloud_probe(device_id, cloud_id, True, 0, "task_released")
+        try:
+            self.refresh_device_snapshots()
+        except Exception:
+            logger.debug(
+                "failed to refresh device snapshots after releasing cloud %s-%s",
+                device_id,
+                cloud_id,
+                exc_info=True,
+            )
 
     def refresh_device_snapshots(self) -> None:
         self._refresh_device_snapshots()
@@ -205,6 +235,36 @@ class DeviceManager:
             "streak_down": current.get("streak_down", 0),
             "stale": stale,
         }
+
+    def get_cloud_probe_snapshot(self, device_id: int, cloud_id: int) -> dict[str, Any]:
+        snapshot = self._get_probe_snapshot(device_id, cloud_id)
+        snapshot["device_id"] = device_id
+        snapshot["cloud_id"] = cloud_id
+        return snapshot
+
+    def subscribe_cloud_probe(
+        self,
+        device_id: int,
+        cloud_id: int,
+        callback: ProbeSubscriber,
+    ) -> Callable[[], None]:
+        key = (device_id, cloud_id)
+        with self._probe_subscribers_lock:
+            self._next_probe_subscription_id += 1
+            subscription_id = self._next_probe_subscription_id
+            bucket = self._probe_subscribers.setdefault(key, {})
+            bucket[subscription_id] = callback
+
+        def _unsubscribe() -> None:
+            with self._probe_subscribers_lock:
+                bucket = self._probe_subscribers.get(key)
+                if bucket is None:
+                    return
+                bucket.pop(subscription_id, None)
+                if not bucket:
+                    self._probe_subscribers.pop(key, None)
+
+        return _unsubscribe
 
     def _sync_devices_with_config(self) -> None:
         endpoints = self._resolve_device_endpoints()
@@ -346,6 +406,9 @@ class DeviceManager:
         for cloud in clouds:
             cloud["status"] = effective_status.value
 
+        ai_type_raw = cast(Any, device.ai_type)
+        ai_type_value = ai_type_raw.value if isinstance(ai_type_raw, Enum) else ai_type_raw
+
         return {
             "schema_version": get_schema_version(),
             "allocation_version": get_allocation_version(),
@@ -353,7 +416,7 @@ class DeviceManager:
             "ip": device_ip,
             "sdk_port": get_sdk_port(),
             "sdk_port_role": "device_control_api",
-            "ai_type": device.ai_type.value if hasattr(device.ai_type, 'value') else device.ai_type,
+            "ai_type": ai_type_value,
             "status": effective_status.value,
             "cloud_slots_total": cloud_machines_per_device,
             "available_cloud_count": available_count,

@@ -5,6 +5,7 @@ import logging
 import math
 import multiprocessing
 import os
+import queue
 import threading
 import time
 from dataclasses import dataclass
@@ -40,11 +41,160 @@ DEFAULT_FORCE_KILL_SECONDS = 30
 @dataclass
 class ProcessTaskHandle:
     task_id: str
-    process: multiprocessing.Process
-    cancel_event: multiprocessing.Event
+    process: Any
+    cancel_event: Any
+    control_queue: Any | None
+    status_queue: Any | None
     started_at: float
     cancel_signaled_at: float | None = None
     terminate_sent_at: float | None = None
+    current_target: tuple[int, int] | None = None
+    target_trip_sent: bool = False
+    breaker_trip: TargetCircuitBreakerTrip | None = None
+
+
+@dataclass(frozen=True)
+class TargetCircuitBreakerTrip:
+    code: str
+    message: str
+    details: dict[str, Any]
+
+
+def _build_target_trip(
+    *,
+    device_id: int,
+    cloud_id: int,
+    snapshot: dict[str, Any],
+) -> TargetCircuitBreakerTrip | None:
+    state = str(snapshot.get("availability_state") or "unknown")
+    if state != "unavailable" or bool(snapshot.get("stale", False)):
+        return None
+    reason = str(snapshot.get("availability_reason") or "unknown")
+    message = (
+        f"target became unavailable during execution: device={device_id}, cloud={cloud_id}, reason={reason}"
+    )
+    return TargetCircuitBreakerTrip(
+        code="target_unavailable",
+        message=message,
+        details={
+            "device_id": device_id,
+            "cloud_id": cloud_id,
+            "availability_state": state,
+            "availability_reason": reason,
+            "last_checked_at": snapshot.get("last_checked_at"),
+            "latency_ms": snapshot.get("latency_ms"),
+            "stale": bool(snapshot.get("stale", False)),
+        },
+    )
+
+
+def _trip_result(task_name: str, trip: TargetCircuitBreakerTrip) -> dict[str, Any]:
+    return {
+        "ok": False,
+        "task": task_name,
+        "status": "failed_circuit_breaker",
+        "checkpoint": "availability",
+        "code": trip.code,
+        "message": trip.message,
+        "circuit_breaker": dict(trip.details),
+    }
+
+
+class ActiveTargetCircuitBreaker:
+    def __init__(
+        self,
+        *,
+        task_id: str,
+        target: dict[str, Any],
+        emit_event: Callable[[str, dict[str, Any]], None] | None = None,
+    ) -> None:
+        self._task_id = task_id
+        self._device_id = int(target.get("device_id", 0) or 0)
+        self._cloud_id = int(target.get("cloud_id", 0) or 0)
+        self._emit_event = emit_event
+        self._trip: TargetCircuitBreakerTrip | None = None
+        self._trip_lock = threading.Lock()
+        self._unsubscribe: Callable[[], None] | None = None
+        if self._device_id < 1 or self._cloud_id < 1:
+            return
+        manager = get_device_manager()
+        self._unsubscribe = manager.subscribe_cloud_probe(self._device_id, self._cloud_id, self._handle_probe_update)
+        self._handle_probe_update(manager.get_cloud_probe_snapshot(self._device_id, self._cloud_id))
+
+    def _handle_probe_update(self, snapshot: dict[str, Any]) -> None:
+        trip = _build_target_trip(device_id=self._device_id, cloud_id=self._cloud_id, snapshot=snapshot)
+        if trip is None:
+            return
+        should_emit = False
+        with self._trip_lock:
+            if self._trip is None:
+                self._trip = trip
+                should_emit = True
+        if should_emit and self._emit_event is not None:
+            self._emit_event(
+                "task.circuit_breaker",
+                {
+                    "code": trip.code,
+                    **trip.details,
+                    "message": trip.message,
+                    "task_id": self._task_id,
+                },
+            )
+
+    def should_cancel(self) -> bool:
+        return self.trip() is not None
+
+    def trip(self) -> TargetCircuitBreakerTrip | None:
+        with self._trip_lock:
+            return self._trip
+
+    def close(self) -> None:
+        if self._unsubscribe is not None:
+            self._unsubscribe()
+            self._unsubscribe = None
+
+
+class SubprocessCancellationState:
+    def __init__(self, cancel_event: Any, control_queue: Any | None) -> None:
+        self._cancel_event = cancel_event
+        self._control_queue = control_queue
+        self._trip: TargetCircuitBreakerTrip | None = None
+        self._trip_lock = threading.Lock()
+
+    def _drain_control_queue(self) -> None:
+        if self._control_queue is None:
+            return
+        while True:
+            try:
+                message = self._control_queue.get_nowait()
+            except queue.Empty:
+                return
+            except Exception:
+                return
+            if not isinstance(message, dict) or message.get("type") != "trip":
+                continue
+            payload = message.get("payload")
+            if not isinstance(payload, dict):
+                continue
+            trip = TargetCircuitBreakerTrip(
+                code=str(payload.get("code") or "target_unavailable"),
+                message=str(payload.get("message") or "target became unavailable during execution"),
+                details=dict(payload.get("details") or {}),
+            )
+            with self._trip_lock:
+                if self._trip is None:
+                    self._trip = trip
+
+    def should_cancel(self) -> bool:
+        self._drain_control_queue()
+        if self.trip() is not None:
+            return True
+        return self._cancel_event.is_set()
+
+    def trip(self) -> TargetCircuitBreakerTrip | None:
+        self._drain_control_queue()
+        with self._trip_lock:
+            return self._trip
 
 
 def _delay_seconds(next_retry_at: str) -> int:
@@ -123,6 +273,9 @@ def _execute_task(
     finalizer: TaskAttemptFinalizer,
     dispatch_runtime_resolver: TaskDispatchRuntimeResolver,
     should_cancel: Callable[[], bool] | None = None,
+    trip_provider: Callable[[], TargetCircuitBreakerTrip | None] | None = None,
+    on_target_started: Callable[[dict[str, Any]], None] | None = None,
+    on_target_finished: Callable[[dict[str, Any], dict[str, Any]], None] | None = None,
 ) -> None:
     def _combined_cancel() -> bool:
         if should_cancel is not None and bool(should_cancel()):
@@ -203,11 +356,53 @@ def _execute_task(
                         "run_id": f"{task_id}-run-{record.retry_count + 1}",
                     }
                 )
-            single_result = runner.run(
-                prepared.payload,
-                should_cancel=_combined_cancel,
-                runtime=runtime,
+
+            local_breaker = ActiveTargetCircuitBreaker(
+                task_id=task_id,
+                target=prepared.target,
+                emit_event=emit_event,
             )
+            single_result: dict[str, Any] = {
+                "ok": False,
+                "status": "failed_runtime_error",
+                "message": "target execution did not produce a result",
+            }
+            try:
+                def _target_cancel() -> bool:
+                    if local_breaker.should_cancel():
+                        return True
+                    return _combined_cancel()
+
+                def _current_trip() -> TargetCircuitBreakerTrip | None:
+                    trip = local_breaker.trip()
+                    if trip is not None:
+                        return trip
+                    if trip_provider is not None:
+                        return trip_provider()
+                    return None
+
+                if on_target_started is not None:
+                    on_target_started(prepared.target)
+
+                active_trip = _current_trip()
+                if active_trip is not None:
+                    single_result = _trip_result(task_name, active_trip)
+                else:
+                    single_result = runner.run(
+                        prepared.payload,
+                        should_cancel=_target_cancel,
+                        runtime=runtime,
+                    )
+                    active_trip = _current_trip()
+                    if active_trip is not None:
+                        single_result = _trip_result(task_name, active_trip)
+            finally:
+                try:
+                    if on_target_finished is not None:
+                        on_target_finished(prepared.target, single_result)
+                finally:
+                    local_breaker.close()
+
             target_results.append({"target": prepared.target, "result": single_result})
             if not bool(single_result.get("ok")) and first_failure is None:
                 first_failure = single_result
@@ -261,7 +456,12 @@ def _create_process_queue_backend() -> QueueBackend:
     return RedisTaskQueue(redis_url=get_redis_url())
 
 
-def _process_task_subprocess(task_id: str, cancel_event: multiprocessing.Event) -> None:
+def _process_task_subprocess(
+    task_id: str,
+    cancel_event: Any,
+    control_queue: Any | None,
+    status_queue: Any | None,
+) -> None:
     store = TaskStore()
     events = TaskEventStore()
     finalizer = TaskAttemptFinalizer(
@@ -278,6 +478,30 @@ def _process_task_subprocess(task_id: str, cancel_event: multiprocessing.Event) 
     )
     runner = Runner()
     queue_backend = _create_process_queue_backend()
+    cancellation_state = SubprocessCancellationState(cancel_event=cancel_event, control_queue=control_queue)
+
+    def _notify_target_started(target: dict[str, Any]) -> None:
+        if status_queue is None:
+            return
+        try:
+            status_queue.put(
+                {
+                    "type": "target_started",
+                    "device_id": int(target.get("device_id", 0) or 0),
+                    "cloud_id": int(target.get("cloud_id", 0) or 0),
+                }
+            )
+        except Exception:
+            pass
+
+    def _notify_target_finished(_target: dict[str, Any], _result: dict[str, Any]) -> None:
+        if status_queue is None:
+            return
+        try:
+            status_queue.put({"type": "target_finished"})
+        except Exception:
+            pass
+
     _execute_task(
         task_id=task_id,
         store=store,
@@ -286,7 +510,10 @@ def _process_task_subprocess(task_id: str, cancel_event: multiprocessing.Event) 
         events=events,
         finalizer=finalizer,
         dispatch_runtime_resolver=dispatch_runtime_resolver,
-        should_cancel=cancel_event.is_set,
+        should_cancel=cancellation_state.should_cancel,
+        trip_provider=cancellation_state.trip,
+        on_target_started=_notify_target_started,
+        on_target_finished=_notify_target_finished,
     )
 
 
@@ -436,6 +663,73 @@ class TaskExecutionService:
         with self._active_lock:
             return len(self._active)
 
+    @staticmethod
+    def _drain_status_queue(handle: ProcessTaskHandle) -> None:
+        if handle.status_queue is None:
+            return
+        while True:
+            try:
+                message = handle.status_queue.get_nowait()
+            except queue.Empty:
+                return
+            except Exception:
+                return
+            if not isinstance(message, dict):
+                continue
+            message_type = str(message.get("type") or "")
+            if message_type == "target_started":
+                device_id = int(message.get("device_id", 0) or 0)
+                cloud_id = int(message.get("cloud_id", 0) or 0)
+                if device_id > 0 and cloud_id > 0:
+                    handle.current_target = (device_id, cloud_id)
+                    handle.target_trip_sent = False
+            elif message_type == "target_finished":
+                handle.current_target = None
+                handle.target_trip_sent = False
+
+    def _maybe_trip_process_target(self, handle: ProcessTaskHandle, now: float) -> None:
+        if handle.cancel_signaled_at is not None or handle.current_target is None or handle.target_trip_sent:
+            return
+        device_id, cloud_id = handle.current_target
+        snapshot = get_device_manager().get_cloud_probe_snapshot(device_id, cloud_id)
+        trip = _build_target_trip(device_id=device_id, cloud_id=cloud_id, snapshot=snapshot)
+        if trip is None:
+            return
+        if handle.control_queue is not None:
+            try:
+                handle.control_queue.put(
+                    {
+                        "type": "trip",
+                        "payload": {
+                            "code": trip.code,
+                            "message": trip.message,
+                            "details": dict(trip.details),
+                        },
+                    }
+                )
+            except Exception:
+                pass
+        try:
+            control = handle.cancel_event
+            _ = getattr(control, "set")()
+        except Exception:
+            pass
+        handle.cancel_signaled_at = now
+        handle.target_trip_sent = True
+        handle.breaker_trip = trip
+        try:
+            self._events.append_event(
+                handle.task_id,
+                "task.circuit_breaker",
+                {
+                    "code": trip.code,
+                    **trip.details,
+                    "message": trip.message,
+                },
+            )
+        except Exception:
+            pass
+
     def _start_process_task(self, task_id: str) -> None:
         with self._active_lock:
             if task_id in self._active:
@@ -444,9 +738,11 @@ class TaskExecutionService:
         try:
             ctx = multiprocessing.get_context("spawn")
             cancel_event = ctx.Event()
+            control_queue = ctx.Queue()
+            status_queue = ctx.Queue()
             process = ctx.Process(
                 target=_process_task_subprocess,
-                args=(task_id, cancel_event),
+                args=(task_id, cancel_event, control_queue, status_queue),
                 name=f"task-worker-{task_id[:8]}",
             )
             process.daemon = True
@@ -455,6 +751,8 @@ class TaskExecutionService:
                 task_id=task_id,
                 process=process,
                 cancel_event=cancel_event,
+                control_queue=control_queue,
+                status_queue=status_queue,
                 started_at=time.monotonic(),
             )
             with self._active_lock:
@@ -479,6 +777,7 @@ class TaskExecutionService:
 
         for handle in handles:
             proc = handle.process
+            self._drain_status_queue(handle)
             if not proc.is_alive():
                 exit_code = proc.exitcode
                 try:
@@ -488,12 +787,14 @@ class TaskExecutionService:
                 with self._active_lock:
                     self._active.pop(handle.task_id, None)
                 if not self._stop_event.is_set():
-                    self._handle_process_exit(handle.task_id, exit_code)
+                    self._handle_process_exit(handle, exit_code)
                 continue
 
             if handle.cancel_signaled_at is None and self._store.is_cancel_requested(handle.task_id):
                 handle.cancel_event.set()
                 handle.cancel_signaled_at = now
+
+            self._maybe_trip_process_target(handle, now)
 
             if handle.cancel_signaled_at is None:
                 continue
@@ -514,11 +815,23 @@ class TaskExecutionService:
                 except Exception:
                     pass
 
-    def _handle_process_exit(self, task_id: str, exit_code: int | None) -> None:
+    def _handle_process_exit(self, handle: ProcessTaskHandle, exit_code: int | None) -> None:
+        task_id = handle.task_id
         record = self._store.get_task(task_id)
         if record is None:
             return
         if record.status in {"completed", "failed", "cancelled"}:
+            return
+
+        if handle.breaker_trip is not None:
+            task_name = str(record.payload.get("task") or "anonymous")
+            outcome = self._finalizer.finalize_result_attempt(
+                task_id=task_id,
+                task_name=task_name,
+                result=_trip_result(task_name, handle.breaker_trip),
+                payload=record.payload,
+            )
+            self._enqueue_retry(outcome.retry_record, outcome.should_enqueue_retry)
             return
 
         if record.cancel_requested:

@@ -8,6 +8,7 @@
 - 阶段：**Web Console Productization & Navigation Engine Hardening**
 - 核心状态：API、任务系统、插件执行、账号池全面可用；Web 控制台完成产品化改造；导航引擎具备自愈与锚点机制；AI 执行引擎接入托管链路。
 - 最近重点 (2026-03-15)：
+  - **设备可用性提前熔断**：`DeviceManager` 新增 probe 订阅接口；任务执行链路会把当前 target 的 probe 离线信号并入取消判断，线程模式直接订阅，子进程模式由父进程监控活跃 target 并回传熔断理由，最终统一以 `failed_circuit_breaker` / `target_unavailable` 终止，而不是等待 RPC 超时。
   - **工具链根路径收敛与 Binding 草稿降欠账**：`tools/*.py` 的仓库根目录解析已统一收口到共享 bootstrap + `core.paths`，`tools/distill_binding.py` 生成的 NativeStateBinding 草稿改为输出可直接运行的启发式 detector，不再留 `NotImplementedError` 占位。
   - **框架去业务关键词 (Framework Neutrality)**：将登录阶段/关注/未读等默认 UI 识别 marker 从框架代码迁移到 `config/strategies/*.yaml`，框架层不再硬编码“首页/主页/关注”等业务词，支持按 action params/session defaults 覆盖。
   - **API 边界加固**：

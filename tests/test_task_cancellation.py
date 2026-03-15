@@ -3,10 +3,12 @@ import json
 import time
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from api.server import app
 from core.account_feedback import AccountFeedbackService
+from core.device_manager import DeviceManager
 from core.task_control import (
     TaskController,
     override_task_controller_for_tests,
@@ -14,6 +16,29 @@ from core.task_control import (
 )
 from core.task_queue import InMemoryTaskQueue
 from core.task_store import TaskStore
+
+
+def _reset_device_manager_state(manager: DeviceManager) -> None:
+    with manager._probe_lock:
+        manager._probe_cache.clear()
+    with manager._probe_subscribers_lock:
+        manager._probe_subscribers.clear()
+        manager._next_probe_subscription_id = 0
+    with manager._device_snapshot_lock:
+        manager._device_snapshot_cache.clear()
+        manager._device_snapshot_at.clear()
+    with manager._devices_lock:
+        manager._devices = {}
+
+
+@pytest.fixture(autouse=True)
+def _isolate_device_manager_state():
+    manager = DeviceManager()
+    _reset_device_manager_state(manager)
+    try:
+        yield
+    finally:
+        _reset_device_manager_state(manager)
 
 
 class CancellableFakeRunner:

@@ -1,10 +1,14 @@
 # pyright: reportMissingImports=false
 import json
+import multiprocessing
 import os
+import pytest
+import queue
 import sqlite3
 import socket
 import subprocess
 import sys
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -13,8 +17,11 @@ from urllib import request as urllib_request
 from fastapi.testclient import TestClient
 
 from api.server import app
+from core.config_loader import ConfigLoader
+from core.device_manager import DeviceManager
 from core.task_control import TaskController, override_task_controller_for_tests, reset_task_controller_for_tests
 from core.task_events import TaskEventStore
+from core.task_execution import SubprocessCancellationState
 from core.task_queue import InMemoryTaskQueue
 from core.task_store import ManagedTaskStateClearBlocked, TaskStore
 from engine.action_registry import ActionRegistry
@@ -1187,6 +1194,46 @@ class _ImmediateSuccessRunner:
         return {"ok": True, "status": "completed", "message": "done"}
 
 
+class _WaitForCancelRunner:
+    def __init__(self) -> None:
+        self.started = threading.Event()
+        self.cancelled = threading.Event()
+
+    def run(self, script_payload, should_cancel=None, runtime=None):
+        _ = (script_payload, runtime)
+        self.started.set()
+        deadline = time.time() + 5.0
+        while time.time() < deadline:
+            if should_cancel is not None and should_cancel():
+                self.cancelled.set()
+                return {"ok": False, "status": "cancelled", "message": "task cancelled by user"}
+            time.sleep(0.02)
+        return {"ok": True, "status": "completed", "message": "unexpectedly finished without cancel"}
+
+
+def _reset_device_manager_state(manager: DeviceManager) -> None:
+    with manager._probe_lock:
+        manager._probe_cache.clear()
+    with manager._probe_subscribers_lock:
+        manager._probe_subscribers.clear()
+        manager._next_probe_subscription_id = 0
+    with manager._device_snapshot_lock:
+        manager._device_snapshot_cache.clear()
+        manager._device_snapshot_at.clear()
+    with manager._devices_lock:
+        manager._devices = {}
+
+
+@pytest.fixture(autouse=True)
+def _isolate_device_manager_state():
+    manager = DeviceManager()
+    _reset_device_manager_state(manager)
+    try:
+        yield
+    finally:
+        _reset_device_manager_state(manager)
+
+
 def test_same_idempotency_key_allows_new_task_after_terminal_state(tmp_path: Path):
     reset_task_controller_for_tests()
     db_path = tmp_path / "tasks_idempotency_terminal_test.db"
@@ -1233,6 +1280,86 @@ def test_same_idempotency_key_allows_new_task_after_terminal_state(tmp_path: Pat
             db_path.unlink()
 
 
+def test_running_task_fails_fast_when_active_target_probe_turns_unavailable(tmp_path: Path):
+    reset_task_controller_for_tests()
+    db_path = tmp_path / "tasks_target_circuit_breaker_test.db"
+    if db_path.exists():
+        db_path.unlink()
+
+    backup = ConfigLoader._config
+    manager = DeviceManager()
+    runner = _WaitForCancelRunner()
+
+    class _FakeProbeService:
+        def query_cloud_model_map(self, device_ip: str, refresh_if_missing: bool = False) -> dict[int, dict[str, object]]:
+            _ = (device_ip, refresh_if_missing)
+            return {}
+
+    try:
+        ConfigLoader._config = {
+            "schema_version": 2,
+            "allocation_version": 1,
+            "host_ip": "10.0.0.1",
+            "device_ips": {"1": "10.0.0.11"},
+            "total_devices": 1,
+            "cloud_machines_per_device": 1,
+            "sdk_port": 8000,
+        }
+        _reset_device_manager_state(manager)
+        manager.update_cloud_probe(1, 1, True, 5, "ok")
+
+        controller = TaskController(
+            store=TaskStore(db_path=db_path),
+            queue_backend=InMemoryTaskQueue(),
+            runner=runner,
+            event_store=TaskEventStore(db_path=db_path),
+        )
+        override_task_controller_for_tests(controller)
+
+        with TestClient(app) as client:
+            from unittest import mock
+
+            with mock.patch("core.cloud_probe_service.get_cloud_probe_service", return_value=_FakeProbeService()):
+                create = client.post(
+                    "/api/tasks/",
+                    json={
+                        "script": {"task": "anonymous", "steps": []},
+                        "targets": [{"device_id": 1, "cloud_id": 1}],
+                        "ai_type": "default",
+                    },
+                )
+                assert create.status_code == 200
+                task_id = create.json()["task_id"]
+
+                assert runner.started.wait(timeout=2.0) is True
+                manager.update_cloud_probe(1, 1, False, 18, "connect_failed")
+                manager.update_cloud_probe(1, 1, False, 21, "connect_failed")
+
+                assert _wait_status(client, task_id, timeout_s=5.0) == "failed"
+
+                detail = client.get(f"/api/tasks/{task_id}")
+                assert detail.status_code == 200
+                payload = detail.json()
+                assert payload["status"] == "failed"
+                assert "target became unavailable during execution" in str(payload["error"])
+                target_result = payload["result"]["targets"][0]["result"]
+                assert target_result["status"] == "failed_circuit_breaker"
+                assert target_result["code"] == "target_unavailable"
+                assert target_result["circuit_breaker"]["device_id"] == 1
+                assert target_result["circuit_breaker"]["cloud_id"] == 1
+                assert runner.cancelled.wait(timeout=1.0) is True
+
+                event_types = [event.event_type for event in controller.list_events(task_id)]
+                assert "task.circuit_breaker" in event_types
+                assert "task.failed" in event_types
+    finally:
+        ConfigLoader._config = backup
+        _reset_device_manager_state(manager)
+        reset_task_controller_for_tests()
+        if db_path.exists():
+            db_path.unlink()
+
+
 def test_idempotency_key_can_be_supplied_via_header():
     os.environ["MYT_TASK_QUEUE_BACKEND"] = "memory"
     reset_task_controller_for_tests()
@@ -1252,6 +1379,29 @@ def test_idempotency_key_can_be_supplied_via_header():
         assert second.status_code == 200
         assert first.json()["task_id"] == second.json()["task_id"]
         assert first.json()["idempotency_key"] == "header-key-1"
+
+
+def test_subprocess_cancellation_state_trip_drains_control_queue() -> None:
+    cancel_event = threading.Event()
+    control_queue: queue.Queue[dict[str, object]] = queue.Queue()
+    control_queue.put(
+        {
+            "type": "trip",
+            "payload": {
+                "code": "target_unavailable",
+                "message": "target became unavailable during execution",
+                "details": {"device_id": 1, "cloud_id": 2},
+            },
+        }
+    )
+    state = SubprocessCancellationState(cancel_event=cancel_event, control_queue=control_queue)
+
+    trip = state.trip()
+
+    assert trip is not None
+    assert trip.code == "target_unavailable"
+    assert trip.details == {"device_id": 1, "cloud_id": 2}
+    assert state.should_cancel() is True
 
 
 def test_conflicting_body_and_header_idempotency_key_rejected():

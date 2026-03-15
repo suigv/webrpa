@@ -138,3 +138,34 @@ def test_cloud_probe_service_drives_probe_cache_updates(monkeypatch: MonkeyPatch
         assert model_calls == [("10.0.0.11", True)]
     finally:
         ConfigLoader._config = backup
+
+
+def test_mark_cloud_released_does_not_overwrite_probe_unavailable_state(monkeypatch: MonkeyPatch):
+    backup = ConfigLoader._config
+    manager = DeviceManager()
+    try:
+        _reset_manager_state(manager)
+        monkeypatch.setattr("core.device_manager.get_cloud_machines_per_device", lambda: 1)
+        ConfigLoader._config = {
+            "schema_version": 2,
+            "allocation_version": 1,
+            "host_ip": "10.0.0.1",
+            "device_ips": {"1": "10.0.0.11"},
+            "total_devices": 1,
+            "cloud_machines_per_device": 1,
+            "sdk_port": 8000,
+        }
+        monkeypatch.setattr("core.cloud_probe_service.get_cloud_probe_service", lambda: _FakeProbeService({}))
+
+        manager.update_cloud_probe(1, 1, False, 11, "connect_failed")
+        manager.update_cloud_probe(1, 1, False, 12, "connect_failed")
+        before = manager.get_cloud_probe_snapshot(1, 1)
+        assert before["availability_state"] == "unavailable"
+
+        manager.mark_cloud_released(1, 1)
+
+        after = manager.get_cloud_probe_snapshot(1, 1)
+        assert after["availability_state"] == "unavailable"
+        assert after["availability_reason"] == "connect_failed"
+    finally:
+        ConfigLoader._config = backup
