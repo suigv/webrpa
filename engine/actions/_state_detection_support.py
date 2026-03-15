@@ -31,7 +31,7 @@ def query_any_text_contains(rpc: Any, texts: Iterable[str], timeout_ms: int = 90
             rpc.addQuery_TextContainWith(selector, value)
             if rpc.execQueryOne(selector):
                 return True
-            # 查 content-desc 属性（X App 等底部导航栏只有 content-desc，无 text）
+            # Some apps expose navigation labels via content-desc instead of text.
             rpc.clear_selector(selector)
             rpc.addQuery_DescContainWith(selector, value)
             if rpc.execQueryOne(selector):

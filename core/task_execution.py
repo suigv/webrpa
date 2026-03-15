@@ -217,7 +217,7 @@ def _execute_task(
                 _device_id = int(prepared.target.get("device_id", 0))
                 _cloud_id = int(prepared.target.get("cloud_id", 0))
                 if _device_id > 0 and _cloud_id > 0:
-                    get_device_manager()._update_probe_cache(_device_id, _cloud_id, True, 0, "task_released")
+                    get_device_manager().mark_cloud_released(_device_id, _cloud_id)
             except Exception:
                 pass
 
@@ -263,7 +263,7 @@ def _create_process_queue_backend() -> QueueBackend:
 
 def _process_task_subprocess(task_id: str, cancel_event: multiprocessing.Event) -> None:
     store = TaskStore()
-    events = TaskEventStore(db_path=store._db_path)
+    events = TaskEventStore()
     finalizer = TaskAttemptFinalizer(
         store=store,
         event_store=events,

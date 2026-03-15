@@ -1,0 +1,63 @@
+# Default login-stage detection patterns.
+#
+# Notes:
+# - Framework code must not hardcode app/locale-specific UI keywords.
+# - These patterns are configuration data and can be overridden per request via
+#   action params: `stage_patterns` / `stage_order`.
+stage_order:
+  - captcha
+  - two_factor
+  - password
+  - account
+  - login_entry
+  - home
+
+stage_patterns:
+  captcha:
+    text_markers:
+      - captcha
+      - verify you are human
+      - human verification
+      - 人机验证
+      - 验证你是人类
+      - 请完成验证
+  two_factor:
+    text_markers:
+      - verification code
+      - security code
+      - 2fa
+      - two-factor
+      - 验证码
+      - 动态口令
+  password:
+    text_markers:
+      - password
+      - forgot password
+      - 忘记密码
+      - 密码
+  account:
+    text_markers:
+      - email
+      - phone
+      - username
+      - 账号
+      - 用户名
+      - 邮箱
+      - 手机号
+  login_entry:
+    text_markers:
+      - log in
+      - sign in
+      - create account
+      - 登录
+      - 登入
+      - 注册
+  home:
+    text_markers:
+      - home
+      - for you
+      - following
+      - 主页
+      - 首页
+      - 关注
+      - feed

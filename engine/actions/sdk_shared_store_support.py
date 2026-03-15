@@ -10,11 +10,11 @@ import threading
 from typing import Any
 
 from engine.models.runtime import ActionResult, ExecutionContext
+import core.paths as paths
 
 
-def shared_path(*, resolve_root_path: Callable[[], str]) -> Path:
-    root = Path(resolve_root_path())
-    path = root / "config" / "data" / "migration_shared.json"
+def shared_path() -> Path:
+    path = paths.data_dir() / "migration_shared.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -36,8 +36,8 @@ def exclusive_shared_lock(path: Path) -> Iterator[None]:
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
-def read_store(*, resolve_root_path: Callable[[], str]) -> dict[str, Any]:
-    path = shared_path(resolve_root_path=resolve_root_path)
+def read_store() -> dict[str, Any]:
+    path = shared_path()
     if not path.exists():
         return {}
     try:
@@ -49,23 +49,21 @@ def read_store(*, resolve_root_path: Callable[[], str]) -> dict[str, Any]:
 def write_store(
     payload: dict[str, Any],
     *,
-    resolve_root_path: Callable[[], str],
     write_json_atomic: Callable[[Path, dict[str, Any]], None],
 ) -> None:
-    write_json_atomic(shared_path(resolve_root_path=resolve_root_path), payload)
+    write_json_atomic(shared_path(), payload)
 
 
 def update_store(
     updater: Callable[[dict[str, Any]], None],
     *,
-    resolve_root_path: Callable[[], str],
     write_json_atomic: Callable[[Path, dict[str, Any]], None],
     thread_lock: threading.Lock,
 ) -> dict[str, Any]:
-    path = shared_path(resolve_root_path=resolve_root_path)
+    path = shared_path()
     with thread_lock:
         with exclusive_shared_lock(path):
-            store = read_store(resolve_root_path=resolve_root_path)
+            store = read_store()
             updater(store)
             write_json_atomic(path, store)
             return store

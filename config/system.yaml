@@ -28,7 +28,7 @@ services:
       openai:
         provider_type: "openai"
         base_url: "https://api.openai.com/v1"
-        model: "gpt-4o"
+        model: "gpt-5.4"
       
       deepseek:
         provider_type: "openai"

@@ -67,7 +67,7 @@ def test_detect_login_stage_account(monkeypatch):
     monkeypatch.setattr(mod, "MytRpc", FakeRpc)
 
     ctx = ExecutionContext(payload={"device_ip": "192.168.1.214", "_target": {"device_id": 1, "cloud_id": 3}})
-    result = mod.detect_login_stage({}, ctx)
+    result = mod.detect_login_stage({"stage_patterns": {"account": {"text_markers": ["账号"]}}, "stage_order": ["account"]}, ctx)
     assert result.ok is True
     assert result.data["stage"] == "account"
 
@@ -507,7 +507,10 @@ def test_ui_state_action_wrappers_preserve_legacy_native_contracts(monkeypatch):
         {"platform": "native", "binding_id": "login_stage", "expected_state_ids": ["account", "home"]},
         ctx,
     )
-    legacy_result = resolve_action("core.detect_login_stage")({}, ctx)
+    legacy_result = resolve_action("core.detect_login_stage")(
+        {"stage_patterns": {"account": {"text_markers": ["账号"]}}, "stage_order": ["account"]},
+        ctx,
+    )
 
     assert service_result.ok is True
     assert service_result.code == "ok"

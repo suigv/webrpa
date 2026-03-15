@@ -469,7 +469,8 @@ async function loadUnitScreenshot(unit) {
     }
     // 不隐藏当前图片，后台预加载新图，加载完成后无缝替换
     try {
-        const url = `/api/devices/${unit.parent_id}/${unit.cloud_id}/screenshot?device_ip=${encodeURIComponent(unit.parent_ip)}&rpa_port=${unit.rpa_port}&t=${Date.now()}`;
+        // API 端会从 config/devices.json 推导 device_ip，并按 cloud_id 推导 rpa_port。
+        const url = `/api/devices/${unit.parent_id}/${unit.cloud_id}/screenshot?t=${Date.now()}`;
         const resp = await fetch(url);
         if (!resp.ok) {
             let reason = `HTTP ${resp.status}`;

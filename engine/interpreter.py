@@ -183,7 +183,7 @@ class Interpreter:
 
         # 实时推送动作执行结果
         if context.emit_event:
-            # 这里的 label 是我们在 yaml 脚本里写的中文，如“前往首页”
+            # `label` is a human-readable hint from YAML (e.g. "go_home").
             display_label = str(step.label or step.action)
             context.emit_event("task.action_result", {
                 "step": context.pc + 1,

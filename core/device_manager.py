@@ -138,6 +138,22 @@ class DeviceManager:
                 "reason": reason,
             }
 
+    def update_cloud_probe(
+        self,
+        device_id: int,
+        cloud_id: int,
+        ok: bool,
+        latency_ms: Optional[int],
+        reason: str,
+    ) -> None:
+        self._update_probe_cache(device_id, cloud_id, ok, latency_ms, reason)
+
+    def mark_cloud_released(self, device_id: int, cloud_id: int) -> None:
+        self.update_cloud_probe(device_id, cloud_id, True, 0, "task_released")
+
+    def refresh_device_snapshots(self) -> None:
+        self._refresh_device_snapshots()
+
     def _get_probe_snapshot(self, device_id: int, cloud_id: int) -> dict[str, Any]:
         key = (device_id, cloud_id)
         now = time.time()

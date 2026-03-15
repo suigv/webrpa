@@ -6,7 +6,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, List
 
-from core.paths import data_dir, project_root
+from core.paths import data_dir
 
 
 DATA_TYPES = {
@@ -14,10 +14,6 @@ DATA_TYPES = {
     "location": "location.json",
     "website": "website.json",
 }
-
-def _resolve_root_path() -> str:
-    return str(project_root())
-
 
 def _data_dir() -> str:
     return str(data_dir())

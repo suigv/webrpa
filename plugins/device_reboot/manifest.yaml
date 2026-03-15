@@ -7,6 +7,7 @@ category: "系统维护"
 description: >
   Reboot a target cloud machine by name using SDK restart endpoint.
 entry_script: script.yaml
+distill_threshold: 3
 inputs:
   - name: device_ip
     type: string

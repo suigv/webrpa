@@ -4,6 +4,7 @@ import threading
 import logging
 import uuid
 from typing import Any, Protocol, Optional
+from collections.abc import Callable
 
 from core.account_feedback import AccountFeedbackService
 from core.device_manager import get_device_manager
@@ -252,6 +253,12 @@ class TaskController:
             cancellation_rate_threshold=cancellation_rate_threshold,
             min_terminal_samples=min_terminal_samples,
         )
+
+    def plugin_success_counts(self) -> list[dict[str, object]]:
+        return self._store.plugin_success_counts()
+
+    def subscribe_events(self, observer: Callable[[Any], None]) -> None:
+        self._events.subscribe(observer)
 
 
 _controller: TaskController | None = None

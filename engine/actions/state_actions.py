@@ -96,56 +96,6 @@ def _resolve_package(params: Params, context: ExecutionContext) -> str:
     ).strip()
 
 DEFAULT_LOGIN_STAGE_ORDER = ("captcha", "two_factor", "password", "account", "login_entry", "home")
-DEFAULT_LOGIN_STAGE_TEXT_MARKERS: dict[str, list[str]] = {
-    "captcha": [
-        "captcha",
-        "verify you are human",
-        "human verification",
-        "人机验证",
-        "验证你是人类",
-        "请完成验证",
-    ],
-    "two_factor": [
-        "verification code",
-        "security code",
-        "2fa",
-        "two-factor",
-        "验证码",
-        "动态口令",
-    ],
-    "password": [
-        "password",
-        "忘记密码",
-        "forgot password",
-        "密码",
-    ],
-    "account": [
-        "email",
-        "phone",
-        "username",
-        "账号",
-        "用户名",
-        "邮箱",
-        "手机号",
-    ],
-    "login_entry": [
-        "log in",
-        "sign in",
-        "登录",
-        "登入",
-        "create account",
-        "注册",
-    ],
-    "home": [
-        "home",
-        "for you",
-        "following",
-        "主页",
-        "首页",
-        "关注",
-        "feed",
-    ],
-}
 
 
 def _normalize_stage_entry(raw: object) -> dict[str, list[str]]:
@@ -172,21 +122,32 @@ def _resolve_login_stage_patterns(params: Params, context: ExecutionContext) -> 
                 continue
             patterns[stage_id] = _normalize_stage_entry(entry)
 
-    for stage in DEFAULT_LOGIN_STAGE_ORDER:
+    defaults_doc = {}
+    try:
+        defaults_doc = sdk_config_support.load_login_stage_patterns_document()
+    except Exception:
+        defaults_doc = {}
+    default_patterns_raw = defaults_doc.get("stage_patterns") if isinstance(defaults_doc, dict) else None
+    default_patterns = default_patterns_raw if isinstance(default_patterns_raw, dict) else {}
+    default_order_raw = defaults_doc.get("stage_order") if isinstance(defaults_doc, dict) else None
+    default_order = tuple(_coerce_text_list(default_order_raw)) or DEFAULT_LOGIN_STAGE_ORDER
+
+    for stage in default_order:
+        default_entry = _normalize_stage_entry(default_patterns.get(stage))
         if stage not in patterns:
             patterns[stage] = {
                 "resource_ids": [],
                 "focus_markers": [],
-                "text_markers": DEFAULT_LOGIN_STAGE_TEXT_MARKERS.get(stage, []),
+                "text_markers": default_entry.get("text_markers", []),
             }
         else:
             if not any(patterns[stage].values()):
-                patterns[stage]["text_markers"] = DEFAULT_LOGIN_STAGE_TEXT_MARKERS.get(stage, [])
+                patterns[stage]["text_markers"] = default_entry.get("text_markers", [])
 
     order_raw = params.get("stage_order") or context.get_session_default("stage_order")
     order = _coerce_text_list(order_raw) if order_raw is not None else []
     if not order:
-        order = list(patterns.keys())
+        order = [stage for stage in default_order if stage in patterns] + [stage for stage in patterns.keys() if stage not in default_order]
     return patterns, tuple(order)
 
 
@@ -422,11 +383,21 @@ def extract_dm_last_outbound_message(params: Params, context: ExecutionContext) 
     assert rpc is not None
     try:
         xml_text = _dump_xml_for_candidates(rpc, _int_from_param(params.get("timeout_ms"), 2500))
+        defaults_doc = {}
+        try:
+            defaults_doc = sdk_config_support.load_state_action_defaults_document()
+        except Exception:
+            defaults_doc = {}
+        default_separator_tokens = (
+            _coerce_text_list(defaults_doc.get("dm_separator_tokens"))
+            if isinstance(defaults_doc, dict)
+            else []
+        )
         separator_tokens = _coerce_text_list(
             params.get("separator_tokens")
             or params.get("message_separators")
             or context.get_session_default("dm_separator_tokens")
-            or [": ", "："]
+            or default_separator_tokens
         )
         if not separator_tokens:
             return ActionResult(ok=False, code="invalid_params", message="separator_tokens is required")
@@ -451,11 +422,17 @@ def extract_follow_targets(params: Params, context: ExecutionContext) -> ActionR
     assert rpc is not None
     try:
         xml_text = _dump_xml_for_candidates(rpc, _int_from_param(params.get("timeout_ms"), 2500))
+        defaults_doc = {}
+        try:
+            defaults_doc = sdk_config_support.load_state_action_defaults_document()
+        except Exception:
+            defaults_doc = {}
+        default_follow_texts = _coerce_text_list(defaults_doc.get("follow_texts")) if isinstance(defaults_doc, dict) else []
         button_texts = _coerce_text_list(
             params.get("follow_texts")
             or params.get("button_texts")
             or context.get_session_default("follow_texts")
-            or ["follow", "フォローする", "关注", "關注"]
+            or default_follow_texts
         )
         if not button_texts:
             return ActionResult(ok=False, code="invalid_params", message="follow_texts is required")
@@ -480,11 +457,17 @@ def follow_visible_targets(params: Params, context: ExecutionContext) -> ActionR
     assert rpc is not None
     try:
         xml_text = _dump_xml_for_candidates(rpc, _int_from_param(params.get("timeout_ms"), 2500))
+        defaults_doc = {}
+        try:
+            defaults_doc = sdk_config_support.load_state_action_defaults_document()
+        except Exception:
+            defaults_doc = {}
+        default_follow_texts = _coerce_text_list(defaults_doc.get("follow_texts")) if isinstance(defaults_doc, dict) else []
         button_texts = _coerce_text_list(
             params.get("follow_texts")
             or params.get("button_texts")
             or context.get_session_default("follow_texts")
-            or ["follow", "フォローする", "关注", "關注"]
+            or default_follow_texts
         )
         if not button_texts:
             return ActionResult(ok=False, code="invalid_params", message="follow_texts is required")
@@ -521,11 +504,17 @@ def extract_unread_dm_targets(params: Params, context: ExecutionContext) -> Acti
     assert rpc is not None
     try:
         xml_text = _dump_xml_for_candidates(rpc, _int_from_param(params.get("timeout_ms"), 2500))
+        defaults_doc = {}
+        try:
+            defaults_doc = sdk_config_support.load_state_action_defaults_document()
+        except Exception:
+            defaults_doc = {}
+        default_unread_markers = _coerce_text_list(defaults_doc.get("unread_markers")) if isinstance(defaults_doc, dict) else []
         markers = _coerce_text_list(
             params.get("unread_markers")
             or params.get("markers")
             or context.get_session_default("unread_markers")
-            or ["未読", "unread"]
+            or default_unread_markers
         )
         if not markers:
             return ActionResult(ok=False, code="invalid_params", message="unread_markers is required")
@@ -550,11 +539,17 @@ def open_first_unread_dm(params: Params, context: ExecutionContext) -> ActionRes
     assert rpc is not None
     try:
         xml_text = _dump_xml_for_candidates(rpc, _int_from_param(params.get("timeout_ms"), 2500))
+        defaults_doc = {}
+        try:
+            defaults_doc = sdk_config_support.load_state_action_defaults_document()
+        except Exception:
+            defaults_doc = {}
+        default_unread_markers = _coerce_text_list(defaults_doc.get("unread_markers")) if isinstance(defaults_doc, dict) else []
         markers = _coerce_text_list(
             params.get("unread_markers")
             or params.get("markers")
             or context.get_session_default("unread_markers")
-            or ["未読", "unread"]
+            or default_unread_markers
         )
         if not markers:
             return ActionResult(ok=False, code="invalid_params", message="unread_markers is required")

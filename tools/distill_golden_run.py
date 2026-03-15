@@ -1,17 +1,23 @@
 from __future__ import annotations
 
-# pyright: reportAny=false, reportUnusedCallResult=false
-
+import importlib.util
 import argparse
 import json
-import sys
 from pathlib import Path
 
-if __package__ is None or __package__ == "":
-    project_root = Path(__file__).resolve().parents[1]
-    root_text = str(project_root)
-    if root_text not in sys.path:
-        sys.path.insert(0, root_text)
+if __package__:
+    from tools._bootstrap import bootstrap_project_root
+else:
+    bootstrap_path = Path(__file__).with_name("_bootstrap.py")
+    spec = importlib.util.spec_from_file_location("tools._bootstrap", bootstrap_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"cannot load bootstrap helper: {bootstrap_path}")
+    bootstrap_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(bootstrap_module)
+    bootstrap_project_root = bootstrap_module.bootstrap_project_root
+
+
+bootstrap_project_root()
 
 from core.golden_run_distillation import GoldenRunDistillationError, GoldenRunDistiller
 from core.model_trace_store import ModelTraceContext, ModelTraceStore

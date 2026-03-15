@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# pyright: reportMissingTypeArgument=false
+
 """多轮 trace 聚合蒸馏工具。
 
 扫描指定插件的所有成功 trace，聚合步骤序列，生成高质量 YAML 插件草稿。
@@ -9,23 +11,31 @@
 """
 from __future__ import annotations
 
+import importlib.util
 import argparse
 import json
-import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
-if __package__ is None or __package__ == "":
-    project_root = Path(__file__).resolve().parents[1]
-    if str(project_root) not in sys.path:
-        sys.path.insert(0, str(project_root))
+if __package__:
+    from tools._bootstrap import bootstrap_project_root
+else:
+    bootstrap_path = Path(__file__).with_name("_bootstrap.py")
+    spec = importlib.util.spec_from_file_location("tools._bootstrap", bootstrap_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"cannot load bootstrap helper: {bootstrap_path}")
+    bootstrap_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(bootstrap_module)
+    bootstrap_project_root = bootstrap_module.bootstrap_project_root
 
+bootstrap_project_root()
+
+from core.paths import plugins_dir, traces_dir
 import yaml
 
-ROOT = Path(__file__).resolve().parents[1]
-TRACES_DIR = ROOT / "config" / "data" / "traces"
-PLUGINS_DIR = ROOT / "plugins"
+TRACES_DIR = traces_dir()
+PLUGINS_DIR = plugins_dir()
 
 # 蒸馏门槛（与 docs/STATUS.md 保持一致）
 DISTILL_THRESHOLDS: dict[str, int] = {
@@ -80,16 +90,33 @@ def find_successful_traces(plugin_name: str) -> list[dict]:
 
 
 def extract_steps(records: list[dict]) -> list[dict]:
-    """从 trace records 提取动作步骤。"""
+    """从 trace records 提取动作步骤，并处理坐标归一化。"""
     steps = []
     for r in records:
         if r.get("record_type") != "step":
             continue
         action = str(r.get("chosen_action") or "").strip()
-        params = r.get("action_params") or {}
+        params = dict(r.get("action_params") or {})
         observation = r.get("observation") or {}
         if not action:
             continue
+
+        # 坐标归一化处理 (1080p -> 720p 兼容性核心)
+        sw = observation.get("screen_width") or observation.get("width")
+        sh = observation.get("screen_height") or observation.get("height")
+        
+        if sw and sh:
+            # 处理点击坐标
+            if "x" in params and "y" in params:
+                params["nx"] = int(float(params["x"]) / sw * 1000)
+                params["ny"] = int(float(params["y"]) / sh * 1000)
+            # 处理滑动坐标
+            for i in range(2):
+                kx, ky = f"x{i}", f"y{i}"
+                if kx in params and ky in params:
+                    params[f"nx{i}"] = int(float(params[kx]) / sw * 1000)
+                    params[f"ny{i}"] = int(float(params[ky]) / sh * 1000)
+
         steps.append({
             "step_index": r.get("step_index", 0),
             "action": action,
@@ -132,7 +159,7 @@ def aggregate_steps(all_steps: list[list[dict]]) -> list[dict]:
 
 
 def _merge_params(params_list: list[dict]) -> dict:
-    """合并多次运行的参数，保留稳定值，标记动态值。"""
+    """合并多次运行的参数，保留稳定值，清理不稳定特征（如坐标或多语言文本）。"""
     if not params_list:
         return {}
     if len(params_list) == 1:
@@ -143,15 +170,82 @@ def _merge_params(params_list: list[dict]) -> dict:
     for p in params_list:
         all_keys.update(p.keys())
 
+    # 稳定性阈值：至少在 80% 的成功 Run 中保持一致
+    STABILITY_THRESHOLD = 0.8
+
     for key in all_keys:
         values = [p.get(key) for p in params_list if key in p]
-        unique = list(set(json.dumps(v, sort_keys=True) for v in values))
-        if len(unique) == 1:
-            # 所有运行值一致，直接使用
-            merged[key] = values[0]
+        if not values:
+            continue
+        
+        # 统计值分布
+        counter = Counter(json.dumps(v, sort_keys=True) for v in values)
+        most_common_json, count = counter.most_common(1)[0]
+        stability = count / len(params_list)
+
+        # 1. 处理归一化坐标 (nx, ny)
+        if key.startswith('n') and (key[1:] in ['x', 'y', 'x0', 'y0', 'x1', 'y1']):
+            # 允许 1% 的归一化误差 (1000 个单位中的 10 个单位)
+            numeric_values = [v for v in values if isinstance(v, (int, float))]
+            if numeric_values:
+                avg_val = sum(numeric_values) / len(numeric_values)
+                # 检查是否所有值都在平均值上下 15 个单位内
+                if all(abs(v - avg_val) <= 15 for v in numeric_values):
+                    merged[key] = int(avg_val)
+                    # 如果有了归一化坐标，就删除原始像素坐标
+                    merged.pop(key[1:], None)
+                    continue
+
+        # 2. 处理 Selector 中的 ID 与 Text (多语言兼容核心)
+        if key == "selector" and isinstance(most_common_json, str):
+            # params 里的 selector 通常是一个 dict
+            selector_data = json.loads(most_common_json)
+            if isinstance(selector_data, dict):
+                # 对 selector 内部进行稳定性检查
+                stable_selector = {}
+                # 获取所有运行中 selector 的并集键
+                selector_keys = set()
+                for p in params_list:
+                    if isinstance(p.get("selector"), dict):
+                        selector_keys.update(p["selector"].keys())
+                
+                for sk in selector_keys:
+                    sk_values = [p["selector"].get(sk) for p in params_list if isinstance(p.get("selector"), dict) and sk in p["selector"]]
+                    sk_counter = Counter(json.dumps(sv, sort_keys=True) for sv in sk_values)
+                    _, sk_count = sk_counter.most_common(1)[0]
+                    sk_stability = sk_count / len(params_list)
+                    
+                    if sk_stability >= STABILITY_THRESHOLD:
+                        stable_selector[sk] = json.loads(sk_counter.most_common(1)[0][0])
+                
+                # 特色逻辑：如果 ID 稳定且存在，但 Text 不稳定，则主动剔除 Text
+                if "resource_id" in stable_selector or "id" in stable_selector:
+                    text_values = [p["selector"].get("text") for p in params_list if isinstance(p.get("selector"), dict)]
+                    if len(set(text_values)) > 1:
+                        stable_selector.pop("text", None)
+                        stable_selector.pop("label", None)
+                
+                merged["selector"] = stable_selector
+                continue
+
+        if stability >= STABILITY_THRESHOLD:
+            # 如果 selector 已经处理过，不要覆盖
+            if key == "selector" and "selector" in merged:
+                continue
+            merged[key] = json.loads(most_common_json)
         else:
-            # 值不一致，标记为动态参数（使用变量占位符）
-            merged[key] = f"{{{{ {key} }}}}"
+            # 不稳定参数：坐标直接丢弃，文本转为变量或删除
+            if key in ['x', 'y', 'x0', 'y0', 'x1', 'y1']:
+                continue 
+            if key in ['text', 'label']:
+                # 多语言环境下文本通常不稳定，如果 ID 稳定则应抛弃 text
+                continue
+            merged[key] = f"${{vars.{key}:-dynamic_val}}"
+
+    # 清理冗余：如果有了 nx/ny，确保 x/y 不被带入 YAML
+    for k in ['x', 'y', 'x0', 'y0', 'x1', 'y1']:
+        if f"n{k}" in merged:
+            merged.pop(k, None)
 
     return merged
 
@@ -264,4 +358,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())

@@ -6,6 +6,7 @@ display_name: "MYTOS 系统初始化"
 category: "账号与安全"
 description: "Bootstrap device-level MYTOS API settings with atomic actions"
 entry_script: script.yaml
+distill_threshold: 3
 inputs:
   - name: device_ip
     type: string

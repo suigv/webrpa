@@ -1,6 +1,7 @@
 import os
 import sys
 import shutil
+import time
 from collections.abc import Generator
 from pathlib import Path
 
@@ -20,25 +21,13 @@ def pytest_sessionstart(session: object) -> None:
     if os.environ.get("MYT_REAL_HARDWARE") != "1":
         os.environ["MYT_ENABLE_RPC"] = "0"
     
-    # 强制在测试期间将所有数据写入系统临时目录
-    test_run_root = Path("/tmp/webrpa_test_run")
-    if test_run_root.exists():
-        shutil.rmtree(test_run_root)
-    test_run_root.mkdir(parents=True, exist_ok=True)
-    
-    # 模拟必要的目录结构
-    (test_run_root / "config" / "data").mkdir(parents=True, exist_ok=True)
-    (test_run_root / "plugins").mkdir(parents=True, exist_ok=True)
-
-    source_devices = project_root / "config" / "devices.json"
-    target_devices = test_run_root / "config" / "devices.json"
-    if source_devices.exists():
-        _ = shutil.copyfile(source_devices, target_devices)
-    else:
-        _ = target_devices.write_text("{}", encoding="utf-8")
-
-    # 关键：通过环境变量重定向根目录
-    os.environ["MYT_NEW_ROOT"] = str(test_run_root)
+    # 测试隔离：把所有 runtime 数据写入 config/data/<subdir>（仍在仓库内，但与真实数据隔离）
+    run_tag = f".pytest/run-{os.getpid()}-{time.time_ns()}"
+    os.environ["MYT_DATA_SUBDIR"] = run_tag
+    test_data_dir = project_root / "config" / "data" / run_tag
+    if test_data_dir.exists():
+        shutil.rmtree(test_data_dir)
+    test_data_dir.mkdir(parents=True, exist_ok=True)
     
     project_parent = project_root.parent
     parent_text = str(project_parent)

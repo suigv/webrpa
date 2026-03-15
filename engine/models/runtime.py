@@ -78,11 +78,15 @@ class ExecutionContext:
     @property
     def device_id(self) -> int:
         value = self.runtime.get("device_id")
+        if value is None and "target" in self.runtime:
+            value = self.runtime["target"].get("device_id")
         return int(value) if value is not None else 0
 
     @property
     def cloud_id(self) -> int:
         value = self.runtime.get("cloud_id")
+        if value is None and "target" in self.runtime:
+            value = self.runtime["target"].get("cloud_id")
         return int(value) if value is not None else 0
 
     @property

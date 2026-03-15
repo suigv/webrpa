@@ -9,7 +9,6 @@ from typing import Any, Dict, Optional
 import yaml
 
 from core.paths import project_root
-from core.data_store import _resolve_root_path
 
 logger = logging.getLogger(__name__)
 
@@ -23,10 +22,6 @@ class AppConfigManager:
     @staticmethod
     def get_apps_dir() -> Path:
         """返回应用配置文件的搜索目录。"""
-        # 优先使用数据目录下的 config/apps，支持持久化自定义
-        data_apps = Path(_resolve_root_path()) / "config" / "apps"
-        if data_apps.exists():
-            return data_apps
         return project_root() / "config" / "apps"
 
     @classmethod
@@ -44,8 +39,7 @@ class AppConfigManager:
         global _cached_package_map
         mapping: Dict[str, str] = {}
         
-        # 扫描两个可能的路径：数据根目录和项目根目录
-        search_dirs = [Path(_resolve_root_path()) / "config" / "apps", project_root() / "config" / "apps"]
+        search_dirs = [project_root() / "config" / "apps"]
         seen_apps = set()
         
         for apps_dir in search_dirs:
@@ -77,10 +71,8 @@ class AppConfigManager:
     @classmethod
     def load_app_config(cls, app_name: str) -> Dict[str, Any]:
         """加载指定的 App 配置文件内容。"""
-        # 优先查数据目录
         repo_root = project_root()
         search_paths = [
-            Path(_resolve_root_path()) / "config" / "apps" / f"{app_name}.yaml",
             repo_root / "config" / "apps" / f"{app_name}.yaml"
         ]
         
@@ -103,7 +95,7 @@ class AppConfigManager:
             return
             
         app_id = app_name or app_package.split('.')[-1]
-        target_dir = Path(_resolve_root_path()) / "config" / "apps"
+        target_dir = project_root() / "config" / "apps"
         target_dir.mkdir(parents=True, exist_ok=True)
         
         path = target_dir / f"{app_id}.yaml"

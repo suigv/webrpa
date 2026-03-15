@@ -14,9 +14,10 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 # --- 任务事件桥接逻辑 ---
-def get_event_broadcaster() -> Callable[[Any], None]:
+def get_event_broadcaster(loop: asyncio.AbstractEventLoop) -> Callable[[Any], None]:
     """返回一个将任务事件转发到 WebSocket 的回调函数"""
-    loop = asyncio.get_event_loop()
+    if not loop.is_running():
+        raise RuntimeError("event loop must be running")
 
     def _on_event(event):
         # 构造纯净的结构化数据
@@ -39,31 +40,27 @@ def get_event_broadcaster() -> Callable[[Any], None]:
 
 _db_poll_started = False
 _db_poll_lock = threading.Lock()
+_db_poll_stop_event = threading.Event()
+_db_poll_thread: threading.Thread | None = None
 
 def start_db_event_poller(loop: asyncio.AbstractEventLoop) -> None:
     """启动后台线程，轮询 SQLite 新事件并广播到 WebSocket（用于 process 模式下的子进程事件）"""
-    global _db_poll_started
+    global _db_poll_started, _db_poll_thread
     with _db_poll_lock:
         if _db_poll_started:
             return
         _db_poll_started = True
+        _db_poll_stop_event.clear()
 
     def _poll_loop() -> None:
         event_store = TaskEventStore()
-        last_event_id = 0
         # 启动时跳过历史事件，只广播新事件
         try:
-            events = event_store.list_events_after(0, limit=1)
-            # 获取当前最大 event_id 作为起点
-            import sqlite3
-            with event_store._connect() as conn:
-                row = conn.execute("SELECT MAX(event_id) FROM task_events").fetchone()
-                if row and row[0]:
-                    last_event_id = int(row[0])
+            last_event_id = event_store.max_event_id()
         except Exception:
-            pass
+            last_event_id = 0
 
-        while True:
+        while not _db_poll_stop_event.is_set():
             try:
                 new_events = event_store.list_events_after(last_event_id, limit=50)
                 for event in new_events:
@@ -81,10 +78,24 @@ def start_db_event_poller(loop: asyncio.AbstractEventLoop) -> None:
                         asyncio.run_coroutine_threadsafe(_broadcast(json_str), loop)
             except Exception:
                 pass
-            threading.Event().wait(timeout=0.5)
+            _db_poll_stop_event.wait(timeout=0.5)
 
-    t = threading.Thread(target=_poll_loop, name="ws-db-event-poller", daemon=True)
-    t.start()
+    _db_poll_thread = threading.Thread(target=_poll_loop, name="ws-db-event-poller", daemon=True)
+    _db_poll_thread.start()
+
+
+def stop_db_event_poller() -> None:
+    global _db_poll_started, _db_poll_thread
+    with _db_poll_lock:
+        if not _db_poll_started:
+            return
+        _db_poll_started = False
+        _db_poll_stop_event.set()
+        thread = _db_poll_thread
+        _db_poll_thread = None
+
+    if thread is not None and thread.is_alive():
+        thread.join(timeout=2)
 
 # Track active WebSocket clients and their optional filters
 # _clients[websocket] = {"filter_target": "Unit #1-1", "filter_task": "..."}

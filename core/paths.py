@@ -6,9 +6,6 @@ from pathlib import Path
 
 
 def project_root() -> Path:
-    env_root = os.environ.get("MYT_NEW_ROOT")
-    if env_root:
-        return Path(env_root).resolve()
     return Path(__file__).resolve().parents[1]
 
 
@@ -16,8 +13,20 @@ def config_dir() -> Path:
     return project_root() / "config"
 
 
+def plugins_dir() -> Path:
+    return project_root() / "plugins"
+
+
 def data_dir() -> Path:
     path = config_dir() / "data"
+    subdir = (os.environ.get("MYT_DATA_SUBDIR") or "").strip()
+    if subdir:
+        # Keep data within config/data. Reject absolute paths and traversal.
+        subdir_norm = subdir.replace("\\", "/").strip("/")
+        parts = [p for p in subdir_norm.split("/") if p]
+        if any(p in {".", ".."} for p in parts) or (":" in subdir_norm):
+            raise ValueError("MYT_DATA_SUBDIR must be a safe relative path under config/data")
+        path = path.joinpath(*parts)
     path.mkdir(parents=True, exist_ok=True)
     return path
 

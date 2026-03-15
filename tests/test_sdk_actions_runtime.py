@@ -1,9 +1,10 @@
 import importlib
 import json
 import multiprocessing
-import os
 import threading
 import time
+
+from core.paths import data_dir
 
 
 def _load_action_registry_module():
@@ -25,13 +26,11 @@ def _load_execution_context():
 
 
 def _cross_process_update_worker(
-    root_path_raw: str,
     ready_event,
     release_event,
     key: str,
     value: int,
 ) -> None:
-    os.environ["MYT_NEW_ROOT"] = root_path_raw
     sdk_mod = importlib.import_module("engine.actions.sdk_actions")
 
     def updater(store):
@@ -105,19 +104,27 @@ def test_sdk_action_invocation_maps_to_client(monkeypatch):
 
 
 def test_save_shared_preserves_valid_json_across_repeated_updates(monkeypatch, tmp_path):
+    _ = monkeypatch
+    _ = tmp_path
     sdk_mod = importlib.import_module("engine.actions.sdk_actions")
-    monkeypatch.setattr(sdk_mod, "_resolve_root_path", lambda: str(tmp_path))
+    store_path = data_dir() / "migration_shared.json"
+    if store_path.exists():
+        store_path.unlink()
 
     for idx in range(25):
         result = sdk_mod.save_shared({"key": f"k{idx}", "value": idx}, context=None)
         assert result.ok is True
-        payload = json.loads((tmp_path / "config" / "data" / "migration_shared.json").read_text(encoding="utf-8"))
+        payload = json.loads(store_path.read_text(encoding="utf-8"))
         assert payload[f"k{idx}"] == idx
 
 
 def test_save_shared_serializes_read_modify_write_to_prevent_lost_updates(monkeypatch, tmp_path):
+    _ = monkeypatch
+    _ = tmp_path
     sdk_mod = importlib.import_module("engine.actions.sdk_actions")
-    monkeypatch.setattr(sdk_mod, "_resolve_root_path", lambda: str(tmp_path))
+    store_path = data_dir() / "migration_shared.json"
+    if store_path.exists():
+        store_path.unlink()
 
     start = threading.Barrier(3)
 
@@ -137,49 +144,44 @@ def test_save_shared_serializes_read_modify_write_to_prevent_lost_updates(monkey
     assert not t1.is_alive()
     assert not t2.is_alive()
 
-    payload = json.loads((tmp_path / "config" / "data" / "migration_shared.json").read_text(encoding="utf-8"))
+    payload = json.loads(store_path.read_text(encoding="utf-8"))
     assert payload["alpha"] == 1
     assert payload["beta"] == 2
 
 
 def test_update_store_uses_cross_process_lock_to_prevent_lost_updates(tmp_path):
+    _ = tmp_path
     sdk_mod = importlib.import_module("engine.actions.sdk_actions")
-    original_env = os.environ.get("MYT_NEW_ROOT")
-    os.environ["MYT_NEW_ROOT"] = str(tmp_path)
-    try:
-        store_path = sdk_mod._shared_path()
+    store_path = sdk_mod._shared_path()
+    if store_path.exists():
+        store_path.unlink()
 
-        ctx = multiprocessing.get_context("spawn")
-        first_ready = ctx.Event()
-        release_first = ctx.Event()
+    ctx = multiprocessing.get_context("spawn")
+    first_ready = ctx.Event()
+    release_first = ctx.Event()
 
-        first = ctx.Process(
-            target=_cross_process_update_worker,
-            args=(str(tmp_path), first_ready, release_first, "alpha", 1),
-        )
-        second = ctx.Process(
-            target=_cross_process_update_worker,
-            args=(str(tmp_path), None, None, "beta", 2),
-        )
+    first = ctx.Process(
+        target=_cross_process_update_worker,
+        args=(first_ready, release_first, "alpha", 1),
+    )
+    second = ctx.Process(
+        target=_cross_process_update_worker,
+        args=(None, None, "beta", 2),
+    )
 
-        first.start()
-        assert first_ready.wait(timeout=2)
+    first.start()
+    assert first_ready.wait(timeout=2)
 
-        second.start()
-        time.sleep(0.1)
-        release_first.set()
+    second.start()
+    time.sleep(0.1)
+    release_first.set()
 
-        first.join(timeout=5)
-        second.join(timeout=5)
+    first.join(timeout=5)
+    second.join(timeout=5)
 
-        assert first.exitcode == 0
-        assert second.exitcode == 0
+    assert first.exitcode == 0
+    assert second.exitcode == 0
 
-        payload = json.loads(store_path.read_text(encoding="utf-8"))
-        assert payload["alpha"] == 1
-        assert payload["beta"] == 2
-    finally:
-        if original_env is None:
-            os.environ.pop("MYT_NEW_ROOT", None)
-        else:
-            os.environ["MYT_NEW_ROOT"] = original_env
+    payload = json.loads(store_path.read_text(encoding="utf-8"))
+    assert payload["alpha"] == 1
+    assert payload["beta"] == 2

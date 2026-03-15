@@ -9,7 +9,7 @@ from typing import Any
 
 from engine.models.runtime import ActionResult, ExecutionContext
 from hardware_adapters.myt_client import MytSdkClient
-from core.data_store import _resolve_root_path, write_json_atomic
+from core.data_store import write_json_atomic
 from engine.action_registry import ActionMetadata
 
 
@@ -718,7 +718,7 @@ def get_sdk_action_bindings() -> dict[str, Callable[[dict[str, Any], ExecutionCo
 
 
 def _shared_path() -> Path:
-    return _sdk_shared_store_support_module().shared_path(resolve_root_path=_resolve_root_path)
+    return _sdk_shared_store_support_module().shared_path()
 
 
 def _shared_lock_path(path: Path) -> Path:
@@ -730,13 +730,12 @@ def _exclusive_shared_lock(path: Path):
 
 
 def _read_store() -> dict[str, Any]:
-    return _sdk_shared_store_support_module().read_store(resolve_root_path=_resolve_root_path)
+    return _sdk_shared_store_support_module().read_store()
 
 
 def _write_store(payload: dict[str, Any]) -> None:
     _sdk_shared_store_support_module().write_store(
         payload,
-        resolve_root_path=_resolve_root_path,
         write_json_atomic=write_json_atomic,
     )
 
@@ -744,7 +743,6 @@ def _write_store(payload: dict[str, Any]) -> None:
 def _update_store(updater: Callable[[dict[str, Any]], None]) -> dict[str, Any]:
     return _sdk_shared_store_support_module().update_store(
         updater,
-        resolve_root_path=_resolve_root_path,
         write_json_atomic=write_json_atomic,
         thread_lock=_SHARED_STORE_LOCK,
     )

@@ -19,6 +19,7 @@ from api.routes import engine_routes
 from api.routes import binding_routes as binding_route
 from core.device_manager import get_device_manager
 from core.cloud_probe_service import get_cloud_probe_service
+from core.paths import project_root
 from core.task_control import get_task_controller
 from engine.actions._rpc_bootstrap import is_rpc_enabled
 from engine.runner import Runner, strict_plugin_unknown_inputs_enabled
@@ -46,9 +47,21 @@ def _cleanup_stale_browser_profiles() -> None:
 async def lifespan(_app: FastAPI):
     # 注册 WebSocket 日志广播桥接
     import asyncio
-    from api.routes.websocket import get_event_broadcaster, start_db_event_poller
-    get_task_controller()._events.subscribe(get_event_broadcaster())
-    start_db_event_poller(asyncio.get_event_loop())
+    from api.routes.websocket import get_event_broadcaster, start_db_event_poller, stop_db_event_poller
+    controller = get_task_controller()
+    loop = asyncio.get_running_loop()
+    observer = get_event_broadcaster(loop)
+    subscribe_events = getattr(controller, "subscribe_events", None)
+    if callable(subscribe_events):
+        subscribe_events(observer)
+    else:
+        # Backwards-compat for older controller shapes / test fakes.
+        events = getattr(controller, "_events", None)
+        legacy_subscribe = getattr(events, "subscribe", None) if events is not None else None
+        if not callable(legacy_subscribe):
+            raise RuntimeError("Task controller does not support event subscription")
+        legacy_subscribe(observer)
+    start_db_event_poller(loop)
 
     # 清理残留的 browser profile 目录（超过 1 小时未修改的视为泄露）
     _cleanup_stale_browser_profiles()
@@ -64,10 +77,11 @@ async def lifespan(_app: FastAPI):
     finally:
         probe_service.stop()
         controller.stop()
+        stop_db_event_poller()
 
 
 app = FastAPI(title="MYT New Standalone API", version="0.1.0", lifespan=lifespan)
-WEB_DIR = Path(__file__).resolve().parents[1] / "web"
+WEB_DIR = project_root() / "web"
 
 app.add_middleware(
     CORSMiddleware,

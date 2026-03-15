@@ -16,7 +16,7 @@ class AnalyzeRequest(BaseModel):
     device_id: int
     cloud_id: int = 1
     app_name: str
-    known_states: List[str] = []
+    known_states: List[str] = Field(default_factory=list)
     xml_filter: Optional[dict] = None
 
 class BindingRecord(BaseModel):

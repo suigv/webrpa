@@ -8,7 +8,8 @@ from typing import Any, Dict
 
 import yaml
 
-from core.data_store import _resolve_root_path, write_json_atomic
+from core.data_store import write_json_atomic
+from core.paths import data_dir, project_root
 
 from core.app_config import AppConfigManager
 
@@ -42,12 +43,7 @@ def resolve_app(params: dict[str, Any], payload: dict[str, Any]) -> str:
 
 def app_config_path(app: str) -> Path:
     """返回 config/apps/{app}.yaml 的路径。"""
-    repo_root = Path(__file__).resolve().parents[2]
-    for base in [Path(_resolve_root_path()), repo_root]:
-        path = base / "config" / "apps" / f"{app}.yaml"
-        if path.exists():
-            return path
-    return Path(_resolve_root_path()) / "config" / "apps" / f"{app}.yaml"
+    return project_root() / "config" / "apps" / f"{app}.yaml"
 
 
 def load_app_config_document(app: str) -> dict[str, Any]:
@@ -64,16 +60,7 @@ def load_ui_config_document() -> dict[str, Any]:
 
 
 def strategy_config_paths() -> list[Path]:
-    repo_root = Path(__file__).resolve().parents[2]
-    candidates = [Path(_resolve_root_path()) / "config" / "strategies" / "nurture_keywords.yaml", repo_root / "config" / "strategies" / "nurture_keywords.yaml"]
-    unique: list[Path] = []
-    seen: set[str] = set()
-    for path in candidates:
-        path_str = str(path.resolve()) if path.exists() else os.path.abspath(str(path))
-        if path_str not in seen:
-            seen.add(path_str)
-            unique.append(path)
-    return unique
+    return [project_root() / "config" / "strategies" / "nurture_keywords.yaml"]
 
 
 def load_strategy_document() -> dict[str, Any]:
@@ -88,19 +75,7 @@ def load_strategy_document() -> dict[str, Any]:
 
 
 def interaction_text_config_paths() -> list[Path]:
-    repo_root = Path(__file__).resolve().parents[2]
-    candidates = [
-        Path(_resolve_root_path()) / "config" / "strategies" / "interaction_texts.yaml",
-        repo_root / "config" / "strategies" / "interaction_texts.yaml",
-    ]
-    unique: list[Path] = []
-    seen: set[str] = set()
-    for path in candidates:
-        path_str = str(path.resolve()) if path.exists() else os.path.abspath(str(path))
-        if path_str not in seen:
-            seen.add(path_str)
-            unique.append(path)
-    return unique
+    return [project_root() / "config" / "strategies" / "interaction_texts.yaml"]
 
 
 def load_interaction_text_document() -> dict[str, Any]:
@@ -115,19 +90,7 @@ def load_interaction_text_document() -> dict[str, Any]:
 
 
 def prompt_templates_config_paths() -> list[Path]:
-    repo_root = Path(__file__).resolve().parents[2]
-    candidates = [
-        Path(_resolve_root_path()) / "config" / "strategies" / "prompt_templates.yaml",
-        repo_root / "config" / "strategies" / "prompt_templates.yaml",
-    ]
-    unique: list[Path] = []
-    seen: set[str] = set()
-    for path in candidates:
-        path_str = str(path.resolve()) if path.exists() else os.path.abspath(str(path))
-        if path_str not in seen:
-            seen.add(path_str)
-            unique.append(path)
-    return unique
+    return [project_root() / "config" / "strategies" / "prompt_templates.yaml"]
 
 
 def load_prompt_templates_document() -> dict[str, Any]:
@@ -141,8 +104,38 @@ def load_prompt_templates_document() -> dict[str, Any]:
     raise FileNotFoundError("config/strategies/prompt_templates.yaml not found")
 
 
+def login_stage_patterns_config_paths() -> list[Path]:
+    return [project_root() / "config" / "strategies" / "login_stage_patterns.yaml"]
+
+
+def load_login_stage_patterns_document() -> dict[str, Any]:
+    for path in login_stage_patterns_config_paths():
+        if not path.exists():
+            continue
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+        if isinstance(raw, dict):
+            return raw
+        raise ValueError(f"login stage patterns config must be a mapping: {path}")
+    return {}
+
+
+def state_action_defaults_config_paths() -> list[Path]:
+    return [project_root() / "config" / "strategies" / "state_action_defaults.yaml"]
+
+
+def load_state_action_defaults_document() -> dict[str, Any]:
+    for path in state_action_defaults_config_paths():
+        if not path.exists():
+            continue
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+        if isinstance(raw, dict):
+            return raw
+        raise ValueError(f"state action defaults config must be a mapping: {path}")
+    return {}
+
+
 def daily_counter_path() -> Path:
-    return Path(_resolve_root_path()) / "config" / "data" / "daily_counters.json"
+    return data_dir() / "daily_counters.json"
 
 
 def read_daily_counters() -> dict[str, Any]:

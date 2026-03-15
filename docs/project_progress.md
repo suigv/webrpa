@@ -8,6 +8,12 @@
 - 阶段：**Web Console Productization & Navigation Engine Hardening**
 - 核心状态：API、任务系统、插件执行、账号池全面可用；Web 控制台完成产品化改造；导航引擎具备自愈与锚点机制；AI 执行引擎接入托管链路。
 - 最近重点 (2026-03-15)：
+  - **工具链根路径收敛与 Binding 草稿降欠账**：`tools/*.py` 的仓库根目录解析已统一收口到共享 bootstrap + `core.paths`，`tools/distill_binding.py` 生成的 NativeStateBinding 草稿改为输出可直接运行的启发式 detector，不再留 `NotImplementedError` 占位。
+  - **框架去业务关键词 (Framework Neutrality)**：将登录阶段/关注/未读等默认 UI 识别 marker 从框架代码迁移到 `config/strategies/*.yaml`，框架层不再硬编码“首页/主页/关注”等业务词，支持按 action params/session defaults 覆盖。
+  - **API 边界加固**：
+    - `/api/tasks/distill/{plugin_name}`：加入 `plugin_name` 严格校验与输出目录边界约束（仅允许写入 `plugins/` 下），并将蒸馏门槛从插件 `manifest.yaml` 的 `distill_threshold` 读取，路由层不再硬编码。
+    - `/api/devices/{device_id}/{cloud_id}/screenshot`：移除 `device_ip/rpa_port` 入参，改为从配置推导目标与端口公式计算，避免越权/SSRF 风险；`MYT_ENABLE_RPC=0` 时返回 503。
+  - **WebSocket 事件桥接稳固性**：DB poller 改为可停止线程并移除私有 `_connect()` 依赖，避免 shutdown 后线程泄露。
   - **账号池架构升级 (SQLite & BaseStore Migration)**：完成了从 JSON 到 SQLite 的原子化迁移与自动平滑解。
   - **AI 辅助 Binding 工坊集成 (Binding Master)**：内置 UI 特征提取、AI 绑定生成及前端可视化集成。
   - **AI 术语与命名去硬编码 (Agent Executor)**：确立了厂商中立的智能体运行时架构。
@@ -181,12 +187,12 @@
 
 | Metric | Value |
 |---|---:|
-| API route decorators (`api/routes`) | 36 |
+| API route decorators (`api/routes`) | 38 |
 | App-level route decorators (`api/server.py`) | 5 |
 | Plugin count (`plugins/*/manifest.yaml`) | 4 |
 | SDK action bindings (`engine/actions/sdk_actions.py`) | 154 |
-| Test files (`tests/test_*.py`) | 52 |
-| Test functions (`def test_*`) | 255 |
+| Test files (`tests/test_*.py`) | 55 |
+| Test functions (`def test_*`) | 266 |
 <!-- AUTO_PROGRESS_SNAPSHOT:END -->
 
 ## 4. 维护说明

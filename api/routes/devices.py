@@ -5,10 +5,11 @@ from anyio import to_thread as _to_thread
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from fastapi.responses import Response
 
-from core.config_loader import ConfigLoader
+from core.config_loader import ConfigLoader, get_cloud_machines_per_device, get_device_ip, get_total_devices
 from core.device_manager import get_device_manager
 from core.lan_discovery import LanDeviceDiscovery
-from hardware_adapters.mytRpc import MytRpc
+from core.port_calc import calculate_ports
+from engine.actions._rpc_bootstrap import is_rpc_enabled
 from models.device import CloudMachineInfo, DeviceInfo, DeviceStatus, DeviceStatusResponse
 
 to_thread = cast(Any, _to_thread)
@@ -125,8 +126,24 @@ async def stop_device(device_id: int):
 
 
 @router.get("/{device_id}/{cloud_id}/screenshot")
-async def get_cloud_screenshot(device_id: int, cloud_id: int, device_ip: str, rpa_port: int):
+async def get_cloud_screenshot(device_id: int, cloud_id: int):
+    if not is_rpc_enabled():
+        raise HTTPException(status_code=503, detail="RPC is disabled (MYT_ENABLE_RPC=0)")
+
+    total_devices = get_total_devices()
+    if device_id < 1 or device_id > total_devices:
+        raise HTTPException(status_code=404, detail="device not found")
+
+    cloud_machines_per_device = get_cloud_machines_per_device()
+    if cloud_id < 1 or cloud_id > cloud_machines_per_device:
+        raise HTTPException(status_code=404, detail="cloud not found")
+
+    device_ip = get_device_ip(device_id)
+    _api_port, rpa_port = calculate_ports(device_id, cloud_id, cloud_machines_per_device)
+
     def _take_screenshot() -> bytes:
+        from hardware_adapters.mytRpc import MytRpc
+
         rpc = MytRpc()
         connected = rpc.init(device_ip, rpa_port, 5)
         if not connected:
@@ -151,4 +168,5 @@ async def get_cloud_screenshot(device_id: int, cloud_id: int, device_ip: str, rp
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
-    return Response(content=image_bytes, media_type="image/jpeg")
+    media_type = "image/png" if image_bytes[:4] == b"\x89PNG" else "image/jpeg"
+    return Response(content=image_bytes, media_type=media_type)

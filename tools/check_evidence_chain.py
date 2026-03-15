@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import argparse
 from collections import defaultdict
 from collections.abc import Sequence
@@ -8,7 +9,19 @@ import re
 from typing import cast
 
 
-ROOT = Path(__file__).resolve().parents[1]
+if __package__:
+    from tools._bootstrap import bootstrap_project_root
+else:
+    bootstrap_path = Path(__file__).with_name("_bootstrap.py")
+    spec = importlib.util.spec_from_file_location("tools._bootstrap", bootstrap_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"cannot load bootstrap helper: {bootstrap_path}")
+    bootstrap_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(bootstrap_module)
+    bootstrap_project_root = bootstrap_module.bootstrap_project_root
+
+
+ROOT = bootstrap_project_root()
 DEFAULT_EVIDENCE_ROOT = ROOT / ".sisyphus" / "evidence"
 ALLOWED_DOCS_ONLY_COMMAND_TEXT = "docs-only, no runtime commands needed"
 REQUIRED_KINDS: frozenset[str] = frozenset({"summary", "commands", "validation"})

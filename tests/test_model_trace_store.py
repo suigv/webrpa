@@ -4,11 +4,12 @@ from pathlib import Path
 
 import pytest
 
+from core.paths import traces_dir
 from core.model_trace_store import ModelTraceContext, ModelTraceStore, ModelTraceStoreError
 
 
-def test_model_trace_store_appends_jsonl_records_under_config_data(monkeypatch, tmp_path):
-    monkeypatch.setenv("MYT_NEW_ROOT", str(tmp_path))
+def test_model_trace_store_appends_jsonl_records_under_config_data(tmp_path):
+    _ = tmp_path  # retain fixture for parity; root is fixed in standalone project
     store = ModelTraceStore()
     context = ModelTraceContext(
         task_id="task-123",
@@ -20,7 +21,7 @@ def test_model_trace_store_appends_jsonl_records_under_config_data(monkeypatch, 
     path = store.append_record(context, {"sequence": 1, "step_index": 1, "record_type": "step"})
     store.append_record(context, {"sequence": 2, "step_index": 2, "record_type": "terminal"})
 
-    assert path.parent == tmp_path / "config" / "data" / "traces" / "task-123" / "task-123-run-1"
+    assert path.parent == traces_dir() / "task-123" / "task-123-run-1"
     assert path.name.endswith(".attempt-1.jsonl")
     payload = store.read_records(context)
     assert [item["sequence"] for item in payload] == [1, 2]

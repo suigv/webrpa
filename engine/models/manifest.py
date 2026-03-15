@@ -30,3 +30,4 @@ class PluginManifest(BaseModel):
     entry_script: str = "script.yaml"
     description: str = ""
     inputs: List[PluginInput] = Field(default_factory=list)
+    distill_threshold: int = Field(default=3, ge=1, description="Min completed runs required before distillation")

@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# pyright: reportMissingTypeArgument=false
+
 """从 agent_executor trace jsonl 文件蒸馏 NativeStateBinding 代码草稿。
 
 用法:
@@ -10,15 +12,30 @@
 """
 from __future__ import annotations
 
+import importlib.util
 import argparse
 import json
 import xml.etree.ElementTree as ET
 from collections import Counter
 from pathlib import Path
-import textwrap
 
-ROOT = Path(__file__).resolve().parents[1]
-TRACES_DIR = ROOT / "config" / "data" / "traces"
+if __package__:
+    from tools._bootstrap import bootstrap_project_root
+else:
+    bootstrap_path = Path(__file__).with_name("_bootstrap.py")
+    spec = importlib.util.spec_from_file_location("tools._bootstrap", bootstrap_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"cannot load bootstrap helper: {bootstrap_path}")
+    bootstrap_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(bootstrap_module)
+    bootstrap_project_root = bootstrap_module.bootstrap_project_root
+
+bootstrap_project_root()
+
+from core.paths import traces_dir
+
+
+TRACES_DIR = traces_dir()
 
 
 def find_jsonl_files(trace_root: Path) -> list[Path]:
@@ -124,10 +141,33 @@ def infer_label(features: dict, step_index: int) -> str:
     return f"screen_{step_index}"
 
 
+def _top_markers(counter: Counter, limit: int = 3) -> list[str]:
+    return [value for value, _ in counter.most_common(limit) if value]
+
+
+def _build_state_patterns(steps: list[dict]) -> dict[str, dict[str, list[str]]]:
+    patterns: dict[str, dict[str, list[str]]] = {}
+    seen: set[str] = set()
+    for step in steps:
+        label = step["label"]
+        if label in seen:
+            continue
+        seen.add(label)
+        patterns[label] = {
+            "resource_ids": _top_markers(step["resource_ids"]),
+            "focus_markers": [],
+            "text_markers": _top_markers(step["texts"]) + _top_markers(step["content_descs"]),
+        }
+    return patterns
+
+
 def generate_code(binding_id: str, app_package: str, steps: list[dict]) -> str:
     state_ids = sorted(set(s["label"] for s in steps))
     state_tuple = ", ".join(f'"{s}"' for s in state_ids)
     binding_var = f"_{binding_id.upper()}_BINDING"
+    state_patterns = _build_state_patterns(steps)
+    state_patterns_literal = json.dumps(state_patterns, ensure_ascii=False, indent=4, sort_keys=True)
+    state_order_literal = ", ".join(f'"{state_id}"' for state_id in state_ids)
 
     hints = []
     seen: set[str] = set()
@@ -136,13 +176,16 @@ def generate_code(binding_id: str, app_package: str, steps: list[dict]) -> str:
         if label in seen:
             continue
         seen.add(label)
-        top_rids = [r for r, _ in s["resource_ids"].most_common(3)]
-        top_texts = [t for t, _ in s["texts"].most_common(3)]
+        top_rids = _top_markers(s["resource_ids"])
+        top_texts = _top_markers(s["texts"])
+        top_descs = _top_markers(s["content_descs"])
         hints.append(f"    # [{label}]")
         if top_rids:
             hints.append(f"    #   resource-ids: {top_rids}")
         if top_texts:
             hints.append(f"    #   texts: {top_texts}")
+        if top_descs:
+            hints.append(f"    #   content-descs: {top_descs}")
 
     hints_str = "\n".join(hints)
     bid = binding_id
@@ -155,18 +198,22 @@ def generate_code(binding_id: str, app_package: str, steps: list[dict]) -> str:
         f"# app_package: {app_package}",
         f"# detected states: {state_ids}",
         "#",
-        "# Per-state recognition hints (review and refine match_action):",
+        "# Per-state recognition hints (review and refine stage patterns if needed):",
         hints_str,
         "#",
-        "# TODO:",
-        f"#   1. 实现 _detect_{bid}_stage() 原子动作",
-        "#   2. 将下方 binding 注册到 engine/ui_state_native_bindings.py 的 _BINDINGS",
+        "# Generated detector uses the shared RPC stage matcher with distilled markers.",
+        "# Review marker stability, then register the binding in engine/ui_state_native_bindings.py.",
         "# =================================================================",
         "",
+        "from engine.actions import state_actions",
         "from engine.ui_state_native_bindings import NativeStateBinding",
         "from engine.models.runtime import ActionResult, ExecutionContext",
         "",
         f"_{bid_upper}_STATE_IDS = ({state_tuple}, \"unknown\")",
+        "",
+        f"_{bid_upper}_STAGE_PATTERNS = {state_patterns_literal}",
+        "",
+        f"_{bid_upper}_STAGE_ORDER = ({state_order_literal},)",
         "",
         f"def _normalize_{bid}_state(state_id: str) -> str:",
         f"    return state_id if state_id in _{bid_upper}_STATE_IDS else \"unknown\"",
@@ -175,9 +222,11 @@ def generate_code(binding_id: str, app_package: str, steps: list[dict]) -> str:
         "    params: dict,",
         "    context: ExecutionContext,",
         ") -> ActionResult:",
-        "    # TODO: 根据 resource-ids / texts 识别当前界面状态",
-        "    # 参考 engine/actions/state_actions.py 中的 detect_login_stage",
-        f"    raise NotImplementedError(\"implement _detect_{bid}_stage\")",
+        "    merged_params = dict(params)",
+        f"    merged_params.setdefault(\"package\", \"{app_package}\")",
+        f"    merged_params[\"stage_patterns\"] = _{bid_upper}_STAGE_PATTERNS",
+        f"    merged_params[\"stage_order\"] = list(_{bid_upper}_STAGE_ORDER)",
+        "    return state_actions.detect_login_stage(merged_params, context)",
         "",
         f"{binding_var} = NativeStateBinding(",
         f"    binding_id=\"{bid}\",",
@@ -191,8 +240,8 @@ def generate_code(binding_id: str, app_package: str, steps: list[dict]) -> str:
         f"    match_action=_detect_{bid}_stage,",
         ")",
         "",
-        f"# 注册到 _BINDINGS (在 engine/ui_state_native_bindings.py 末尾添加):",
-        f"# _BINDINGS[\"{bid}\"] = {binding_var}",
+        "# Registration snippet for engine/ui_state_native_bindings.py:",
+        f"# {binding_var}.binding_id: {binding_var},",
     ]
     return "\n".join(lines) + "\n"
 

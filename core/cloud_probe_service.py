@@ -63,8 +63,8 @@ class CloudProbeService:
         self._probe_thread = None
 
     def _probe_loop(self) -> None:
-        from .device_manager import get_device_manager
-        manager = get_device_manager()
+        from .device_manager import get_device_manager, DeviceManager
+        manager: DeviceManager = get_device_manager()
         
         while not self._probe_stop_event.is_set():
             started = time.monotonic()
@@ -103,15 +103,31 @@ class CloudProbeService:
                 executor.submit(self.query_cloud_model_map, ip, refresh_if_missing=True)
 
         # 3. 驱动 DeviceManager 刷新快照
-        if hasattr(manager, "_refresh_device_snapshots"):
-            manager._refresh_device_snapshots()
+        try:
+            refresh_device_snapshots = getattr(manager, "refresh_device_snapshots", None)
+            if callable(refresh_device_snapshots):
+                refresh_device_snapshots()
+            else:
+                legacy_refresh = getattr(manager, "_refresh_device_snapshots", None)
+                if callable(legacy_refresh):
+                    legacy_refresh()
+        except Exception:
+            pass
 
     def _probe_target(self, target: tuple[int, int, str, int], manager: Any) -> None:
         device_id, cloud_id, device_ip, rpa_port = target
         ok, latency_ms, reason = self._probe_rpa_port(device_ip, rpa_port)
         # 将结果写回 manager
-        if hasattr(manager, "_update_probe_cache"):
-            manager._update_probe_cache(device_id, cloud_id, ok, latency_ms, reason)
+        try:
+            update_cloud_probe = getattr(manager, "update_cloud_probe", None)
+            if callable(update_cloud_probe):
+                update_cloud_probe(device_id, cloud_id, ok, latency_ms, reason)
+            else:
+                legacy_update = getattr(manager, "_update_probe_cache", None)
+                if callable(legacy_update):
+                    legacy_update(device_id, cloud_id, ok, latency_ms, reason)
+        except Exception:
+            pass
 
     def _probe_rpa_port(self, device_ip: str, rpa_port: int) -> tuple[bool, Optional[int], str]:
         started = time.monotonic()

@@ -6,6 +6,7 @@ display_name: "盒子 SDK 探测"
 category: "设备诊断"
 description: "Read-only probe for core heziSDKAPI endpoints through sdk.* atomic actions"
 entry_script: script.yaml
+distill_threshold: 3
 expected_output:
   sdk_status: "object (containing device_info, network_state, and service_availability)"
   latency_ms: "integer"

@@ -137,6 +137,17 @@ class TaskEventStore(BaseStore):
             for row in rows
         ]
 
+    def max_event_id(self) -> int:
+        """Returns the latest event_id currently in the store (or 0 if empty)."""
+        with self._connect() as conn:
+            row = conn.execute("SELECT MAX(event_id) AS max_id FROM task_events").fetchone()
+        if not row:
+            return 0
+        try:
+            return int(row["max_id"] or 0)
+        except Exception:
+            return 0
+
     def count_by_type(self, since: str | None = None) -> dict[str, int]:
         with self._connect() as conn:
             if since is None:

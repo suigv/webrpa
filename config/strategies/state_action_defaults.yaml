@@ -1,0 +1,19 @@
+# Default values for state-related actions in `engine/actions/state_actions.py`.
+#
+# Notes:
+# - Framework code must not hardcode app/locale-specific UI keywords.
+# - These defaults can be overridden at runtime via action params or session defaults.
+
+dm_separator_tokens:
+  - ": "
+  - "："
+
+follow_texts:
+  - follow
+  - フォローする
+  - 关注
+  - 關注
+
+unread_markers:
+  - 未読
+  - unread

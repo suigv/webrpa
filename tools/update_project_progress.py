@@ -1,7 +1,20 @@
 from __future__ import annotations
 
+import importlib.util
 import re
 from pathlib import Path
+
+
+if __package__:
+    from tools._bootstrap import bootstrap_project_root
+else:
+    bootstrap_path = Path(__file__).with_name("_bootstrap.py")
+    spec = importlib.util.spec_from_file_location("tools._bootstrap", bootstrap_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"cannot load bootstrap helper: {bootstrap_path}")
+    bootstrap_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(bootstrap_module)
+    bootstrap_project_root = bootstrap_module.bootstrap_project_root
 
 
 SNAPSHOT_START = "<!-- AUTO_PROGRESS_SNAPSHOT:START -->"
@@ -73,7 +86,7 @@ def _render_snapshot(root: Path) -> str:
 
 
 def main() -> None:
-    project_root = Path(__file__).resolve().parents[1]
+    project_root = bootstrap_project_root()
     progress_file = project_root / "docs" / "project_progress.md"
 
     if not progress_file.exists():

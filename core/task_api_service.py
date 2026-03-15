@@ -23,7 +23,7 @@ async def stop_device_tasks(device_id: int) -> tuple[int, list[str]]:
     controller = get_task_controller()
     
     def _do_stop():
-        task_ids = controller._store.get_running_tasks_by_device(device_id)
+        task_ids = controller.list_running_task_ids_by_device(device_id)
         cancelled_count = 0
         for tid in task_ids:
             state = controller.cancel_state(tid)

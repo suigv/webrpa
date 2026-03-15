@@ -7,6 +7,7 @@ from typing import Dict, Optional
 
 from engine.models.manifest import PluginManifest
 from engine.parser import parse_manifest
+from core.paths import plugins_dir
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +32,7 @@ class PluginLoader:
 
     def __init__(self, plugins_root: Optional[Path] = None) -> None:
         if plugins_root is None:
-            plugins_root = Path(__file__).resolve().parents[1] / "plugins"
+            plugins_root = plugins_dir()
         self._root = plugins_root
         self._plugins: Dict[str, PluginEntry] = {}
 
@@ -77,7 +78,7 @@ class PluginLoader:
 
 
 def _default_plugins_root() -> Path:
-    return Path(__file__).resolve().parents[1] / "plugins"
+    return plugins_dir()
 
 
 def _resolved_plugins_root(plugins_root: Optional[Path] = None) -> Path:

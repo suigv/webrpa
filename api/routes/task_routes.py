@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException, Query, Response
@@ -18,6 +19,32 @@ from models.task import TaskDetailResponse, TaskMetricsResponse, TaskRequest, Ta
 
 
 router = APIRouter()
+
+_PLUGIN_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
+
+
+def _validate_plugin_name(name: str) -> str:
+    raw = str(name or "").strip()
+    if not raw:
+        raise HTTPException(status_code=400, detail="plugin_name is required")
+    if "/" in raw or "\\" in raw or ".." in raw:
+        raise HTTPException(status_code=400, detail="invalid plugin_name")
+    if _PLUGIN_NAME_RE.fullmatch(raw) is None:
+        raise HTTPException(status_code=400, detail="invalid plugin_name")
+    return raw
+
+
+def _distill_threshold_for(task_name: str) -> int:
+    from engine.plugin_loader import get_shared_plugin_loader
+
+    loader = get_shared_plugin_loader()
+    entry = loader.get(task_name)
+    if entry is None:
+        return 3
+    try:
+        return int(entry.manifest.distill_threshold)
+    except Exception:
+        return 3
 
 
 @router.post("/", response_model=TaskResponse)
@@ -105,24 +132,15 @@ def list_prompt_templates():
     return {"templates": get_prompt_templates()}
 
 
-# 蒸馏门槛定义（与 docs/STATUS.md 保持一致）
-_DISTILL_THRESHOLDS: dict[str, int] = {
-    "device_reboot": 3,
-    "device_soft_reset": 3,
-    "hezi_sdk_probe": 3,
-    "mytos_device_setup": 3,
-}
-
-
 @router.get("/metrics/plugins")
 async def plugin_success_metrics():
     controller = get_task_controller()
-    rows = await run_sync(controller._store.plugin_success_counts)
+    rows = await run_sync(controller.plugin_success_counts)
     result = []
     for r in rows:
         name = str(r["task_name"])
         completed = int(r["completed"])
-        threshold = _DISTILL_THRESHOLDS.get(name, 3)
+        threshold = _distill_threshold_for(name)
         result.append({
             **r,
             "distill_threshold": threshold,
@@ -137,12 +155,19 @@ async def distill_plugin(plugin_name: str, force: bool = False):
     """触发指定插件的多轮蒸馏，生成 YAML 插件草稿。"""
     import subprocess
     import sys
-    from pathlib import Path
+    from core.paths import project_root
+    from engine.plugin_loader import get_shared_plugin_loader
+
+    plugin_name = _validate_plugin_name(plugin_name)
+    loader = get_shared_plugin_loader(refresh=True)
+    entry = loader.get(plugin_name)
+    if entry is None:
+        raise HTTPException(status_code=404, detail=f"plugin not found: {plugin_name}")
     controller = get_task_controller()
-    rows = await run_sync(controller._store.plugin_success_counts)
+    rows = await run_sync(controller.plugin_success_counts)
     stat = next((r for r in rows if r["task_name"] == plugin_name), None)
     completed = int(stat["completed"]) if stat else 0
-    threshold = _DISTILL_THRESHOLDS.get(plugin_name, 3)
+    threshold = int(entry.manifest.distill_threshold or 3)
 
     if not force and completed < threshold:
         return {
@@ -153,8 +178,12 @@ async def distill_plugin(plugin_name: str, force: bool = False):
             "threshold": threshold,
         }
 
-    script = Path(__file__).resolve().parents[2] / "tools" / "distill_multi_run.py"
-    output_dir = Path(__file__).resolve().parents[2] / "plugins" / f"{plugin_name}_distilled"
+    repo_root = project_root()
+    script = repo_root / "tools" / "distill_multi_run.py"
+    plugins_root = (repo_root / "plugins").resolve()
+    output_dir = (plugins_root / f"{plugin_name}_distilled").resolve()
+    if plugins_root not in output_dir.parents:
+        raise HTTPException(status_code=400, detail="invalid output_dir")
     cmd = [sys.executable, str(script), "--plugin", plugin_name, "--output-dir", str(output_dir)]
     if force:
         cmd.append("--force")
