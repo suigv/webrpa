@@ -151,13 +151,53 @@ def _to_int(value: Any, default: int = 0) -> int:
         return default
 
 
+def _resolve_coords(params: Dict[str, Any], context: ExecutionContext, keys: list[str], rpc: MytRpc | None = None) -> Dict[str, int]:
+    """解析坐标，支持绝对像素 (x, y) 和归一化坐标 (nx, ny)。"""
+    resolved = {}
+    
+    # 尝试获取物理分辨率 (带 context 级短效缓存)
+    pw = context.physical_width
+    ph = context.physical_height
+    
+    if (pw is None or ph is None):
+        device_id = context.device_id
+        if device_id > 0:
+            # 优先从 RPC 现场发现（以处理云机分辨率覆盖）
+            if rpc:
+                pw, ph = _discover_physical_resolution(rpc, device_id)
+            
+            # 回退到设备管理器缓存
+            if (pw is None or ph is None):
+                res = get_device_manager().get_device_resolution(device_id)
+                if res:
+                    pw, ph = res
+            
+            if pw and ph:
+                context.physical_width = pw
+                context.physical_height = ph
+    
+    for k in keys:
+        nk = f"n{k}"
+        if nk in params and pw and ph:
+            # 使用归一化坐标转换
+            val = float(params[nk])
+            if k.startswith('x'):
+                resolved[k] = int(val * float(pw) / 1000.0)
+            else:
+                resolved[k] = int(val * float(ph) / 1000.0)
+        else:
+            # 回退到绝对像素
+            resolved[k] = int(params.get(k, 0))
+    return resolved
+
+
 def click(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
     rpc, err = _get_rpc(params, context)
     if err:
         return err
     try:
-        x = int(params.get("x", 0))
-        y = int(params.get("y", 0))
+        coords = _resolve_coords(params, context, ["x", "y"], rpc=rpc)
+        x, y = coords["x"], coords["y"]
         finger_id = int(params.get("finger_id", 0))
         helper = context.humanized
 
@@ -204,8 +244,8 @@ def touch_down(params: Dict[str, Any], context: ExecutionContext) -> ActionResul
     if err:
         return err
     try:
-        x = int(params.get("x", 0))
-        y = int(params.get("y", 0))
+        coords = _resolve_coords(params, context, ["x", "y"], rpc=rpc)
+        x, y = coords["x"], coords["y"]
         finger_id = int(params.get("finger_id", 0))
         ok = rpc.touchDown(finger_id, x, y) if rpc is not None else False
         return ActionResult(ok=ok, code="ok" if ok else "touch_down_failed", data={"x": x, "y": y, "finger_id": finger_id})
@@ -218,8 +258,8 @@ def touch_up(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
     if err:
         return err
     try:
-        x = int(params.get("x", 0))
-        y = int(params.get("y", 0))
+        coords = _resolve_coords(params, context, ["x", "y"], rpc=rpc)
+        x, y = coords["x"], coords["y"]
         finger_id = int(params.get("finger_id", 0))
         ok = rpc.touchUp(finger_id, x, y) if rpc is not None else False
         return ActionResult(ok=ok, code="ok" if ok else "touch_up_failed", data={"x": x, "y": y, "finger_id": finger_id})
@@ -232,8 +272,8 @@ def touch_move(params: Dict[str, Any], context: ExecutionContext) -> ActionResul
     if err:
         return err
     try:
-        x = int(params.get("x", 0))
-        y = int(params.get("y", 0))
+        coords = _resolve_coords(params, context, ["x", "y"], rpc=rpc)
+        x, y = coords["x"], coords["y"]
         finger_id = int(params.get("finger_id", 0))
         ok = rpc.touchMove(finger_id, x, y) if rpc is not None else False
         return ActionResult(ok=ok, code="ok" if ok else "touch_move_failed", data={"x": x, "y": y, "finger_id": finger_id})
@@ -247,10 +287,8 @@ def swipe(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
         return err
     try:
         finger_id = int(params.get("finger_id", 0))
-        x0 = int(params.get("x0", 0))
-        y0 = int(params.get("y0", 0))
-        x1 = int(params.get("x1", 0))
-        y1 = int(params.get("y1", 0))
+        coords = _resolve_coords(params, context, ["x0", "y0", "x1", "y1"], rpc=rpc)
+        x0, y0, x1, y1 = coords["x0"], coords["y0"], coords["x1"], coords["y1"]
         duration = int(params.get("duration", 300))
         raw_result = rpc.swipe(finger_id, x0, y0, x1, y1, duration) if rpc is not None else False
         assumed_ok = False
@@ -290,8 +328,8 @@ def long_click(params: Dict[str, Any], context: ExecutionContext) -> ActionResul
     if err:
         return err
     try:
-        x = int(params.get("x", 0))
-        y = int(params.get("y", 0))
+        coords = _resolve_coords(params, context, ["x", "y"], rpc=rpc)
+        x, y = coords["x"], coords["y"]
         finger_id = int(params.get("finger_id", 0))
         duration = float(params.get("duration", 0.5))
         ok = rpc.longClick(finger_id, x, y, duration) if rpc is not None else False
@@ -403,6 +441,8 @@ def app_ensure_running(params: Dict[str, Any], context: ExecutionContext) -> Act
         if err.code == "rpc_disabled":
             return ActionResult(ok=True, code="ok", data={"package": package, "skipped": "rpc_disabled"})
         return err
+    if rpc is None:
+        return ActionResult(ok=False, code="no_rpc", message="RPC not available")
     try:
         verify_timeout = float(params.get("verify_timeout", 3.0))
         verify_interval = float(params.get("verify_interval", 0.5))
@@ -552,11 +592,15 @@ def capture_compressed(params: Dict[str, Any], context: ExecutionContext) -> Act
 
         if payload is None:
             return ActionResult(ok=False, code="capture_failed", message="compressed capture failed")
+        if not isinstance(payload, (bytes, bytearray)):
+            return ActionResult(ok=False, code="capture_failed", message="invalid capture payload type")
+        
+        payload_bytes: bytes = bytes(payload)
 
         if save_path:
             try:
                 with open(save_path, "wb") as file_obj:
-                    file_obj.write(payload)
+                    file_obj.write(payload_bytes)
             except Exception as exc:
                 return ActionResult(ok=False, code="save_failed", message=str(exc))
 
@@ -564,18 +608,19 @@ def capture_compressed(params: Dict[str, Any], context: ExecutionContext) -> Act
         screen_width: int | None = None
         screen_height: int | None = None
         try:
-            if len(payload) >= 24 and payload[:8] == b'\x89PNG\r\n\x1a\n':
-                screen_width = int.from_bytes(payload[16:20], "big")
-                screen_height = int.from_bytes(payload[20:24], "big")
-            elif len(payload) >= 4 and payload[:2] == b'\xff\xd8':
+            if len(payload_bytes) >= 24 and payload_bytes[:8] == b'\x89PNG\r\n\x1a\n':
+                screen_width = int.from_bytes(payload_bytes[16:20], "big")
+                screen_height = int.from_bytes(payload_bytes[20:24], "big")
+            elif len(payload_bytes) >= 4 and payload_bytes[:2] == b'\xff\xd8':
                 i = 2
-                while i < len(payload) - 8:
-                    if payload[i] == 0xff and payload[i+1] in (0xc0, 0xc2):
-                        screen_height = int.from_bytes(payload[i+5:i+7], "big")
-                        screen_width = int.from_bytes(payload[i+7:i+9], "big")
+                while i < len(payload_bytes) - 8:
+                    if payload_bytes[i] == 0xff and payload_bytes[i+1] in (0xc0, 0xc2):
+                        screen_height = int.from_bytes(payload_bytes[i+5:i+7], "big")
+                        screen_width = int.from_bytes(payload_bytes[i+7:i+9], "big")
                         break
-                    length = int.from_bytes(payload[i+2:i+4], "big")
-                    i += 2 + length
+                    length = int.from_bytes(payload_bytes[i+2:i+4], "big")
+                    increment: int = 2 + int(length)
+                    i += increment
         except Exception:
             pass
 
@@ -875,13 +920,81 @@ def selector_exec_one(params: Dict[str, Any], context: ExecutionContext) -> Acti
 
 
 def selector_click_one(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
-    return _selector_support.selector_click_one(
-        params,
-        context,
-        get_rpc=_get_rpc,
-        close_rpc=_close_rpc,
-        selector_cls=MytSelector,
-    )
+    rpc, err = _get_rpc(params, context)
+    if err:
+        return err
+    if rpc is None:
+        return ActionResult(ok=False, code="no_rpc", message="RPC not available")
+    selector = MytSelector(rpc=rpc)
+    
+    click_params: Dict[str, Any] = dict(params)
+    node_text: str = ""
+    node_class: str = ""
+    bounds: Dict[str, int] = {}
+    
+    try:
+        query_type = str(params.get("type") or "").strip().lower()
+        if not query_type:
+            return ActionResult(ok=False, code="invalid_params", message="type is required")
+            
+        ok, error_code, error_message = _apply_selector_query(selector, params)
+        if not ok:
+            return ActionResult(ok=False, code=str(error_code), message=str(error_message))
+            
+        result = selector.execQueryOne()
+        if not result.ok or not result.data:
+            return ActionResult(ok=False, code="not_found", message="selector query failed")
+            
+        node = result.data.get("node")
+        if node is None:
+            return ActionResult(ok=False, code="not_found", message="selector query returned no node")
+            
+        rpc_node = RpcNode(node, rpc=rpc)
+        bounds = rpc_node.get_node_bound()
+        node_text = rpc_node.get_node_text()
+        node_class = rpc_node.get_node_class()
+        
+        bw = bounds.get("right", 0) - bounds.get("left", 0)
+        bh = bounds.get("bottom", 0) - bounds.get("top", 0)
+        
+        align = str(params.get("align", "")).strip().lower()
+        nx: float = 0.5
+        ny: float = 0.5
+        
+        if align == "top_left": nx, ny = 0.1, 0.1
+        elif align == "top_right": nx, ny = 0.9, 0.1
+        elif align == "bottom_left": nx, ny = 0.1, 0.9
+        elif align == "bottom_right": nx, ny = 0.9, 0.9
+        elif align == "right": nx, ny = 0.9, 0.5
+        elif align == "left": nx, ny = 0.1, 0.5
+        elif align == "top": nx, ny = 0.5, 0.1
+        elif align == "bottom": nx, ny = 0.5, 0.9
+        else:
+            nx = float(params.get("node_nx", 500)) / 1000.0
+            ny = float(params.get("node_ny", 500)) / 1000.0
+
+        click_params["x"] = bounds.get("left", 0) + int(bw * nx)
+        click_params["y"] = bounds.get("top", 0) + int(bh * ny)
+        
+        for key in ["nx", "ny", "align", "node_nx", "node_ny", "type", "mode", "value", "desc", "id", "class_name"]:
+            click_params.pop(key, None)
+            
+    finally:
+        try:
+            if hasattr(selector, "clear_selector"):
+                selector.clear_selector()
+            if hasattr(selector, "free_selector"):
+                selector.free_selector()
+        except Exception:
+            pass
+        _close_rpc(rpc)
+        
+    res = click(click_params, context)
+    if res.ok and res.data:
+        res.data["node_text"] = node_text
+        res.data["node_class"] = node_class
+        res.data["node_bounds"] = bounds
+    return res
 
 
 def selector_click_with_fallback(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:

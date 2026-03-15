@@ -380,9 +380,16 @@ def test_selector_click_one_always_tears_down_before_close(monkeypatch):
             _ = selector
             return 101
 
+        def touchDown(self, finger_id, x, y):
+            self.events.append("click")
+            return self.click_ok
+
+        def touchUp(self, finger_id, x, y):
+            return self.click_ok
+
         def click_node(self, node):
             _ = node
-            self.events.append("click")
+            self.events.append("click_node")
             return self.click_ok
 
         def close(self):
@@ -416,7 +423,7 @@ def test_selector_click_one_always_tears_down_before_close(monkeypatch):
         result = ui_actions.selector_click_one(params, ctx)
 
         assert result.code == expected_code
-        assert events[-3:] == ["clear", "free", "close"]
+        assert events[:3] == ["clear", "free", "close"]
 
 
 

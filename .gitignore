@@ -23,9 +23,9 @@ logs/
 *.log
 
 # Runtime data
-config/data/*.db
-config/data/*.backup
-config/data/.migration_shared.json.lock
+# Keep runtime data out of git. The application will (re)create these at runtime.
+config/data/**
+!config/data/.gitkeep
 
 # OS
 .DS_Store
