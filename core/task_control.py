@@ -18,11 +18,31 @@ from core.task_runtime import (
     TaskTargetRuntimeResolver,
     normalize_dispatch_targets,
 )
+from core.paths import traces_dir
 from core.task_store import TaskRecord, TaskStore
 from engine.plugin_loader import get_shared_plugin_loader
 from engine.runner import Runner
 
 logger = logging.getLogger(__name__)
+
+
+def _remove_task_traces(task_id: str):
+    """Cleanup physical trace files from disk."""
+    try:
+        t_dir = traces_dir()
+        # JSONL trace
+        trace_file = t_dir / f"{task_id}.jsonl"
+        if trace_file.exists():
+            trace_file.unlink()
+        
+        # Screenshot directory (if any)
+        screenshots = t_dir / task_id
+        if screenshots.exists() and screenshots.is_dir():
+            import shutil
+            shutil.rmtree(screenshots)
+    except Exception as exc:
+        logger.warning(f"Failed to cleanup traces for task {task_id}: {exc}")
+
 
 def _dedupe_ints(values: list[int]) -> list[int]:
     seen: set[int] = set()
@@ -228,6 +248,14 @@ class TaskController:
         # 强制级连清理
         self._store.clear_all_tasks(require_no_running=True)
         self._events.clear_all_events()
+
+    def cleanup_failed_tasks(self) -> int:
+        """清理所有已停止但未成功的任务 (failed, cancelled)，返回被清理的数量。"""
+        task_ids = self._store.clear_failed_tasks()
+        for tid in task_ids:
+            _remove_task_traces(tid)
+            self._events.clear_task_events(tid)
+        return len(task_ids)
 
     def list_running_task_ids_by_device(self, device_id: int) -> list[str]:
         return self._store.get_running_tasks_by_device(device_id)

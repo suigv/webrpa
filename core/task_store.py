@@ -463,6 +463,18 @@ class TaskStore(BaseStore):
                 raise ManagedTaskStateClearBlocked("cannot clear managed task state while tasks are running")
             tx_conn.execute("DELETE FROM tasks")
 
+    def clear_failed_tasks(self, conn: sqlite3.Connection | None = None) -> list[str]:
+        """清理所有已停止但未成功的任务（failed, cancelled），返回被清理的任务 ID 列表。"""
+        with self._tx(conn) as tx_conn:
+            rows = tx_conn.execute(
+                "SELECT task_id FROM tasks WHERE status IN ('failed', 'cancelled')"
+            ).fetchall()
+            task_ids = [row["task_id"] for row in rows]
+            if task_ids:
+                placeholders = ",".join(["?"] * len(task_ids))
+                tx_conn.execute(f"DELETE FROM tasks WHERE task_id IN ({placeholders})", task_ids)
+            return task_ids
+
     def list_pending_tasks(self) -> list[TaskRecord]:
         with self._connect() as conn:
             rows = conn.execute(

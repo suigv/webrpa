@@ -164,3 +164,7 @@ class TaskEventStore(BaseStore):
     def clear_all_events(self, conn: sqlite3.Connection | None = None) -> None:
         with self._tx(conn) as tx_conn:
             tx_conn.execute("DELETE FROM task_events")
+
+    def clear_task_events(self, task_id: str, conn: sqlite3.Connection | None = None) -> None:
+        with self._tx(conn) as tx_conn:
+            tx_conn.execute("DELETE FROM task_events WHERE task_id = ?", (task_id,))

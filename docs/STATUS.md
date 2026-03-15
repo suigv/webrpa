@@ -21,13 +21,15 @@ This document provides a concise "done vs not-done" view tied to the goal and ro
 - **文本化文档对齐 (2026-03-13)**：完成全量 `docs/` 内容审计，确立了多云机动态端口公式，修复了 SDK/API 文档的陈旧代码引用。
 - **Skills 演进战略确立**：发布了 `docs/SKILLS_EVOLUTION.md`，识别出 ActionRegistry、Variable Scoping、Error Hooks 等核心架构优化点。
 - **AI 观察自愈能力**：针对 X App 复杂界面的 XML 4KB 截断问题实现了自愈式捕获。
-- **App 配置归一化**：移除了硬编码绑定，统一收敛至 `config/apps/*.yaml`，支持动态 App 发现。
+- **App 配置归一化与感知**：移除了硬编码绑定，统一收敛至 `config/apps/*.yaml`；实现了 **Runner 级应用感知注入**，支持根据 `app_id` 自动填充包名和选择器。
+- **运维功能增强 (2026-03-15)**：新增了 **“清理未成功轨迹”** API 与前端按钮，支持一键移除 `failed/cancelled` 任务记录及其物理文件。
+- **设备可用性提前熔断 (2026-03-15)**：云机 probe 离线状态已接入任务执行链路；活跃 target 连续探测失败后，任务会提前以 `failed_circuit_breaker` / `target_unavailable` 结束，而不是等 RPC 动作超时。
 - **场景模板服务化**：AI 提示词场景模板已下沉为 API 服务。
 
 ## Workflow Coverage (Ops Scope)
 Source of truth: current `plugins/` library (representative workflows).
 
-- Implemented (Unverified): `device_reboot`, `device_soft_reset`, `hezi_sdk_probe`, `mytos_device_setup`.
+- Implemented (Unverified): `device_reboot`, `device_soft_reset` (软件复位), `hezi_sdk_probe`, `mytos_device_setup`.
 
 ## Distillation Thresholds (Current Plugins)
 Complexity is defined by branching or step count > 10. Successes are cumulative.

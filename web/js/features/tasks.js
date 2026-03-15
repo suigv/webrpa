@@ -50,11 +50,13 @@ export function initTasks() {
     const submitBtn = $('submitTask');
     const refreshBtn = $('refreshTasks');
     const clearBtn = $('clearTasks');
+    const cleanupFailedBtn = $('cleanupFailedTasks');
     const stopAllBtn = $('stopAllTasks');
 
     if (submitBtn) submitBtn.onclick = submitTask;
     if (refreshBtn) refreshBtn.onclick = loadTasks;
     if (clearBtn) clearBtn.onclick = clearAllTasks;
+    if (cleanupFailedBtn) cleanupFailedBtn.onclick = cleanupFailedTasks;
     if (stopAllBtn) stopAllBtn.onclick = stopAllTasks;
 
     const refreshTargetsBtn = $('refreshTaskTargets');
@@ -287,6 +289,21 @@ async function clearAllTasks() {
             return;
         }
         toast.error(r.data?.detail || '清理任务历史失败');
+    } finally { if (btn) btn.disabled = false; }
+}
+
+async function cleanupFailedTasks() {
+    if (!confirm('确定要清理所有未成功的任务轨迹与记录吗？')) return;
+    const btn = $('cleanupFailedTasks');
+    if (btn) btn.disabled = true;
+    try {
+        const r = await fetchJson('/api/tasks/cleanup_failed', { method: 'DELETE', silentErrors: true });
+        if (r.ok) {
+            toast.success(`已清理 ${r.data.count} 条无效任务`);
+            await loadTasks();
+            return;
+        }
+        toast.error(r.data?.detail || '清理无效任务失败');
     } finally { if (btn) btn.disabled = false; }
 }
 

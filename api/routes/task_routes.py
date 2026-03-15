@@ -85,6 +85,14 @@ async def list_tasks(limit: int = Query(default=100, ge=1, le=500)):
     return [to_task_response(item) for item in records]
 
 
+@router.delete("/cleanup_failed")
+async def cleanup_failed_tasks():
+    """清理所有已停止但未成功的任务轨迹与记录。"""
+    controller = get_task_controller()
+    count = await run_sync(controller.cleanup_failed_tasks)
+    return {"status": "ok", "count": count, "message": f"Successfully cleaned up {count} failed tasks"}
+
+
 @router.delete("/")
 async def clear_tasks():
     controller = get_task_controller()
