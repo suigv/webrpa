@@ -26,11 +26,11 @@
 ## 🟡 持续观测项
 - [ ] 随着设备数突破 1000 台，需评估 `ThreadPoolExecutor` 的线程池饱和度。
 - [x] `navigation_actions.py` 通用化：移除业务残留，改为 routes/hops 驱动。
-- [ ] **GPTExecutor 直接调用 ActionRegistry（解耦缺失）**：`agent_executor.py:403` 直接调用 `self._registry.resolve(action_name)(action_params, context)`，绕过 Interpreter 统一生命周期。若未来需要全局限流、统一审计或动作拦截，需同时改两处。改进方向：抽象 `ActionDispatcher` 统一分发入口。低优先级。
-- [ ] **Interpreter wait_until 阻塞式轮询**：`interpreter.py:251` 使用 `time.sleep(min(interval_s, 1.0))`，最大 1s 盲等。即使设备状态已就绪也无法即时唤醒。改进方向：引入 `anyio.Event` 通知机制，需整个执行栈异步化，改动量大。低优先级。
-- [ ] **设备快照缓存无 TTL**：`DeviceManager.get_devices_snapshot()` 返回内存快照，若 `CloudProbeService` 停止运行或异常，快照可能长期过期。改进方向：加 TTL 判断，超过阈值时强制刷新或标记数据陈旧。低优先级。
+- [x] **ActionRegistry 调用点分散（需统一分发入口）**：历史上 `AgentExecutor/Interpreter` 存在 `registry.resolve(...)(...)` 的重复直呼，导致后续要加全局限流/审计/拦截需要改多处。现已引入 `engine/action_dispatcher.py:dispatch_action()` 统一动作分发入口（两条执行链路已收敛）。
+- [x] **Interpreter wait_until 阻塞式轮询（已修复）**：wait_until 现采用 `wait_signal` + 背景轮询线程（`WAIT_UNTIL_POLL_MAX_S`/`WAIT_UNTIL_CANCEL_CHECK_S`），并在 Service wait 路径做了分片超时以确保取消响应，不再是 `time.sleep(1s)` 盲等。
+- [x] **设备快照缓存无 TTL（已修复）**：`DeviceManager.get_devices_snapshot()` 现引入 TTL（环境变量 `MYT_DEVICE_SNAPSHOT_TTL_SECONDS`，默认 2s），过期自动重建快照，避免 probe worker 异常时 UI 长期显示陈旧数据。
 - [x] **任务队列 Aging 机制**：已实现，默认每等待 120s 提升 10 点优先级，可通过 `MYT_QUEUE_AGING_INTERVAL` / `MYT_QUEUE_AGING_BOOST` 环境变量调整（仅 InMemoryQueue）。
-- [ ] **CloudProbeService → DeviceManager 耦合脆弱**：通过 `hasattr` 调用私有方法 `_update_probe_cache` / `_refresh_device_snapshots`，无正式接口契约。修复方向：定义 `DeviceProbeReceiver` Protocol。低优先级。
+- [x] **CloudProbeService → DeviceManager 耦合脆弱（已修复）**：移除 `hasattr`/私有方法兜底调用，统一使用 `DeviceManager.update_cloud_probe()` 与 `DeviceManager.refresh_device_snapshots()` 公共接口。
 - [ ] **设备状态伪实时**：`CloudProbeService` 后台探测结果写入 `DeviceManager` 快照，但任务执行时 RPC 超时才能感知设备离线，无法提前熔断。改进方向：发布-订阅模式，探测状态变动即时推送给活跃 `ExecutionContext`。改动量大，低优先级。
 - [x] **ConfigLoader 类型冗余**：已修复。`ConfigLoader.load()` 现在直接返回 `ConfigStore` 强类型对象，访问器全部改为直接读取属性，`_to_int`/`_to_bool` 防御性转换已从访问器层移除。
 

@@ -32,6 +32,12 @@ class _ProbeManager:
     def _refresh_device_snapshots(self) -> None:
         self.refresh_called = True
 
+    def update_cloud_probe(self, device_id: int, cloud_id: int, ok: bool, latency_ms: int | None, reason: str) -> None:
+        self._update_probe_cache(device_id, cloud_id, ok, latency_ms, reason)
+
+    def refresh_device_snapshots(self) -> None:
+        self._refresh_device_snapshots()
+
 
 def _reset_manager_state(manager: DeviceManager) -> None:
     with manager._probe_lock:

@@ -21,6 +21,7 @@ from core.app_config import AppConfigManager
 from core.model_trace_store import ModelTraceContext, ModelTraceStore
 from core.paths import traces_dir
 from engine.action_registry import ActionRegistry, get_registry
+from engine.action_dispatcher import dispatch_action
 from engine.models.runtime import ExecutionContext
 from engine.planners import BasePlanner, PlannerInput, PlannerOutput, resolve_planner
 
@@ -425,7 +426,7 @@ class AgentExecutorRuntime:
                     "params": action_params,
                     "message": str(plan.get("message") or ""),
                 })
-            action_result = self._registry.resolve(action_name)(action_params, context)
+            action_result = dispatch_action(action_name, action_params, context, registry=self._registry)
             action_result_payload = action_result.model_dump(mode="python")
             if context.emit_event:
                 context.emit_event("task.action_result", {
@@ -1279,7 +1280,7 @@ class AgentExecutorRuntime:
         if not self._registry.has(action_name):
             return {}
         try:
-            result = self._registry.resolve(action_name)(params, context)
+            result = dispatch_action(action_name, params, context, registry=self._registry)
         except Exception as exc:
             return {"action": action_name, "ok": False, "code": "fallback_capture_failed", "message": str(exc)}
         payload = result.model_dump(mode="python")

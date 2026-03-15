@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional
 
 from engine.action_registry import get_registry, register_defaults
+from engine.action_dispatcher import dispatch_action
 from engine.conditions import browser_condition_state_id, evaluate as eval_condition
 from engine.models.manifest import PluginInput
 from engine.models.runtime import ActionResult, ExecutionCancelled, ExecutionContext
@@ -172,9 +173,8 @@ class Interpreter:
         interp_ctx = {"payload": context.payload, "vars": context.vars}
         params = interpolate_params(step.params, interp_ctx)
 
-        handler = registry.resolve(step.action)
         result = self._run_with_on_fail(
-            lambda: handler(params, context),
+            lambda: dispatch_action(step.action, params, context, registry=registry),
             step.on_fail,
             context,
             label_map,

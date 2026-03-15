@@ -1,4 +1,5 @@
 import logging
+import os
 import threading
 import time
 from datetime import datetime
@@ -55,8 +56,18 @@ class DeviceManager:
             self._device_snapshot_lock = threading.Lock()
             self._device_snapshot_cache: dict[str, list[dict[str, Any]]] = {}
             self._device_snapshot_at: dict[str, float] = {}
+            self._device_snapshot_ttl_seconds = self._load_snapshot_ttl_seconds()
             self._resolution_cache: Dict[int, tuple[int, int]] = {}
             self._initialized = True
+
+    @staticmethod
+    def _load_snapshot_ttl_seconds() -> float:
+        raw = os.environ.get("MYT_DEVICE_SNAPSHOT_TTL_SECONDS", "2").strip()
+        try:
+            parsed = float(raw)
+        except ValueError:
+            parsed = 2.0
+        return max(0.0, parsed)
 
     def _resolve_device_endpoints(self) -> list[tuple[int, str]]:
         endpoints: list[tuple[int, str]] = []
@@ -239,9 +250,11 @@ class DeviceManager:
             self._device_snapshot_at["available_only"] = now
 
     def get_devices_snapshot(self, availability: Literal["all", "available_only"] = "all") -> list[dict[str, Any]]:
+        ttl = self._device_snapshot_ttl_seconds
         with self._device_snapshot_lock:
             cached = list(self._device_snapshot_cache.get(availability, []))
-        if cached:
+            cached_at = float(self._device_snapshot_at.get(availability, 0.0) or 0.0)
+        if cached and ttl > 0 and (time.time() - cached_at) <= ttl:
             return cached
         snapshot = self._build_devices_snapshot(availability)
         with self._device_snapshot_lock:
