@@ -203,6 +203,15 @@ curl http://127.0.0.1:8001/health
 
 - 浏览器访问：`http://127.0.0.1:8001/web`
 
+### 5) (可选) 桌面工作站启动器 (pywebview)
+
+仓库根目录的 `main.py` 提供一个桌面壳（内嵌浏览器 + 一键启动服务），适合本地运维/演示。
+
+```bash
+./.venv/bin/python -m pip install pywebview
+./.venv/bin/python main.py
+```
+
 ---
 
 ## 质量与验证
