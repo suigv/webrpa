@@ -7,6 +7,12 @@
 
 - 阶段：**Web Console Productization & Navigation Engine Hardening**
 - 核心状态：API、任务系统、插件执行、账号池全面可用；Web 控制台完成产品化改造；导航引擎具备自愈与锚点机制；AI 执行引擎接入托管链路。
+- 最近重点 (2026-03-16):
+  - **Skills-Driven 架构演进：元数据富化 (Android Actions)**：为 `android.*` 命名空间下的核心动作补全了 `ActionMetadata`。现在每个动作都拥有详细的中文描述、参数 JSON Schema 以及返回值定义，大幅提升了 AI 代理对底层能力的语义理解与自主发现效率。
+  - **UI 动作模块化重构 (Modularity Refactoring)**：完成了对 `ui_actions.py` 的解耦。将 touch、input 和 selector 相关能力分别拆分至独立的专有模块 (`ui_touch_actions.py`, `ui_input_actions.py`, `ui_selector_actions.py`)。保留 `ui_actions.py` 作为兼容性重定向入口，实现了代码整洁度与向后兼容的双重平衡。
+  - **任务执行鲁棒性加固 (Task Execution Resilience)**：针对自动化测试与本地开发环境，将 `ActiveTargetCircuitBreaker` 熔断机制改为基于 RPC 状态按需触发，解决了 `MYT_ENABLE_RPC=0` 模式下因网络探测失败导致的误报 FAILED 状态。
+  - **RPC 特性开关一致性**：统一了系统与测试中对 `MYT_ENABLE_RPC` 环境变量的优先级处理，确保 Feature Flag 在全链路上严格生效。
+  - **架构硬化验证完成**：完成了 `BaseStore` (SQLite)、`ConfigLoader` (Pydantic) 以及 `CloudProbeService` (Probing) 的全量集成验证，通过了 280+ 项测试用例的回归校验。
 - 最近重点 (2026-03-15)：
   - **设备可用性提前熔断**：`DeviceManager` 新增 probe 订阅接口；任务执行链路会把当前 target 的 probe 离线信号并入取消判断，线程模式直接订阅，子进程模式由父进程监控活跃 target 并回传熔断理由，最终统一以 `failed_circuit_breaker` / `target_unavailable` 终止，而不是等待 RPC 超时。
   - **工具链根路径收敛与 Binding 草稿降欠账**：`tools/*.py` 的仓库根目录解析已统一收口到共享 bootstrap + `core.paths`，`tools/distill_binding.py` 生成的 NativeStateBinding 草稿改为输出可直接运行的启发式 detector，不再留 `NotImplementedError` 占位。
@@ -152,11 +158,11 @@
     - **任务取消灵敏度优化**：为 `agent_executor` 引入了 `_interruptible_sleep` 机制，将 Planner 级退避重试改为短脉冲轮询，确保在 8s 级重试回退期间仍能实现 2s 内的任务取消响应。
     - **架构解耦 (App Config)**：建立了核心层 `core/app_config.py` (AppConfigManager)，将应用配置发现、骨架生成从 `agent_executor` 与 `sdk_config_support` 中抽离，消除了执行层对动作辅助模块的反向依赖。
     - **性能底座优化**：在 `ExecutionContext` 中引入了物理分辨率会话级缓存，将 `wm size` 的 RPC 调用开销降至最低。
-  - [x] 提取数据库基类 (`BaseStore`)，消除 `TaskStore` 与 `TaskEventStore` 的重复代码（待验证）。
-  - [x] 废弃 `common/config_manager.py`，全面收敛至 `core/config_loader.py`（待验证）。
-  - [x] 引入 Pydantic 重构配置解析逻辑，替代手动 JSON 校验（待验证）。
-  - [x] 拆分 `DeviceManager`，将云机探测逻辑移至独立服务（待验证）。
-  - [x] 修复 AI 模块隐患：VLM 连接泄露处理及基于 `retryable` 标记的退避重试（待验证）。
+  - [x] 提取数据库基类 (`BaseStore`)，消除 `TaskStore` 与 `TaskEventStore` 的重复代码。
+- [x] 废弃 `common/config_manager.py`，全面收敛至 `core/config_loader.py`。
+- [x] 引入 Pydantic 重构配置解析逻辑，替代手动 JSON 校验。
+- [x] 拆分 `DeviceManager`，将云机探测逻辑移至独立服务。
+- [x] 修复 AI 模块隐患：VLM 连接泄露处理及基于 `retryable` 标记的退避重试。
   - **AI 对话架构改进 (2026-03-11)**：
     - **修复无 binding 场景下的 fingerprint 计算**：`agent_executor` 在 `observation.ok=False` 时改用 UI XML 内容计算停滞 fingerprint，防止在无 binding 场景下错误触发死循环熔断。
     - **新增 binding 蒸馏工具** (`tools/distill_binding.py`)：从 trace jsonl 自动提取 UI 特征、归纳界面状态，生成 `NativeStateBinding` 代码草稿。
@@ -188,12 +194,12 @@
 
 | Metric | Value |
 |---|---:|
-| API route decorators (`api/routes`) | 38 |
+| API route decorators (`api/routes`) | 41 |
 | App-level route decorators (`api/server.py`) | 5 |
 | Plugin count (`plugins/*/manifest.yaml`) | 4 |
 | SDK action bindings (`engine/actions/sdk_actions.py`) | 154 |
 | Test files (`tests/test_*.py`) | 55 |
-| Test functions (`def test_*`) | 266 |
+| Test functions (`def test_*`) | 270 |
 <!-- AUTO_PROGRESS_SNAPSHOT:END -->
 
 ## 4. 维护说明

@@ -67,6 +67,9 @@ def load(refresh: bool = False) -> SystemSettings:
 # ─── Feature flags ────────────────────────────────────────────────────────────
 
 def get_rpc_enabled() -> bool:
+    env_rpc = os.environ.get("MYT_ENABLE_RPC")
+    if env_rpc is not None:
+        return env_rpc.strip().lower() not in ("0", "false", "no", "off")
     return load().features.enable_rpc
 
 

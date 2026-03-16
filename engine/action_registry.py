@@ -111,58 +111,30 @@ def register_defaults() -> None:
         check_connect_state,
         capture_compressed,
         capture_raw,
-        click,
-        create_selector,
-        dump_node_xml_ex,
-        dumpNodeXml,
         exec_command,
         get_sdk_version,
         get_display_rotate,
-        input_text,
-        key_press,
-        long_click,
         set_work_mode,
-        touch_down,
-        touch_move,
-        touch_up,
-        selector_add_query,
-        selector_click_one,
-        selector_click_with_fallback,
-        selector_clear,
-        selector_exec_all,
-        selector_exec_one,
-        selector_find_nodes,
-        selector_free,
-        selector_free_nodes,
-        selector_get_node_by_index,
-        selector_get_nodes_size,
         screenshot,
         start_video_stream,
         stop_video_stream,
-        swipe,
         use_new_node_mode,
-        node_click,
-        node_get_bound,
-        node_get_bound_center,
-        node_get_class,
-        node_get_child,
-        node_get_child_count,
-        node_get_desc,
-        node_get_id,
-        node_get_json,
-        node_get_package,
-        node_get_parent,
-        node_get_text,
-        node_long_click,
-        CLICK_METADATA,
-        SWIPE_METADATA,
-        INPUT_TEXT_METADATA,
-        KEY_PRESS_METADATA,
-        LONG_CLICK_METADATA,
         CAPTURE_COMPRESSED_METADATA,
         APP_OPEN_METADATA,
         APP_STOP_METADATA,
         APP_ENSURE_RUNNING_METADATA
+    )
+    from .actions.ui_touch_actions import (
+        click, touch_down, touch_move, touch_up, swipe, long_click,
+        CLICK_METADATA, SWIPE_METADATA, LONG_CLICK_METADATA
+    )
+    from .actions.ui_input_actions import (
+        input_text, key_press,
+        INPUT_TEXT_METADATA, KEY_PRESS_METADATA
+    )
+    from .actions.ui_selector_actions import (
+        create_selector, selector_add_query, selector_click_one, selector_exec_one,
+        selector_find_nodes, selector_free, node_get_text, dump_node_xml_ex
     )
     from .actions.login_actions import (
         click_selector_or_tap,
@@ -284,20 +256,22 @@ def register_defaults() -> None:
     _registry.register("ai.vlm_evaluate", vlm_evaluate, metadata=VLM_EVALUATE_METADATA)
     _registry.register("ai.locate_point", locate_point, metadata=LOCATE_POINT_METADATA)
     _registry.register("ui.click", click, metadata=CLICK_METADATA)
-    _registry.register("ui.match_state", ui_match_state)
     _registry.register("ui.touch_down", touch_down)
     _registry.register("ui.touch_up", touch_up)
     _registry.register("ui.touch_move", touch_move)
-    _registry.register("ui.wait_until", ui_wait_until)
-    _registry.register("ui.observe_transition", ui_observe_transition)
     _registry.register("ui.swipe", swipe, metadata=SWIPE_METADATA)
     _registry.register("ui.long_click", long_click, metadata=LONG_CLICK_METADATA)
     _registry.register("ui.input_text", input_text, metadata=INPUT_TEXT_METADATA)
-    _registry.register("ui.fill_form", fill_form)
-    _registry.register("ui.input_text_with_shell_fallback", input_text_with_shell_fallback)
-    _registry.register("ui.focus_and_input_with_shell_fallback", focus_and_input_with_shell_fallback)
     _registry.register("ui.key_press", key_press, metadata=KEY_PRESS_METADATA)
-    _registry.register("ui.click_selector_or_tap", click_selector_or_tap)
+    _registry.register("ui.create_selector", create_selector)
+    _registry.register("ui.selector_add_query", selector_add_query)
+    _registry.register("ui.selector_click_one", selector_click_one)
+    _registry.register("ui.selector_exec_one", selector_exec_one)
+    _registry.register("ui.selector_find_nodes", selector_find_nodes)
+    _registry.register("ui.selector_free", selector_free)
+    _registry.register("ui.node_get_text", node_get_text)
+    _registry.register("ui.dump_node_xml", dump_node_xml_ex)
+    _registry.register("ui.dump_node_xml_ex", dump_node_xml_ex)
     _registry.register("ui.navigate_to", navigate_to)
     _registry.register("app.open", app_open, metadata=APP_OPEN_METADATA)
     _registry.register("app.stop", app_stop, metadata=APP_STOP_METADATA)
@@ -315,32 +289,22 @@ def register_defaults() -> None:
     _registry.register("device.video_stream_start", start_video_stream)
     _registry.register("device.video_stream_stop", stop_video_stream)
     _registry.register("device.exec", exec_command)
+    _registry.register("ui.click", click, metadata=CLICK_METADATA)
+    _registry.register("ui.touch_down", touch_down)
+    _registry.register("ui.touch_up", touch_up)
+    _registry.register("ui.touch_move", touch_move)
+    _registry.register("ui.swipe", swipe, metadata=SWIPE_METADATA)
+    _registry.register("ui.long_click", long_click, metadata=LONG_CLICK_METADATA)
+    _registry.register("ui.input_text", input_text, metadata=INPUT_TEXT_METADATA)
+    _registry.register("ui.key_press", key_press, metadata=KEY_PRESS_METADATA)
     _registry.register("ui.create_selector", create_selector)
     _registry.register("ui.selector_add_query", selector_add_query)
     _registry.register("ui.selector_click_one", selector_click_one)
-    _registry.register("ui.selector_click_with_fallback", selector_click_with_fallback)
     _registry.register("ui.selector_exec_one", selector_exec_one)
-    _registry.register("ui.selector_exec_all", selector_exec_all)
     _registry.register("ui.selector_find_nodes", selector_find_nodes)
     _registry.register("ui.selector_free", selector_free)
-    _registry.register("ui.selector_free_nodes", selector_free_nodes)
-    _registry.register("ui.selector_get_nodes_size", selector_get_nodes_size)
-    _registry.register("ui.selector_get_node_by_index", selector_get_node_by_index)
-    _registry.register("ui.selector_clear", selector_clear)
-    _registry.register("ui.node_click", node_click)
-    _registry.register("ui.node_long_click", node_long_click)
-    _registry.register("ui.node_get_json", node_get_json)
     _registry.register("ui.node_get_text", node_get_text)
-    _registry.register("ui.node_get_desc", node_get_desc)
-    _registry.register("ui.node_get_package", node_get_package)
-    _registry.register("ui.node_get_class", node_get_class)
-    _registry.register("ui.node_get_id", node_get_id)
-    _registry.register("ui.node_get_bound", node_get_bound)
-    _registry.register("ui.node_get_bound_center", node_get_bound_center)
-    _registry.register("ui.node_get_parent", node_get_parent)
-    _registry.register("ui.node_get_child_count", node_get_child_count)
-    _registry.register("ui.node_get_child", node_get_child)
-    _registry.register("ui.dump_node_xml", dumpNodeXml)
+    _registry.register("ui.dump_node_xml", dump_node_xml_ex)
     _registry.register("ui.dump_node_xml_ex", dump_node_xml_ex)
     for action_name, handler in get_sdk_action_bindings().items():
         _registry.register(action_name, handler)
@@ -360,26 +324,32 @@ def register_defaults() -> None:
         android_get_google_id, android_set_google_id,
         android_install_magisk, android_camera_hot_start, android_autoclick,
         android_get_root_allowed_apps, android_set_root_allowed_app,
+        GET_CLIPBOARD_METADATA, SET_CLIPBOARD_METADATA,
+        QUERY_PROXY_METADATA, SET_PROXY_METADATA,
+        SCREENSHOT_METADATA,
+        SET_LANGUAGE_METADATA,
+        RECEIVE_SMS_METADATA, ADD_CONTACT_METADATA,
+        BACKUP_APP_METADATA, RESTORE_APP_METADATA,
     )
-    _registry.register("android.get_clipboard", android_get_clipboard)
-    _registry.register("android.set_clipboard", android_set_clipboard)
-    _registry.register("android.query_proxy", android_query_proxy)
-    _registry.register("android.set_proxy", android_set_proxy)
+    _registry.register("android.get_clipboard", android_get_clipboard, metadata=GET_CLIPBOARD_METADATA)
+    _registry.register("android.set_clipboard", android_set_clipboard, metadata=SET_CLIPBOARD_METADATA)
+    _registry.register("android.query_proxy", android_query_proxy, metadata=QUERY_PROXY_METADATA)
+    _registry.register("android.set_proxy", android_set_proxy, metadata=SET_PROXY_METADATA)
     _registry.register("android.stop_proxy", android_stop_proxy)
     _registry.register("android.set_proxy_filter", android_set_proxy_filter)
-    _registry.register("android.screenshot", android_screenshot)
+    _registry.register("android.screenshot", android_screenshot, metadata=SCREENSHOT_METADATA)
     _registry.register("android.download_file", android_download_file)
     _registry.register("android.upload_file", android_upload_file)
-    _registry.register("android.set_language", android_set_language)
+    _registry.register("android.set_language", android_set_language, metadata=SET_LANGUAGE_METADATA)
     _registry.register("android.refresh_location", android_refresh_location)
     _registry.register("android.get_google_adid", android_get_google_adid)
-    _registry.register("android.receive_sms", android_receive_sms)
-    _registry.register("android.add_contact", android_add_contact)
+    _registry.register("android.receive_sms", android_receive_sms, metadata=RECEIVE_SMS_METADATA)
+    _registry.register("android.add_contact", android_add_contact, metadata=ADD_CONTACT_METADATA)
     _registry.register("android.get_container_info", android_get_container_info)
     _registry.register("android.set_key_block", android_set_key_block)
     _registry.register("android.set_background_keepalive", android_set_background_keepalive)
-    _registry.register("android.backup_app", android_backup_app)
-    _registry.register("android.restore_app", android_restore_app)
+    _registry.register("android.backup_app", android_backup_app, metadata=BACKUP_APP_METADATA)
+    _registry.register("android.restore_app", android_restore_app, metadata=RESTORE_APP_METADATA)
     _registry.register("android.upload_google_cert", android_upload_google_cert)
     _registry.register("android.batch_install_apps", android_batch_install_apps)
     _registry.register("android.get_root_allowed_apps", android_get_root_allowed_apps)

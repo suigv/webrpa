@@ -198,11 +198,7 @@ class TaskDispatchRuntimeResolver:
         runtime_overrides = _resolve_runtime_overrides(payload_for_run)
         dispatch_targets = normalize_dispatch_targets(targets, devices)
         from core.system_settings_loader import get_rpc_enabled
-        _env_rpc = os.environ.get("MYT_ENABLE_RPC")
-        if _env_rpc is not None:
-            rpc_enabled = _env_rpc.strip() not in ("0", "false", "False")
-        else:
-            rpc_enabled = get_rpc_enabled()
+        rpc_enabled = get_rpc_enabled()
         is_anonymous = (task_name == "anonymous" or not task_name)
         has_steps = bool(payload_for_run.get("steps"))
         should_resolve_target = rpc_enabled and (

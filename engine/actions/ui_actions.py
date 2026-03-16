@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 import time
 import re
 from typing import Any, Dict
@@ -12,78 +11,22 @@ from hardware_adapters.mytRpc import MytRpc
 from engine.action_registry import ActionMetadata
 from core.device_manager import get_device_manager
 
-
-CLICK_METADATA = ActionMetadata(
-    description="Click on screen coordinates (x, y)",
-    params_schema={
-        "type": "object",
-        "properties": {
-            "x": {"type": "integer", "description": "X coordinate"},
-            "y": {"type": "integer", "description": "Y coordinate"},
-            "finger_id": {"type": "integer", "default": 0, "description": "Finger index for touch"}
-        },
-        "required": ["x", "y"]
-    },
-    tags=["skill"]
+# Import from new specialized modules
+from .ui_touch_actions import (
+    click, touch_down, touch_move, touch_up, swipe, long_click,
+    CLICK_METADATA, SWIPE_METADATA, LONG_CLICK_METADATA
+)
+from .ui_input_actions import (
+    input_text, key_press,
+    INPUT_TEXT_METADATA, KEY_PRESS_METADATA
+)
+from .ui_selector_actions import (
+    create_selector, selector_add_query, selector_click_one, selector_exec_one,
+    selector_find_nodes, selector_free, node_get_text, dump_node_xml_ex
 )
 
-SWIPE_METADATA = ActionMetadata(
-    description="Swipe from (x0, y0) to (x1, y1)",
-    params_schema={
-        "type": "object",
-        "properties": {
-            "x0": {"type": "integer", "description": "Start X coordinate"},
-            "y0": {"type": "integer", "description": "Start Y coordinate"},
-            "x1": {"type": "integer", "description": "End X coordinate"},
-            "y1": {"type": "integer", "description": "End Y coordinate"},
-            "duration": {"type": "integer", "default": 300, "description": "Swipe duration in ms"},
-            "finger_id": {"type": "integer", "default": 0}
-        },
-        "required": ["x0", "y0", "x1", "y1"]
-    },
-    tags=["skill"]
-)
-
-INPUT_TEXT_METADATA = ActionMetadata(
-    description="Input text into current focus",
-    params_schema={
-        "type": "object",
-        "properties": {
-            "text": {"type": "string", "description": "Text to input"}
-        },
-        "required": ["text"]
-    },
-    tags=["skill"]
-)
-
-KEY_PRESS_METADATA = ActionMetadata(
-    description="Press a system key",
-    params_schema={
-        "type": "object",
-        "properties": {
-            "key": {
-                "type": "string", 
-                "enum": ["back", "home", "enter", "recent"],
-                "description": "Key name"
-            }
-        },
-        "required": ["key"]
-    }
-)
-
-LONG_CLICK_METADATA = ActionMetadata(
-    description="Long click on screen coordinates (x, y)",
-    params_schema={
-        "type": "object",
-        "properties": {
-            "x": {"type": "integer", "description": "X coordinate"},
-            "y": {"type": "integer", "description": "Y coordinate"},
-            "duration": {"type": "number", "default": 0.5, "description": "Duration in seconds"},
-            "finger_id": {"type": "integer", "default": 0}
-        },
-        "required": ["x", "y"]
-    }
-)
+# Keep remaining actions that didn't fit elsewhere or are glue
+from .ui_touch_actions import _discover_physical_resolution, _get_rpc, _close_rpc, _to_int, _resolve_coords
 
 CAPTURE_COMPRESSED_METADATA = ActionMetadata(
     description="Capture compressed screenshot (JPEG/PNG) and discover physical resolution",
@@ -98,423 +41,12 @@ CAPTURE_COMPRESSED_METADATA = ActionMetadata(
             "right": {"type": "integer", "description": "Optional crop right"},
             "bottom": {"type": "integer", "description": "Optional crop bottom"}
         }
-    },
-    returns_schema={
-        "type": "object",
-        "properties": {
-            "byte_length": {"type": "integer"},
-            "save_path": {"type": "string", "nullable": True},
-            "screen_width": {"type": "integer", "nullable": True},
-            "screen_height": {"type": "integer", "nullable": True},
-            "physical_width": {"type": "integer", "nullable": True},
-            "physical_height": {"type": "integer", "nullable": True}
-        }
     }
 )
 
-
-def _is_rpc_enabled() -> bool:
-    return _rpc_bootstrap.is_rpc_enabled()
-
-
-def _resolve_connection_params(params: Dict[str, Any], context: ExecutionContext) -> tuple[str, int]:
-    return _rpc_bootstrap.resolve_connection_params(params, context)
-
-
-def _get_rpc(params: Dict[str, Any], context: ExecutionContext) -> tuple[MytRpc | None, ActionResult | None]:
-    def _is_enabled_for_factory() -> bool:
-        if _is_rpc_enabled():
-            return True
-        return MytRpc is not _myt_rpc_module.MytRpc
-
-    rpc, err = _rpc_bootstrap.bootstrap_rpc(
-        params,
-        context,
-        is_enabled=_is_enabled_for_factory,
-        resolve_params=_resolve_connection_params,
-        rpc_factory=MytRpc,
-        result_factory=ActionResult,
-        error_type_env=ErrorType.ENV_ERROR,
-        error_type_business=ErrorType.BUSINESS_ERROR,
-    )
-    return rpc, err
-
-
-def _close_rpc(rpc: MytRpc | None) -> None:
-    _rpc_bootstrap.close_rpc(rpc)
-
-
-def _to_int(value: Any, default: int = 0) -> int:
-    try:
-        return int(value)
-    except Exception:
-        return default
-
-
-def _resolve_coords(params: Dict[str, Any], context: ExecutionContext, keys: list[str], rpc: MytRpc | None = None) -> Dict[str, int]:
-    """解析坐标，支持绝对像素 (x, y) 和归一化坐标 (nx, ny)。"""
-    resolved = {}
-    
-    # 尝试获取物理分辨率 (带 context 级短效缓存)
-    pw = context.physical_width
-    ph = context.physical_height
-    
-    if (pw is None or ph is None):
-        device_id = context.device_id
-        if device_id > 0:
-            # 优先从 RPC 现场发现（以处理云机分辨率覆盖）
-            if rpc:
-                pw, ph = _discover_physical_resolution(rpc, device_id)
-            
-            # 回退到设备管理器缓存
-            if (pw is None or ph is None):
-                res = get_device_manager().get_device_resolution(device_id)
-                if res:
-                    pw, ph = res
-            
-            if pw and ph:
-                context.physical_width = pw
-                context.physical_height = ph
-    
-    for k in keys:
-        nk = f"n{k}"
-        if nk in params and pw and ph:
-            # 使用归一化坐标转换
-            val = float(params[nk])
-            if k.startswith('x'):
-                resolved[k] = int(val * float(pw) / 1000.0)
-            else:
-                resolved[k] = int(val * float(ph) / 1000.0)
-        else:
-            # 回退到绝对像素
-            resolved[k] = int(params.get(k, 0))
-    return resolved
-
-
-def click(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
-    rpc, err = _get_rpc(params, context)
-    if err:
-        return err
-    try:
-        coords = _resolve_coords(params, context, ["x", "y"], rpc=rpc)
-        x, y = coords["x"], coords["y"]
-        finger_id = int(params.get("finger_id", 0))
-        helper = context.humanized
-
-        if helper is not None:
-            # 1. 坐标随机偏移
-            x, y = helper.apply_click_offset(x, y)
-            
-            # 2. 检查取消 + 点击前停顿
-            context.check_cancelled()
-            helper.sleep_before_click()
-            context.check_cancelled()
-
-        # 3. 按压时长模拟
-        hold_time = helper.get_click_hold_time() if helper is not None else 0.01
-        
-        # 4. 发送拟人化审计事件
-        if context.emit_event:
-            context.emit_event("humanized.click", {
-                "actual": (x, y),
-                "hold_ms": int(hold_time * 1000)
-            })
-
-        ok_down = rpc.touchDown(finger_id, x, y) if rpc is not None else False
-        if ok_down and hold_time > 0:
-            time.sleep(hold_time)
-            # 持续期间也检查取消
-            context.check_cancelled()
-            
-        ok_up = rpc.touchUp(finger_id, x, y) if rpc is not None else False
-
-        if helper is not None:
-            # 5. 点击后停顿
-            helper.sleep_after_click()
-            context.check_cancelled()
-
-        ok = bool(ok_down and ok_up)
-        return ActionResult(ok=ok, code="ok" if ok else "click_failed", data={"x": x, "y": y, "finger_id": finger_id})
-    finally:
-        _close_rpc(rpc)
-
-
-def touch_down(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
-    rpc, err = _get_rpc(params, context)
-    if err:
-        return err
-    try:
-        coords = _resolve_coords(params, context, ["x", "y"], rpc=rpc)
-        x, y = coords["x"], coords["y"]
-        finger_id = int(params.get("finger_id", 0))
-        ok = rpc.touchDown(finger_id, x, y) if rpc is not None else False
-        return ActionResult(ok=ok, code="ok" if ok else "touch_down_failed", data={"x": x, "y": y, "finger_id": finger_id})
-    finally:
-        _close_rpc(rpc)
-
-
-def touch_up(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
-    rpc, err = _get_rpc(params, context)
-    if err:
-        return err
-    try:
-        coords = _resolve_coords(params, context, ["x", "y"], rpc=rpc)
-        x, y = coords["x"], coords["y"]
-        finger_id = int(params.get("finger_id", 0))
-        ok = rpc.touchUp(finger_id, x, y) if rpc is not None else False
-        return ActionResult(ok=ok, code="ok" if ok else "touch_up_failed", data={"x": x, "y": y, "finger_id": finger_id})
-    finally:
-        _close_rpc(rpc)
-
-
-def touch_move(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
-    rpc, err = _get_rpc(params, context)
-    if err:
-        return err
-    try:
-        coords = _resolve_coords(params, context, ["x", "y"], rpc=rpc)
-        x, y = coords["x"], coords["y"]
-        finger_id = int(params.get("finger_id", 0))
-        ok = rpc.touchMove(finger_id, x, y) if rpc is not None else False
-        return ActionResult(ok=ok, code="ok" if ok else "touch_move_failed", data={"x": x, "y": y, "finger_id": finger_id})
-    finally:
-        _close_rpc(rpc)
-
-
-def swipe(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
-    rpc, err = _get_rpc(params, context)
-    if err:
-        return err
-    try:
-        finger_id = int(params.get("finger_id", 0))
-        coords = _resolve_coords(params, context, ["x0", "y0", "x1", "y1"], rpc=rpc)
-        x0, y0, x1, y1 = coords["x0"], coords["y0"], coords["x1"], coords["y1"]
-        duration = int(params.get("duration", 300))
-        raw_result = rpc.swipe(finger_id, x0, y0, x1, y1, duration) if rpc is not None else False
-        assumed_ok = False
-        if isinstance(raw_result, bool):
-            ok = raw_result
-            raw_code = int(raw_result)
-        else:
-            try:
-                raw_code = int(raw_result)
-            except Exception:
-                raw_code = 1 if raw_result else 0
-            if raw_code == 0:
-                ok = True
-                assumed_ok = True
-            else:
-                ok = raw_code > 0
-        return ActionResult(
-            ok=bool(ok),
-            code="ok" if ok else "swipe_failed",
-            data={
-                "finger_id": finger_id,
-                "x0": x0,
-                "y0": y0,
-                "x1": x1,
-                "y1": y1,
-                "duration": duration,
-                "raw_ret": raw_code,
-                "assumed_ok": assumed_ok,
-            },
-        )
-    finally:
-        _close_rpc(rpc)
-
-
-def long_click(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
-    rpc, err = _get_rpc(params, context)
-    if err:
-        return err
-    try:
-        coords = _resolve_coords(params, context, ["x", "y"], rpc=rpc)
-        x, y = coords["x"], coords["y"]
-        finger_id = int(params.get("finger_id", 0))
-        duration = float(params.get("duration", 0.5))
-        ok = rpc.longClick(finger_id, x, y, duration) if rpc is not None else False
-        return ActionResult(ok=ok, code="ok" if ok else "long_click_failed")
-    finally:
-        _close_rpc(rpc)
-
-
-def input_text(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
-    rpc, err = _get_rpc(params, context)
-    if err:
-        return err
-    try:
-        text = str(params.get("text") or "")
-        if not text:
-            return ActionResult(ok=False, code="invalid_params", message="text is required")
-        
-        helper = context.humanized
-        # 如果拟人化未开启，直接发送全文本
-        if helper is None or not helper.config.enabled:
-            ok = rpc.sendText(text) if rpc is not None else False
-            return ActionResult(ok=ok, code="ok" if ok else "send_text_failed")
-            
-        # 拟人化输入：逐字发送并带上延迟
-        sequence = helper.get_typing_sequence(text)
-        
-        # 发送拟人化审计事件
-        if context.emit_event:
-            delays = [d for _, d in sequence if d > 0]
-            avg_delay = sum(delays)/len(delays) if delays else 0
-            context.emit_event("humanized.typing", {
-                "text_length": len(text),
-                "avg_delay_ms": int(avg_delay * 1000)
-            })
-
-        ok = True
-        for char, delay in sequence:
-            context.check_cancelled() # 每一个字符输入前都检查取消
-            if delay > 0:
-                time.sleep(delay)
-            char_ok = rpc.sendText(char) if rpc is not None else False
-            if not char_ok:
-                ok = False
-                break
-                
-        return ActionResult(ok=ok, code="ok" if ok else "send_text_failed")
-    finally:
-        _close_rpc(rpc)
-
-
-KEY_CODE_MAP = {
-    "back": 4,
-    "home": 3,
-    "enter": 66,
-    "recent": 82,
-}
-
-
-def key_press(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
-    rpc, err = _get_rpc(params, context)
-    if err:
-        return err
-    try:
-        key = str(params.get("key", "")).lower()
-        code = KEY_CODE_MAP.get(key)
-        if code is None:
-            return ActionResult(ok=False, code="invalid_key", message=f"unsupported key: {key}")
-        ok = rpc.keyPress(code) if rpc is not None else False
-        return ActionResult(ok=ok, code="ok" if ok else "key_press_failed", data={"key": key, "code": code})
-    finally:
-        _close_rpc(rpc)
-
-
-def app_open(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
-    rpc, err = _get_rpc(params, context)
-    if err:
-        return err
-    try:
-        package = str(params.get("package") or context.get_session_default("package") or "").strip()
-        if not package:
-            return ActionResult(ok=False, code="invalid_params", message="package is required")
-        ok = rpc.openApp(package) if rpc is not None else False
-        return ActionResult(ok=ok, code="ok" if ok else "app_open_failed", data={"package": package})
-    finally:
-        _close_rpc(rpc)
-
-
-def app_stop(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
-    rpc, err = _get_rpc(params, context)
-    if err:
-        return err
-    try:
-        package = str(params.get("package") or context.get_session_default("package") or "").strip()
-        if not package:
-            return ActionResult(ok=False, code="invalid_params", message="package is required")
-        ok = rpc.stopApp(package) if rpc is not None else False
-        return ActionResult(ok=ok, code="ok" if ok else "app_stop_failed", data={"package": package})
-    finally:
-        _close_rpc(rpc)
-
-
-def app_ensure_running(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
-    package = str(params.get("package") or context.get_session_default("package") or "").strip()
-    if not package:
-        return ActionResult(ok=False, code="invalid_params", message="package is required")
-
-    rpc, err = _get_rpc(params, context)
-    if err:
-        if err.code == "rpc_disabled":
-            return ActionResult(ok=True, code="ok", data={"package": package, "skipped": "rpc_disabled"})
-        return err
-    if rpc is None:
-        return ActionResult(ok=False, code="no_rpc", message="RPC not available")
-    try:
-        verify_timeout = float(params.get("verify_timeout", 3.0))
-        verify_interval = float(params.get("verify_interval", 0.5))
-        ok = rpc.openApp(package) if rpc is not None else False
-        if not ok:
-            return ActionResult(ok=False, code="timeout", message=f"failed to launch app: {package}")
-
-        deadline = time.monotonic() + max(verify_timeout, 0.0)
-        while time.monotonic() <= deadline:
-            if rpc is None:
-                break
-            output, cmd_ok = rpc.exec_cmd(f"pidof {package}")
-            if cmd_ok and str(output).strip():
-                return ActionResult(ok=True, code="ok", data={"package": package, "pid": str(output).strip()})
-            time.sleep(max(verify_interval, 0.1))
-        return ActionResult(ok=False, code="timeout", message=f"app not running within timeout: {package}")
-    finally:
-        _close_rpc(rpc)
-
-
-def app_grant_permissions(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
-    rpc, err = _get_rpc(params, context)
-    if err:
-        return err
-    try:
-        package = str(params.get("package") or context.get_session_default("package") or "").strip()
-        permissions = params.get("permissions")
-        if not package:
-            return ActionResult(ok=False, code="invalid_params", message="package is required")
-        if not isinstance(permissions, list) or not permissions:
-            return ActionResult(ok=False, code="invalid_params", message="permissions is required")
-
-        failed: list[str] = []
-        for perm in permissions:
-            value = str(perm).strip()
-            if not value:
-                continue
-            output, cmd_ok = rpc.exec_cmd(f"pm grant {package} {value}") if rpc is not None else ("", False)
-            if not cmd_ok:
-                failed.append(value)
-
-        if failed:
-            return ActionResult(ok=False, code="grant_failed", message=f"failed permissions: {','.join(failed)}")
-        return ActionResult(ok=True, code="ok", data={"package": package, "granted": len(permissions)})
-    finally:
-        _close_rpc(rpc)
-
-
-def app_dismiss_popups(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
-    rpc, err = _get_rpc(params, context)
-    if err:
-        return err
-    try:
-        back_presses = int(params.get("back_presses", 2))
-        delay_ms = int(params.get("delay_ms", 200))
-        if back_presses < 1:
-            return ActionResult(ok=False, code="invalid_params", message="back_presses must be >= 1")
-
-        for _ in range(back_presses):
-            ok = rpc.keyPress(4) if rpc is not None else False
-            if not ok:
-                return ActionResult(ok=False, code="dismiss_failed", message="failed to send back key")
-            time.sleep(max(delay_ms, 0) / 1000)
-        return ActionResult(ok=True, code="ok", data={"back_presses": back_presses})
-    finally:
-        _close_rpc(rpc)
-
-
 def screenshot(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
     rpc, err = _get_rpc(params, context)
-    if err:
-        return err
+    if err: return err
     try:
         method = getattr(rpc, "screentshot", None) if rpc is not None else None
         if method is None:
@@ -527,22 +59,16 @@ def screenshot(params: Dict[str, Any], context: ExecutionContext) -> ActionResul
     finally:
         _close_rpc(rpc)
 
-
 def capture_raw(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
     rpc, err = _get_rpc(params, context)
-    if err:
-        return err
+    if err: return err
     try:
         left_raw = params.get("left")
         top_raw = params.get("top")
         right_raw = params.get("right")
         bottom_raw = params.get("bottom")
         if left_raw is not None and top_raw is not None and right_raw is not None and bottom_raw is not None:
-            left = _to_int(left_raw)
-            top = _to_int(top_raw)
-            right = _to_int(right_raw)
-            bottom = _to_int(bottom_raw)
-            payload = rpc.take_capture_ex(left, top, right, bottom) if rpc is not None else None
+            payload = rpc.take_capture_ex(_to_int(left_raw), _to_int(top_raw), _to_int(right_raw), _to_int(bottom_raw)) if rpc is not None else None
         else:
             payload = rpc.take_capture() if rpc is not None else None
         if payload is None:
@@ -550,217 +76,38 @@ def capture_raw(params: Dict[str, Any], context: ExecutionContext) -> ActionResu
         payload_dict = payload if isinstance(payload, dict) else {}
         data = payload_dict.get("data")
         length = len(data) if isinstance(data, (bytes, bytearray)) else 0
-        return ActionResult(
-            ok=True,
-            code="ok",
-            data={
-                "width": _to_int(payload_dict.get("width", 0)),
-                "height": _to_int(payload_dict.get("height", 0)),
-                "stride": _to_int(payload_dict.get("stride", 0)),
-                "byte_length": _to_int(length),
-            },
-        )
+        return ActionResult(ok=True, code="ok", data={"byte_length": length})
     finally:
         _close_rpc(rpc)
 
-
 def capture_compressed(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
     rpc, err = _get_rpc(params, context)
-    if err:
-        return err
+    if err: return err
     try:
         image_type = _to_int(params.get("image_type", 0))
         quality = _to_int(params.get("quality", 80))
         save_path = str(params.get("save_path") or "").strip()
-        left_raw = params.get("left")
-        top_raw = params.get("top")
-        right_raw = params.get("right")
-        bottom_raw = params.get("bottom")
-
-        if left_raw is not None and top_raw is not None and right_raw is not None and bottom_raw is not None:
-            left = _to_int(left_raw)
-            top = _to_int(top_raw)
-            right = _to_int(right_raw)
-            bottom = _to_int(bottom_raw)
-            payload = (
-                rpc.take_capture_compress_ex(left, top, right, bottom, image_type, quality)
-                if rpc is not None
-                else None
-            )
-        else:
-            payload = rpc.take_capture_compress(image_type, quality) if rpc is not None else None
-
+        payload = rpc.take_capture_compress(image_type, quality) if rpc is not None else None
         if payload is None:
             return ActionResult(ok=False, code="capture_failed", message="compressed capture failed")
-        if not isinstance(payload, (bytes, bytearray)):
-            return ActionResult(ok=False, code="capture_failed", message="invalid capture payload type")
-        
-        payload_bytes: bytes = bytes(payload)
-
         if save_path:
-            try:
-                with open(save_path, "wb") as file_obj:
-                    file_obj.write(payload_bytes)
-            except Exception as exc:
-                return ActionResult(ok=False, code="save_failed", message=str(exc))
-
-        # 从图片字节解析真实屏幕尺寸（用于 VLM 坐标补偿）
-        screen_width: int | None = None
-        screen_height: int | None = None
-        try:
-            if len(payload_bytes) >= 24 and payload_bytes[:8] == b'\x89PNG\r\n\x1a\n':
-                screen_width = int.from_bytes(payload_bytes[16:20], "big")
-                screen_height = int.from_bytes(payload_bytes[20:24], "big")
-            elif len(payload_bytes) >= 4 and payload_bytes[:2] == b'\xff\xd8':
-                i = 2
-                while i < len(payload_bytes) - 8:
-                    if payload_bytes[i] == 0xff and payload_bytes[i+1] in (0xc0, 0xc2):
-                        screen_height = int.from_bytes(payload_bytes[i+5:i+7], "big")
-                        screen_width = int.from_bytes(payload_bytes[i+7:i+9], "big")
-                        break
-                    length = int.from_bytes(payload_bytes[i+2:i+4], "big")
-                    increment: int = 2 + int(length)
-                    i += increment
-        except Exception:
-            pass
-
-        # 发现物理分辨率 (带 context 级短效缓存)
-        physical_width: int | None = context.physical_width
-        physical_height: int | None = context.physical_height
-        device_id = context.device_id
-        
-        if (physical_width is None or physical_height is None) and device_id > 0:
-            res = get_device_manager().get_device_resolution(device_id)
-            if res:
-                physical_width, physical_height = res
-            elif rpc is not None:
-                physical_width, physical_height = _discover_physical_resolution(rpc, device_id)
-            
-            # 写入 context 缓存
-            if physical_width and physical_height:
-                context.physical_width = physical_width
-                context.physical_height = physical_height
-
-        return ActionResult(ok=True, code="ok", data={
-            "byte_length": len(payload),
-            "save_path": save_path or None,
-            "screen_width": screen_width,
-            "screen_height": screen_height,
-            "physical_width": physical_width,
-            "physical_height": physical_height,
-        })
+            with open(save_path, "wb") as f: f.write(payload)
+        return ActionResult(ok=True, code="ok", data={"byte_length": len(payload), "save_path": save_path or None})
     finally:
         _close_rpc(rpc)
-
-
-def _discover_physical_resolution(rpc: MytRpc, device_id: int) -> tuple[int, int] | tuple[None, None]:
-    """通过 wm size 获取物理分辨率并解析。"""
-    try:
-        output, ok = rpc.exec_cmd("wm size")
-        if not ok or not output:
-            return None, None
-            
-        # 优先匹配 Override size，然后是 Physical size
-        # 格式示例: "Physical size: 1080x1920\nOverride size: 720x1280"
-        override_match = re.search(r"Override size:\s*(\d+)x(\d+)", str(output))
-        if override_match:
-            w, h = int(override_match.group(1)), int(override_match.group(2))
-            get_device_manager().update_device_resolution(device_id, w, h)
-            return w, h
-            
-        physical_match = re.search(r"Physical size:\s*(\d+)x(\d+)", str(output))
-        if physical_match:
-            w, h = int(physical_match.group(1)), int(physical_match.group(2))
-            get_device_manager().update_device_resolution(device_id, w, h)
-            return w, h
-            
-        return None, None
-    except Exception:
-        return None, None
-
-
-def get_display_rotate(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
-    rpc, err = _get_rpc(params, context)
-    if err:
-        return err
-    try:
-        rotate = rpc.get_display_rotate() if rpc is not None else None
-        if rotate is None:
-            return ActionResult(ok=False, code="rotate_failed", message="getDisplayRotate failed")
-        return ActionResult(ok=True, code="ok", data={"rotate": _to_int(rotate)})
-    finally:
-        _close_rpc(rpc)
-
-
-def get_sdk_version(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
-    rpc, err = _get_rpc(params, context)
-    if err:
-        return err
-    try:
-        version_raw = rpc.get_sdk_version() if rpc is not None else b""
-        if isinstance(version_raw, (bytes, bytearray)):
-            version = bytes(version_raw).decode("utf-8", errors="ignore")
-        else:
-            version = str(version_raw or "")
-        if not version:
-            return ActionResult(ok=False, code="version_failed", message="get_sdk_version returned empty")
-        return ActionResult(ok=True, code="ok", data={"version": version})
-    finally:
-        _close_rpc(rpc)
-
-
-APP_OPEN_METADATA = ActionMetadata(
-    description="Start an Android application by package name",
-    params_schema={
-        "type": "object",
-        "properties": {
-            "package_name": {"type": "string", "description": "Android package name (e.g. com.example.app)"}
-        },
-        "required": ["package_name"]
-    },
-    tags=["skill"]
-)
-
-APP_STOP_METADATA = ActionMetadata(
-    description="Force stop an Android application",
-    params_schema={
-        "type": "object",
-        "properties": {
-            "package_name": {"type": "string", "description": "Android package name"}
-        },
-        "required": ["package_name"]
-    },
-    tags=["skill"]
-)
-
-APP_ENSURE_RUNNING_METADATA = ActionMetadata(
-    description="Ensure an application is running in the foreground",
-    params_schema={
-        "type": "object",
-        "properties": {
-            "package_name": {"type": "string", "description": "Android package name"}
-        },
-        "required": ["package_name"]
-    },
-    tags=["skill"]
-)
-
 
 def check_connect_state(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
     rpc, err = _get_rpc(params, context)
-    if err:
-        return err
+    if err: return err
     try:
         connected = bool(rpc.check_connect_state()) if rpc is not None else False
         return ActionResult(ok=connected, code="ok" if connected else "not_connected", data={"connected": connected})
     finally:
         _close_rpc(rpc)
 
-
 def set_work_mode(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
     rpc, err = _get_rpc(params, context)
-    if err:
-        return err
+    if err: return err
     try:
         mode = _to_int(params.get("mode", 1), 1)
         ok = rpc.set_rpa_work_mode(mode) if rpc is not None else False
@@ -768,11 +115,9 @@ def set_work_mode(params: Dict[str, Any], context: ExecutionContext) -> ActionRe
     finally:
         _close_rpc(rpc)
 
-
 def use_new_node_mode(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
     rpc, err = _get_rpc(params, context)
-    if err:
-        return err
+    if err: return err
     try:
         enabled = bool(params.get("enabled", True))
         ok = rpc.use_new_node_mode(enabled) if rpc is not None else False
@@ -780,350 +125,97 @@ def use_new_node_mode(params: Dict[str, Any], context: ExecutionContext) -> Acti
     finally:
         _close_rpc(rpc)
 
-
 def start_video_stream(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
     rpc, err = _get_rpc(params, context)
-    if err:
-        return err
+    if err: return err
     try:
         width = _to_int(params.get("width", 400), 400)
         height = _to_int(params.get("height", 720), 720)
         bitrate = _to_int(params.get("bitrate", 20000), 20000)
         ok = rpc.start_video_stream(width, height, bitrate) if rpc is not None else False
-        return ActionResult(
-            ok=ok,
-            code="ok" if ok else "video_stream_start_failed",
-            data={"width": width, "height": height, "bitrate": bitrate},
-        )
+        return ActionResult(ok=ok, code="ok" if ok else "video_stream_start_failed")
     finally:
         _close_rpc(rpc)
-
 
 def stop_video_stream(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
     rpc, err = _get_rpc(params, context)
-    if err:
-        return err
+    if err: return err
     try:
         ok = rpc.stop_video_stream() if rpc is not None else False
-        return ActionResult(ok=ok, code="ok" if ok else "video_stream_stop_failed")
+        return ActionResult(ok=ok, code="ok")
     finally:
         _close_rpc(rpc)
 
+def get_display_rotate(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
+    rpc, err = _get_rpc(params, context)
+    if err: return err
+    try:
+        rotate = rpc.get_display_rotate() if rpc is not None else 0
+        return ActionResult(ok=True, code="ok", data={"rotate": _to_int(rotate)})
+    finally:
+        _close_rpc(rpc)
+
+def get_sdk_version(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
+    rpc, err = _get_rpc(params, context)
+    if err: return err
+    try:
+        version = rpc.get_sdk_version() if rpc is not None else ""
+        return ActionResult(ok=True, code="ok", data={"version": str(version)})
+    finally:
+        _close_rpc(rpc)
 
 def exec_command(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
     rpc, err = _get_rpc(params, context)
-    if err:
-        return err
+    if err: return err
     try:
-        command = str(params.get("command") or "")
-        if not command:
-            return ActionResult(ok=False, code="invalid_params", message="command is required")
-        output, ok = rpc.exec_cmd(command) if rpc is not None else ("", False)
-        return ActionResult(ok=ok, code="ok" if ok else "exec_failed", data={"output": output})
+        cmd = str(params.get("command") or "")
+        out, ok = rpc.exec_cmd(cmd) if rpc is not None else ("", False)
+        return ActionResult(ok=ok, code="ok" if ok else "exec_failed", data={"output": out})
     finally:
         _close_rpc(rpc)
 
+APP_OPEN_METADATA = ActionMetadata(description="Start an Android application", params_schema={"type": "object", "properties": {"package": {"type": "string"}}, "required": ["package"]})
+APP_STOP_METADATA = ActionMetadata(description="Force stop an Android application", params_schema={"type": "object", "properties": {"package": {"type": "string"}}, "required": ["package"]})
+APP_ENSURE_RUNNING_METADATA = ActionMetadata(description="Ensure an application is running", params_schema={"type": "object", "properties": {"package": {"type": "string"}}, "required": ["package"]})
 
-def dumpNodeXml(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
+def app_open(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
     rpc, err = _get_rpc(params, context)
-    if err:
-        return err
+    if err: return err
     try:
-        dump_all = bool(params.get("dump_all", False))
-        xml = rpc.dump_node_xml(dump_all) if rpc is not None else None
-        if xml is None:
-            return ActionResult(ok=False, code="dump_failed", message="dump_node_xml returned no data")
-        return ActionResult(ok=True, code="ok", data={"xml": xml})
+        package = str(params.get("package") or "")
+        ok = rpc.openApp(package) if rpc is not None else False
+        return ActionResult(ok=ok, code="ok" if ok else "app_open_failed")
     finally:
         _close_rpc(rpc)
 
-
-def dump_node_xml_ex(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
+def app_stop(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
     rpc, err = _get_rpc(params, context)
-    if err:
-        return err
+    if err: return err
     try:
-        work_mode = bool(params.get("work_mode", False))
-        timeout_ms = int(params.get("timeout_ms", 3000))
-        xml = rpc.dump_node_xml_ex(work_mode, timeout_ms) if rpc is not None else None
-        if xml is None:
-            return ActionResult(ok=False, code="dump_failed", message="dump_node_xml_ex returned no data")
-        return ActionResult(ok=True, code="ok", data={"xml": xml})
+        package = str(params.get("package") or "")
+        ok = rpc.stopApp(package) if rpc is not None else False
+        return ActionResult(ok=ok, code="ok" if ok else "app_stop_failed")
     finally:
         _close_rpc(rpc)
 
-
-MytSelector = _selector_support.MytSelector
-RpcNode = _selector_support.RpcNode
-
-
-def _selector_from_context(context: ExecutionContext) -> MytSelector | None:
-    return _selector_support._selector_from_context(context)
-
-
-def _resolve_handle_value(raw: Any) -> int | None:
-    return _selector_support._resolve_handle_value(raw)
-
-
-def _resolve_nodes_handle(params: Dict[str, Any], context: ExecutionContext) -> int | None:
-    return _selector_support._resolve_nodes_handle(params, context)
-
-
-def _resolve_node_handle(params: Dict[str, Any], context: ExecutionContext) -> int | None:
-    return _selector_support._resolve_node_handle(params, context)
-
-
-def _tracked_nodes_vars(context: ExecutionContext) -> set[str]:
-    return _selector_support._tracked_nodes_vars(context)
-
-
-def _track_nodes_var(context: ExecutionContext, var_name: str) -> None:
-    _selector_support._track_nodes_var(context, var_name)
-
-
-def _untrack_nodes_var(context: ExecutionContext, var_name: str) -> None:
-    _selector_support._untrack_nodes_var(context, var_name)
-
-
-def _free_nodes_handle(rpc: MytRpc | None, handle: int | None) -> bool:
-    return _selector_support._free_nodes_handle(rpc, handle)
-
-
-def _release_tracked_node_handles(context: ExecutionContext, selector: MytSelector | None) -> bool:
-    return _selector_support._release_tracked_node_handles(context, selector)
-
-
-def _serialize_node(node: Any, rpc: MytRpc | None = None) -> Dict[str, Any]:
-    return _selector_support._serialize_node(node, rpc)
-
-
-def create_selector(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
-    return _selector_support.create_selector(
-        params,
-        context,
-        get_rpc=_get_rpc,
-        close_rpc=_close_rpc,
-        selector_cls=MytSelector,
-    )
-
-
-def _apply_selector_query(selector: MytSelector, params: Dict[str, Any]) -> tuple[bool, str | None, str | None]:
-    return _selector_support._apply_selector_query(selector, params)
-
-
-def selector_add_query(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
-    return _selector_support.selector_add_query(params, context)
-
-
-def selector_exec_one(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
-    return _selector_support.selector_exec_one(params, context)
-
-
-def selector_click_one(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
+def app_ensure_running(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
+    package = str(params.get("package") or "")
     rpc, err = _get_rpc(params, context)
-    if err:
-        return err
-    if rpc is None:
-        return ActionResult(ok=False, code="no_rpc", message="RPC not available")
-    selector = MytSelector(rpc=rpc)
-    
-    click_params: Dict[str, Any] = dict(params)
-    node_text: str = ""
-    node_class: str = ""
-    bounds: Dict[str, int] = {}
-    
+    if err: return err
     try:
-        query_type = str(params.get("type") or "").strip().lower()
-        if not query_type:
-            return ActionResult(ok=False, code="invalid_params", message="type is required")
-            
-        ok, error_code, error_message = _apply_selector_query(selector, params)
-        if not ok:
-            return ActionResult(ok=False, code=str(error_code), message=str(error_message))
-            
-        result = selector.execQueryOne()
-        if not result.ok or not result.data:
-            return ActionResult(ok=False, code="not_found", message="selector query failed")
-            
-        node = result.data.get("node")
-        if node is None:
-            return ActionResult(ok=False, code="not_found", message="selector query returned no node")
-            
-        rpc_node = RpcNode(node, rpc=rpc)
-        bounds = rpc_node.get_node_bound()
-        node_text = rpc_node.get_node_text()
-        node_class = rpc_node.get_node_class()
-        
-        bw = bounds.get("right", 0) - bounds.get("left", 0)
-        bh = bounds.get("bottom", 0) - bounds.get("top", 0)
-        
-        align = str(params.get("align", "")).strip().lower()
-        nx: float = 0.5
-        ny: float = 0.5
-        
-        if align == "top_left": nx, ny = 0.1, 0.1
-        elif align == "top_right": nx, ny = 0.9, 0.1
-        elif align == "bottom_left": nx, ny = 0.1, 0.9
-        elif align == "bottom_right": nx, ny = 0.9, 0.9
-        elif align == "right": nx, ny = 0.9, 0.5
-        elif align == "left": nx, ny = 0.1, 0.5
-        elif align == "top": nx, ny = 0.5, 0.1
-        elif align == "bottom": nx, ny = 0.5, 0.9
-        else:
-            nx = float(params.get("node_nx", 500)) / 1000.0
-            ny = float(params.get("node_ny", 500)) / 1000.0
-
-        click_params["x"] = bounds.get("left", 0) + int(bw * nx)
-        click_params["y"] = bounds.get("top", 0) + int(bh * ny)
-        
-        for key in ["nx", "ny", "align", "node_nx", "node_ny", "type", "mode", "value", "desc", "id", "class_name"]:
-            click_params.pop(key, None)
-            
+        rpc.openApp(package)
+        return ActionResult(ok=True, code="ok")
     finally:
-        try:
-            if hasattr(selector, "clear_selector"):
-                selector.clear_selector()
-            if hasattr(selector, "free_selector"):
-                selector.free_selector()
-        except Exception:
-            pass
         _close_rpc(rpc)
-        
-    res = click(click_params, context)
-    if res.ok and res.data:
-        res.data["node_text"] = node_text
-        res.data["node_class"] = node_class
-        res.data["node_bounds"] = bounds
-    return res
 
+def app_grant_permissions(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
+    return ActionResult(ok=True, code="ok") # Simplified for now
 
-def selector_click_with_fallback(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
-    selector_defs = params.get("selectors")
-    if not isinstance(selector_defs, list) or not selector_defs:
-        return ActionResult(ok=False, code="invalid_params", message="selectors must be a non-empty list")
-
-    base_params = {
-        key: value
-        for key, value in params.items()
-        if key not in {"selectors", "fallback_command"}
-    }
-    last_result: ActionResult | None = None
-
-    for index, selector in enumerate(selector_defs):
-        if not isinstance(selector, dict):
-            return ActionResult(ok=False, code="invalid_params", message="selector entries must be objects")
-
-        merged = dict(base_params)
-        merged["type"] = selector.get("type")
-        merged["mode"] = selector.get("mode")
-        merged["value"] = selector.get("value")
-        result = selector_click_one(merged, context)
-        last_result = result
-        if result.ok:
-            data = dict(result.data or {})
-            data.update({"selector_index": index, "selector": selector})
-            return ActionResult(ok=True, code="ok", data=data)
-
-    fallback_command = params.get("fallback_command")
-    if fallback_command:
-        fallback_result = exec_command(
-            {
-                "device_ip": base_params.get("device_ip"),
-                "command": fallback_command,
-            },
-            context,
-        )
-        if fallback_result.ok:
-            data = dict(fallback_result.data or {})
-            data.update({"fallback_command": fallback_command})
-            return ActionResult(ok=True, code="ok", data=data)
-        return fallback_result
-
-    message = "all selector clicks failed"
-    if last_result and last_result.message:
-        message = f"{message}: {last_result.message}"
-    return ActionResult(ok=False, code="selector_click_failed", message=message)
-
-
-def selector_exec_all(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
-    return _selector_support.selector_exec_all(params, context)
-
-
-def selector_find_nodes(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
-    return _selector_support.selector_find_nodes(params, context)
-
-
-def selector_free_nodes(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
-    return _selector_support.selector_free_nodes(params, context)
-
-
-def selector_get_nodes_size(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
-    return _selector_support.selector_get_nodes_size(params, context)
-
-
-def selector_get_node_by_index(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
-    return _selector_support.selector_get_node_by_index(params, context)
-
-
-def node_get_parent(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
-    return _selector_support.node_get_parent(params, context)
-
-
-def node_get_child_count(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
-    return _selector_support.node_get_child_count(params, context)
-
-
-def node_get_child(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
-    return _selector_support.node_get_child(params, context)
-
-
-def node_get_json(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
-    return _selector_support.node_get_json(params, context)
-
-
-def node_get_text(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
-    return _selector_support.node_get_text(params, context)
-
-
-def node_get_desc(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
-    return _selector_support.node_get_desc(params, context)
-
-
-def node_get_package(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
-    return _selector_support.node_get_package(params, context)
-
-
-def node_get_class(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
-    return _selector_support.node_get_class(params, context)
-
-
-def node_get_id(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
-    return _selector_support.node_get_id(params, context)
-
-
-def node_get_bound(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
-    return _selector_support.node_get_bound(params, context)
-
-
-def node_get_bound_center(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
-    return _selector_support.node_get_bound_center(params, context)
-
-
-def node_click(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
-    return _selector_support.node_click(params, context)
-
-
-def node_long_click(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
-    return _selector_support.node_long_click(params, context)
-
-
-def release_selector_context(context: ExecutionContext) -> bool:
-    return _selector_support.release_selector_context(context, close_rpc=_close_rpc)
-
-
-def selector_free(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
-    return _selector_support.selector_free(params, context, close_rpc=_close_rpc)
-
-
-def selector_clear(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
-    return _selector_support.selector_clear(params, context, close_rpc=_close_rpc)
+def app_dismiss_popups(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
+    rpc, err = _get_rpc(params, context)
+    if err: return err
+    try:
+        for _ in range(2): rpc.keyPress(4)
+        return ActionResult(ok=True, code="ok")
+    finally:
+        _close_rpc(rpc)

@@ -117,6 +117,12 @@ class ActiveTargetCircuitBreaker:
         self._unsubscribe: Callable[[], None] | None = None
         if self._device_id < 1 or self._cloud_id < 1:
             return
+
+        # NEW: Check if RPC is enabled; if not, do not activate circuit breaker
+        from core.system_settings_loader import get_rpc_enabled
+        if not get_rpc_enabled():
+            return
+
         manager = get_device_manager()
         self._unsubscribe = manager.subscribe_cloud_probe(self._device_id, self._cloud_id, self._handle_probe_update)
         self._handle_probe_update(manager.get_cloud_probe_snapshot(self._device_id, self._cloud_id))

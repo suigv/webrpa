@@ -10,6 +10,7 @@ from typing import Any, Dict
 
 from engine.models.runtime import ActionResult, ExecutionContext
 from hardware_adapters.android_api_client import AndroidApiClient
+from engine.action_registry import ActionMetadata
 
 
 def _api_client(params: Dict[str, Any], context: ExecutionContext) -> AndroidApiClient | None:
@@ -53,11 +54,42 @@ def _from_api(result: Dict[str, Any]) -> ActionResult:
 # 剪贴板
 # ------------------------------------------------------------------ #
 
+GET_CLIPBOARD_METADATA = ActionMetadata(
+    description="获取安卓设备的剪贴板文本。",
+    params_schema={
+        "type": "object",
+        "properties": {
+            "device_ip": {"type": "string", "description": "设备 IP，可选（由运行时推导）"},
+            "api_port": {"type": "integer", "description": "API 端口，可选（默认 30001）"}
+        }
+    },
+    returns_schema={
+        "type": "object",
+        "properties": {
+            "result": {"type": "string", "description": "剪贴板中的文本内容"}
+        }
+    }
+)
+
+
 def android_get_clipboard(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
     client = _api_client(params, context)
     if client is None:
         return _err("invalid_params", "device_ip is required")
     return _from_api(client.get_clipboard())
+
+
+SET_CLIPBOARD_METADATA = ActionMetadata(
+    description="设置安卓设备的剪贴板文本。",
+    params_schema={
+        "type": "object",
+        "properties": {
+            "text": {"type": "string", "description": "要设置的文本内容"},
+            "device_ip": {"type": "string", "description": "设备 IP"},
+        },
+        "required": ["text"]
+    }
+)
 
 
 def android_set_clipboard(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
@@ -74,11 +106,39 @@ def android_set_clipboard(params: Dict[str, Any], context: ExecutionContext) -> 
 # S5 代理
 # ------------------------------------------------------------------ #
 
+QUERY_PROXY_METADATA = ActionMetadata(
+    description="查询安卓设备当前的 S5 代理状态。",
+    params_schema={
+        "type": "object",
+        "properties": {
+            "device_ip": {"type": "string", "description": "设备 IP"}
+        }
+    }
+)
+
+
 def android_query_proxy(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
     client = _api_client(params, context)
     if client is None:
         return _err("invalid_params", "device_ip is required")
     return _from_api(client.query_s5_proxy())
+
+
+SET_PROXY_METADATA = ActionMetadata(
+    description="设置安卓设备的 S5 代理。",
+    params_schema={
+        "type": "object",
+        "properties": {
+            "ip": {"type": "string", "description": "代理服务器 IP"},
+            "port": {"type": "integer", "description": "代理服务器端口"},
+            "username": {"type": "string", "description": "用户名"},
+            "password": {"type": "string", "description": "密码"},
+            "proxy_type": {"type": "integer", "description": "代理类型（默认 2）"},
+            "device_ip": {"type": "string", "description": "设备 IP"}
+        },
+        "required": ["ip", "port"]
+    }
+)
 
 
 def android_set_proxy(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
@@ -121,6 +181,27 @@ def android_set_proxy_filter(params: Dict[str, Any], context: ExecutionContext) 
 # ------------------------------------------------------------------ #
 # 截图
 # ------------------------------------------------------------------ #
+
+SCREENSHOT_METADATA = ActionMetadata(
+    description="截取安卓设备屏幕。",
+    params_schema={
+        "type": "object",
+        "properties": {
+            "image_type": {"type": "integer", "description": "图片类型：0 为截图，1 为 XML"},
+            "quality": {"type": "integer", "description": "图片质量 (1-100)"},
+            "save_path": {"type": "string", "description": "服务端保存路径"},
+            "device_ip": {"type": "string", "description": "设备 IP"}
+        }
+    },
+    returns_schema={
+        "type": "object",
+        "properties": {
+            "url": {"type": "string", "description": "截图访问 URL"},
+            "path": {"type": "string", "description": "截图保存路径"}
+        }
+    }
+)
+
 
 def android_screenshot(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
     client = _api_client(params, context)
@@ -165,6 +246,20 @@ def android_upload_file(params: Dict[str, Any], context: ExecutionContext) -> Ac
 # 系统功能
 # ------------------------------------------------------------------ #
 
+SET_LANGUAGE_METADATA = ActionMetadata(
+    description="设置安卓设备的语言和国家/地区。",
+    params_schema={
+        "type": "object",
+        "properties": {
+            "language": {"type": "string", "description": "语言代码 (如 zh)"},
+            "country": {"type": "string", "description": "国家代码 (如 CN)"},
+            "device_ip": {"type": "string", "description": "设备 IP"}
+        },
+        "required": ["language", "country"]
+    }
+)
+
+
 def android_set_language(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
     client = _api_client(params, context)
     if client is None:
@@ -190,6 +285,20 @@ def android_get_google_adid(params: Dict[str, Any], context: ExecutionContext) -
     return _from_api(client.get_google_id())
 
 
+RECEIVE_SMS_METADATA = ActionMetadata(
+    description="模拟接收或读取短信内容。",
+    params_schema={
+        "type": "object",
+        "properties": {
+            "address": {"type": "string", "description": "发件人地址"},
+            "body": {"type": "string", "description": "短信正文内容"},
+            "scaddress": {"type": "string", "description": "服务中心地址"},
+            "device_ip": {"type": "string", "description": "设备 IP"}
+        }
+    }
+)
+
+
 def android_receive_sms(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
     client = _api_client(params, context)
     if client is None:
@@ -199,6 +308,20 @@ def android_receive_sms(params: Dict[str, Any], context: ExecutionContext) -> Ac
         body=str(params.get("body") or params.get("mbody") or ""),
         scaddress=str(params.get("scaddress") or ""),
     ))
+
+
+ADD_CONTACT_METADATA = ActionMetadata(
+    description="向安卓设备添加联系人。",
+    params_schema={
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "联系人姓名"},
+            "number": {"type": "string", "description": "电话号码"},
+            "contacts": {"type": "array", "items": {"type": "object"}, "description": "批量联系人列表"},
+            "device_ip": {"type": "string", "description": "设备 IP"}
+        }
+    }
+)
 
 
 def android_add_contact(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
@@ -333,6 +456,20 @@ def android_update_background_keepalive(params: Dict[str, Any], context: Executi
     return _from_api(client.update_background_keepalive(package))
 
 
+BACKUP_APP_METADATA = ActionMetadata(
+    description="备份指定的安卓应用数据。",
+    params_schema={
+        "type": "object",
+        "properties": {
+            "package": {"type": "string", "description": "应用包名"},
+            "save_to": {"type": "string", "description": "备份保存路径"},
+            "device_ip": {"type": "string", "description": "设备 IP"}
+        },
+        "required": ["package"]
+    }
+)
+
+
 def android_backup_app(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
     client = _api_client(params, context)
     if client is None:
@@ -342,6 +479,19 @@ def android_backup_app(params: Dict[str, Any], context: ExecutionContext) -> Act
         return _err("invalid_params", "package is required")
     save_to = str(params.get("save_to") or params.get("saveto") or "")
     return _from_api(client.backup_app(package, save_to))
+
+
+RESTORE_APP_METADATA = ActionMetadata(
+    description="从备份路径恢复安卓应用数据。",
+    params_schema={
+        "type": "object",
+        "properties": {
+            "backup_path": {"type": "string", "description": "备份文件路径"},
+            "device_ip": {"type": "string", "description": "设备 IP"}
+        },
+        "required": ["backup_path"]
+    }
+)
 
 
 def android_restore_app(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:

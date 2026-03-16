@@ -122,6 +122,19 @@ def test_task_control_plane_success_flow():
         task_id = create.json()["task_id"]
 
         status = _wait_status(client, task_id)
+        if status != "completed":
+            detail = client.get(f"/api/tasks/{task_id}")
+            print(f"\nTASK FAILED: {detail.json()}")
+            events = client.get(f"/api/tasks/{task_id}/events") # This is SSE, might be tricky
+            # Let's try to get them from controller instead if possible, but TestClient SSE is different.
+            # Actually, the TestClient allows iterating over segments.
+            # But simpler: just use detail.json() which has some info, or add a route for events list.
+            # Wait, TaskController has list_events.
+            from core.task_control import get_task_controller
+            ctrl = get_task_controller()
+            evs = [f"{e.event_type}: {e.payload}" for e in ctrl.list_events(task_id)]
+            print(f"EVENTS: {evs}")
+            
         assert status == "completed"
 
         detail = client.get(f"/api/tasks/{task_id}")
@@ -1378,7 +1391,8 @@ def test_running_task_fails_fast_when_active_target_probe_turns_unavailable(tmp_
         with TestClient(app) as client:
             from unittest import mock
 
-            with mock.patch("core.cloud_probe_service.get_cloud_probe_service", return_value=_FakeProbeService()):
+            with mock.patch("core.cloud_probe_service.get_cloud_probe_service", return_value=_FakeProbeService()), \
+                 mock.patch("core.system_settings_loader.get_rpc_enabled", return_value=True):
                 create = client.post(
                     "/api/tasks/",
                     json={
