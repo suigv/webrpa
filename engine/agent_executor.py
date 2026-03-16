@@ -103,6 +103,79 @@ def _stable_fingerprint(value: object) -> str:
     return json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(",", ":"), default=str)
 
 
+_HISTORY_DIGEST_WINDOW = 5
+
+
+def _build_history_digest(
+    history: list[dict[str, object]],
+    *,
+    window: int = _HISTORY_DIGEST_WINDOW,
+) -> list[dict[str, object]]:
+    """Compress the execution history into a concise sliding window digest."""
+    recent = history[-window:] if len(history) > window else history
+    digest: list[dict[str, object]] = []
+    for entry in recent:
+        result = entry.get("result")
+        result_dict = result if isinstance(result, dict) else {}
+        digest.append({
+            "step": entry.get("step_index"),
+            "action": str(entry.get("action") or ""),
+            "params_summary": _params_summary(entry.get("params")),
+            "ok": bool(result_dict.get("ok", True)),
+            "message": str(result_dict.get("message") or "")[:120],
+        })
+    return digest
+
+
+def _params_summary(params: object, *, max_len: int = 80) -> str:
+    """Create a compact string summary of action params."""
+    if not params:
+        return "{}"
+    try:
+        raw = json.dumps(params, ensure_ascii=False, separators=(",", ":"), default=str)
+        return raw if len(raw) <= max_len else raw[:max_len] + "…"
+    except Exception:
+        return str(params)[:max_len]
+
+
+def _build_reflection(
+    last_action: dict[str, object] | None,
+    *,
+    repeated_action_count: int,
+) -> dict[str, object]:
+    """Build a reflection signal for the planner based on execution feedback."""
+    reflection: dict[str, object] = {}
+
+    # --- Failure awareness ---
+    if last_action is not None:
+        result = last_action.get("result")
+        result_dict = result if isinstance(result, dict) else {}
+        if result_dict.get("ok") is False:
+            reflection["last_action_failed"] = True
+            reflection["failure_code"] = str(result_dict.get("code") or "unknown")
+            reflection["failure_message"] = str(result_dict.get("message") or "")[:200]
+            reflection["suggestion"] = (
+                "上一步动作执行失败。请分析失败原因，考虑使用不同的方法、参数或目标元素。"
+                "避免简单重复上一步的操作。"
+            )
+
+    # --- Repeated action warning ---
+    if repeated_action_count >= 2:
+        reflection["repeated_action_detected"] = True
+        reflection["repeated_count"] = repeated_action_count
+        reflection["suggestion"] = (
+            f"你已经连续 {repeated_action_count} 次选择了相同的动作和参数组合。"
+            "这很可能表明当前策略无效。请审视屏幕状态，尝试完全不同的交互路径。"
+        )
+
+    return reflection
+
+
+def _action_fingerprint(action_name: str, params: dict[str, object]) -> str:
+    """Create a stable fingerprint for an (action, params) pair."""
+    return _stable_fingerprint({"a": action_name, "p": params})
+
+
 def _vlm_allowed_action_types(allowed_actions: list[str]) -> set[str]:
     mapping = {
         "ui.click": "click",
@@ -173,6 +246,8 @@ class AgentExecutorRuntime:
         history: list[dict[str, object]] = []
         trace_context = self._trace_context(runtime)
         pending_trace_record: dict[str, object] | None = None
+        repeated_action_count = 0
+        previous_action_fingerprint = ""
         last_observation: dict[str, object] = {
             "data": {},
             "ok": False,
@@ -297,6 +372,11 @@ class AgentExecutorRuntime:
 
             plan: dict[str, Any] = {"ok": False, "message": "uninitialized"}
             max_planner_retries = 3
+            history_digest = _build_history_digest(history)
+            reflection = _build_reflection(
+                last_action,
+                repeated_action_count=repeated_action_count,
+            )
             planner_input = PlannerInput(
                 goal=config.goal,
                 step_index=step_index,
@@ -308,6 +388,8 @@ class AgentExecutorRuntime:
                 fallback_modalities=config.fallback_modalities,
                 system_prompt=config.system_prompt,
                 llm_runtime=config.llm_runtime,
+                history_digest=history_digest,
+                reflection=reflection,
             )
             for attempt in range(max_planner_retries):
                 planner_output = self._planner.plan(planner_input)
@@ -440,6 +522,15 @@ class AgentExecutorRuntime:
                 "params": action_params,
                 "result": action_result_payload,
             }
+
+            # --- Repeated action detection ---
+            current_action_fp = _action_fingerprint(action_name, action_params)
+            if current_action_fp == previous_action_fingerprint:
+                repeated_action_count += 1
+            else:
+                repeated_action_count = 1
+            previous_action_fingerprint = current_action_fp
+
             history.append(
                 {
                     "step_index": step_index,
@@ -469,6 +560,9 @@ class AgentExecutorRuntime:
                 "chosen_action": action_name,
                 "action_params": action_params,
                 "action_result": action_result_payload,
+                "reflection": reflection if reflection else None,
+                "history_digest_length": len(history_digest),
+                "repeated_action_count": repeated_action_count,
                 "timestamps": {
                     "observed_at": observed_at,
                     "planned_at": str(plan.get("planned_at") or ""),
@@ -640,6 +734,8 @@ class AgentExecutorRuntime:
         last_action: dict[str, object] | None,
         fallback_enabled: bool,
         fallback_evidence: dict[str, object],
+        history_digest: list[dict[str, object]] | None = None,
+        reflection: dict[str, object] | None = None,
     ) -> dict[str, object]:
         fallback_reason = self._fallback_reason(observation_ok=not fallback_enabled)
         vlm_attempt: dict[str, object] | None = None
@@ -693,6 +789,10 @@ class AgentExecutorRuntime:
                 "extracted_data": "object (optional, populate with key findings when done=true)"
             },
         }
+        if history_digest:
+            prompt_payload["history_digest"] = history_digest
+        if reflection:
+            prompt_payload["reflection"] = reflection
         if vlm_attempt is not None:
             prompt_payload["vlm_attempt"] = vlm_attempt
 

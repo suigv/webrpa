@@ -382,3 +382,166 @@ def test_agent_executor_cancellation_writes_terminal_trace_record(tmp_path: Path
     assert [record["record_type"] for record in records] == ["step", "terminal"]
     assert records[-1]["status"] == "cancelled"
     assert records[-1]["code"] == "task_cancelled"
+
+
+def test_reflection_injected_on_action_failure(tmp_path: Path):
+    """When last action fails, reflection block should appear in the planner prompt."""
+    trace_store = ModelTraceStore(root_dir=tmp_path / "traces")
+
+    def _ui_click_fail(params, context):
+        _ = (params, context)
+        return ActionResult(ok=False, code="element_not_found", message="selector returned 0 nodes")
+
+    llm_client = _SequencedLLMClient(
+        responses=[
+            # Step 1: plan ui.click (will fail)
+            LLMResponse(ok=True, request_id="req-1", provider="openai", model="gpt-5.4",
+                        output_text=json.dumps({"action": "ui.click", "params": {"x": 100, "y": 200}})),
+            # Step 2: after failure, planner should see reflection; plan done
+            LLMResponse(ok=True, request_id="req-2", provider="openai", model="gpt-5.4",
+                        output_text=json.dumps({"done": True, "message": "adjusted strategy after failure"})),
+        ]
+    )
+
+    registry = ActionRegistry()
+    registry.register("ui.match_state", lambda p, c: ActionResult(
+        ok=True, code="ok", data={"platform": "native", "state": {"state_id": "home"}, "status": "matched"}
+    ))
+    registry.register("ui.click", _ui_click_fail)
+    runtime = AgentExecutorRuntime(registry=registry, llm_client_factory=lambda: llm_client, trace_store=trace_store)
+
+    result = runtime.run(
+        {
+            "goal": "test failure reflection",
+            "expected_state_ids": ["home"],
+            "allowed_actions": ["ui.click"],
+            "max_steps": 3,
+            "stagnant_limit": 10,
+        },
+        runtime=_trace_runtime_args(),
+    )
+
+    assert result["ok"] is True
+    assert len(llm_client.calls) == 2
+
+    # Verify that the second planner call received a reflection block
+    second_call = llm_client.calls[1]
+    prompt = json.loads(second_call["request"].prompt)
+    assert "reflection" in prompt
+    reflection = prompt["reflection"]
+    assert reflection["last_action_failed"] is True
+    assert reflection["failure_code"] == "element_not_found"
+    assert "suggestion" in reflection
+
+    # Verify history_digest is present in second call
+    assert "history_digest" in prompt
+    digest = prompt["history_digest"]
+    assert len(digest) == 1
+    assert digest[0]["action"] == "ui.click"
+    assert digest[0]["ok"] is False
+
+
+def test_history_digest_sliding_window():
+    """History digest should only contain the most recent N steps."""
+    from engine.agent_executor import _build_history_digest
+
+    history = [
+        {"step_index": i, "action": f"action_{i}", "params": {"x": i}, "result": {"ok": True, "message": ""}}
+        for i in range(1, 9)  # 8 steps
+    ]
+
+    digest = _build_history_digest(history, window=5)
+    assert len(digest) == 5
+    assert digest[0]["step"] == 4  # starts at step 4 (8 - 5 + 1)
+    assert digest[-1]["step"] == 8
+
+    # Small history
+    small = _build_history_digest(history[:2], window=5)
+    assert len(small) == 2
+
+
+def test_repeated_action_warning_injected_in_prompt():
+    """When planner selects the same action+params repeatedly, a warning should appear."""
+    llm_client = _SequencedLLMClient(
+        responses=[
+            # Steps 1-3: always choose same click
+            LLMResponse(ok=True, request_id="req-1", provider="openai", model="gpt-5.4",
+                        output_text=json.dumps({"action": "ui.click", "params": {"x": 10, "y": 20}})),
+            LLMResponse(ok=True, request_id="req-2", provider="openai", model="gpt-5.4",
+                        output_text=json.dumps({"action": "ui.click", "params": {"x": 10, "y": 20}})),
+            LLMResponse(ok=True, request_id="req-3", provider="openai", model="gpt-5.4",
+                        output_text=json.dumps({"done": True, "message": "finally done"})),
+        ]
+    )
+    runtime = _build_runtime(
+        llm_client=llm_client,
+        observations=[
+            {"platform": "native", "state": {"state_id": f"state-{i}"}, "status": "matched"}
+            for i in range(1, 5)
+        ],
+    )
+
+    result = runtime.run(
+        {
+            "goal": "test repeated action warning",
+            "expected_state_ids": ["state"],
+            "allowed_actions": ["ui.click"],
+            "max_steps": 5,
+            "stagnant_limit": 10,
+        }
+    )
+
+    assert result["ok"] is True
+    assert len(llm_client.calls) == 3
+
+    # Third call should have repeated_action_detected warning
+    third_prompt = json.loads(llm_client.calls[2]["request"].prompt)
+    assert "reflection" in third_prompt
+    reflection = third_prompt["reflection"]
+    assert reflection["repeated_action_detected"] is True
+    assert reflection["repeated_count"] == 2
+
+
+def test_reflection_trace_records_include_metadata(tmp_path: Path):
+    """Trace records should contain reflection metadata for observability."""
+    trace_store = ModelTraceStore(root_dir=tmp_path / "traces")
+    llm_client = _SequencedLLMClient(
+        responses=[
+            LLMResponse(ok=True, request_id="req-1", provider="openai", model="gpt-5.4",
+                        output_text=json.dumps({"action": "ui.click", "params": {"x": 10, "y": 20}})),
+            LLMResponse(ok=True, request_id="req-2", provider="openai", model="gpt-5.4",
+                        output_text=json.dumps({"action": "ui.click", "params": {"x": 10, "y": 20}})),
+        ]
+    )
+    runtime = _build_runtime(
+        llm_client=llm_client,
+        observations=[
+            {"platform": "native", "state": {"state_id": f"s{i}"}, "status": "matched"}
+            for i in range(1, 4)
+        ],
+        trace_store=trace_store,
+    )
+
+    runtime.run(
+        {
+            "goal": "test trace metadata",
+            "expected_state_ids": ["s"],
+            "allowed_actions": ["ui.click"],
+            "max_steps": 2,
+            "stagnant_limit": 10,
+        },
+        runtime=_trace_runtime_args(),
+    )
+
+    records = _read_trace_records(tmp_path / "traces")
+    step_records = [r for r in records if r["record_type"] == "step"]
+    assert len(step_records) == 2
+
+    # First step: no reflection (no previous action)
+    assert step_records[0]["reflection"] is None
+    assert step_records[0]["history_digest_length"] == 0
+    assert step_records[0]["repeated_action_count"] == 1  # first occurrence = 1
+
+    # Second step: has repeated action count  
+    assert step_records[1]["history_digest_length"] == 1
+    assert step_records[1]["repeated_action_count"] == 2

@@ -8,8 +8,16 @@
 - 阶段：**Web Console Productization & Navigation Engine Hardening**
 - 核心状态：API、任务系统、插件执行、账号池全面可用；Web 控制台完成产品化改造；导航引擎具备自愈与锚点机制；AI 执行引擎接入托管链路。
 - 最近重点 (2026-03-16):
-  - **Skills-Driven 架构演进：元数据富化 (Android Actions)**：为 `android.*` 命名空间下的核心动作补全了 `ActionMetadata`。现在每个动作都拥有详细的中文描述、参数 JSON Schema 以及返回值定义，大幅提升了 AI 代理对底层能力的语义理解与自主发现效率。
-  - **UI 动作模块化重构 (Modularity Refactoring)**：完成了对 `ui_actions.py` 的解耦。将 touch、input 和 selector 相关能力分别拆分至独立的专有模块 (`ui_touch_actions.py`, `ui_input_actions.py`, `ui_selector_actions.py`)。保留 `ui_actions.py` 作为兼容性重定向入口，实现了代码整洁度与向后兼容的双重平衡。
+  - **AgentExecutor 自反思能力增强 (Phase 4 - Self-Reflection Hardening)**：
+    - **执行轨迹摘要 (History Digest)**：实现了基于滑动窗口（默认最近 5 步）的执行历史压缩注入，为 Planner 提供了必要的短期记忆，有效防止了在错误路径上的盲目循环。
+    - **失败感知与自修正 (Failure-Aware Reflection)**：建立了动作执行结果的闭环反馈机制。当动作失败时，自动注入包含错误码、原因及修正建议的反思块，引导 Planner 动态调整策略。
+    - **重复动作熔断机制 (Repeated Action Breaker)**：引入了动作指纹检测技术。针对连续重复同一 (action, params) 组合的行为进行识别并发出反思警告，从根本上杜绝了无效重试导致的预算浪费。
+    - **观测指标富化**：Trace 记录现已完整包含反思元数据、历史摘要长度及重复计数，为后续离线蒸馏与热修复提供了精准的数据支撑。
+  - **Skills-Driven 架构演进 (Phase 3 - UI 动作模块化与回归修复)**：
+    - **UI 动作深度拆分**：彻底重构并解耦了 `ui_actions.py`，建立了 `ui_touch`, `ui_input`, `ui_selector`, `ui_app`, `ui_device` 五大专有子模块。
+    - **RPC 链路对齐与一致性同步**：引入了基于装饰器的 monkeypatch 实时同步机制，解决了多进程/多环境下的 mock 逃逸问题，确保了 RPC 状态在全链路的一致性。
+    - **回归测试 100% 达成**：修复了 `selector_click_one` 等核心动作的执行序列偏差，实现了对旧版测试套件 100% 的兼容性回归。
+    - **硬件适配层稳固**：在 `MytRpc` 中补全了 PascalCase 别名，确保了硬件驱动接口与上层应用调用的精确匹配。
   - **任务执行鲁棒性加固 (Task Execution Resilience)**：针对自动化测试与本地开发环境，将 `ActiveTargetCircuitBreaker` 熔断机制改为基于 RPC 状态按需触发，解决了 `MYT_ENABLE_RPC=0` 模式下因网络探测失败导致的误报 FAILED 状态。
   - **RPC 特性开关一致性**：统一了系统与测试中对 `MYT_ENABLE_RPC` 环境变量的优先级处理，确保 Feature Flag 在全链路上严格生效。
   - **架构硬化验证完成**：完成了 `BaseStore` (SQLite)、`ConfigLoader` (Pydantic) 以及 `CloudProbeService` (Probing) 的全量集成验证，通过了 280+ 项测试用例的回归校验。

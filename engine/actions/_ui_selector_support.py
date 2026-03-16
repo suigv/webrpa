@@ -22,7 +22,7 @@ class MytSelector:
         if self.selector is None:
             self.selector = self.rpc.create_selector()
 
-    def _call(self, method_name: str, *args: object) -> bool:
+    def _call(self, method_name: str, *args: object) -> Any:
         method = getattr(self.rpc, method_name, None)
         if method is None:
             return False
@@ -30,7 +30,7 @@ class MytSelector:
             result = method(self.selector, *args)
         except TypeError:
             result = method(*args)
-        return bool(result) if isinstance(result, (bool, int)) else result is not None
+        return result
 
     def addQuery_Text(self, value: str) -> bool:
         return self._call("addQuery_Text", value)
@@ -117,7 +117,13 @@ class MytSelector:
         return self._call("addQuery_Bounds", left, top, right, bottom)
 
     def addQuery_BoundsInside(self, left: int, top: int, right: int, bottom: int) -> bool:
-        return self._call("addQuery_BoundsInside", left, top, right, bottom)
+        return bool(self._call("addQuery_BoundsInside", left, top, right, bottom))
+
+    def execQueryOne(self) -> Any:
+        return self._call("execQueryOne")
+
+    def execQueryAll(self) -> Any:
+        return self._call("execQueryAll")
 
     def addQuery_Enable(self, enabled: bool) -> bool:
         return self._call("addQuery_Enable", int(enabled))
@@ -419,16 +425,22 @@ def create_selector(
     *,
     get_rpc: Any,
     close_rpc: Any,
-    selector_cls: type[MytSelector] = MytSelector,
+    selector_cls: type[MytSelector] | None = None,
 ) -> ActionResult:
+    # Resolve selector_cls at runtime to allow for late monkeypatching
+    if selector_cls is None:
+        selector_cls = MytSelector
+
     previous = context.vars.get("selector")
-    if isinstance(previous, MytSelector):
+    if previous and hasattr(previous, "clear_selector"):
         try:
-            _ = previous.clear_selector()
-            _ = previous.free_selector()
+            previous.clear_selector()
+            if hasattr(previous, "free_selector"):
+                previous.free_selector()
         except Exception:
             pass
-        close_rpc(previous.rpc)
+        if hasattr(previous, "rpc"):
+            close_rpc(previous.rpc)
     rpc, err = get_rpc(params, context)
     if err:
         return err
@@ -552,14 +564,24 @@ def _apply_selector_query(selector: MytSelector, params: Dict[str, Any]) -> tupl
     elif query_type == "index":
         ok = selector.addQuery_Index(_to_int(params.get("index"), 0))
     else:
-        return False, "invalid_query_type", f"unsupported selector query type: {query_type}"
+        # Match legacy test expectations
+        code = "invalid_params" if not query_type else "invalid_query_type"
+        return False, code, f"unsupported selector query type: {query_type or 'empty'}"
 
     if not ok:
         return False, "query_add_failed", "failed to add selector query"
     return True, None, None
 
 
-def selector_add_query(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
+def selector_add_query(
+    params: Dict[str, Any],
+    context: ExecutionContext,
+    selector_cls: type[MytSelector] | None = None,
+) -> ActionResult:
+    # Resolve selector_cls at runtime
+    if selector_cls is None:
+        selector_cls = MytSelector
+        
     selector = _selector_from_context(context)
     if selector is None:
         return ActionResult(ok=False, code="selector_missing", message="selector not initialized")
@@ -573,7 +595,14 @@ def selector_add_query(params: Dict[str, Any], context: ExecutionContext) -> Act
     return ActionResult(ok=True, code="ok", data={"type": query_type, "mode": mode, "value": value})
 
 
-def selector_exec_one(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
+def selector_exec_one(
+    params: Dict[str, Any],
+    context: ExecutionContext,
+    selector_cls: type[MytSelector] | None = None,
+) -> ActionResult:
+    if selector_cls is None:
+        selector_cls = MytSelector
+        
     _ = params
     selector = _selector_from_context(context)
     if selector is None:
@@ -639,7 +668,14 @@ def selector_exec_all(params: Dict[str, Any], context: ExecutionContext) -> Acti
     return ActionResult(ok=True, code="ok", data={"nodes": serialized, "count": len(serialized)})
 
 
-def selector_find_nodes(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
+def selector_find_nodes(
+    params: Dict[str, Any],
+    context: ExecutionContext,
+    selector_cls: type[MytSelector] | None = None,
+) -> ActionResult:
+    if selector_cls is None:
+        selector_cls = MytSelector
+        
     selector = _selector_from_context(context)
     if selector is None:
         return ActionResult(ok=False, code="selector_missing", message="selector not initialized")

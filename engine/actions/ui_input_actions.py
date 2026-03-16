@@ -2,7 +2,7 @@ from __future__ import annotations
 import time
 from typing import Any, Dict
 from engine.actions import _rpc_bootstrap
-from engine.models.runtime import ActionResult, ExecutionContext
+from engine.models.runtime import ActionResult, ErrorType, ExecutionContext
 from hardware_adapters.mytRpc import MytRpc
 from engine.action_registry import ActionMetadata
 
@@ -44,10 +44,11 @@ def _get_rpc(params: Dict[str, Any], context: ExecutionContext) -> tuple[MytRpc 
     return _rpc_bootstrap.bootstrap_rpc(
         params,
         context,
-        is_enabled=_rpc_bootstrap.is_rpc_enabled,
+        is_enabled=lambda: _rpc_bootstrap.is_rpc_enabled() if callable(_rpc_bootstrap.is_rpc_enabled) else _rpc_bootstrap.is_rpc_enabled,
         resolve_params=_rpc_bootstrap.resolve_connection_params,
-        rpc_factory=MytRpc,
         result_factory=ActionResult,
+        error_type_env=ErrorType.ENV_ERROR,
+        error_type_business=ErrorType.BUSINESS_ERROR,
     )
 
 def _close_rpc(rpc: MytRpc | None) -> None:

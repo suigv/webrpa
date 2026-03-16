@@ -53,6 +53,10 @@ class PlannerInput:
     system_prompt: str
     llm_runtime: dict[str, object]
 
+    # --- Self-reflection fields ---
+    history_digest: list[dict[str, object]] = field(default_factory=list)
+    reflection: dict[str, object] = field(default_factory=dict)
+
 
 @dataclass(slots=True)
 class PlannerOutput:
@@ -166,6 +170,8 @@ class StructuredPlanner:
             last_action=inp.last_action,
             fallback_enabled=inp.fallback_enabled,
             fallback_evidence=inp.fallback_evidence,
+            history_digest=inp.history_digest or None,
+            reflection=inp.reflection or None,
         )
 
         return _legacy_dict_to_output(raw)
@@ -255,6 +261,10 @@ class OmniVisionPlanner:
                 "extracted_data": "object (optional, populate when done=true)",
             },
         }
+        if inp.history_digest:
+            prompt_payload["history_digest"] = inp.history_digest
+        if inp.reflection:
+            prompt_payload["reflection"] = inp.reflection
 
         # --- Attach screenshot if available ---
         attachments: list[dict[str, object]] = []

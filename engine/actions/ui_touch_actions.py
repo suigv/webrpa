@@ -2,7 +2,7 @@ from __future__ import annotations
 import time
 from typing import Any, Dict
 from engine.actions import _rpc_bootstrap
-from engine.models.runtime import ActionResult, ExecutionContext
+from engine.models.runtime import ActionResult, ErrorType, ExecutionContext
 from hardware_adapters.mytRpc import MytRpc
 from engine.action_registry import ActionMetadata
 from core.device_manager import get_device_manager
@@ -62,10 +62,11 @@ def _get_rpc(params: Dict[str, Any], context: ExecutionContext) -> tuple[MytRpc 
     return _rpc_bootstrap.bootstrap_rpc(
         params,
         context,
-        is_enabled=_rpc_bootstrap.is_rpc_enabled,
+        is_enabled=lambda: _rpc_bootstrap.is_rpc_enabled() if callable(_rpc_bootstrap.is_rpc_enabled) else _rpc_bootstrap.is_rpc_enabled,
         resolve_params=_rpc_bootstrap.resolve_connection_params,
-        rpc_factory=MytRpc,
         result_factory=ActionResult,
+        error_type_env=ErrorType.ENV_ERROR,
+        error_type_business=ErrorType.BUSINESS_ERROR,
     )
 
 def _close_rpc(rpc: MytRpc | None) -> None:
@@ -127,7 +128,7 @@ def _discover_physical_resolution(rpc: MytRpc, device_id: int) -> tuple[int, int
     except Exception:
         return None, None
 
-def click(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
+def click(params: Dict[str, Any], context: ExecutionContext, *, close_rpc: Any = _close_rpc) -> ActionResult:
     rpc, err = _get_rpc(params, context)
     if err: return err
     try:
@@ -154,9 +155,9 @@ def click(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
         ok = bool(ok_down and ok_up)
         return ActionResult(ok=ok, code="ok" if ok else "click_failed", data={"x": x, "y": y, "finger_id": finger_id})
     finally:
-        _close_rpc(rpc)
+        close_rpc(rpc)
 
-def touch_down(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
+def touch_down(params: Dict[str, Any], context: ExecutionContext, *, close_rpc: Any = _close_rpc) -> ActionResult:
     rpc, err = _get_rpc(params, context)
     if err: return err
     try:
@@ -166,9 +167,9 @@ def touch_down(params: Dict[str, Any], context: ExecutionContext) -> ActionResul
         ok = rpc.touchDown(finger_id, x, y) if rpc is not None else False
         return ActionResult(ok=ok, code="ok" if ok else "touch_down_failed", data={"x": x, "y": y, "finger_id": finger_id})
     finally:
-        _close_rpc(rpc)
+        close_rpc(rpc)
 
-def touch_up(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
+def touch_up(params: Dict[str, Any], context: ExecutionContext, *, close_rpc: Any = _close_rpc) -> ActionResult:
     rpc, err = _get_rpc(params, context)
     if err: return err
     try:
@@ -178,9 +179,9 @@ def touch_up(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
         ok = rpc.touchUp(finger_id, x, y) if rpc is not None else False
         return ActionResult(ok=ok, code="ok" if ok else "touch_up_failed", data={"x": x, "y": y, "finger_id": finger_id})
     finally:
-        _close_rpc(rpc)
+        close_rpc(rpc)
 
-def touch_move(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
+def touch_move(params: Dict[str, Any], context: ExecutionContext, *, close_rpc: Any = _close_rpc) -> ActionResult:
     rpc, err = _get_rpc(params, context)
     if err: return err
     try:
@@ -190,9 +191,9 @@ def touch_move(params: Dict[str, Any], context: ExecutionContext) -> ActionResul
         ok = rpc.touchMove(finger_id, x, y) if rpc is not None else False
         return ActionResult(ok=ok, code="ok" if ok else "touch_move_failed", data={"x": x, "y": y, "finger_id": finger_id})
     finally:
-        _close_rpc(rpc)
+        close_rpc(rpc)
 
-def swipe(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
+def swipe(params: Dict[str, Any], context: ExecutionContext, *, close_rpc: Any = _close_rpc) -> ActionResult:
     rpc, err = _get_rpc(params, context)
     if err: return err
     try:
@@ -204,9 +205,9 @@ def swipe(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
         ok = bool(raw_result)
         return ActionResult(ok=ok, code="ok" if ok else "swipe_failed", data={"x0": x0, "y0": y0, "x1": x1, "y1": y1, "duration": duration})
     finally:
-        _close_rpc(rpc)
+        close_rpc(rpc)
 
-def long_click(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
+def long_click(params: Dict[str, Any], context: ExecutionContext, *, close_rpc: Any = _close_rpc) -> ActionResult:
     rpc, err = _get_rpc(params, context)
     if err: return err
     try:
@@ -217,4 +218,4 @@ def long_click(params: Dict[str, Any], context: ExecutionContext) -> ActionResul
         ok = rpc.longClick(finger_id, x, y, duration) if rpc is not None else False
         return ActionResult(ok=ok, code="ok" if ok else "long_click_failed", data={"x": x, "y": y})
     finally:
-        _close_rpc(rpc)
+        close_rpc(rpc)

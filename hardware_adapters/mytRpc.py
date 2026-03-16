@@ -258,6 +258,9 @@ class MytRpc:
         except Exception:
             return None
 
+    def dumpNodeXmlEx(self, work_mode: bool, timeout_ms: int = 2000) -> str | None:
+        return self.dump_node_xml_ex(work_mode, timeout_ms)
+
     def get_display_rotate(self) -> int | None:
         if self._rpc is None or self._handle <= 0:
             return None
