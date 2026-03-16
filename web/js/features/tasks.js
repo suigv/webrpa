@@ -292,12 +292,16 @@ async function clearAllTasks() {
     } finally { if (btn) btn.disabled = false; }
 }
 
-async function cleanupFailedTasks() {
+async function cleanupFailedTasks(event) {
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+    }
     if (!confirm('确定要清理所有未成功的任务轨迹与记录吗？')) return;
     const btn = $('cleanupFailedTasks');
     if (btn) btn.disabled = true;
     try {
-        const r = await fetchJson('/api/tasks/cleanup_failed', { method: 'DELETE', silentErrors: true });
+        const r = await fetchJson('/api/tasks/cleanup_failed', { method: 'POST', silentErrors: true });
         if (r.ok) {
             toast.success(`已清理 ${r.data.count} 条无效任务`);
             await loadTasks();
