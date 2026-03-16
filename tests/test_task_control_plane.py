@@ -874,6 +874,65 @@ def test_task_control_plane_clear_route_rejects_when_running_tasks_exist(tmp_pat
             db_path.unlink()
 
 
+def test_task_cleanup_failed_route_accepts_post_and_delete(tmp_path: Path):
+    reset_task_controller_for_tests()
+    db_path = tmp_path / "tasks_cleanup_failed_route_test.db"
+    if db_path.exists():
+        db_path.unlink()
+
+    controller = TaskController(
+        store=TaskStore(db_path=db_path),
+        queue_backend=InMemoryTaskQueue(),
+        event_store=TaskEventStore(db_path=db_path),
+    )
+    override_task_controller_for_tests(controller)
+
+    try:
+        failed = controller.submit_with_retry(
+            payload={"task": "anonymous", "steps": []},
+            devices=[1],
+            targets=None,
+            ai_type="volc",
+            max_retries=0,
+            retry_backoff_seconds=0,
+            priority=50,
+            run_at=None,
+        )
+        controller._store.mark_running(failed.task_id)
+        controller._store.mark_failed(failed.task_id, error="boom", result={})
+        controller._events.append_event(failed.task_id, "task.failed", {"error": "boom"})
+
+        cancelled = controller.submit_with_retry(
+            payload={"task": "anonymous", "steps": []},
+            devices=[1],
+            targets=None,
+            ai_type="volc",
+            max_retries=0,
+            retry_backoff_seconds=0,
+            priority=50,
+            run_at=None,
+        )
+        assert controller.cancel_state(cancelled.task_id) == "cancelled"
+
+        with TestClient(app) as client:
+            post_response = client.post("/api/tasks/cleanup_failed")
+            assert post_response.status_code == 200
+            assert post_response.json()["count"] == 2
+
+            delete_response = client.delete("/api/tasks/cleanup_failed")
+            assert delete_response.status_code == 200
+            assert delete_response.json()["count"] == 0
+
+        assert controller.get(failed.task_id) is None
+        assert controller.get(cancelled.task_id) is None
+        assert controller.list_events(failed.task_id) == []
+        assert controller.list_events(cancelled.task_id) == []
+    finally:
+        reset_task_controller_for_tests()
+        if db_path.exists():
+            db_path.unlink()
+
+
 def test_task_control_plane_create_list_detail_share_task_mapping():
     os.environ["MYT_TASK_QUEUE_BACKEND"] = "memory"
     reset_task_controller_for_tests()
