@@ -35,6 +35,7 @@
 - 新增托管 `agent_executor` 任务模式，继续复用同一 `/api/tasks` 创建、重试、取消、SSE 事件与指标链路
 - 查询任务列表/详情
 - 取消任务
+- 清理未成功任务：`POST /api/tasks/cleanup_failed`（兼容 `DELETE`）
 - 任务目录：`GET /api/tasks/catalog`
 - 任务事件流（SSE）：`GET /api/tasks/{task_id}/events`
 - 任务指标：`GET /api/tasks/metrics`（JSON）与 `GET /api/tasks/metrics/prometheus`（Prometheus 抓取格式）
