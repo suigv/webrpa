@@ -23,21 +23,14 @@
 
 ---
 
-## 3) Binding Master（UI 特征蒸馏）
-
-- `POST /api/binding/analyze`：捕获 UI 记录并由 AI 生成状态/特征建议。
-- `POST /api/binding/draft`：汇总多条 UI 记录并生成 Python 探测代码草稿。
-
----
-
-## 4) 配置读写（在线修改 `config/system.yaml` 相关项）
+## 3) 配置读写（在线修改 `config/system.yaml` 相关项）
 
 - `GET /api/config/`：读取当前运行配置视图（用于前端展示）。
 - `PUT /api/config/`：更新配置（用于在线调参/修改 host_ip、device_ips、Location/Website 等）。
 
 ---
 
-## 5) 数据与账号池（SQLite）
+## 4) 数据与账号池（SQLite）
 
 账号池与业务文本使用 `config/data/` 下的 SQLite 数据库/文件存储（详见 `docs/CONFIGURATION.md`）。
 

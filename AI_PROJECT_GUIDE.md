@@ -59,8 +59,6 @@ AI 在当前项目中的定位不是替代插件体系，而是：
   - 统一 LLM 请求、provider/model 解析、错误归一与响应标准化。
 - `engine/agent_executor.py`
   - 负责受控 planner loop：观察、规划、执行、记录、停止。
-- `engine/binding_distiller.py`
-  - 核心蒸馏服务，支持从实时 UI 状态提取特征并生成 Python 绑定代码。
 - `engine/actions/ai_actions.py`
   - 提供 `ai.llm_evaluate`、`ai.vlm_evaluate`、`ai.locate_point` 动作边界。
 - `core/model_trace_store.py`
@@ -71,8 +69,6 @@ AI 在当前项目中的定位不是替代插件体系，而是：
   - 负责手工/离线触发单次蒸馏。
 - `tools/distill_multi_run.py`
   - 多轮 trace 聚合蒸馏，达到门槛（简单 3 次/复杂 10 次）后生成 YAML 草稿。
-- `tools/distill_binding.py`
-  - 从 trace XML 提取界面特征，生成 `NativeStateBinding` 代码草案（核心逻辑已在 `engine/binding_distiller.py` 服务化并在控制台暴露）。
 
 LLM 链路说明：`LLMClient` 使用标准 OpenAI Chat Completions 格式（`/chat/completions`）。LLM base_url 和 model 由 `config/system.yaml` 配置，API Key 则仅通过 `MYT_LLM_API_KEY` 环境变量配置（保证密钥安全）。
 
@@ -139,7 +135,6 @@ AI 相关能力应尽量复用：
 - 多轮样本聚合后的稳定路径抽取
 - 基于多样本而不是单次 golden run 的 distillation
 - draft 到插件的在线 promotion pipeline
-- **AI 辅助 Binding 工坊**：集成在 Web 控制台的实时 UI 特征提取与代码生成链路（已初步实现）。
 - 更强的 workflow stability / consensus extraction
 
 ## 9）Deferred / 不应误写为已完成
