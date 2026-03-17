@@ -8,7 +8,6 @@ import { initTasks } from '/static/js/features/tasks.js';
 import { initConfig } from '/static/js/features/config.js';
 import { initAccounts } from '/static/js/features/accounts.js';
 import { initMetrics } from '/static/js/features/metrics.js';
-import { initBindingMaster } from '/static/js/features/binding.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -43,8 +42,7 @@ async function init() {
         { name: "Tasks", fn: initTasks },
         { name: "Config", fn: initConfig },
         { name: "Accounts", fn: initAccounts },
-        { name: "Metrics", fn: initMetrics },
-        { name: "BindingMaster", fn: initBindingMaster }
+        { name: "Metrics", fn: initMetrics }
     ];
 
     for (const mod of modules) {
