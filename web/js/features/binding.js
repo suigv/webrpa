@@ -52,7 +52,14 @@ export function initBindingMaster() {
 function resetBindingMaster() {
     bindingRecords = [];
     currentCapture = null;
-    document.getElementById('bindingStateList').innerHTML = '<div class="p-8 text-center text-muted text-xs">暂无记录，请点击“采集”</div>';
+    const list = document.getElementById('bindingStateList');
+    if (list) {
+        list.replaceChildren();
+        const empty = document.createElement('div');
+        empty.className = 'p-8 text-center text-muted text-xs';
+        empty.textContent = '暂无记录，请点击“采集”';
+        list.appendChild(empty);
+    }
     showBindingView('empty');
 }
 
@@ -117,27 +124,36 @@ async function captureCurrentState() {
 
 function renderBindingList() {
     const list = document.getElementById('bindingStateList');
-    list.innerHTML = '';
+    list.replaceChildren();
     bindingRecords.forEach((rec, idx) => {
         const div = document.createElement('div');
         div.className = 'list-item p-3 cursor-pointer hover:bg-bg-active flex justify-between items-center';
-        div.innerHTML = `
-            <div class="flex-1">
-                <div class="font-bold text-sm text-primary">${rec.state_id}</div>
-                <div class="text-[10px] text-muted">${rec.timestamp}</div>
-            </div>
-            <button class="btn btn-text btn-xs text-error" onclick="event.stopPropagation(); removeBindingRecord(${idx})">×</button>
-        `;
+
+        const left = document.createElement('div');
+        left.className = 'flex-1';
+        const title = document.createElement('div');
+        title.className = 'font-bold text-sm text-primary';
+        title.textContent = String(rec.state_id || '');
+        const ts = document.createElement('div');
+        ts.className = 'text-[10px] text-muted';
+        ts.textContent = String(rec.timestamp || '');
+        left.append(title, ts);
+
+        const removeBtn = document.createElement('button');
+        removeBtn.className = 'btn btn-text btn-xs text-error';
+        removeBtn.textContent = '×';
+        removeBtn.onclick = (e) => {
+            e.stopPropagation();
+            bindingRecords.splice(idx, 1);
+            renderBindingList();
+            showBindingView('empty');
+        };
+
+        div.append(left, removeBtn);
         div.onclick = () => renderBindingDetail(rec);
         list.appendChild(div);
     });
 }
-
-window.removeBindingRecord = (idx) => {
-    bindingRecords.splice(idx, 1);
-    renderBindingList();
-    showBindingView('empty');
-};
 
 function renderBindingDetail(rec) {
     currentCapture = rec;
@@ -148,23 +164,28 @@ function renderBindingDetail(rec) {
     idInput.onchange = (e) => { rec.state_id = e.target.value; renderBindingList(); };
     
     const featList = document.getElementById('bindFeaturesList');
-    featList.innerHTML = '';
+    featList.replaceChildren();
     rec.analysis.features.forEach((feat, fidx) => {
         const fdiv = document.createElement('div');
         fdiv.className = 'flex items-center gap-2 bg-bg-sidebar p-2 rounded text-xs';
-        fdiv.innerHTML = `
-            <span class="flex-1 font-mono">${feat}</span>
-            <button class="text-error" onclick="removeFeature(${fidx})">×</button>
-        `;
+
+        const featSpan = document.createElement('span');
+        featSpan.className = 'flex-1 font-mono';
+        featSpan.textContent = String(feat ?? '');
+
+        const removeBtn = document.createElement('button');
+        removeBtn.className = 'text-error';
+        removeBtn.textContent = '×';
+        removeBtn.onclick = () => {
+            rec.analysis.features.splice(fidx, 1);
+            renderBindingDetail(rec);
+        };
+
+        fdiv.append(featSpan, removeBtn);
         featList.appendChild(fdiv);
     });
     
     document.getElementById('bindXmlPreview').innerText = rec.xml.substring(0, 2000) + (rec.xml.length > 2000 ? '...' : '');
-
-    window.removeFeature = (fidx) => {
-        rec.analysis.features.splice(fidx, 1);
-        renderBindingDetail(rec);
-    };
 }
 
 async function generateBindingCode() {

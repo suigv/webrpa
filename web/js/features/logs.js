@@ -11,6 +11,13 @@ function clearElement(element) {
     }
 }
 
+function pruneContainer(container, maxChildren = 300) {
+    if (!container) return;
+    while (container.children.length > maxChildren) {
+        container.removeChild(container.firstChild);
+    }
+}
+
 function appendSegments(container, segments, level = 'info') {
     if (!container) return;
     const line = document.createElement('div');
@@ -37,6 +44,7 @@ export function sysLog(msg, level = "info") {
         { text: '[SYS] ', color: 'var(--info)' },
         { text: String(msg ?? '') },
     ], level);
+    pruneContainer(globalLogBox);
 }
 
 /**
@@ -171,13 +179,12 @@ function appendDetailedLog(log) {
     if (msg) {
         // 如果后端发出了冗余的包含 event_type 的字符串日志，直接丢弃
         if (msg.includes("[task.action_result]")) return;
-        const debugLine = document.createElement("div");
-        debugLine.style.fontSize = "0.75rem";
-        debugLine.innerHTML = `<span style="color:var(--text-muted)">[${ts}]</span> <span style="color:var(--info)">[${target}]</span> ${msg}`;
-        if (level === "error") debugLine.style.color = "var(--error)";
-        globalLogBox.appendChild(debugLine);
-        if (globalLogBox.children.length > 300) globalLogBox.removeChild(globalLogBox.firstChild);
-        globalLogBox.scrollTop = globalLogBox.scrollHeight;
+        appendSegments(globalLogBox, [
+            { text: `[${ts}] `, color: 'var(--text-muted)' },
+            { text: `[${target}] `, color: 'var(--info)' },
+            { text: String(msg) },
+        ], level);
+        pruneContainer(globalLogBox);
     }
 
     // 将不属于任务步骤的系统反馈也显示在云机窗口中

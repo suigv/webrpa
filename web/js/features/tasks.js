@@ -166,27 +166,44 @@ function appendEventToTimeline(type, data) {
     line.style.paddingLeft = '8px';
 
     const timestamp = new Date().toLocaleTimeString();
-    let content = `<span class="text-muted">[${timestamp}]</span> `;
-    
-    // 根据事件类型定制显示
+    const tsSpan = document.createElement('span');
+    tsSpan.className = 'text-muted';
+    tsSpan.textContent = `[${timestamp}] `;
+    line.appendChild(tsSpan);
+
+    const tagSpan = document.createElement('span');
+    const msgSpan = document.createElement('span');
+
+    // 根据事件类型定制显示（避免 innerHTML 注入）
     if (type.startsWith('humanized.')) {
-        content += `<span style="color:var(--primary-soft)">[仿真]</span> `;
+        tagSpan.style.color = 'var(--primary-soft)';
+        tagSpan.textContent = '[仿真] ';
         if (type === 'humanized.click') {
-            content += `点击偏移: ${data.offset}, 按压: ${data.hold_ms}ms`;
+            msgSpan.textContent = `点击偏移: ${data.offset}, 按压: ${data.hold_ms}ms`;
         } else {
-            content += `打字序列生成, 平均延迟: ${data.avg_delay_ms}ms`;
+            msgSpan.textContent = `打字序列生成, 平均延迟: ${data.avg_delay_ms}ms`;
         }
+        line.append(tagSpan, msgSpan);
     } else if (type === 'interpreter.step_start') {
-        content += `<span style="color:var(--info)">[步骤]</span> 执行: ${data.label || data.pc}`;
+        tagSpan.style.color = 'var(--info)';
+        tagSpan.textContent = '[步骤] ';
+        msgSpan.textContent = `执行: ${data.label || data.pc || ''}`;
+        line.append(tagSpan, msgSpan);
     } else if (type === 'action.failed') {
-        content += `<span class="text-error">[错误]</span> ${data.message || '动作执行失败'}`;
+        tagSpan.className = 'text-error';
+        tagSpan.textContent = '[错误] ';
+        msgSpan.textContent = String(data.message || '动作执行失败');
+        line.append(tagSpan, msgSpan);
     } else if (type === 'task.completed') {
-        content += `<span class="text-success">[成功]</span> 任务已圆满结束`;
+        tagSpan.className = 'text-success';
+        tagSpan.textContent = '[成功] ';
+        msgSpan.textContent = '任务已圆满结束';
+        line.append(tagSpan, msgSpan);
     } else {
-        content += `${type}: ${JSON.stringify(data)}`;
+        msgSpan.textContent = `${type}: ${JSON.stringify(data)}`;
+        line.appendChild(msgSpan);
     }
 
-    line.innerHTML = content;
     timeline.appendChild(line);
     timeline.scrollTop = timeline.scrollHeight;
 }
@@ -449,13 +466,29 @@ async function loadTaskTargets() {
         });
         container.replaceChildren();
         if (units.length === 0) {
-            container.innerHTML = '<span class="text-muted" style="font-size:12px;">暂无在线节点</span>';
+            const empty = document.createElement('span');
+            empty.className = 'text-muted';
+            empty.style.fontSize = '12px';
+            empty.textContent = '暂无在线节点';
+            container.appendChild(empty);
             return;
         }
         units.forEach(u => {
             const label = document.createElement('label');
             label.className = 'custom-checkbox inline-flex items-center gap-1';
-            label.innerHTML = `<input type="checkbox" class="task-target-cb" data-device="${u.device_id}" data-cloud="${u.cloud_id}"><span class="checkmark"></span><span>${u.label}</span>`;
+            const input = document.createElement('input');
+            input.type = 'checkbox';
+            input.className = 'task-target-cb';
+            input.dataset.device = String(u.device_id);
+            input.dataset.cloud = String(u.cloud_id);
+
+            const checkmark = document.createElement('span');
+            checkmark.className = 'checkmark';
+
+            const text = document.createElement('span');
+            text.textContent = u.label;
+
+            label.append(input, checkmark, text);
             container.appendChild(label);
         });
         if (hint) hint.textContent = `共 ${units.length} 个在线节点，可多选`;

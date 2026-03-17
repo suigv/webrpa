@@ -68,7 +68,10 @@ function renderErrorDistribution(dist) {
     const entries = Object.entries(dist).sort((a, b) => b[1] - a[1]);
     
     if (entries.length === 0) {
-        container.innerHTML = '<div class="text-center text-muted py-8">暂无错误记录</div>';
+        const empty = document.createElement('div');
+        empty.className = 'text-center text-muted py-8';
+        empty.textContent = '暂无错误记录';
+        container.appendChild(empty);
         return;
     }
 
@@ -78,15 +81,24 @@ function renderErrorDistribution(dist) {
         const percent = ((count / totalErrors) * 100).toFixed(1);
         
         const row = document.createElement("div");
-        row.innerHTML = `
-            <div class="flex justify-between text-xs mb-1">
-                <span class="font-mono font-bold">${code}</span>
-                <span class="text-muted">${count} 次 (${percent}%)</span>
-            </div>
-            <div class="w-full bg-bg-sidebar rounded-full h-1.5 overflow-hidden">
-                <div class="bg-primary h-full" style="width: ${percent}%"></div>
-            </div>
-        `;
+        const header = document.createElement('div');
+        header.className = 'flex justify-between text-xs mb-1';
+        const codeSpan = document.createElement('span');
+        codeSpan.className = 'font-mono font-bold';
+        codeSpan.textContent = String(code);
+        const metaSpan = document.createElement('span');
+        metaSpan.className = 'text-muted';
+        metaSpan.textContent = `${count} 次 (${percent}%)`;
+        header.append(codeSpan, metaSpan);
+
+        const barWrap = document.createElement('div');
+        barWrap.className = 'w-full bg-bg-sidebar rounded-full h-1.5 overflow-hidden';
+        const bar = document.createElement('div');
+        bar.className = 'bg-primary h-full';
+        bar.style.width = `${percent}%`;
+        barWrap.appendChild(bar);
+
+        row.append(header, barWrap);
         container.appendChild(row);
     });
 }
@@ -97,7 +109,10 @@ function renderPluginStats(plugins) {
     container.replaceChildren();
 
     if (plugins.length === 0) {
-        container.innerHTML = '<div class="text-center text-muted py-8">暂无插件执行记录</div>';
+        const empty = document.createElement('div');
+        empty.className = 'text-center text-muted py-8';
+        empty.textContent = '暂无插件执行记录';
+        container.appendChild(empty);
         return;
     }
 
@@ -111,43 +126,52 @@ function renderPluginStats(plugins) {
 
         const row = document.createElement('div');
         row.style.cssText = 'margin-bottom: 16px;';
-        row.innerHTML = `
-            <div class="flex justify-between text-xs mb-1">
-                <span class="font-mono font-bold">${p.task_name}</span>
-                <div class="flex items-center gap-2">
-                    <span class="${ready ? 'text-success' : 'text-muted'}">
-                        ${ready ? '✅ 可蒸馏' : `还差 ${remaining} 次`}
-                        &nbsp;·&nbsp; 成功率 ${successRate}%
-                        &nbsp;·&nbsp; ${completed}/${threshold}
-                    </span>
-                    <button class="btn btn-secondary btn-sm distill-btn" data-plugin="${p.task_name}" ${ready ? '' : 'disabled'}>
-                        蒸馏
-                    </button>
-                </div>
-            </div>
-            <div class="w-full bg-bg-sidebar rounded-full h-1.5 overflow-hidden">
-                <div class="h-full ${ready ? 'bg-success' : 'bg-primary'}" style="width: ${progress}%"></div>
-            </div>
-        `;
-        container.appendChild(row);
-    });
+        const header = document.createElement('div');
+        header.className = 'flex justify-between text-xs mb-1';
 
-    // 绑定蒸馏按钮
-    container.querySelectorAll('.distill-btn').forEach(btn => {
-        btn.onclick = async () => {
-            const plugin = btn.dataset.plugin;
-            btn.disabled = true;
-            btn.textContent = '蒸馏中...';
+        const name = document.createElement('span');
+        name.className = 'font-mono font-bold';
+        name.textContent = String(p.task_name || '');
+
+        const right = document.createElement('div');
+        right.className = 'flex items-center gap-2';
+
+        const meta = document.createElement('span');
+        meta.className = ready ? 'text-success' : 'text-muted';
+        meta.textContent = `${ready ? '✅ 可蒸馏' : `还差 ${remaining} 次`} · 成功率 ${successRate}% · ${completed}/${threshold}`;
+
+        const button = document.createElement('button');
+        button.className = 'btn btn-secondary btn-sm';
+        button.textContent = '蒸馏';
+        button.disabled = !ready;
+        button.onclick = async () => {
+            const plugin = String(p.task_name || '');
+            button.disabled = true;
+            button.textContent = '蒸馏中...';
             const r = await fetchJson(`/api/tasks/distill/${plugin}`, { method: 'POST' });
             if (r.ok && r.data?.ok) {
                 toast.success(`${plugin} 蒸馏完成，草稿已生成至 plugins/${plugin}_distilled/`);
+                button.textContent = '蒸馏';
             } else {
                 const msg = r.data?.message || r.data?.stderr || '蒸馏失败';
                 toast.error(msg);
-                btn.disabled = false;
-                btn.textContent = '蒸馏';
+                button.disabled = !ready;
+                button.textContent = '蒸馏';
             }
         };
+
+        right.append(meta, button);
+        header.append(name, right);
+
+        const barWrap = document.createElement('div');
+        barWrap.className = 'w-full bg-bg-sidebar rounded-full h-1.5 overflow-hidden';
+        const bar = document.createElement('div');
+        bar.className = `h-full ${ready ? 'bg-success' : 'bg-primary'}`;
+        bar.style.width = `${progress}%`;
+        barWrap.appendChild(bar);
+
+        row.append(header, barWrap);
+        container.appendChild(row);
     });
 }
 

@@ -219,6 +219,17 @@ function closeSystemModal() {
     if (modal) modal.style.display = "none";
 }
 
+function createStatusRow(labelText, initialValueText = '-') {
+    const row = document.createElement('div');
+    const labelSpan = document.createElement('span');
+    labelSpan.className = 'text-muted';
+    labelSpan.textContent = `${labelText}: `;
+    const valueSpan = document.createElement('span');
+    valueSpan.textContent = initialValueText;
+    row.append(labelSpan, valueSpan);
+    return { row, valueSpan };
+}
+
 async function openSystemStatusModal() {
     const modal = $("systemStatusModal");
     if (modal) modal.style.display = "flex";
@@ -227,30 +238,83 @@ async function openSystemStatusModal() {
     clearElement(coreStatus);
     clearElement($("browserDiagResult"));
     
-    // 注入基础状态
-    coreStatus.append(createTextBlock("API 端口", "8001 (WebRPA Console)"));
-    coreStatus.append(createTextBlock("Redis 队列", "已连接 (Local)", "color:var(--success)"));
-    coreStatus.append(createTextBlock("拟真引擎", "已就绪", "color:var(--success)"));
+    const baseUrl = location.origin || '(unknown)';
+    const apiRow = createStatusRow("API 地址", baseUrl);
+    const healthRow = createStatusRow("API 健康", "检测中...");
+    const rpcRow = createStatusRow("RPC", "检测中...");
+    const pluginRow = createStatusRow("已加载插件", "检测中...");
+    coreStatus.append(apiRow.row, healthRow.row, rpcRow.row, pluginRow.row);
+
+    try {
+        const r = await fetchJson("/health", { silentErrors: true });
+        if (!r.ok || !r.data) {
+            healthRow.valueSpan.textContent = "不可用";
+            healthRow.valueSpan.style.color = "var(--warn)";
+            rpcRow.valueSpan.textContent = "未知";
+            rpcRow.valueSpan.style.color = "var(--warn)";
+            pluginRow.valueSpan.textContent = "未知";
+            pluginRow.valueSpan.style.color = "var(--warn)";
+            return;
+        }
+
+        healthRow.valueSpan.textContent = "OK";
+        healthRow.valueSpan.style.color = "var(--success)";
+
+        if (r.data.rpc_enabled) {
+            rpcRow.valueSpan.textContent = "已启用";
+            rpcRow.valueSpan.style.color = "var(--success)";
+        } else {
+            rpcRow.valueSpan.textContent = "已禁用";
+            rpcRow.valueSpan.style.color = "var(--warn)";
+        }
+
+        const loadedPlugins = r.data?.plugins?.loaded;
+        if (Array.isArray(loadedPlugins)) {
+            pluginRow.valueSpan.textContent = `${loadedPlugins.length} 个`;
+        } else {
+            pluginRow.valueSpan.textContent = "未知";
+        }
+    } catch (e) {
+        healthRow.valueSpan.textContent = "检测失败";
+        healthRow.valueSpan.style.color = "var(--warn)";
+        rpcRow.valueSpan.textContent = "未知";
+        rpcRow.valueSpan.style.color = "var(--warn)";
+        pluginRow.valueSpan.textContent = "未知";
+        pluginRow.valueSpan.style.color = "var(--warn)";
+    }
 }
 
 async function runGlobalBrowserDiag() {
     const resultBox = $("browserDiagResult");
-    resultBox.innerHTML = '<div class="text-xs text-muted">正在探测服务端浏览器环境...</div>';
+    resultBox.replaceChildren();
+    const loading = document.createElement('div');
+    loading.className = 'text-xs text-muted';
+    loading.textContent = '正在探测服务端浏览器环境...';
+    resultBox.appendChild(loading);
     
     const r = await fetchJson("/api/diagnostics/browser");
     if (r.ok) {
         const d = r.data;
-        let html = `<div class="bg-black text-green-400 p-4 rounded font-mono text-xs overflow-auto max-h-64 mt-2">`;
-        html += `> Browser Ready: ${d.ready ? 'YES' : 'NO'}\n`;
-        if (d.error) html += `> Error: ${d.error}\n`;
-        html += `> DrissionPage: ${d.drissionpage_importable ? 'OK' : 'FAIL'}\n`;
-        html += `> Chromium Binary: ${d.chromium_binary_found ? 'FOUND' : 'NOT FOUND'}\n`;
-        if (d.chromium_binary_path) html += `> Path: ${d.chromium_binary_path}\n`;
-        html += `</div>`;
-        resultBox.innerHTML = html;
+        const wrap = document.createElement('div');
+        wrap.className = 'bg-black text-green-400 p-4 rounded font-mono text-xs overflow-auto max-h-64 mt-2';
+        const pre = document.createElement('pre');
+        pre.style.margin = '0';
+        const lines = [];
+        lines.push(`> Browser Ready: ${d.ready ? 'YES' : 'NO'}`);
+        if (d.error) lines.push(`> Error: ${d.error}`);
+        lines.push(`> DrissionPage: ${d.drissionpage_importable ? 'OK' : 'FAIL'}`);
+        lines.push(`> Chromium Binary: ${d.chromium_binary_found ? 'FOUND' : 'NOT FOUND'}`);
+        if (d.chromium_binary_path) lines.push(`> Path: ${d.chromium_binary_path}`);
+        pre.textContent = lines.join('\n');
+        wrap.appendChild(pre);
+        resultBox.replaceChildren(wrap);
     } else {
         toast.error("诊断请求失败");
-        resultBox.innerHTML = '<div class="text-error text-xs">请求失败，请检查 API 连通性</div>';
+        resultBox.replaceChildren();
+        const err = document.createElement('div');
+        err.className = 'text-error text-xs';
+        err.textContent = '请求失败，请检查 API 连通性';
+        resultBox.appendChild(err);
     }
 }
 
