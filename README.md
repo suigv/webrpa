@@ -207,6 +207,7 @@ curl http://127.0.0.1:8001/health
 
 - 开发模式（Vite）：`cd web && npm install && npm run dev`，然后访问 `http://127.0.0.1:5173/`
 - 生产模式（Nginx）：按 `docs/FRONTEND.md` 配置 Nginx 后访问 `http://<host>/web`
+  - 后端进程托管（systemd）参考：`docs/DEPLOYMENT_SYSTEMD.md`
 
 ### 5) (可选) 桌面工作站启动器 (pywebview)
 

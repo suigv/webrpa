@@ -107,6 +107,11 @@ def _frontend_url() -> str | None:
     raw = os.environ.get("MYT_FRONTEND_URL", "").strip()
     return raw or None
 
+
+def _protect_openapi_enabled() -> bool:
+    raw = os.environ.get("MYT_AUTH_PROTECT_OPENAPI", "0").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_allow_origins(),
@@ -126,8 +131,9 @@ app.include_router(websocket_route.router)
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     path = request.url.path
-    # Only protect API endpoints; health/docs/root remain accessible for operators and probes.
-    if not path.startswith("/api/"):
+    protect_openapi = _protect_openapi_enabled() and path == "/openapi.json"
+    # Only protect API endpoints by default; optionally protect OpenAPI JSON.
+    if not (path.startswith("/api/") or protect_openapi):
         return await call_next(request)
 
     try:
