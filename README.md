@@ -184,13 +184,19 @@ python3 -m venv .venv
 ./.venv/bin/pip install -r requirements.txt
 ```
 
-### 2) 启动服务（禁用 RPC，在仓库根目录执行）
+### 2) 启动服务（验收默认：启用 RPC，在仓库根目录执行）
 
 ```bash
- MYT_ENABLE_RPC=0 ./.venv/bin/python -m uvicorn api.server:app --host 127.0.0.1 --port 8001
+ ./.venv/bin/python -m uvicorn api.server:app --host 127.0.0.1 --port 8001
 ```
 
 或（可选）使用根目录守卫脚本启动后端：`./run_webrpa.sh`（默认使用 Redis 队列；脚本会提示如何启动前端）。
+
+如需纯 Web 开发/无设备环境回退（禁用 RPC）：
+
+```bash
+MYT_ENABLE_RPC=0 ./.venv/bin/python -m uvicorn api.server:app --host 127.0.0.1 --port 8001
+```
 
 鉴权（可选）：
 - 默认不启用鉴权；生产建议设置 `MYT_AUTH_MODE=jwt` 并配置 `MYT_JWT_SECRET`（详见 `docs/FRONTEND.md`）。

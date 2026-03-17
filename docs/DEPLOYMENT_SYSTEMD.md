@@ -16,7 +16,7 @@ Type=simple
 WorkingDirectory=/opt/webrpa
 Environment=PYTHONPATH=/opt/webrpa
 Environment=MYT_LOAD_DOTENV=1
-Environment=MYT_ENABLE_RPC=0
+Environment=MYT_ENABLE_RPC=1
 Environment=MYT_TASK_QUEUE_BACKEND=redis
 Environment=MYT_AUTH_MODE=jwt
 Environment=MYT_AUTH_PROTECT_OPENAPI=1
@@ -53,4 +53,3 @@ curl -sS http://127.0.0.1:8001/health
 ```bash
 ./.venv/bin/python tools/generate_jwt.py --random-secret
 ```
-

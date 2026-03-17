@@ -8,7 +8,7 @@ The Web console is a separate frontend app (Vite) under `web/` and should be ser
 Backend (API):
 
 ```bash
-MYT_ENABLE_RPC=0 ./.venv/bin/python -m uvicorn api.server:app --host 127.0.0.1 --port 8001
+./.venv/bin/python -m uvicorn api.server:app --host 127.0.0.1 --port 8001
 ```
 
 Frontend (Vite):
@@ -20,6 +20,8 @@ npm run dev
 ```
 
 Vite dev server proxies `/api`, `/health`, and `/ws` to `http://127.0.0.1:8001` by default.
+
+If you need a pure-web fallback (no devices / no native libs), start backend with `MYT_ENABLE_RPC=0`.
 
 ## Editor / TypeScript language server
 
