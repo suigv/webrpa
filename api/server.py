@@ -9,7 +9,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from api.routes import binding_routes as binding_route
 from api.routes import config as config_route
 from api.routes import data as data_route
 from api.routes import devices as devices_route
@@ -104,7 +103,6 @@ app.include_router(tasks_route.router, prefix="/api/tasks", tags=["tasks"])
 app.include_router(config_route.router, prefix="/api/config", tags=["config"])
 app.include_router(data_route.router, prefix="/api/data", tags=["data"])
 app.include_router(engine_routes.router, prefix="/api/engine", tags=["engine"])
-app.include_router(binding_route.router, prefix="/api/binding", tags=["binding"])
 app.include_router(websocket_route.router)
 
 # Mount static files first
