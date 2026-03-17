@@ -5,7 +5,7 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import cast
 
-from ai_services.llm_client import LLMError, LLMResponse, retry_backoff_seconds
+from ai_services.llm_client import LLMError, LLMRequest, LLMResponse, retry_backoff_seconds
 from core.model_trace_store import ModelTraceStore
 from engine.action_registry import ActionRegistry
 from engine.agent_executor import AgentExecutorRuntime
@@ -145,6 +145,158 @@ def test_agent_executor_circuit_breaker_stagnant_state_abort():
     assert result["checkpoint"] == "observe"
     assert result["circuit_breaker"]["code"] == "stagnant_structured_state"
     assert result["circuit_breaker"]["stagnant_limit"] == 1
+
+
+def test_agent_executor_allows_follow_up_after_successful_locate_point_on_same_screen():
+    llm_client = _SequencedLLMClient(
+        responses=[
+            LLMResponse(ok=True, request_id="req-1", provider="openai", model="gpt-5.4",
+                        output_text=json.dumps({"action": "ai.locate_point", "params": {"prompt": "find login"}})),
+            LLMResponse(ok=True, request_id="req-2", provider="openai", model="gpt-5.4",
+                        output_text=json.dumps({"action": "ui.click", "params": {"x": 10, "y": 20}})),
+            LLMResponse(ok=True, request_id="req-3", provider="openai", model="gpt-5.4",
+                        output_text=json.dumps({"done": True, "message": "entered login form"})),
+        ]
+    )
+
+    def _locate_point(params, context):
+        _ = (params, context)
+        return ActionResult(ok=True, code="ok", data={"x": 10, "y": 20})
+
+    runtime = _build_runtime(
+        llm_client=llm_client,
+        observations=[
+            {"platform": "native", "state": {"state_id": "login_entry"}, "status": "no_match", "ok": False},
+            {"platform": "native", "state": {"state_id": "login_entry"}, "status": "no_match", "ok": False},
+            {"platform": "native", "state": {"state_id": "home"}, "status": "matched", "ok": True},
+        ],
+        extra_actions={"ai.locate_point": _locate_point},
+    )
+
+    result = runtime.run(
+        {
+            "goal": "enter login form",
+            "expected_state_ids": ["home"],
+            "allowed_actions": ["ai.locate_point", "ui.click"],
+            "max_steps": 5,
+            "stagnant_limit": 1,
+        }
+    )
+
+    assert result["ok"] is True
+    assert result["status"] == "completed"
+    assert len(llm_client.calls) == 3
+
+
+def test_agent_executor_ensures_target_app_running_before_observation():
+    llm_client = _SequencedLLMClient(
+        responses=[
+            LLMResponse(ok=True, request_id="req-1", provider="openai", model="gpt-5.4",
+                        output_text=json.dumps({"done": True, "message": "ready"})),
+        ]
+    )
+    app_calls: list[dict[str, object]] = []
+
+    def _app_ensure_running(params, context):
+        _ = context
+        app_calls.append(dict(params))
+        return ActionResult(ok=True, code="ok")
+
+    runtime = _build_runtime(
+        llm_client=llm_client,
+        observations=[{"platform": "native", "state": {"state_id": "account"}, "status": "matched", "ok": True}],
+        extra_actions={"app.ensure_running": _app_ensure_running},
+    )
+
+    result = runtime.run(
+        {
+            "goal": "open target app first",
+            "package": "com.twitter.android",
+            "expected_state_ids": ["account"],
+            "allowed_actions": ["ui.click"],
+            "max_steps": 1,
+            "stagnant_limit": 1,
+        }
+    )
+
+    assert result["ok"] is True
+    assert app_calls == [{"package": "com.twitter.android", "verify_timeout": 1.5}]
+
+
+def test_agent_executor_includes_login_payload_inputs_in_planner_prompt():
+    llm_client = _SequencedLLMClient(
+        responses=[
+            LLMResponse(ok=True, request_id="req-1", provider="openai", model="gpt-5.4",
+                        output_text=json.dumps({"done": True, "message": "ready"})),
+        ]
+    )
+
+    runtime = _build_runtime(
+        llm_client=llm_client,
+        observations=[{"platform": "native", "state": {"state_id": "account"}, "status": "matched", "ok": True}],
+    )
+
+    result = runtime.run(
+        {
+            "goal": "login",
+            "acc": "demo_user",
+            "pwd": "demo_pass",
+            "two_factor_code": "123456",
+            "expected_state_ids": ["account"],
+            "allowed_actions": ["ui.click"],
+            "max_steps": 1,
+            "stagnant_limit": 1,
+        }
+    )
+
+    assert result["ok"] is True
+    planner_prompt = json.loads(cast(LLMRequest, llm_client.calls[0]["request"]).prompt)
+    assert planner_prompt["payload"] == {
+        "acc": "demo_user",
+        "pwd": "demo_pass",
+        "two_factor_code": "123456",
+    }
+
+
+def test_agent_executor_auto_submits_login_field_after_input():
+    llm_client = _SequencedLLMClient(
+        responses=[
+            LLMResponse(ok=True, request_id="req-1", provider="openai", model="gpt-5.4",
+                        output_text=json.dumps({"action": "ui.input_text", "params": {"text": "demo_user"}})),
+            LLMResponse(ok=True, request_id="req-2", provider="openai", model="gpt-5.4",
+                        output_text=json.dumps({"done": True, "message": "moved on"})),
+        ]
+    )
+    key_calls: list[dict[str, object]] = []
+
+    def _key_press(params, context):
+        _ = context
+        key_calls.append(dict(params))
+        return ActionResult(ok=True, code="ok", data={"key": params.get("key")})
+
+    runtime = _build_runtime(
+        llm_client=llm_client,
+        observations=[
+            {"platform": "native", "state": {"state_id": "account"}, "status": "matched", "ok": True},
+            {"platform": "native", "state": {"state_id": "account"}, "status": "matched", "ok": True},
+            {"platform": "native", "state": {"state_id": "password"}, "status": "matched", "ok": True},
+        ],
+        extra_actions={"ui.key_press": _key_press, "ui.input_text": lambda p, c: ActionResult(ok=True, code="ok")},
+    )
+
+    result = runtime.run(
+        {
+            "goal": "login",
+            "expected_state_ids": ["account", "password"],
+            "allowed_actions": ["ui.input_text", "ui.key_press"],
+            "max_steps": 3,
+            "stagnant_limit": 2,
+        }
+    )
+
+    assert result["ok"] is True
+    assert key_calls == [{"key": "enter"}]
+    assert len(llm_client.calls) == 2
 
 
 def test_agent_executor_collects_fallback_evidence_into_planner_and_trace(tmp_path: Path):
@@ -426,7 +578,7 @@ def test_reflection_injected_on_action_failure(tmp_path: Path):
 
     # Verify that the second planner call received a reflection block
     second_call = llm_client.calls[1]
-    prompt = json.loads(second_call["request"].prompt)
+    prompt = json.loads(cast(LLMRequest, second_call["request"]).prompt)
     assert "reflection" in prompt
     reflection = prompt["reflection"]
     assert reflection["last_action_failed"] is True
@@ -495,7 +647,7 @@ def test_repeated_action_warning_injected_in_prompt():
     assert len(llm_client.calls) == 3
 
     # Third call should have repeated_action_detected warning
-    third_prompt = json.loads(llm_client.calls[2]["request"].prompt)
+    third_prompt = json.loads(cast(LLMRequest, llm_client.calls[2]["request"]).prompt)
     assert "reflection" in third_prompt
     reflection = third_prompt["reflection"]
     assert reflection["repeated_action_detected"] is True

@@ -72,6 +72,153 @@ def test_detect_login_stage_account(monkeypatch):
     assert result.data["stage"] == "account"
 
 
+def test_detect_login_stage_uses_visible_japanese_login_entry_text(monkeypatch):
+    mod = _load_state_actions_module()
+    ExecutionContext = _load_execution_context()
+
+    class FakeRpc:
+        def init(self, ip, port, timeout):
+            _ = (ip, port, timeout)
+            return True
+
+        def close(self):
+            return None
+
+        def dump_node_xml_ex(self, work_mode, timeout_ms):
+            _ = (work_mode, timeout_ms)
+            return """
+            <hierarchy>
+              <node text="" resource-id="" class="android.widget.FrameLayout" package="com.twitter.android" password="false" bounds="[0,0][720,1280]">
+                <node text="Googleのアカウントで続ける" resource-id="com.twitter.android:id/ocf_button" class="android.widget.Button" package="com.twitter.android" password="false" bounds="[80,743][640,827]"/>
+                <node text="アカウントを作成" resource-id="com.twitter.android:id/cta" class="android.widget.Button" package="com.twitter.android" password="false" bounds="[80,860][640,944]"/>
+                <node text="ログイン" resource-id="com.twitter.android:id/login" class="android.widget.TextView" package="com.twitter.android" password="false" bounds="[312,1010][408,1060]"/>
+              </node>
+            </hierarchy>
+            """
+
+        def dump_node_xml(self, dump_all):
+            _ = dump_all
+            return ""
+
+        def exec_cmd(self, command):
+            _ = command
+            return "", True
+
+        def create_selector(self):
+            raise AssertionError("selector RPC should not be used when XML detection succeeds")
+
+    monkeypatch.setattr(mod, "MytRpc", FakeRpc)
+
+    ctx = ExecutionContext(payload={"device_ip": "192.168.1.214", "_target": {"device_id": 1, "cloud_id": 3}})
+    result = mod.detect_login_stage(
+        {
+            "stage_patterns": {
+                "password": {"text_markers": ["password"]},
+                "login_entry": {"text_markers": ["ログイン", "アカウントを作成"]},
+            },
+            "stage_order": ["password", "login_entry"],
+        },
+        ctx,
+    )
+
+    assert result.ok is True
+    assert result.data["stage"] == "login_entry"
+
+
+def test_detect_login_stage_uses_attribute_fallback_for_truncated_xml(monkeypatch):
+    mod = _load_state_actions_module()
+    ExecutionContext = _load_execution_context()
+
+    class FakeRpc:
+        def init(self, ip, port, timeout):
+            _ = (ip, port, timeout)
+            return True
+
+        def close(self):
+            return None
+
+        def dump_node_xml_ex(self, work_mode, timeout_ms):
+            _ = (work_mode, timeout_ms)
+            return (
+                '<?xml version="1.0"?><hierarchy><node text="" resource-id="" class="android.widget.FrameLayout" '
+                'package="com.twitter.android" password="false"><node text="始めるには、まず電話番号、メールアドレス、またはユーザー名を入力してください" '
+                'resource-id="com.twitter.android:id/primary_text" class="android.widget.TextView" package="com.twitter.android" password="false" />'
+                '<node text="" resource-id="com.twitter.android:id/identifier" class="android.widget.EditText" package="com.twitter.android" '
+                'content-desc="電話番号/メールアドレス/ユーザー名" password="false"'
+            )
+
+        def dump_node_xml(self, dump_all):
+            _ = dump_all
+            return ""
+
+        def exec_cmd(self, command):
+            _ = command
+            return "", True
+
+        def create_selector(self):
+            raise AssertionError("selector RPC should not be used when attribute fallback succeeds")
+
+    monkeypatch.setattr(mod, "MytRpc", FakeRpc)
+
+    ctx = ExecutionContext(payload={"device_ip": "192.168.1.214", "_target": {"device_id": 1, "cloud_id": 3}})
+    result = mod.detect_login_stage(
+        {
+            "stage_patterns": {
+                "account": {"text_markers": ["電話番号", "メールアドレス", "ユーザー名"]},
+            },
+            "stage_order": ["account"],
+        },
+        ctx,
+    )
+
+    assert result.ok is True
+    assert result.data["stage"] == "account"
+
+
+def test_detect_login_stage_prefers_account_over_forgot_password_link(monkeypatch):
+    mod = _load_state_actions_module()
+    ExecutionContext = _load_execution_context()
+
+    class FakeRpc:
+        def init(self, ip, port, timeout):
+            _ = (ip, port, timeout)
+            return True
+
+        def close(self):
+            return None
+
+        def dump_node_xml_ex(self, work_mode, timeout_ms):
+            _ = (work_mode, timeout_ms)
+            return """
+            <hierarchy>
+              <node text="" resource-id="" class="android.widget.FrameLayout" package="com.twitter.android">
+                <node text="始めるには、まず電話番号、メールアドレス、またはユーザー名を入力してください" resource-id="com.twitter.android:id/primary_text" class="android.widget.TextView" package="com.twitter.android"/>
+                <node text="電話番号/メールアドレス/ユーザー名" resource-id="com.twitter.android:id/identifier" class="android.widget.EditText" package="com.twitter.android"/>
+                <node text="パスワードを忘れた場合はこちら" resource-id="com.twitter.android:id/secondary_button" class="android.widget.Button" package="com.twitter.android"/>
+              </node>
+            </hierarchy>
+            """
+
+        def dump_node_xml(self, dump_all):
+            _ = dump_all
+            return ""
+
+        def exec_cmd(self, command):
+            _ = command
+            return "", True
+
+        def create_selector(self):
+            raise AssertionError("selector RPC should not be used when XML detection succeeds")
+
+    monkeypatch.setattr(mod, "MytRpc", FakeRpc)
+
+    ctx = ExecutionContext(payload={"device_ip": "192.168.1.214", "_target": {"device_id": 1, "cloud_id": 3}})
+    result = mod.detect_login_stage({}, ctx)
+
+    assert result.ok is True
+    assert result.data["stage"] == "account"
+
+
 def test_wait_login_stage_until_home(monkeypatch):
     mod = _load_state_actions_module()
     ExecutionContext = _load_execution_context()

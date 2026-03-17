@@ -136,3 +136,57 @@ def test_locate_point_landscape_orientation():
             assert res.data["x"] == 960
             # y = (500 / 540) * 1080 = 1000
             assert res.data["y"] == 1000
+
+
+def test_locate_point_accepts_instruction_alias():
+    mock_context = MagicMock()
+    mock_context.device_id = 1
+    mock_context.runtime = {"llm": {"api_key": "test"}}
+
+    with patch("engine.actions.ai_actions.capture_compressed") as mock_capture:
+        mock_capture.return_value = ActionResult(
+            ok=True,
+            data={
+                "save_path": "/tmp/test.png",
+                "screen_width": 540,
+                "screen_height": 960,
+            },
+        )
+
+        mock_client_instance = MagicMock()
+        mock_response = MagicMock(ok=True, output_text='{"x": 10, "y": 20}', model="test", error=None)
+        mock_client_instance.evaluate.return_value = mock_response
+
+        with patch("engine.actions.ai_actions.LLMClient", return_value=mock_client_instance):
+            res = ai_actions.locate_point({"instruction": "find login button"}, mock_context)
+
+            assert res.ok
+            request_args = mock_client_instance.evaluate.call_args[0][0]
+            assert "find login button" in request_args.prompt
+
+
+def test_locate_point_accepts_text_alias():
+    mock_context = MagicMock()
+    mock_context.device_id = 1
+    mock_context.runtime = {"llm": {"api_key": "test"}}
+
+    with patch("engine.actions.ai_actions.capture_compressed") as mock_capture:
+        mock_capture.return_value = ActionResult(
+            ok=True,
+            data={
+                "save_path": "/tmp/test.png",
+                "screen_width": 540,
+                "screen_height": 960,
+            },
+        )
+
+        mock_client_instance = MagicMock()
+        mock_response = MagicMock(ok=True, output_text='{"x": 10, "y": 20}', model="test", error=None)
+        mock_client_instance.evaluate.return_value = mock_response
+
+        with patch("engine.actions.ai_actions.LLMClient", return_value=mock_client_instance):
+            res = ai_actions.locate_point({"text": "find password field"}, mock_context)
+
+            assert res.ok
+            request_args = mock_client_instance.evaluate.call_args[0][0]
+            assert "find password field" in request_args.prompt

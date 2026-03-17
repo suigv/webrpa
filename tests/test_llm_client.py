@@ -220,6 +220,78 @@ def test_llm_client_retries_retryable_provider_errors():
     assert sleep_calls == [retry_backoff_seconds(0), retry_backoff_seconds(1)]
 
 
+def test_llm_client_retries_empty_model_output():
+    sleep_calls: list[int] = []
+
+    def _fake_sleep(duration: float) -> None:
+        sleep_calls.append(int(duration))
+
+    class _SequencedProvider:
+        provider_name: str = "fake"
+
+        def __init__(self, results: list[dict[str, object]]):
+            self._results = list(results)
+            self.requests: list[ResolvedLLMRequest] = []
+
+        def invoke(self, request: ResolvedLLMRequest) -> dict[str, object]:
+            self.requests.append(request)
+            return self._results.pop(0)
+
+    provider = _SequencedProvider(
+        [
+            {"model": DEFAULT_LLM_MODEL, "output_text": "", "finish_reason": "stop", "provider_request_id": "resp-empty"},
+            {"model": DEFAULT_LLM_MODEL, "output_text": '{"done": false}', "finish_reason": "stop", "provider_request_id": "resp-ok"},
+        ]
+    )
+    client = LLMClient(
+        provider_registry={DEFAULT_LLM_PROVIDER: provider},
+        config_resolver=lambda: {},
+        request_id_factory=lambda: "req-empty-retry",
+        sleep=_fake_sleep,
+    )
+
+    response = client.evaluate(LLMRequest(prompt="retry empty output"))
+
+    assert response.ok is True
+    assert response.output_text == '{"done": false}'
+    assert len(provider.requests) == 2
+    assert sleep_calls == [retry_backoff_seconds(0)]
+
+
+def test_llm_client_returns_explicit_error_after_empty_model_output_retries_exhausted():
+    sleep_calls: list[int] = []
+
+    def _fake_sleep(duration: float) -> None:
+        sleep_calls.append(int(duration))
+
+    class _AlwaysEmptyProvider:
+        provider_name: str = "fake"
+
+        def __init__(self):
+            self.requests: list[ResolvedLLMRequest] = []
+
+        def invoke(self, request: ResolvedLLMRequest) -> dict[str, object]:
+            self.requests.append(request)
+            return {"model": DEFAULT_LLM_MODEL, "output_text": "", "finish_reason": "stop", "provider_request_id": "resp-empty"}
+
+    provider = _AlwaysEmptyProvider()
+    client = LLMClient(
+        provider_registry={DEFAULT_LLM_PROVIDER: provider},
+        config_resolver=lambda: {},
+        request_id_factory=lambda: "req-empty-fail",
+        sleep=_fake_sleep,
+        max_retries=2,
+    )
+
+    response = client.evaluate(LLMRequest(prompt="still empty"))
+
+    assert response.ok is False
+    assert response.error is not None
+    assert response.error.code == "empty_model_output"
+    assert len(provider.requests) == 2
+    assert sleep_calls == [retry_backoff_seconds(0)]
+
+
 class _FakeVLMResponse:
     def __init__(self, payload: dict[str, object]):
         self._payload: dict[str, object] = payload
