@@ -41,7 +41,7 @@ Definition of done: Account system (authentication + basic access control) is pr
 
 ## Next Evidence Actions (Suggested)
 - Accumulate representative successful runs (need 10 for complex task distillation gate).
-- Run `tools/distill_binding.py` on collected traces to generate login_stage NativeStateBinding draft.
-- Verify binding draft enables structured_state path (observed_state_ids non-empty).
+- Review collected traces and promote stable signals into `config/apps/<app>.yaml`.
+- Verify app config backfill improves structured observation quality (for example, clearer `observed_state_ids` and fewer fallback-only steps).
 - Add multi-run distillation design + tests for M3.
 - Run full test suite after recent agent_executor changes to re-verify M0 gate.

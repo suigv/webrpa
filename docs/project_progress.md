@@ -45,19 +45,21 @@
   - **任务执行鲁棒性加固 (Task Execution Resilience)**：针对自动化测试与本地开发环境，将 `ActiveTargetCircuitBreaker` 熔断机制改为基于 RPC 状态按需触发，解决了 `MYT_ENABLE_RPC=0` 模式下因网络探测失败导致的误报 FAILED 状态。
   - **RPC 特性开关一致性**：统一了系统与测试中对 `MYT_ENABLE_RPC` 环境变量的优先级处理，确保 Feature Flag 在全链路上严格生效。
   - **架构硬化验证完成**：完成了 `BaseStore` (SQLite)、`ConfigLoader` (Pydantic) 以及 `CloudProbeService` (Probing) 的全量集成验证，通过了 280+ 项测试用例的回归校验。
+- 最近重点 (2026-03-17)：
+  - **移除 Binding 工坊**：删除 Web 控制台中的 Binding Master 入口、`/api/binding/*` 路由、`engine/binding_distiller.py` 与 `tools/distill_binding.py`，正式收口到自动学习主链路（`agent_executor -> trace -> config/apps/*.yaml`），减少人工预热路径。
+
 - 最近重点 (2026-03-15)：
   - **设备可用性提前熔断**：`DeviceManager` 新增 probe 订阅接口；任务执行链路会把当前 target 的 probe 离线信号并入取消判断，线程模式直接订阅，子进程模式由父进程监控活跃 target 并回传熔断理由，最终统一以 `failed_circuit_breaker` / `target_unavailable` 终止，而不是等待 RPC 超时。
-  - **工具链根路径收敛与 Binding 草稿降欠账**：`tools/*.py` 的仓库根目录解析已统一收口到共享 bootstrap + `core.paths`，`tools/distill_binding.py` 生成的 NativeStateBinding 草稿改为输出可直接运行的启发式 detector，不再留 `NotImplementedError` 占位。
+  - **工具链根路径收敛**：`tools/*.py` 的仓库根目录解析已统一收口到共享 bootstrap + `core.paths`。
   - **框架去业务关键词 (Framework Neutrality)**：将登录阶段/关注/未读等默认 UI 识别 marker 从框架代码迁移到 `config/strategies/*.yaml`，框架层不再硬编码“首页/主页/关注”等业务词，支持按 action params/session defaults 覆盖。
   - **API 边界加固**：
     - `/api/tasks/distill/{plugin_name}`：加入 `plugin_name` 严格校验与输出目录边界约束（仅允许写入 `plugins/` 下），并将蒸馏门槛从插件 `manifest.yaml` 的 `distill_threshold` 读取，路由层不再硬编码。
     - `/api/devices/{device_id}/{cloud_id}/screenshot`：移除 `device_ip/rpa_port` 入参，改为从配置推导目标与端口公式计算，避免越权/SSRF 风险；`MYT_ENABLE_RPC=0` 时返回 503。
   - **WebSocket 事件桥接稳固性**：DB poller 改为可停止线程并移除私有 `_connect()` 依赖，避免 shutdown 后线程泄露。
   - **账号池架构升级 (SQLite & BaseStore Migration)**：完成了从 JSON 到 SQLite 的原子化迁移与自动平滑解。
-  - **AI 辅助 Binding 工坊集成 (Binding Master)**：内置 UI 特征提取、AI 绑定生成及前端可视化集成。
   - **AI 术语与命名去硬编码 (Agent Executor)**：确立了厂商中立的智能体运行时架构。
   - **行为拟真引擎优化 (Behavioral Hardening)**：基于人类行为学研究优化了三档预设参数（延迟、停顿、按压时长），并在前端增加了全方位的「使用建议」引导，助力高风控平台（如 X/TikTok）的对抗能力。
-  - **细节修正与系统稳固性 (本会话)**：修复了 Binding 工坊前端 Typo、接管页参数丢失、以及 VLM 客户端测试崩溃等隐患。
+  - **细节修正与系统稳固性 (本会话)**：修复了接管页参数丢失以及 VLM 客户端测试崩溃等隐患。
   - **坐标分辨率精准化与动作语义演进 (Coordinate & Semantic Hardening)**：
     - **云机分辨率动态感知**：重构了 `_resolve_coords` 逻辑，实现了基于 RPC 现场的 `wm size` 自动探测与缓存，解决了云机（如 720p 镜像）分辨率覆盖导致的点击偏移问题。
     - **UI 运行时类型加固**：全面清理了 `ui_actions` 及 `runtime.py` 中的潜在崩溃风险，补齐了跨环境 RPC 实例的 `None` 检查和二进制截图数据的字节显式断言。
@@ -117,7 +119,7 @@
   - **AI 绑定蒸馏链路打通与稳定性增强 (X App)**：
     - **XML 截断原因调查与修复**：确认为 `dump_node_xml_ex` 存在 **4KB (4096字节)** 的 RPC 传输缓冲区硬限制。已在底层通过自愈重试机制解决。
     - **自愈式捕获逻辑 (Self-Healing)**：在 `_state_detection_support.py` 中实现了自动完整性校验，若检测到 `Ex` 模式截断，则自动重试标准 `dump_node_xml`（无此缓冲区限制），确保 AI 能获取完整 UI 树。
-    - **蒸馏工具 Regex Fallback**：为 `tools/distill_binding.py` 引入了正则回退机制，确保在极端截断情况下仍能提取包名和核心特征。
+    - **蒸馏链路 Regex Fallback**：为 trace 特征提取引入了正则回退机制，确保在极端截断情况下仍能提取包名和核心特征。
     - **App 探测去硬编码重构**：彻底移除了框架中针对 X App 的硬编码字符串，支持通过 `config/apps/*.yaml` 动态加载。
     - **通用的 Native 状态观察**：`X_APP_STAGE_BINDING` 已重构为全局通用的 `app_stage` 绑定。
     - **X App 特征落地**：解析并集成 X App 首页特征。
@@ -163,9 +165,6 @@
     - 针对账号库抽号并发与一致性隐患，完成了从 JSON 文本到 SQLite 的全面迁移。
     - 引入 `AccountStore` 模块实现原子化 `pop_account` 与事务级状态更新。
     - 实现从 `accounts.json` 到 SQLite 的自动平滑解迁移机制。
-  - **AI 辅助 Binding 工坊集成 (Binding Master)**：
-    - 将 `binding_observer.py` 逻辑提取为 `engine/binding_distiller.py` 核心服务并在 Web 控制台前端实现 UI 集成。
-    - 提供实时 UI 节点特征分析与 AI 驱动的 Python 绑定代码生成。
   - **AI 术语与命名去硬编码 (Agent Executor)**：
     - 全量重命名 `GPT Executor` -> `Agent Executor`，确立厂商中立的运行时架构。
   - **VLM 架构通用化重构**：
@@ -197,7 +196,7 @@
 - [x] 修复 AI 模块隐患：VLM 连接泄露处理及基于 `retryable` 标记的退避重试。
   - **AI 对话架构改进 (2026-03-11)**：
     - **修复无 binding 场景下的 fingerprint 计算**：`agent_executor` 在 `observation.ok=False` 时改用 UI XML 内容计算停滞 fingerprint，防止在无 binding 场景下错误触发死循环熔断。
-    - **新增 binding 蒸馏工具** (`tools/distill_binding.py`)：从 trace jsonl 自动提取 UI 特征、归纳界面状态，生成 `NativeStateBinding` 代码草稿。
+    - **新增 binding 蒸馏链路**：支持从 trace jsonl 自动提取 UI 特征并归纳界面状态。
     - **前端 AI 对话修复**：`binding_id` 服务化、allowed_actions 注册名对齐、SSE 事件流稳定性修复。
     - **LLM 调用链路修复**：新增 `OpenAIChatProvider` 并通过 `.env` 注入 key，由于采用了标准 OpenAI 封装协议，系统现在能更稳健地连接到各类代理服务。
 
