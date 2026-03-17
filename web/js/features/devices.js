@@ -783,7 +783,7 @@ function openUnitAiDialog(unit) {
 
     // 重置勾选框为默认值
     document.querySelectorAll('input[name="aiState"]').forEach(cb => {
-        cb.checked = ['home','account','password','two_factor','unknown'].includes(cb.value);
+        cb.checked = ['home','account','password','two_factor'].includes(cb.value);
     });
     document.querySelectorAll('input[name="aiAction"]').forEach(cb => {
         cb.checked = true;
@@ -820,6 +820,7 @@ async function submitUnitAiTask() {
     const systemPrompt = String($("unitAiSystemPrompt")?.value || "").trim();
     const profileName = String($("unitAiProfile")?.value || "").trim();
     const useVlm = $("unitAiUseVlm")?.checked || false;
+    const promptTemplateKey = String($("unitAiPromptTemplate")?.value || "").trim();
 
     const payload = {
         device_ip: currentUnitDetail.parent_ip,
@@ -845,6 +846,10 @@ async function submitUnitAiTask() {
     if (systemPrompt) payload.system_prompt = systemPrompt;
     if (profileName) payload._runtime_profile = profileName;
     if (useVlm) payload.fallback_modalities = ["vlm"];
+    if (promptTemplateKey === 'social_x') {
+        payload.app = payload.app || 'x';
+        payload.package = payload.package || 'com.twitter.android';
+    }
 
     const taskData = buildTaskRequest({
         task: "agent_executor",
