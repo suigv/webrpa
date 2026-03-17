@@ -25,8 +25,9 @@ def _make_token(secret: str) -> str:
 
 
 def test_api_requires_bearer_when_auth_enabled(monkeypatch):
+    secret = "test-secret-" + ("x" * 40)
     monkeypatch.setenv("MYT_AUTH_MODE", "jwt")
-    monkeypatch.setenv("MYT_JWT_SECRET", "test-secret")
+    monkeypatch.setenv("MYT_JWT_SECRET", secret)
     client = TestClient(app)
 
     r = client.get("/api/tasks/")
@@ -35,9 +36,10 @@ def test_api_requires_bearer_when_auth_enabled(monkeypatch):
 
 
 def test_api_accepts_valid_bearer_token(monkeypatch):
+    secret = "test-secret-" + ("x" * 40)
     monkeypatch.setenv("MYT_AUTH_MODE", "jwt")
-    monkeypatch.setenv("MYT_JWT_SECRET", "test-secret")
-    token = _make_token("test-secret")
+    monkeypatch.setenv("MYT_JWT_SECRET", secret)
+    token = _make_token(secret)
     client = TestClient(app)
 
     r = client.get("/api/tasks/", headers={"Authorization": f"Bearer {token}"})
@@ -45,8 +47,9 @@ def test_api_accepts_valid_bearer_token(monkeypatch):
 
 
 def test_ws_rejects_without_token_when_auth_enabled(monkeypatch):
+    secret = "test-secret-" + ("x" * 40)
     monkeypatch.setenv("MYT_AUTH_MODE", "jwt")
-    monkeypatch.setenv("MYT_JWT_SECRET", "test-secret")
+    monkeypatch.setenv("MYT_JWT_SECRET", secret)
     client = TestClient(app)
 
     with pytest.raises(Exception):
@@ -55,13 +58,13 @@ def test_ws_rejects_without_token_when_auth_enabled(monkeypatch):
 
 
 def test_ws_accepts_bearer_token_via_subprotocol(monkeypatch):
+    secret = "test-secret-" + ("x" * 40)
     monkeypatch.setenv("MYT_AUTH_MODE", "jwt")
-    monkeypatch.setenv("MYT_JWT_SECRET", "test-secret")
-    token = _make_token("test-secret")
+    monkeypatch.setenv("MYT_JWT_SECRET", secret)
+    token = _make_token(secret)
     client = TestClient(app)
 
     with client.websocket_connect("/ws/logs", subprotocols=[f"bearer.{token}"]) as ws:
         ws.send_text(json.dumps({"type": "ping"}))
         reply = json.loads(ws.receive_text())
         assert reply["type"] == "pong"
-
