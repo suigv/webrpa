@@ -11,6 +11,12 @@ Backend (API):
 ./.venv/bin/python -m uvicorn api.server:app --host 127.0.0.1 --port 8001
 ```
 
+One-click (recommended):
+
+```bash
+./run_webrpa.sh
+```
+
 Frontend (Vite):
 
 ```bash

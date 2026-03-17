@@ -190,7 +190,7 @@ python3 -m venv .venv
  ./.venv/bin/python -m uvicorn api.server:app --host 127.0.0.1 --port 8001
 ```
 
-或（可选）使用根目录守卫脚本启动后端：`./run_webrpa.sh`（默认使用 Redis 队列；脚本会提示如何启动前端）。
+或（可选）使用根目录一键启动脚本：`./run_webrpa.sh`（默认会启动后端 + Vite 前端，并在启用 JWT 时打印临时 token；支持 `--rpc 0` 回退）。
 
 如需纯 Web 开发/无设备环境回退（禁用 RPC）：
 
