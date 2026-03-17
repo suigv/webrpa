@@ -1,7 +1,7 @@
-import { fetchJson } from '/static/js/utils/api.js';
-import { toast } from '/static/js/ui/toast.js';
-import { renderCommonFields } from '/static/js/utils/ui_utils.js';
-import { getTaskCatalog, apiSubmitTask, buildTaskRequest, collectTaskPayload } from '/static/js/features/task_service.js';
+import { fetchJson } from '../utils/api.js';
+import { toast } from '../ui/toast.js';
+import { renderCommonFields } from '../utils/ui_utils.js';
+import { getTaskCatalog, apiSubmitTask, buildTaskRequest, collectTaskPayload } from './task_service.js';
 
 const $ = (id) => document.getElementById(id);
 

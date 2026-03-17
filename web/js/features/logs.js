@@ -1,4 +1,4 @@
-import { store } from '/static/js/state/store.js';
+import { store } from '../state/store.js';
 
 const unitLogBox = document.getElementById("unitLogBox");
 const globalLogBox = document.getElementById("globalLogBox");

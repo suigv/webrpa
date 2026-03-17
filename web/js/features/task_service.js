@@ -1,6 +1,6 @@
-import { fetchJson } from '/static/js/utils/api.js';
-import { toast } from '/static/js/ui/toast.js';
-import { sysLog } from '/static/js/features/logs.js';
+import { fetchJson } from '../utils/api.js';
+import { toast } from '../ui/toast.js';
+import { sysLog } from './logs.js';
 
 let catalogCache = null;
 let catalogPromise = null;

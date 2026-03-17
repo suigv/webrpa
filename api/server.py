@@ -6,8 +6,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, RedirectResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import PlainTextResponse, RedirectResponse
 
 from api.routes import config as config_route
 from api.routes import data as data_route
@@ -17,7 +16,6 @@ from api.routes import task_routes as tasks_route
 from api.routes import websocket as websocket_route
 from core.cloud_probe_service import get_cloud_probe_service
 from core.device_manager import get_device_manager
-from core.paths import project_root
 from core.task_control import get_task_controller
 from engine.actions._rpc_bootstrap import is_rpc_enabled
 from engine.runner import Runner, strict_plugin_unknown_inputs_enabled
@@ -88,12 +86,28 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="MYT New Standalone API", version="0.1.0", lifespan=lifespan)
-WEB_DIR = project_root() / "web"
+
+
+def _cors_allow_origins() -> list[str]:
+    raw = os.environ.get("MYT_CORS_ALLOW_ORIGINS", "*").strip()
+    if raw == "*":
+        return ["*"]
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+
+def _cors_allow_credentials() -> bool:
+    raw = os.environ.get("MYT_CORS_ALLOW_CREDENTIALS", "0").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
+def _frontend_url() -> str | None:
+    raw = os.environ.get("MYT_FRONTEND_URL", "").strip()
+    return raw or None
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=_cors_allow_origins(),
+    allow_credentials=_cors_allow_credentials(),
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -105,18 +119,28 @@ app.include_router(data_route.router, prefix="/api/data", tags=["data"])
 app.include_router(engine_routes.router, prefix="/api/engine", tags=["engine"])
 app.include_router(websocket_route.router)
 
-# Mount static files first
-app.mount("/static", StaticFiles(directory=str(WEB_DIR)), name="static")
-
 
 @app.get("/")
 def root():
-    return RedirectResponse(url="/web", status_code=307)
+    url = _frontend_url()
+    return {
+        "status": "ok",
+        "health": "/health",
+        "docs": "/docs",
+        "web": url or "(set MYT_FRONTEND_URL or access via Nginx)",
+    }
 
 
 @app.get("/web", include_in_schema=False)
 def web_index():
-    return FileResponse(WEB_DIR / "index.html")
+    url = _frontend_url()
+    if url:
+        return RedirectResponse(url=url, status_code=307)
+    return PlainTextResponse(
+        "Web console is served by the frontend build (Vite) + Nginx. "
+        "Set MYT_FRONTEND_URL, or start the frontend dev server in ./web.",
+        status_code=501,
+    )
 
 
 @app.get("/health")

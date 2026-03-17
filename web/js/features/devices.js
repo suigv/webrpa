@@ -1,9 +1,9 @@
-import { fetchJson } from '/static/js/utils/api.js';
-import { toast } from '/static/js/ui/toast.js';
-import { renderCommonFields } from '/static/js/utils/ui_utils.js';
-import { sysLog, unitLog } from '/static/js/features/logs.js';
-import { getTaskCatalog, apiSubmitTask, buildTaskRequest, collectTaskPayload } from '/static/js/features/task_service.js';
-import { store } from '/static/js/state/store.js';
+import { fetchJson } from '../utils/api.js';
+import { toast } from '../ui/toast.js';
+import { renderCommonFields } from '../utils/ui_utils.js';
+import { sysLog, unitLog } from './logs.js';
+import { getTaskCatalog, apiSubmitTask, buildTaskRequest, collectTaskPayload } from './task_service.js';
+import { store } from '../state/store.js';
 
 const $ = (id) => document.getElementById(id);
 

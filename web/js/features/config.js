@@ -1,5 +1,5 @@
-import { fetchJson } from '/static/js/utils/api.js';
-import { toast } from '/static/js/ui/toast.js';
+import { fetchJson } from '../utils/api.js';
+import { toast } from '../ui/toast.js';
 
 const saveBtn = document.getElementById("saveConfig");
 

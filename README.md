@@ -6,7 +6,7 @@
 - 任务调度与控制（优先级、定时、重试、取消、SSE 事件流）
 - 插件化执行引擎（YAML 工作流 + 动作注册）
 - 浏览器自动化与拟人化交互（可配置移动/点击/输入节奏）
-- Web 控制台入口与日志 WebSocket 路由（`/web` + `/ws/logs`）
+- Web 控制台入口与日志 WebSocket 路由（`/web` + `/ws/logs`，推荐由 Nginx 托管前端并反代 API）
 - **Account Store (SQLite)**: 账号池全面迁移至 SQLite (BaseStore)，支持高并发原子化抽号与状态管理。
 - 云机详情页提供 AI 对话入口，可用自然语言下发 `agent_executor` 任务。
 
@@ -19,7 +19,7 @@
 - `GET /health`：健康检查（含 `task_policy` 运行策略快照）
 - `POST /api/runtime/execute`：debug/internal-only 直跑入口；同步执行 runtime payload，不创建 `/api/tasks` 托管任务、重试、取消、SSE 事件或指标
 - 其他控制面 API（配置/账号池/诊断等）详见 `docs/HTTP_API.md`，或启动后访问 `/docs` 查看 OpenAPI。
-- `GET /web`：控制台静态入口页面（smoke-backed）
+- Web 控制台入口：建议由前端构建产物 + Nginx 提供；后端保留 `/web` 作为入口（可配置重定向）
 
 ### 2) 设备管理（`/api/devices`）
 
@@ -166,7 +166,7 @@ hardware_adapters/  # 浏览器/RPC 适配
 models/             # Pydantic/Dataclass 模型
 plugins/            # 业务插件（manifest + script）
 tests/              # 单元与集成测试
-web/                # 控制台静态资源
+web/                # 前端控制台（Vite 工程 + 构建产物 dist）
 tools/              # 校验脚本与工具
 ```
 
@@ -200,7 +200,8 @@ curl http://127.0.0.1:8001/health
 
 ### 4) 打开控制台
 
-- 浏览器访问：`http://127.0.0.1:8001/web`
+- 开发模式（Vite）：`cd web && npm install && npm run dev`，然后访问 `http://127.0.0.1:5173/`
+- 生产模式（Nginx）：按 `docs/FRONTEND.md` 配置 Nginx 后访问 `http://<host>/web`
 
 ### 5) (可选) 桌面工作站启动器 (pywebview)
 

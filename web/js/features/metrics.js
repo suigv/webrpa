@@ -1,5 +1,5 @@
-import { fetchJson, fetchText } from '/static/js/utils/api.js';
-import { toast } from '/static/js/ui/toast.js';
+import { fetchJson, fetchText } from '../utils/api.js';
+import { toast } from '../ui/toast.js';
 
 const $ = (id) => document.getElementById(id);
 

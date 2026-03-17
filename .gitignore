@@ -38,3 +38,10 @@ build/
 
 # Claude local config
 .claude/
+
+# Frontend build artifacts
+web/node_modules/
+web/dist/
+
+# Local agent skills (not part of repo)
+.agents/

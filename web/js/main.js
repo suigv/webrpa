@@ -1,13 +1,15 @@
 // Main Entry Point
 
-import { toast } from '/static/js/ui/toast.js';
-import { fetchJson } from '/static/js/utils/api.js';
-import { initDevices, closeDetail } from '/static/js/features/devices.js';
-import { initLogs } from '/static/js/features/logs.js';
-import { initTasks } from '/static/js/features/tasks.js';
-import { initConfig } from '/static/js/features/config.js';
-import { initAccounts } from '/static/js/features/accounts.js';
-import { initMetrics } from '/static/js/features/metrics.js';
+import './diag.js';
+
+import { toast } from './ui/toast.js';
+import { fetchJson } from './utils/api.js';
+import { initDevices, closeDetail } from './features/devices.js';
+import { initLogs } from './features/logs.js';
+import { initTasks } from './features/tasks.js';
+import { initConfig } from './features/config.js';
+import { initAccounts } from './features/accounts.js';
+import { initMetrics } from './features/metrics.js';
 
 const $ = (id) => document.getElementById(id);
 

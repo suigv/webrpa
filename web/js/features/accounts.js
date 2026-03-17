@@ -1,6 +1,6 @@
-import { fetchJson } from '/static/js/utils/api.js';
-import { toast } from '/static/js/ui/toast.js';
-import { apiSubmitTask, buildTaskRequest } from '/static/js/features/task_service.js';
+import { fetchJson } from '../utils/api.js';
+import { toast } from '../ui/toast.js';
+import { apiSubmitTask, buildTaskRequest } from './task_service.js';
 
 const accountsInput = document.getElementById("accountsInput");
 const accountsPreview = document.getElementById("accountsPreview");

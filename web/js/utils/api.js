@@ -1,4 +1,4 @@
-import { toast } from '/static/js/ui/toast.js';
+import { toast } from '../ui/toast.js';
 
 export async function fetchJson(url, opts = {}) {
     const { silentErrors = false, ...fetchOptions } = opts;

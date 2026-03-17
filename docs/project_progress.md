@@ -11,6 +11,9 @@
   - **Ruff 规范基线收敛（排除 vendor）**：
     - `pyproject.toml` 统一 Ruff 配置（迁移至 `[tool.ruff.lint]`），并通过 `exclude=["vendor"]` 明确不对 vendored 第三方源码做 lint/format。
     - 核心目录（`api/ core/ engine/ ...`）`ruff format` 与 `ruff check` 全通过；同时补齐若干 legacy re-export（`ui_actions` metadata/close hooks）以保持 action registry 与测试兼容。
+  - **前端构建链引入 (Vite + TypeScript)**：
+    - `web/` 目录升级为 Vite 工程（支持 `npm run dev/build/typecheck`），后端收敛为 API-only。
+    - 建议生产由 Nginx 同机反代部署（静态前端 + `/api`/`/ws` 反代），详见 `docs/FRONTEND.md`。
   - **Agent Executor 通用观察契约修复 (Framework Neutrality Hardening)**：
     - **unknown 不再伪装成成功观察**：`agent_executor` 现把 `state_id=unknown` / `confidence=0.0` 统一视为需要 fallback 的低置信观察，不再因为 `ok=true` 就关闭截图/VLM 证据链。
     - **观测日志去混淆**：`observed_state_ids` 不再混入 `expected_state_ids`，任务日志只展示真实观察结果，避免把目标状态误写成已观测状态。
