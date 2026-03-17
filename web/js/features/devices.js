@@ -807,9 +807,6 @@ function openUnitAiDialog(unit) {
         cb.checked = true;
     });
 
-    const bindingInput = $("unitAiBindingId");
-    if (bindingInput) bindingInput.value = "";
-
     const systemPromptInput = $("unitAiSystemPrompt");
     if (systemPromptInput) systemPromptInput.value = "";
     loadDefaultAiSystemPrompt();
@@ -836,7 +833,6 @@ async function submitUnitAiTask() {
 
     const expectedStateIds = Array.from(document.querySelectorAll('input[name="aiState"]:checked')).map(cb => cb.value);
     const allowedActions = Array.from(document.querySelectorAll('input[name="aiAction"]:checked')).map(cb => cb.value);
-    const bindingId = String($("unitAiBindingId")?.value || "").trim();
     const systemPrompt = String($("unitAiSystemPrompt")?.value || "").trim();
     const profileName = String($("unitAiProfile")?.value || "").trim();
     const useVlm = $("unitAiUseVlm")?.checked || false;
@@ -863,7 +859,6 @@ async function submitUnitAiTask() {
         }
     }
 
-    if (bindingId) payload.observation.binding_id = bindingId;
     if (systemPrompt) payload.system_prompt = systemPrompt;
     if (profileName) payload._runtime_profile = profileName;
     if (useVlm) payload.fallback_modalities = ["vlm"];
