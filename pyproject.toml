@@ -55,7 +55,6 @@ ignore = ["E501"]  # 行宽由 formatter 处理
 "hardware_adapters/mytRpc.py" = ["N802", "N999"]
 "tests/**/*.py" = ["N802", "N806"]
 "tools/check_plugin_manifest_inputs.py" = ["E402"]
-"tools/distill_binding.py" = ["E402"]
 "tools/distill_golden_run.py" = ["E402"]
 "tools/distill_multi_run.py" = ["E402"]
 
