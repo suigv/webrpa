@@ -21,6 +21,14 @@ npm run dev
 
 Vite dev server proxies `/api`, `/health`, and `/ws` to `http://127.0.0.1:8001` by default.
 
+## Editor / TypeScript language server
+
+If your editor needs `typescript-language-server`:
+
+```bash
+npm i -g typescript typescript-language-server
+```
+
 ## Production build
 
 ```bash
