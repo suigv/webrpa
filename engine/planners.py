@@ -52,6 +52,7 @@ class PlannerInput:
     fallback_modalities: list[str]
     system_prompt: str
     llm_runtime: dict[str, object]
+    planner_inputs: dict[str, object] = field(default_factory=dict)
 
     # --- Self-reflection fields ---
     history_digest: list[dict[str, object]] = field(default_factory=list)
@@ -157,6 +158,7 @@ class StructuredPlanner:
             stagnant_limit=0,  # not used inside _plan_next_step
             system_prompt=inp.system_prompt,
             llm_runtime=inp.llm_runtime,
+            planner_inputs=inp.planner_inputs,
             fallback_modalities=inp.fallback_modalities,
             observation_params={},
         )

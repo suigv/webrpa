@@ -176,6 +176,42 @@ def _action_fingerprint(action_name: str, params: dict[str, object]) -> str:
     return _stable_fingerprint({"a": action_name, "p": params})
 
 
+def _is_non_mutating_action(last_action: Mapping[str, object] | None) -> bool:
+    action = str(_json_dict(last_action).get("action") or "").strip()
+    if action != "ai.locate_point":
+        return False
+    result = _json_dict(_json_dict(last_action).get("result"))
+    return bool(result.get("ok"))
+
+
+def _planner_inputs(payload: Mapping[str, object]) -> dict[str, object]:
+    allowed_keys = (
+        "acc",
+        "pwd",
+        "two_factor_code",
+        "fa2_secret",
+        "email",
+        "phone",
+        "username",
+    )
+    return {
+        key: value
+        for key, value in payload.items()
+        if key in allowed_keys and value not in (None, "")
+    }
+
+
+def _needs_form_submit(last_action: Mapping[str, object] | None, observation_state: Mapping[str, object] | None) -> bool:
+    state_id = str(_json_dict(observation_state).get("state", {}).get("state_id") or "").strip()
+    if state_id not in {"account", "password", "two_factor"}:
+        return False
+    action = str(_json_dict(last_action).get("action") or "").strip()
+    if action != "ui.input_text":
+        return False
+    result = _json_dict(_json_dict(last_action).get("result"))
+    return bool(result.get("ok"))
+
+
 def _vlm_allowed_action_types(allowed_actions: list[str]) -> set[str]:
     mapping = {
         "ui.click": "click",
@@ -202,6 +238,7 @@ class AgentExecutorConfig:
     stagnant_limit: int
     system_prompt: str
     llm_runtime: dict[str, object]
+    planner_inputs: dict[str, object]
     fallback_modalities: list[str]
     observation_params: dict[str, object]
 
@@ -239,6 +276,19 @@ class AgentExecutorRuntime:
         context.emit_event = (runtime or {}).get("emit_event")
         llm_client = self._llm_client_factory()
         ui_match_state = self._registry.resolve("ui.match_state")
+        target_package = str(payload.get("package") or "").strip()
+
+        if target_package:
+            app_ensure_running = self._registry.resolve("app.ensure_running")
+            ensure_running_result = app_ensure_running({"package": target_package, "verify_timeout": 1.5}, context)
+            if not ensure_running_result.ok:
+                return self._result(
+                    ok=False,
+                    status="failed_runtime_error",
+                    checkpoint="dispatch",
+                    code=str(ensure_running_result.code or "app_ensure_running_failed"),
+                    message=str(ensure_running_result.message or f"failed to bring {target_package} to foreground"),
+                )
 
         stagnant_observation_count = 0
         previous_observation_fingerprint = ""
@@ -329,7 +379,7 @@ class AgentExecutorRuntime:
                 self._append_trace(trace_context, pending_trace_record)
                 pending_trace_record = None
 
-            if step_index > 1 and observation_fingerprint == previous_observation_fingerprint:
+            if step_index > 1 and observation_fingerprint == previous_observation_fingerprint and not _is_non_mutating_action(last_action):
                 stagnant_observation_count += 1
             else:
                 stagnant_observation_count = 0
@@ -377,35 +427,49 @@ class AgentExecutorRuntime:
                 last_action,
                 repeated_action_count=repeated_action_count,
             )
-            planner_input = PlannerInput(
-                goal=config.goal,
-                step_index=step_index,
-                allowed_actions=config.allowed_actions,
-                observation=observation_state if isinstance(observation_state, dict) else {},
-                last_action=last_action,
-                fallback_enabled=not observation.ok,
-                fallback_evidence=fallback_evidence,
-                fallback_modalities=config.fallback_modalities,
-                system_prompt=config.system_prompt,
-                llm_runtime=config.llm_runtime,
-                history_digest=history_digest,
-                reflection=reflection,
-            )
-            for attempt in range(max_planner_retries):
-                planner_output = self._planner.plan(planner_input)
-                plan = planner_output.to_legacy_dict()
-                if plan.get("ok") is not False:
-                    break
-                
-                # 指数退避重试
-                if plan.get("retryable") and attempt < max_planner_retries - 1:
-                    backoff = 2 ** (attempt + 1)
-                    logger.warning(f"Planner failed (retryable), backing off {backoff}s: {plan.get('message')}")
-                    if self._interruptible_sleep(backoff, should_cancel):
-                        # 如果休眠期间被取消，立即跳出重试循环，外层循环会处理取消逻辑
+            if _needs_form_submit(last_action, observation_state if isinstance(observation_state, dict) else None):
+                plan = {
+                    "ok": True,
+                    "done": False,
+                    "action": "ui.key_press",
+                    "params": {"key": "enter"},
+                    "message": "submit focused login field",
+                    "planned_at": _timestamp(),
+                    "fallback_reason": self._fallback_reason(observation_ok=bool(observation.ok)),
+                    "request_id": "",
+                    "provider": "",
+                    "model": "",
+                    "planner_structured_state": None,
+                }
+            else:
+                planner_input = PlannerInput(
+                    goal=config.goal,
+                    step_index=step_index,
+                    allowed_actions=config.allowed_actions,
+                    observation=observation_state if isinstance(observation_state, dict) else {},
+                    last_action=last_action,
+                    fallback_enabled=not observation.ok,
+                    fallback_evidence=fallback_evidence,
+                    fallback_modalities=config.fallback_modalities,
+                    system_prompt=config.system_prompt,
+                    llm_runtime=config.llm_runtime,
+                    planner_inputs=config.planner_inputs,
+                    history_digest=history_digest,
+                    reflection=reflection,
+                )
+                for attempt in range(max_planner_retries):
+                    planner_output = self._planner.plan(planner_input)
+                    plan = planner_output.to_legacy_dict()
+                    if plan.get("ok") is not False:
                         break
-                    continue
-                break
+
+                    if plan.get("retryable") and attempt < max_planner_retries - 1:
+                        backoff = 2 ** (attempt + 1)
+                        logger.warning(f"Planner failed (retryable), backing off {backoff}s: {plan.get('message')}")
+                        if self._interruptible_sleep(backoff, should_cancel):
+                            break
+                        continue
+                    break
 
             if plan["ok"] is False:
                 self._append_trace(
@@ -720,6 +784,7 @@ class AgentExecutorRuntime:
             stagnant_limit=_int_in_range(payload.get("stagnant_limit"), default=2, minimum=1, maximum=20),
             system_prompt=str(payload.get("system_prompt") or "").strip(),
             llm_runtime=llm_runtime,
+            planner_inputs=_planner_inputs(payload),
             fallback_modalities=_string_list(payload.get("fallback_modalities")),
             observation_params=observation_params,
         )
@@ -795,6 +860,8 @@ class AgentExecutorRuntime:
             prompt_payload["reflection"] = reflection
         if vlm_attempt is not None:
             prompt_payload["vlm_attempt"] = vlm_attempt
+        if config.planner_inputs:
+            prompt_payload["payload"] = dict(config.planner_inputs)
 
         request = LLMRequest(
             prompt=json.dumps(
