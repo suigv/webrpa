@@ -17,6 +17,7 @@ from ai_services.llm_client import LLMClient, LLMRequest
 from ai_services.vlm_client import VLMClient
 from core.app_config import AppConfigManager
 from core.app_config_writer import AppConfigWriter
+from core.credentials_loader import generate_twofa_code
 from core.model_trace_store import ModelTraceContext, ModelTraceStore
 from core.paths import traces_dir
 from core.trace_learner import TraceLearner
@@ -389,6 +390,52 @@ def _planner_inputs(payload: Mapping[str, object]) -> dict[str, object]:
         for key, value in payload.items()
         if key in allowed_keys and value not in (None, "")
     }
+
+
+def _planner_visible_inputs(planner_inputs: Mapping[str, object]) -> dict[str, object]:
+    visible_inputs = {
+        str(key): value
+        for key, value in planner_inputs.items()
+        if value not in (None, "") and str(key) != "fa2_secret"
+    }
+    resolved_two_factor_code = generate_twofa_code(planner_inputs.get("fa2_secret"))
+    if resolved_two_factor_code:
+        visible_inputs["two_factor_code"] = resolved_two_factor_code
+    return visible_inputs
+
+
+def _rewrite_two_factor_input_params(
+    action_name: str,
+    action_params: Mapping[str, object],
+    observation_state: Mapping[str, object] | None,
+    planner_inputs: Mapping[str, object],
+) -> dict[str, object]:
+    next_params = {str(key): value for key, value in action_params.items()}
+    if action_name != "ui.input_text":
+        return next_params
+
+    observation_dict = _json_dict(observation_state)
+    state_dict = _json_dict(observation_dict.get("state"))
+    if str(state_dict.get("state_id") or "").strip() != "two_factor":
+        return next_params
+
+    secret = str(planner_inputs.get("fa2_secret") or "").strip()
+    resolved_two_factor_code = generate_twofa_code(secret)
+    if not resolved_two_factor_code:
+        return next_params
+
+    current_text = str(next_params.get("text") or "").strip()
+    raw_two_factor_code = str(planner_inputs.get("two_factor_code") or "").strip()
+    looks_like_totp = current_text.isdigit() and len(current_text) in {6, 8}
+    if (
+        current_text
+        and current_text not in {secret, raw_two_factor_code, resolved_two_factor_code}
+        and not looks_like_totp
+    ):
+        return next_params
+
+    next_params["text"] = resolved_two_factor_code
+    return next_params
 
 
 def _needs_form_submit(
@@ -791,7 +838,12 @@ class AgentExecutorRuntime:
                 )
 
             action_name = str(plan.get("action") or "").strip()
-            action_params = _json_dict(plan.get("params"))
+            action_params = _rewrite_two_factor_input_params(
+                action_name,
+                _json_dict(plan.get("params")),
+                observation_state if isinstance(observation_state, dict) else None,
+                config.planner_inputs,
+            )
 
             if action_name not in config.allowed_actions:
                 self._append_trace(
@@ -1160,8 +1212,9 @@ class AgentExecutorRuntime:
             prompt_payload["reflection"] = reflection
         if vlm_attempt is not None:
             prompt_payload["vlm_attempt"] = vlm_attempt
-        if config.planner_inputs:
-            prompt_payload["payload"] = dict(config.planner_inputs)
+        visible_inputs = _planner_visible_inputs(config.planner_inputs)
+        if visible_inputs:
+            prompt_payload["payload"] = visible_inputs
 
         request = LLMRequest(
             prompt=json.dumps(

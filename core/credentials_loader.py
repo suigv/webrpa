@@ -8,6 +8,16 @@ from typing import Any
 import pyotp
 
 
+def generate_twofa_code(secret: object) -> str:
+    clean_secret = str(secret or "").replace(" ", "").strip()
+    if not clean_secret:
+        return ""
+    try:
+        return pyotp.TOTP(clean_secret).now()
+    except Exception:
+        return ""
+
+
 @dataclass
 class Credentials:
     account: str
@@ -26,14 +36,7 @@ class Credentials:
     @property
     def twofa_code(self) -> str:
         """Dynamically generate 6-digit TOTP code if secret is present"""
-        if not self.twofa_secret:
-            return ""
-        try:
-            clean_secret = str(self.twofa_secret).replace(" ", "").strip()
-            totp = pyotp.TOTP(clean_secret)
-            return totp.now()
-        except Exception:
-            return ""
+        return generate_twofa_code(self.twofa_secret)
 
 
 def _allowed_credential_roots() -> list[Path]:
