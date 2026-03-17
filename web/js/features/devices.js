@@ -44,7 +44,12 @@ async function loadUnitAccounts() {
     if (!select) return;
     try {
         const r = await fetchJson("/api/data/accounts/parsed");
-        if (!r.ok) return;
+        if (!r.ok) {
+            unitAccounts = [];
+            renderEmptyAccountSelect(select, '-- 账号加载失败 --');
+            if (hint) hint.textContent = '加载账号失败';
+            return;
+        }
         unitAccounts = (r.data?.accounts || []).filter(a => a.status === 'ready');
         select.replaceChildren();
         const emptyOpt = document.createElement('option');
@@ -59,6 +64,8 @@ async function loadUnitAccounts() {
         });
         if (hint) hint.textContent = `账号池共 ${unitAccounts.length} 个就绪账号`;
     } catch (e) {
+        unitAccounts = [];
+        renderEmptyAccountSelect(select, '-- 账号加载失败 --');
         if (hint) hint.textContent = '加载账号失败';
     }
 }
@@ -67,6 +74,15 @@ function getSelectedAccount() {
     const select = $("unitAccountSelect");
     if (!select || select.value === '') return null;
     return unitAccounts[parseInt(select.value)] || null;
+}
+
+function renderEmptyAccountSelect(select, label) {
+    if (!select) return;
+    select.replaceChildren();
+    const emptyOpt = document.createElement('option');
+    emptyOpt.value = '';
+    emptyOpt.textContent = label;
+    select.appendChild(emptyOpt);
 }
 
 export function initDevices() {
@@ -120,9 +136,6 @@ export function initDevices() {
     if (cancelAiBtn) cancelAiBtn.onclick = closeUnitAiDialog;
     if (submitAiBtn) submitAiBtn.onclick = submitUnitAiTask;
 
-    const templateSelect = $("unitAiPromptTemplate");
-    if (templateSelect) templateSelect.onchange = updateAiSystemPromptTemplate;
-    
     if (toggleAiAdvancedBtn) {
         toggleAiAdvancedBtn.onclick = () => {
             const advanced = $("unitAiAdvanced");
@@ -474,10 +487,8 @@ async function loadUnitScreenshot(unit) {
         const resp = await fetch(url);
         if (!resp.ok) {
             let reason = `HTTP ${resp.status}`;
-            try {
-                const body = await resp.json();
-                if (body.detail) reason = body.detail;
-            } catch (_) {}
+            const body = await resp.json().catch(() => null);
+            if (body?.detail) reason = body.detail;
             if (resp.status === 502) reason = `设备不可达 (${reason})`;
             throw new Error(reason);
         }
@@ -628,31 +639,6 @@ async function runBulkTasks() {
     clearSelection();
 }
 
-async function initializeDevice(unit) {
-    const warning = `【高危操作警告】\n\n您确定要初始化云机 #${unit.parent_id}-${unit.cloud_id} 吗？\n\n后果如下：\n1. 强制终止该设备上所有正在运行的任务\n2. 清理 APP 数据与系统缓存\n3. 重置系统语言与地区设置\n\n确定要继续吗？`;
-    if(!confirm(warning)) return;
-
-    const pkg = prompt("请输入要初始化的包名（例如 com.example.app）", (localStorage.getItem("defaultPackage") || ""));
-    if (!pkg || !pkg.trim()) return;
-    localStorage.setItem("defaultPackage", pkg.trim());
-    
-    const taskData = buildTaskRequest({
-        task: 'mytos_device_setup',
-        payload: {
-            device_ip: unit.parent_ip,
-            package: pkg.trim(),
-            language: "en",
-            country: "US"
-        },
-        targets: [{ device_id: unit.parent_id, cloud_id: unit.cloud_id }],
-    });
-    
-    const res = await apiSubmitTask(taskData);
-    if(res.ok) {
-        toast.success(`云机 #${unit.parent_id}-${unit.cloud_id} 初始化任务已提交`);
-    }
-}
-
 async function initializeAllDevices() {
     const onlineUnits = Array.from(currentUnitsById.values()).filter(u => u.availability_state === "available");
     if(onlineUnits.length === 0) return toast.warn("当前没有在线的云机");
@@ -686,19 +672,15 @@ async function initializeAllDevices() {
     toast.success("全量初始化指令已分发");
 }
 
-function parseCommaList(value) {
-    return String(value || "")
-        .split(",")
-        .map(item => item.trim())
-        .filter(Boolean);
-}
-
 async function loadAiDialogAccounts() {
     const select = $("unitAiAccountSelect");
     if (!select) return;
     try {
         const r = await fetchJson("/api/data/accounts/parsed");
-        if (!r.ok) return;
+        if (!r.ok) {
+            renderEmptyAccountSelect(select, '-- 账号加载失败 --');
+            return;
+        }
         const accounts = (r.data?.accounts || []).filter(a => a.status === 'ready');
         select.replaceChildren();
         const emptyOpt = document.createElement('option');
@@ -714,53 +696,25 @@ async function loadAiDialogAccounts() {
             opt.dataset.twofa = a.twofa || '';
             select.appendChild(opt);
         });
-    } catch (e) {}
+    } catch (e) {
+        console.error("加载 AI 对话账号失败:", e);
+        renderEmptyAccountSelect(select, '-- 账号加载失败 --');
+    }
 }
 
-let _promptTemplates = {};
-
-async function loadPromptTemplates() {
-    const select = $("unitAiPromptTemplate");
-    if (!select) return;
+async function loadDefaultAiSystemPrompt() {
+    const systemPrompt = $("unitAiSystemPrompt");
+    if (!systemPrompt) return;
     try {
         const res = await fetch("/api/tasks/prompt_templates");
         if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
         const data = await res.json();
-        
-        _promptTemplates = {};
-        select.innerHTML = "";
-        
-        (data.templates || []).forEach(t => {
-            _promptTemplates[t.key] = t.content;
-            const opt = document.createElement("option");
-            opt.value = t.key;
-            opt.textContent = t.name;
-            select.appendChild(opt);
-        });
-
-        const customOpt = document.createElement("option");
-        customOpt.value = "custom";
-        customOpt.textContent = "自定义";
-        select.appendChild(customOpt);
-
-        // 设置默认选中的第一个模板
-        if (data.templates && data.templates.length > 0) {
-            select.value = data.templates[0].key;
-            updateAiSystemPromptTemplate();
+        const [defaultTemplate] = Array.isArray(data.templates) ? data.templates : [];
+        if (defaultTemplate?.content) {
+            systemPrompt.value = defaultTemplate.content;
         }
     } catch (e) {
-        console.error("加载提示词模板失败:", e);
-    }
-}
-
-function updateAiSystemPromptTemplate() {
-    const templateSelect = $("unitAiPromptTemplate");
-    const systemPrompt = $("unitAiSystemPrompt");
-    if (templateSelect && systemPrompt) {
-        const val = templateSelect.value;
-        if (val !== 'custom') {
-            systemPrompt.value = _promptTemplates[val] || "";
-        }
+        console.error("加载默认提示词失败:", e);
     }
 }
 
@@ -792,7 +746,9 @@ function openUnitAiDialog(unit) {
     const bindingInput = $("unitAiBindingId");
     if (bindingInput) bindingInput.value = "";
 
-    loadPromptTemplates();
+    const systemPromptInput = $("unitAiSystemPrompt");
+    if (systemPromptInput) systemPromptInput.value = "";
+    loadDefaultAiSystemPrompt();
 
     const useVlm = $("unitAiUseVlm");
     if (useVlm) useVlm.checked = false;
@@ -820,7 +776,8 @@ async function submitUnitAiTask() {
     const systemPrompt = String($("unitAiSystemPrompt")?.value || "").trim();
     const profileName = String($("unitAiProfile")?.value || "").trim();
     const useVlm = $("unitAiUseVlm")?.checked || false;
-    const promptTemplateKey = String($("unitAiPromptTemplate")?.value || "").trim();
+    const maxStepsValue = Number.parseInt(String($("unitAiMaxSteps")?.value || "").trim(), 10);
+    const stagnantLimitValue = Number.parseInt(String($("unitAiStagnantLimit")?.value || "").trim(), 10);
 
     const payload = {
         device_ip: currentUnitDetail.parent_ip,
@@ -846,6 +803,8 @@ async function submitUnitAiTask() {
     if (systemPrompt) payload.system_prompt = systemPrompt;
     if (profileName) payload._runtime_profile = profileName;
     if (useVlm) payload.fallback_modalities = ["vlm"];
+    if (Number.isFinite(maxStepsValue) && maxStepsValue > 0) payload.max_steps = maxStepsValue;
+    if (Number.isFinite(stagnantLimitValue) && stagnantLimitValue > 0) payload.stagnant_limit = stagnantLimitValue;
     const taskData = buildTaskRequest({
         task: "agent_executor",
         payload,
