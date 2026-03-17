@@ -1,5 +1,6 @@
 import { fetchJson } from '../utils/api.js';
 import { toast } from '../ui/toast.js';
+import { clearAuthToken, getAuthToken, setAuthToken } from '../state/auth.js';
 
 const saveBtn = document.getElementById("saveConfig");
 
@@ -9,6 +10,9 @@ const cfgSdkPort = document.getElementById("cfgSdkPort");
 const cfgCloudPerDevice = document.getElementById("cfgCloudPerDevice");
 const discoveryEnabled = document.getElementById("discoveryEnabled");
 const discoverySubnet = document.getElementById("discoverySubnet");
+const authTokenInput = document.getElementById("authToken");
+const saveAuthTokenBtn = document.getElementById("saveAuthToken");
+const clearAuthTokenBtn = document.getElementById("clearAuthToken");
 
 // 业务文本
 const txtLocation = document.getElementById("txtLocation");
@@ -72,6 +76,8 @@ const HZ_PRESET_KEYS = Object.keys(HZ_PRESETS.medium);
 export function initConfig() {
     if (saveBtn) saveBtn.onclick = saveConfig;
 
+    initAuthTokenUi();
+
     if (applyHzPreset) {
         applyHzPreset.onclick = () => {
             if (hzPreset?.value === "custom") return;
@@ -96,6 +102,34 @@ export function initConfig() {
 
     loadConfig();
     loadBusinessTexts();
+}
+
+function initAuthTokenUi() {
+    if (!authTokenInput) return;
+    const existing = getAuthToken();
+    if (existing) {
+        authTokenInput.value = '';
+        authTokenInput.placeholder = `已设置（${existing.slice(0, 10)}...）`;
+    }
+
+    if (saveAuthTokenBtn) {
+        saveAuthTokenBtn.onclick = () => {
+            const token = setAuthToken(authTokenInput.value);
+            if (!token) {
+                toast.warn("Token 为空，已清除");
+            } else {
+                toast.success("Token 已保存，刷新页面以生效");
+            }
+            setTimeout(() => window.location.reload(), 200);
+        };
+    }
+    if (clearAuthTokenBtn) {
+        clearAuthTokenBtn.onclick = () => {
+            clearAuthToken();
+            toast.success("Token 已清除，刷新页面以生效");
+            setTimeout(() => window.location.reload(), 200);
+        };
+    }
 }
 
 async function loadBusinessTexts() {

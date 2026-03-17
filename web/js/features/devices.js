@@ -1,4 +1,4 @@
-import { fetchJson } from '../utils/api.js';
+import { authFetch, fetchJson } from '../utils/api.js';
 import { toast } from '../ui/toast.js';
 import { renderCommonFields } from '../utils/ui_utils.js';
 import { sysLog, unitLog } from './logs.js';
@@ -548,7 +548,7 @@ async function loadUnitScreenshot(unit) {
     try {
         // API 端会从 config/devices.json 推导 device_ip，并按 cloud_id 推导 rpa_port。
         const url = `/api/devices/${unit.parent_id}/${unit.cloud_id}/screenshot?t=${Date.now()}`;
-        const resp = await fetch(url);
+        const resp = await authFetch(url);
         if (!resp.ok) {
             let reason = `HTTP ${resp.status}`;
             const body = await resp.json().catch(() => null);
@@ -770,10 +770,9 @@ async function loadDefaultAiSystemPrompt() {
     const systemPrompt = $("unitAiSystemPrompt");
     if (!systemPrompt) return;
     try {
-        const res = await fetch("/api/tasks/prompt_templates");
-        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-        const data = await res.json();
-        const [defaultTemplate] = Array.isArray(data.templates) ? data.templates : [];
+        const r = await fetchJson("/api/tasks/prompt_templates", { silentErrors: true });
+        if (!r.ok) throw new Error(`HTTP error! status: ${r.status}`);
+        const [defaultTemplate] = Array.isArray(r.data?.templates) ? r.data.templates : [];
         if (defaultTemplate?.content) {
             systemPrompt.value = defaultTemplate.content;
         }

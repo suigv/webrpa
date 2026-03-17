@@ -190,6 +190,9 @@ python3 -m venv .venv
  MYT_ENABLE_RPC=0 ./.venv/bin/python -m uvicorn api.server:app --host 127.0.0.1 --port 8001
 ```
 
+鉴权（可选）：
+- 默认不启用鉴权；生产建议设置 `MYT_AUTH_MODE=jwt` 并配置 `MYT_JWT_SECRET`（详见 `docs/FRONTEND.md`）。
+
 说明：全局非敏系统配置（如 Redis, LLM URL 等）统一在 `config/system.yaml` 中维护。如需注入敏感信息（如 API Key）或进行环境变量覆盖，可在根目录创建 `.env`，并设置 `MYT_LOAD_DOTENV=1` 后启动服务。
 
 ### 3) 健康检查

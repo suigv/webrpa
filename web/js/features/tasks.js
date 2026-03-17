@@ -2,12 +2,13 @@ import { fetchJson } from '../utils/api.js';
 import { toast } from '../ui/toast.js';
 import { renderCommonFields } from '../utils/ui_utils.js';
 import { getTaskCatalog, apiSubmitTask, buildTaskRequest, collectTaskPayload } from './task_service.js';
+import { FetchSseClient } from '../utils/sse.js';
 
 const $ = (id) => document.getElementById(id);
 
 let pluginCatalog = [];
 let selectedTaskName = '';
-let currentEventSource = null;
+let currentEventStream = null;
 
 function clearElement(element) {
     if (element) {
@@ -40,9 +41,9 @@ function createInfoRow(labelText, valueText) {
 const closeTaskModal = () => {
     const modal = $('taskModal');
     if (modal) modal.style.display = 'none';
-    if (currentEventSource) {
-        currentEventSource.close();
-        currentEventSource = null;
+    if (currentEventStream) {
+        currentEventStream.close();
+        currentEventStream = null;
     }
 };
 
@@ -115,9 +116,7 @@ async function loadTaskDetail(taskId) {
 }
 
 function startTaskEventStream(taskId) {
-    if (currentEventSource) {
-        currentEventSource.close();
-    }
+    if (currentEventStream) currentEventStream.close();
 
     const timeline = $('taskEventTimeline');
     const statusText = $('eventStreamStatus');
@@ -125,18 +124,6 @@ function startTaskEventStream(taskId) {
     statusText.textContent = '连接中...';
 
     let streamClosed = false;
-    currentEventSource = new EventSource(`/api/tasks/${taskId}/events`);
-
-    currentEventSource.onopen = () => {
-        statusText.textContent = '🟢 实时同步中';
-    };
-
-    currentEventSource.onerror = () => {
-        if (!streamClosed) {
-            statusText.textContent = '⚪ 连接已断开';
-        }
-        currentEventSource.close();
-    };
 
     // 监听所有自定义事件
     const eventTypes = [
@@ -146,15 +133,28 @@ function startTaskEventStream(taskId) {
         'humanized.click', 'humanized.typing'
     ];
 
-    eventTypes.forEach(type => {
-        currentEventSource.addEventListener(type, (e) => {
-            const data = JSON.parse(e.data);
+    currentEventStream = new FetchSseClient(`/api/tasks/${taskId}/events`, {
+        onOpen: () => {
+            statusText.textContent = '🟢 实时同步中';
+        },
+        onEvent: (type, raw) => {
+            if (type === 'message') return;
+            if (!eventTypes.includes(type)) return;
+            let data;
+            try {
+                data = raw ? JSON.parse(raw) : {};
+            } catch {
+                data = { raw };
+            }
             appendEventToTimeline(type, data);
             if (['task.completed', 'task.failed', 'task.cancelled'].includes(type)) {
                 streamClosed = true;
                 statusText.textContent = '🏁 执行结束';
             }
-        });
+        },
+        onError: () => {
+            if (!streamClosed) statusText.textContent = '⚪ 连接已断开';
+        },
     });
 }
 

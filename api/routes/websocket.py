@@ -5,9 +5,10 @@ import threading
 from collections.abc import Callable
 from typing import Any
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
 
+from api.auth import require_ws_jwt
 from common.logger import log_manager
 from core.task_events import TaskEventStore
 
@@ -154,10 +155,21 @@ def _ensure_logger_bridge():
 @router.websocket("/ws/logs")
 async def websocket_logs(websocket: WebSocket):
     _ensure_logger_bridge()
-    await websocket.accept()
+    accepted_subprotocol: str | None = None
+    try:
+        jwt_payload, accepted_subprotocol = require_ws_jwt(websocket)
+    except HTTPException:
+        # 4401 is a common app-specific "unauthorized" close code.
+        await websocket.close(code=4401)
+        return
+    except Exception:
+        await websocket.close(code=1011)
+        return
+
+    await websocket.accept(subprotocol=accepted_subprotocol)
 
     # Initialize client context with no filters
-    _clients[websocket] = {}
+    _clients[websocket] = {"jwt": jwt_payload}
 
     try:
         while True:

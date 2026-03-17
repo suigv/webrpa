@@ -276,6 +276,15 @@
                     <option value="part_time">part_time（兼职）</option>
                   </select>
                 </div>
+                <div class="form-group col-span-2">
+                  <label>API Token (JWT Bearer)</label>
+                  <input type="password" id="authToken" placeholder="Bearer &lt;jwt&gt;">
+                  <div class="text-muted text-sm mt-1">用于访问 `/api/*`、SSE 与 WebSocket；保存在本地浏览器（localStorage）。</div>
+                  <div class="flex gap-2 mt-2">
+                    <button id="saveAuthToken" type="button" class="btn btn-secondary btn-sm">保存 Token</button>
+                    <button id="clearAuthToken" type="button" class="btn btn-secondary btn-sm">清除</button>
+                  </div>
+                </div>
               </div>
 
               <div class="divider mt-8 mb-4"></div>

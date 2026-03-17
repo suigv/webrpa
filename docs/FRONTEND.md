@@ -88,8 +88,13 @@ server {
 Browser constraints matter:
 
 - `fetch()` can send `Authorization: Bearer <jwt>`
-- `EventSource` (SSE) **cannot** set custom headers
-- `WebSocket` custom headers are not portable
+- Native `EventSource` (SSE) **cannot** set custom headers (this repo uses a fetch-based SSE client so the Bearer header is sent)
+- Browser `WebSocket` cannot reliably send `Authorization` headers (this repo passes the JWT via `Sec-WebSocket-Protocol: bearer.<jwt>`)
 
-If you need JWT auth on SSE/WS, prefer **JWT in HttpOnly Cookie** (still JWT, but transported via cookie), or implement a header-capable SSE client (manual parsing) and a WS token handshake.
+Backend env vars:
+
+- `MYT_AUTH_MODE=jwt` to enable auth (default: disabled)
+- `MYT_JWT_SECRET=...` shared secret for `HS256` verification
+- `MYT_JWT_ALGORITHMS=HS256` (comma-separated)
+- Optional: `MYT_JWT_ISSUER`, `MYT_JWT_AUDIENCE`, `MYT_JWT_LEEWAY_SECONDS`, `MYT_JWT_REQUIRE_EXP=1`
 

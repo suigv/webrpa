@@ -4,10 +4,13 @@ import shutil
 import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from fastapi import Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.responses import PlainTextResponse, RedirectResponse
 
+from api.auth import get_jwt_settings, require_http_jwt
 from api.routes import config as config_route
 from api.routes import data as data_route
 from api.routes import devices as devices_route
@@ -118,6 +121,37 @@ app.include_router(config_route.router, prefix="/api/config", tags=["config"])
 app.include_router(data_route.router, prefix="/api/data", tags=["data"])
 app.include_router(engine_routes.router, prefix="/api/engine", tags=["engine"])
 app.include_router(websocket_route.router)
+
+
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    path = request.url.path
+    # Only protect API endpoints; health/docs/root remain accessible for operators and probes.
+    if not path.startswith("/api/"):
+        return await call_next(request)
+
+    try:
+        settings = get_jwt_settings()
+    except Exception as exc:
+        # Fail closed when auth is enabled but misconfigured.
+        return JSONResponse(
+            status_code=500,
+            content={"detail": f"auth misconfigured: {exc}"},
+        )
+    if not settings.enabled:
+        return await call_next(request)
+
+    try:
+        payload = require_http_jwt(request, settings=settings)
+    except HTTPException as exc:
+        return JSONResponse(
+            status_code=int(exc.status_code),
+            content={"detail": exc.detail},
+            headers=exc.headers,
+        )
+
+    request.state.jwt = payload
+    return await call_next(request)
 
 
 @app.get("/")

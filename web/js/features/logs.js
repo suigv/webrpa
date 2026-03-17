@@ -1,4 +1,5 @@
 import { store } from '../state/store.js';
+import { getAuthToken } from '../state/auth.js';
 
 const unitLogBox = document.getElementById("unitLogBox");
 const globalLogBox = document.getElementById("globalLogBox");
@@ -78,7 +79,10 @@ function connectLogs() {
     const host = location.host;
     if (!host) return; // For local file testing
     const wsUrl = `${proto}://${host}/ws/logs`;
-    socket = new WebSocket(wsUrl);
+    const token = getAuthToken();
+    // Browsers can't set Authorization headers for WS; pass Bearer token via Sec-WebSocket-Protocol.
+    const protocols = token ? [`bearer.${token}`] : undefined;
+    socket = protocols ? new WebSocket(wsUrl, protocols) : new WebSocket(wsUrl);
 
     socket.onmessage = (e) => {
         try {
