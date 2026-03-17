@@ -128,6 +128,39 @@ def _discover_physical_resolution(rpc: MytRpc, device_id: int) -> tuple[int, int
     except Exception:
         return None, None
 
+
+def _normalized_swipe_params(params: Dict[str, Any]) -> Dict[str, Any]:
+    normalized = dict(params)
+    alias_map = {
+        "start_x": "x0",
+        "start_y": "y0",
+        "end_x": "x1",
+        "end_y": "y1",
+        "duration_ms": "duration",
+    }
+    for source, target in alias_map.items():
+        if target not in normalized and source in normalized:
+            normalized[target] = normalized[source]
+
+    if "x0" not in normalized and "x1" in normalized and "x2" in normalized:
+        normalized["x0"] = normalized["x1"]
+        normalized["x1"] = normalized["x2"]
+    if "y0" not in normalized and "y1" in normalized and "y2" in normalized:
+        normalized["y0"] = normalized["y1"]
+        normalized["y1"] = normalized["y2"]
+
+    if not any(key in normalized for key in ("x0", "y0", "x1", "y1", "nx0", "ny0", "nx1", "ny1")):
+        direction = str(normalized.get("direction") or "").strip().lower()
+        presets = {
+            "up": {"nx0": 500, "ny0": 820, "nx1": 500, "ny1": 220},
+            "down": {"nx0": 500, "ny0": 220, "nx1": 500, "ny1": 820},
+            "left": {"nx0": 820, "ny0": 500, "nx1": 220, "ny1": 500},
+            "right": {"nx0": 220, "ny0": 500, "nx1": 820, "ny1": 500},
+        }
+        normalized.update(presets.get(direction, {}))
+
+    return normalized
+
 def click(params: Dict[str, Any], context: ExecutionContext, *, close_rpc: Any = _close_rpc) -> ActionResult:
     rpc, err = _get_rpc(params, context)
     if err: return err
@@ -197,10 +230,11 @@ def swipe(params: Dict[str, Any], context: ExecutionContext, *, close_rpc: Any =
     rpc, err = _get_rpc(params, context)
     if err: return err
     try:
+        normalized = _normalized_swipe_params(params)
         finger_id = int(params.get("finger_id", 0))
-        coords = _resolve_coords(params, context, ["x0", "y0", "x1", "y1"], rpc=rpc)
+        coords = _resolve_coords(normalized, context, ["x0", "y0", "x1", "y1"], rpc=rpc)
         x0, y0, x1, y1 = coords["x0"], coords["y0"], coords["x1"], coords["y1"]
-        duration = int(params.get("duration", 300))
+        duration = int(normalized.get("duration", 300))
         raw_result = rpc.swipe(finger_id, x0, y0, x1, y1, duration) if rpc is not None else False
         ok = bool(raw_result)
         return ActionResult(ok=ok, code="ok" if ok else "swipe_failed", data={"x0": x0, "y0": y0, "x1": x1, "y1": y1, "duration": duration})

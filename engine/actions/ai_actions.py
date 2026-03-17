@@ -145,6 +145,10 @@ def _detect_image_mime(data: bytes) -> str:
 
 
 def _to_int(value: object, default: int = 0) -> int:
+    if isinstance(value, bool):
+        return int(value)
+    if not isinstance(value, (int, float, str)):
+        return default
     try:
         return int(value)
     except Exception:
@@ -254,7 +258,7 @@ def _encode_image_ref(
 
 
 def locate_point(params: dict[str, object], context: ExecutionContext) -> ActionResult:
-    prompt = str(params.get("prompt") or params.get("query") or "").strip()
+    prompt = str(params.get("prompt") or params.get("query") or params.get("instruction") or params.get("text") or "").strip()
     if not prompt:
         return ActionResult(ok=False, code="invalid_params", message="prompt is required")
 
