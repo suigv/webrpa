@@ -56,7 +56,8 @@ class NativeUIStateAdapter:
             samples=1 if action_result.code == "ok" else 0,
         )
         state_id = self._state_id_from_action_result(action_result)
-        evidence = self._build_evidence(state_id, normalized_expected, matched=state_id in normalized_expected)
+        is_authoritative_match = state_id != "unknown" and state_id in normalized_expected
+        evidence = self._build_evidence(state_id, normalized_expected, matched=is_authoritative_match)
         raw_details = self._build_raw_details(
             state_id=state_id,
             expected_state_ids=normalized_expected,
@@ -73,7 +74,7 @@ class NativeUIStateAdapter:
                 raw_details=raw_details,
             )
 
-        if state_id in normalized_expected:
+        if is_authoritative_match:
             return UIStateObservationResult.matched(
                 operation="match_state",
                 state_id=state_id,

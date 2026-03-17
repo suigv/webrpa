@@ -846,11 +846,6 @@ async function submitUnitAiTask() {
     if (systemPrompt) payload.system_prompt = systemPrompt;
     if (profileName) payload._runtime_profile = profileName;
     if (useVlm) payload.fallback_modalities = ["vlm"];
-    if (promptTemplateKey === 'social_x') {
-        payload.app = payload.app || 'x';
-        payload.package = payload.package || 'com.twitter.android';
-    }
-
     const taskData = buildTaskRequest({
         task: "agent_executor",
         payload,

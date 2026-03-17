@@ -60,9 +60,6 @@ def _json_safe(value: object, *, string_limit: int = 4000) -> object:
 
 _SAFE_PART_RE = re.compile(r"[^a-zA-Z0-9._-]+")
 _XML_PACKAGE_RE = re.compile(r'package="([^"]+)"')
-
-
-
 def _safe_path_part(value: object, *, default: str) -> str:
     raw = str(value or "").strip()
     if not raw:
@@ -152,16 +149,35 @@ def _build_reflection(
 
     # --- Failure awareness ---
     if last_action is not None:
+        action = str(last_action.get("action") or "").strip()
         result = last_action.get("result")
         result_dict = result if isinstance(result, dict) else {}
+        result_data = _json_dict(result_dict.get("data"))
+        if action == "ai.locate_point" and result_dict.get("ok") is True:
+            x = result_data.get("x")
+            y = result_data.get("y")
+            if isinstance(x, (int, float)) and isinstance(y, (int, float)):
+                reflection["locate_point_ready"] = True
+                reflection["locate_point"] = {"x": int(x), "y": int(y)}
+                reflection["suggestion"] = (
+                    "上一步已经定位到可交互坐标。若当前页面没有明显变化，"
+                    "优先直接使用这些坐标执行 ui.click，而不是再次定位。"
+                )
         if result_dict.get("ok") is False:
             reflection["last_action_failed"] = True
             reflection["failure_code"] = str(result_dict.get("code") or "unknown")
             reflection["failure_message"] = str(result_dict.get("message") or "")[:200]
-            reflection["suggestion"] = (
-                "上一步动作执行失败。请分析失败原因，考虑使用不同的方法、参数或目标元素。"
-                "避免简单重复上一步的操作。"
-            )
+            if bool(result_data.get("effect_uncertain")):
+                reflection["effect_uncertain"] = True
+                reflection["suggestion"] = (
+                    "上一步动作返回失败，但界面可能已经发生变化。"
+                    "先根据当前观察判断页面是否跳转或出现新元素，不要假设动作完全未生效。"
+                )
+            else:
+                reflection["suggestion"] = (
+                    "上一步动作执行失败。请分析失败原因，考虑使用不同的方法、参数或目标元素。"
+                    "避免简单重复上一步的操作。"
+                )
 
     # --- Repeated action warning ---
     if repeated_action_count >= 2:
@@ -186,6 +202,157 @@ def _is_non_mutating_action(last_action: Mapping[str, object] | None) -> bool:
         return False
     result = _json_dict(_json_dict(last_action).get("result"))
     return bool(result.get("ok"))
+
+
+def _observation_state_id(observation_payload: object) -> str:
+    observation = _json_dict(observation_payload)
+    state = _json_dict(observation.get("state"))
+    return str(state.get("state_id") or "").strip()
+
+
+def _observation_confidence(observation_payload: object) -> float | None:
+    observation = _json_dict(observation_payload)
+    evidence = _json_dict(observation.get("evidence"))
+    raw_confidence = evidence.get("confidence")
+    if isinstance(raw_confidence, (int, float)):
+        return float(raw_confidence)
+    return None
+
+
+def _observation_requires_fallback(*, observation_ok: bool, observation_payload: object) -> bool:
+    if not observation_ok:
+        return True
+    if _observation_state_id(observation_payload) == "unknown":
+        return True
+    confidence = _observation_confidence(observation_payload)
+    return confidence is not None and confidence <= 0.0
+
+
+def _prioritize_action(actions: list[str], action_name: str) -> list[str]:
+    if action_name not in actions:
+        return actions
+    return [action_name, *[item for item in actions if item != action_name]]
+
+
+def _planner_allowed_actions(
+    *,
+    allowed_actions: list[str],
+    last_action: Mapping[str, object] | None,
+    observation_requires_fallback: bool,
+) -> list[str]:
+    actions = [action for action in allowed_actions if action]
+    action = str(_json_dict(last_action).get("action") or "").strip()
+    result = _json_dict(_json_dict(last_action).get("result"))
+    result_data = _json_dict(result.get("data"))
+
+    if observation_requires_fallback and "ai.locate_point" in actions:
+        actions = _prioritize_action(actions, "ai.locate_point")
+
+    if (
+        action == "ui.swipe"
+        and not bool(result.get("ok"))
+        and bool(result_data.get("effect_uncertain"))
+        and observation_requires_fallback
+        and "ai.locate_point" in actions
+    ):
+        actions = [item for item in actions if item != "ui.swipe"] or actions
+        actions = _prioritize_action(actions, "ai.locate_point")
+
+    if (
+        action == "ai.locate_point"
+        and bool(result.get("ok"))
+        and isinstance(result_data.get("x"), (int, float))
+        and isinstance(result_data.get("y"), (int, float))
+        and "ui.click" in actions
+    ):
+        actions = [item for item in actions if item not in {"ai.locate_point", "ui.swipe"}] or ["ui.click"]
+        actions = _prioritize_action(actions, "ui.click")
+
+    return actions
+
+
+def _fallback_xml_text(fallback_evidence: Mapping[str, object]) -> str:
+    ui_xml = _json_dict(fallback_evidence.get("ui_xml"))
+    content = str(ui_xml.get("content") or "")
+    if content:
+        return content
+    save_path = str(ui_xml.get("save_path") or "").strip()
+    if not save_path:
+        return ""
+    try:
+        return Path(save_path).read_text(encoding="utf-8")
+    except Exception:
+        return ""
+
+
+def _infer_login_stage_from_last_action(last_action: Mapping[str, object] | None) -> str:
+    result = _json_dict(_json_dict(last_action).get("result"))
+    result_data = _json_dict(result.get("data"))
+    raw = _json_dict(result_data.get("raw"))
+    for candidate in (raw.get("page"), result_data.get("page"), raw.get("stage"), result_data.get("stage")):
+        value = str(candidate or "").strip().lower()
+        if value in {"login_entry", "account", "password", "two_factor", "home"}:
+            return value
+    return ""
+
+
+def _infer_login_stage_from_fallback_xml(fallback_evidence: Mapping[str, object]) -> str:
+    xml_text = _fallback_xml_text(fallback_evidence).lower()
+    if not xml_text:
+        return ""
+
+    password_fields = len(re.findall(r'password="true"', xml_text))
+    password_tokens = len(re.findall(r'resource-id="[^"]*password[^"]*"', xml_text))
+    verification_tokens = len(re.findall(r'resource-id="[^"]*(otp|code|token|verify)[^"]*"', xml_text))
+    edit_fields = len(re.findall(r'class="android\.widget\.edittext"', xml_text))
+    buttons = len(re.findall(r'class="android\.widget\.(button|imagebutton)"', xml_text))
+    list_views = len(re.findall(r'class="androidx\.recyclerview\.widget\.recyclerview"', xml_text))
+    scroll_views = len(re.findall(r'class="android\.widget\.scrollview"', xml_text))
+
+    if password_fields >= 1 or password_tokens >= 1:
+        return "password"
+    if edit_fields >= 4 or verification_tokens >= 1:
+        return "two_factor"
+    if edit_fields >= 1:
+        return "account"
+    if buttons >= 2 and edit_fields == 0:
+        return "login_entry"
+    if list_views >= 1 and edit_fields == 0 and scroll_views == 0:
+        return "home"
+    return ""
+
+
+def _apply_fallback_state_hint(
+    observation_payload: object,
+    fallback_evidence: Mapping[str, object],
+    last_action: Mapping[str, object] | None,
+) -> dict[str, object]:
+    observation = _json_dict(observation_payload)
+    if not observation:
+        return {}
+    if _observation_state_id(observation) not in {"", "unknown"}:
+        return observation
+    inferred_state = _infer_login_stage_from_last_action(last_action) or _infer_login_stage_from_fallback_xml(fallback_evidence)
+    if not inferred_state:
+        return observation
+
+    state = _json_dict(observation.get("state"))
+    state["state_id"] = inferred_state
+    observation["state"] = state
+
+    evidence = _json_dict(observation.get("evidence"))
+    evidence["text"] = inferred_state
+    evidence["summary"] = f"fallback inferred login stage '{inferred_state}' from ui_xml"
+    confidence = evidence.get("confidence")
+    if not isinstance(confidence, (int, float)) or float(confidence) <= 0.0:
+        evidence["confidence"] = 0.35
+    observation["evidence"] = evidence
+
+    raw_details = _json_dict(observation.get("raw_details"))
+    raw_details["fallback_state_hint"] = inferred_state
+    raw_details["fallback_state_source"] = "ui_xml"
+    observation["raw_details"] = raw_details
+    return observation
 
 
 def _planner_inputs(payload: Mapping[str, object]) -> dict[str, object]:
@@ -332,7 +499,10 @@ class AgentExecutorRuntime:
                         observation_ok=bool(last_observation.get("ok")),
                         observation_modality=str(last_observation.get("modality") or "structured_state"),
                         observed_state_ids=_string_list(last_observation.get("observed_state_ids")),
-                        fallback_reason=str(self._fallback_reason(observation_ok=bool(last_observation.get("ok")))),
+                        fallback_reason=str(last_observation.get("fallback_reason") or self._fallback_reason(
+                            observation_ok=bool(last_observation.get("ok")),
+                            observation_payload=_json_dict(last_observation.get("data")),
+                        )),
                         fallback_evidence=_json_dict(last_observation.get("fallback_evidence")),
                         code="task_cancelled",
                         message="task cancelled by user",
@@ -348,15 +518,28 @@ class AgentExecutorRuntime:
             observed_at = _timestamp()
             observation_payload = observation.model_dump(mode="python")
             observation_state = observation_payload.get("data", {})
-            observation_modality = self._observation_modality(observation_state)
-            observed_state_ids = self._observed_state_ids(observation_state)
             fallback_evidence = self._collect_fallback_evidence(
                 context,
                 observation_state,
                 trace_context=trace_context,
                 step_index=step_index,
             )
-            if observation.ok:
+            observation_state = _apply_fallback_state_hint(
+                observation_state,
+                fallback_evidence,
+                last_action,
+            )
+            observation_modality = self._observation_modality(observation_state)
+            observed_state_ids = self._observed_state_ids(observation_state)
+            observation_requires_fallback = _observation_requires_fallback(
+                observation_ok=bool(observation.ok),
+                observation_payload=observation_state,
+            )
+            fallback_reason = self._fallback_reason(
+                observation_ok=bool(observation.ok),
+                observation_payload=observation_state,
+            )
+            if not observation_requires_fallback:
                 observation_fingerprint = _stable_fingerprint(observation_state)
             else:
                 xml_content = _json_dict(fallback_evidence.get("ui_xml")).get("content", "")
@@ -371,6 +554,7 @@ class AgentExecutorRuntime:
             last_observation = {
                 "data": observation_state if isinstance(observation_state, dict) else {},
                 "ok": bool(observation.ok),
+                "fallback_reason": fallback_reason,
                 "modality": observation_modality,
                 "observed_state_ids": observed_state_ids,
                 "fallback_evidence": fallback_evidence,
@@ -407,7 +591,7 @@ class AgentExecutorRuntime:
                         observation_ok=bool(observation.ok),
                         observation_modality=observation_modality,
                         observed_state_ids=observed_state_ids,
-                        fallback_reason=self._fallback_reason(observation_ok=bool(observation.ok)),
+                        fallback_reason=fallback_reason,
                         fallback_evidence=fallback_evidence,
                         code="stagnant_structured_state",
                         message="structured state observation did not change across repeated actions",
@@ -438,6 +622,11 @@ class AgentExecutorRuntime:
                 last_action,
                 repeated_action_count=repeated_action_count,
             )
+            planner_allowed_actions = _planner_allowed_actions(
+                allowed_actions=config.allowed_actions,
+                last_action=last_action,
+                observation_requires_fallback=observation_requires_fallback,
+            )
             if _needs_form_submit(last_action, observation_state if isinstance(observation_state, dict) else None):
                 plan = {
                     "ok": True,
@@ -446,7 +635,7 @@ class AgentExecutorRuntime:
                     "params": {"key": "enter"},
                     "message": "submit focused login field",
                     "planned_at": _timestamp(),
-                    "fallback_reason": self._fallback_reason(observation_ok=bool(observation.ok)),
+                    "fallback_reason": fallback_reason,
                     "request_id": "",
                     "provider": "",
                     "model": "",
@@ -458,10 +647,11 @@ class AgentExecutorRuntime:
                 planner_input = PlannerInput(
                     goal=config.goal,
                     step_index=step_index,
-                    allowed_actions=config.allowed_actions,
+                    allowed_actions=planner_allowed_actions,
                     observation=observation_state if isinstance(observation_state, dict) else {},
                     last_action=last_action,
-                    fallback_enabled=not observation.ok,
+                    fallback_enabled=observation_requires_fallback,
+                    fallback_reason=fallback_reason,
                     fallback_evidence=fallback_evidence,
                     fallback_modalities=config.fallback_modalities,
                     system_prompt=config.system_prompt,
@@ -634,7 +824,7 @@ class AgentExecutorRuntime:
                     "expected_state_ids": list(config.expected_state_ids),
                     "data": observation_state,
                 },
-                "fallback_reason": str(plan.get("fallback_reason") or self._fallback_reason(observation_ok=bool(observation.ok))),
+                "fallback_reason": str(plan.get("fallback_reason") or fallback_reason),
                 "fallback_evidence": fallback_evidence,
                 "planner": self._trace_planner(plan),
                 "chosen_action": action_name,
@@ -662,7 +852,7 @@ class AgentExecutorRuntime:
                         observation_ok=bool(observation.ok),
                         observation_modality=observation_modality,
                         observed_state_ids=observed_state_ids,
-                        fallback_reason=str(plan.get("fallback_reason") or self._fallback_reason(observation_ok=bool(observation.ok))),
+                        fallback_reason=str(plan.get("fallback_reason") or fallback_reason),
                         fallback_evidence=fallback_evidence,
                         code="task_cancelled",
                         message="task cancelled by user",
@@ -684,7 +874,10 @@ class AgentExecutorRuntime:
                 observation_ok=bool(last_observation.get("ok")),
                 observation_modality=str(last_observation.get("modality") or "structured_state"),
                 observed_state_ids=_string_list(last_observation.get("observed_state_ids")),
-                fallback_reason=str(self._fallback_reason(observation_ok=bool(last_observation.get("ok")))),
+                fallback_reason=str(last_observation.get("fallback_reason") or self._fallback_reason(
+                    observation_ok=bool(last_observation.get("ok")),
+                    observation_payload=_json_dict(last_observation.get("data")),
+                )),
                 fallback_evidence=_json_dict(last_observation.get("fallback_evidence")),
                 code="step_budget_exhausted",
                 message="gpt executor exhausted configured step budget",
@@ -828,11 +1021,11 @@ class AgentExecutorRuntime:
         observation: dict[str, object],
         last_action: dict[str, object] | None,
         fallback_enabled: bool,
+        fallback_reason: str,
         fallback_evidence: dict[str, object],
         history_digest: list[dict[str, object]] | None = None,
         reflection: dict[str, object] | None = None,
     ) -> dict[str, object]:
-        fallback_reason = self._fallback_reason(observation_ok=not fallback_enabled)
         vlm_attempt: dict[str, object] | None = None
         if fallback_enabled and self._wants_vlm(config.fallback_modalities):
             vlm_plan = self._plan_next_step_vlm(
@@ -1288,7 +1481,7 @@ class AgentExecutorRuntime:
             state_id = str(state.get("state_id") or "").strip()
             if state_id:
                 observed.append(state_id)
-        for key in ("matched_state_ids", "observed_state_ids", "expected_state_ids"):
+        for key in ("matched_state_ids", "observed_state_ids"):
             raw = observation.get(key)
             if isinstance(raw, list):
                 for item in raw:
@@ -1298,8 +1491,16 @@ class AgentExecutorRuntime:
         return observed
 
     @staticmethod
-    def _fallback_reason(*, observation_ok: bool) -> str:
-        return "observation_not_ok" if not observation_ok else ""
+    def _fallback_reason(*, observation_ok: bool, observation_payload: object) -> str:
+        if not observation_ok:
+            return "observation_not_ok"
+        state_id = _observation_state_id(observation_payload)
+        if state_id == "unknown":
+            return "unknown_state"
+        confidence = _observation_confidence(observation_payload)
+        if confidence is not None and confidence <= 0.0:
+            return "low_confidence_observation"
+        return ""
 
     def _collect_fallback_evidence(
         self,

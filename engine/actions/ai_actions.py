@@ -46,6 +46,9 @@ LOCATE_POINT_METADATA = ActionMetadata(
         "type": "object",
         "properties": {
             "prompt": {"type": "string", "description": "Natural language description of the target (e.g. 'the like button')"},
+            "instruction": {"type": "string", "description": "Alias of prompt"},
+            "text": {"type": "string", "description": "Alias of prompt"},
+            "description": {"type": "string", "description": "Alias of prompt"},
             "image_url": {"type": "string", "description": "Optional image data (will screenshot if omitted)"}
         },
         "required": ["prompt"]
@@ -258,7 +261,14 @@ def _encode_image_ref(
 
 
 def locate_point(params: dict[str, object], context: ExecutionContext) -> ActionResult:
-    prompt = str(params.get("prompt") or params.get("query") or params.get("instruction") or params.get("text") or "").strip()
+    prompt = str(
+        params.get("prompt")
+        or params.get("query")
+        or params.get("instruction")
+        or params.get("text")
+        or params.get("description")
+        or ""
+    ).strip()
     if not prompt:
         return ActionResult(ok=False, code="invalid_params", message="prompt is required")
 

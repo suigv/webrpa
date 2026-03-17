@@ -135,6 +135,63 @@ def test_native_adapter_login_stage_no_match_preserves_evidence(monkeypatch: Mon
     assert result.raw_details["stage"] == "password"
 
 
+def test_native_adapter_unknown_stage_is_not_authoritative_even_if_expected(monkeypatch: MonkeyPatch) -> None:
+    @final
+    class FakeRpc:
+        query_text: str
+
+        def __init__(self):
+            self.query_text = ""
+
+        def init(self, ip: object, port: object, timeout: object) -> bool:
+            _ = (ip, port, timeout)
+            return True
+
+        def close(self) -> None:
+            return None
+
+        def exec_cmd(self, command: object) -> tuple[str, bool]:
+            _ = command
+            return "", True
+
+        def create_selector(self) -> int:
+            return 1
+
+        def clear_selector(self, selector: object) -> bool:
+            _ = selector
+            return True
+
+        def addQuery_TextContainWith(self, selector: object, value: object) -> bool:
+            _ = selector
+            self.query_text = str(value)
+            return True
+
+        def addQuery_DescContainWith(self, selector: object, value: object) -> bool:
+            _ = (selector, value)
+            return True
+
+        def execQueryOne(self, selector: object) -> int | None:
+            _ = selector
+            return None
+
+        def free_selector(self, selector: object) -> bool:
+            _ = selector
+            return True
+
+    monkeypatch.setattr(state_actions, "MytRpc", FakeRpc)
+
+    service = NativeUIStateAdapter(action_params={"stage_patterns": {"account": {"text_markers": ["account"]}}, "stage_order": ["account"]})
+    ctx = ExecutionContext(payload={"device_ip": "192.168.1.214", "_target": {"device_id": 1, "cloud_id": 3}})
+    result = service.match_state(ctx, expected_state_ids=["home", "unknown"])
+
+    assert result.ok is False
+    assert result.code == "no_match"
+    assert result.status == "no_match"
+    assert result.state.state_id == "unknown"
+    assert result.evidence.confidence == 0.0
+    assert result.evidence.matched == []
+
+
 def test_native_adapter_wait_until_timeout_returns_structured_timeout(monkeypatch: MonkeyPatch) -> None:
     @final
     class FakeClock:

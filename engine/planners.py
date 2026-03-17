@@ -88,6 +88,7 @@ class PlannerInput:
     observation: dict[str, object]
     last_action: dict[str, object] | None
     fallback_enabled: bool
+    fallback_reason: str
     fallback_evidence: dict[str, object]
     fallback_modalities: list[str]
     system_prompt: str
@@ -209,6 +210,7 @@ class StructuredPlanner:
             observation=inp.observation,
             last_action=inp.last_action,
             fallback_enabled=inp.fallback_enabled,
+            fallback_reason=inp.fallback_reason,
             fallback_evidence=inp.fallback_evidence,
             history_digest=inp.history_digest or None,
             reflection=inp.reflection or None,

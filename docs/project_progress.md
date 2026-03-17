@@ -8,6 +8,18 @@
 - 阶段：**Web Console Productization & Navigation Engine Hardening**
 - 核心状态：API、任务系统、插件执行、账号池全面可用；Web 控制台完成产品化改造；导航引擎具备自愈与锚点机制；AI 执行引擎接入托管链路。
 - 最近重点 (2026-03-17):
+  - **Agent Executor 通用观察契约修复 (Framework Neutrality Hardening)**：
+    - **unknown 不再伪装成成功观察**：`agent_executor` 现把 `state_id=unknown` / `confidence=0.0` 统一视为需要 fallback 的低置信观察，不再因为 `ok=true` 就关闭截图/VLM 证据链。
+    - **观测日志去混淆**：`observed_state_ids` 不再混入 `expected_state_ids`，任务日志只展示真实观察结果，避免把目标状态误写成已观测状态。
+    - **动作闭环增强**：`ai.locate_point` 成功后会向 Planner 注入后续点击提示；`ui.swipe` 失败时新增 `effect_uncertain` 语义，提醒执行器先观察页面变化而不是盲目假设动作未生效。
+    - **登录阶段回退推断**：当结构化观察仍为 `unknown` 时，执行器会从 fallback XML 中通用推断 `login_entry/account/password/two_factor/home` 提示，恢复账号/密码/2FA 输入后的通用推进与自动提交能力，无需 app-specific `stage_patterns`。
+    - **前端模板纠偏**：`config/strategies/prompt_templates.yaml` 的通用/X 模板已移除“unknown 先盲目上滑”指令，改为优先使用 fallback 证据和 `ai.locate_point` 确认关键可交互元素。
+    - **动作参数兼容性**：`ai.locate_point` 现兼容 `description` 作为 `prompt` 别名，避免 Planner 返回自然语言描述字段时白白损失一步预算。
+    - **前端硬编码清理**：
+      - `web/js/features/devices.js`：移除对 `social_x` 模板的 `com.twitter.android` 硬编码注入。
+      - `web/index.html`：移除下拉菜单中硬编码的 "X (Twitter)" 选项及风险提示中的平台特定文案。
+      - `config/apps/x.yaml`：精简为最小骨架（仅保留 version 和 package_name），不再包含 app-specific selectors。
+    - **Live 验证通过**：X 登录任务 (task_id: `56f6adf1-8ec2-4cda-ac65-d4386ef42fea`) 成功演示了 30 步执行链：AI 正确使用 fallback XML 推断登录阶段、定位输入框、点击、输入账号、找到 Next 按钮。框架现在能在无 app-specific 硬编码辅助下完成通用登录流程。
   - **Learning Hook 闭环落地 (Architecture 2.0 Phase 1)**：
     - **在线学习回写**：新增 `core/trace_learner.py` 与 `core/app_config_writer.py`，成功 trace 会在完成后提取稳定 `resource_id` 并按阈值回写到 `config/apps/<app>.yaml`。
     - **配置边界收敛**：`config/apps/<app>.yaml` 新增 `stage_patterns` 作为应用级感知记忆库；`selectors` 重新收口为通用 UI selector；`config/strategies/login_stage_patterns.yaml` 保持 framework 级默认规则，不参与在线自动写入。

@@ -237,7 +237,17 @@ def swipe(params: Dict[str, Any], context: ExecutionContext, *, close_rpc: Any =
         duration = int(normalized.get("duration", 300))
         raw_result = rpc.swipe(finger_id, x0, y0, x1, y1, duration) if rpc is not None else False
         ok = bool(raw_result)
-        return ActionResult(ok=ok, code="ok" if ok else "swipe_failed", data={"x0": x0, "y0": y0, "x1": x1, "y1": y1, "duration": duration})
+        data = {
+            "x0": x0,
+            "y0": y0,
+            "x1": x1,
+            "y1": y1,
+            "duration": duration,
+            "raw_result": raw_result,
+            "effect_uncertain": not ok,
+        }
+        message = "" if ok else "swipe transport did not acknowledge action; verify the next observation"
+        return ActionResult(ok=ok, code="ok" if ok else "swipe_failed", message=message, data=data)
     finally:
         close_rpc(rpc)
 
