@@ -1,5 +1,6 @@
 import logging
 import os
+import shutil
 import socket
 import subprocess
 import sys
@@ -80,7 +81,7 @@ INJECT_JS = """
         <div class="menu-item" onclick="window.history.back()">后退</div>
         <div class="menu-item" onclick="window.history.forward()">前进</div>
         <div class="menu-sep"></div>
-        <div class="menu-item" onclick="window.location.href='/web'">返回工作站首页</div>
+        <div class="menu-item" onclick="window.location.href=(location.port === '8001' ? '/web' : '/')">返回工作站首页</div>
     `;
     document.body.appendChild(menu);
 
@@ -220,6 +221,7 @@ LAUNCHER_HTML = """
             <label class="checkbox-item"><input type="checkbox" id="rpc" checked> <span>硬件 RPC</span></label>
             <label class="checkbox-item"><input type="checkbox" id="vlm" checked> <span>AI 视觉</span></label>
             <label class="checkbox-item"><input type="checkbox" id="strict" checked> <span>参数强校验</span></label>
+            <label class="checkbox-item"><input type="checkbox" id="frontend" checked> <span>前端控制台</span></label>
         </div>
 
         <div class="section-title">AI 服务密钥 (ENV)</div>
@@ -274,6 +276,7 @@ LAUNCHER_HTML = """
                 enable_rpc: document.getElementById('rpc').checked,
                 enable_vlm: document.getElementById('vlm').checked,
                 strict_plugin: document.getElementById('strict').checked,
+                start_frontend: document.getElementById('frontend').checked,
                 env_overrides: {
                     MYT_LLM_API_KEY: document.getElementById('env_llm_key').value,
                     MYT_VLM_API_KEY: document.getElementById('env_vlm_key').value,
@@ -300,6 +303,7 @@ class LauncherAPI:
     def __init__(self):
         self.window = None
         self.server_process = None
+        self.frontend_process = None
 
     def get_initial_env(self):
         return load_env_file()
@@ -309,7 +313,22 @@ class LauncherAPI:
             subprocess.run(["redis-cli", "ping"], capture_output=True, timeout=1)
         except Exception:
             if sys.platform == "darwin":
-                subprocess.run(["brew", "services", "start", "redis"], capture_output=True)
+                if shutil.which("brew"):
+                    subprocess.run(["brew", "services", "start", "redis"], capture_output=True)
+
+    def _run_frontend_process(self, env: dict[str, str]) -> None:
+        frontend_dir = ROOT_DIR / "web"
+        package_json = frontend_dir / "package.json"
+        if not package_json.exists():
+            logger.info("Frontend not found (missing web/package.json); skip starting frontend.")
+            return
+
+        if not shutil.which("npm"):
+            logger.error("npm not found; cannot start frontend dev server.")
+            return
+
+        cmd = ["npm", "--prefix", str(frontend_dir), "run", "dev"]
+        self.frontend_process = subprocess.Popen(cmd, env=env, cwd=str(ROOT_DIR))
 
     def _run_server_process(self, config):
         env = os.environ.copy()
@@ -326,6 +345,9 @@ class LauncherAPI:
         for key, val in overrides.items():
             if val and val.strip():
                 env[key] = val.strip()
+
+        if config.get("start_frontend"):
+            env.setdefault("MYT_FRONTEND_URL", "http://127.0.0.1:5173")
 
         self._check_redis()
 
@@ -346,6 +368,12 @@ class LauncherAPI:
         self.server_process = subprocess.Popen(cmd, env=env, cwd=str(ROOT_DIR))
 
     def start_service(self, config):
+        env_for_children = os.environ.copy()
+        env_for_children["PYTHONPATH"] = str(ROOT_DIR)
+        env_for_children["MYT_LOAD_DOTENV"] = "1"
+        if config.get("start_frontend"):
+            self._run_frontend_process(env_for_children)
+
         self._run_server_process(config)
 
         def _wait_and_redirect():
@@ -353,6 +381,13 @@ class LauncherAPI:
                 time.sleep(0.5)
                 try:
                     with socket.create_connection(("127.0.0.1", PORT), timeout=1):
+                        if config.get("start_frontend"):
+                            for _ in range(80):
+                                try:
+                                    with socket.create_connection(("127.0.0.1", 5173), timeout=1):
+                                        break
+                                except OSError:
+                                    time.sleep(0.25)
                         self.window.load_url(f"http://127.0.0.1:{PORT}/web")
                         # 核心优化：在页面加载后注入刷新逻辑
                         time.sleep(1)  # 等待页面初步渲染
@@ -367,6 +402,8 @@ class LauncherAPI:
     def cleanup(self):
         if self.server_process:
             self.server_process.terminate()
+        if self.frontend_process:
+            self.frontend_process.terminate()
 
 
 def main():

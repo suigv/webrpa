@@ -3,9 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite --port 5173",
+    "dev": "vite --port 5173 --strictPort",
     "build": "npm run typecheck && vite build",
-    "preview": "vite preview --port 5173",
+    "preview": "vite preview --port 5173 --strictPort",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
@@ -14,4 +14,3 @@
     "vite": "^7.0.0"
   }
 }
-

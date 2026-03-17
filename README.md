@@ -190,6 +190,8 @@ python3 -m venv .venv
  MYT_ENABLE_RPC=0 ./.venv/bin/python -m uvicorn api.server:app --host 127.0.0.1 --port 8001
 ```
 
+或（可选）使用根目录守卫脚本启动后端：`./run_webrpa.sh`（默认使用 Redis 队列；脚本会提示如何启动前端）。
+
 鉴权（可选）：
 - 默认不启用鉴权；生产建议设置 `MYT_AUTH_MODE=jwt` 并配置 `MYT_JWT_SECRET`（详见 `docs/FRONTEND.md`）。
 
@@ -209,6 +211,7 @@ curl http://127.0.0.1:8001/health
 ### 5) (可选) 桌面工作站启动器 (pywebview)
 
 仓库根目录的 `main.py` 提供一个桌面壳（内嵌浏览器 + 一键启动服务），适合本地运维/演示。
+默认会尝试启动前端 Vite dev server（`http://127.0.0.1:5173/`）并通过后端 `/web` 入口跳转；若仅需要后端 API，可在启动器里取消勾选“前端控制台”。
 
 ```bash
 ./.venv/bin/python -m pip install pywebview

@@ -12,8 +12,14 @@
 ## 1) 基础与控制台
 
 - `GET /health`：健康检查，返回运行策略快照与已加载插件列表。
-- `GET /web`：控制台入口（静态页面）。
+- `GET /web`：控制台入口（后端保留“入口路由”而不直接托管前端：若设置 `MYT_FRONTEND_URL` 则 307 重定向，否则返回 501 提示）。
 - `WS /ws/logs`：实时日志流（WebSocket）。
+
+### 鉴权（可选：JWT Bearer）
+
+- 默认不启用鉴权；当设置 `MYT_AUTH_MODE=jwt` 时，后端会对 `/api/*` 强制要求 `Authorization: Bearer <token>`。
+- SSE（`GET /api/tasks/{task_id}/events`）同样要求 `Authorization`；浏览器原生 `EventSource` 无法自定义请求头，前端已使用 `fetch()` 流式解析以携带 header。
+- WebSocket（`/ws/logs`）在浏览器侧无法稳定携带 `Authorization` 头；推荐使用 `Sec-WebSocket-Protocol: bearer.<token>` 传递 token。
 
 ---
 
