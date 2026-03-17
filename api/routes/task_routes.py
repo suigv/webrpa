@@ -3,24 +3,34 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from anyio.to_thread import run_sync
 from fastapi import APIRouter, Header, HTTPException, Query, Response
 from fastapi.responses import StreamingResponse
 
 from api.mappers.task_mapper import to_task_detail_response, to_task_response
-from anyio.to_thread import run_sync
 from core.task_api_service import (
     get_task as get_task_record,
+)
+from core.task_api_service import (
     stop_device_tasks as stop_device_tasks_service,
+)
+from core.task_api_service import (
     stream_task_events,
 )
 from core.task_control import get_task_controller
-from core.task_store import ManagedTaskStateClearBlocked
-from models.task import TaskDetailResponse, TaskMetricsResponse, TaskRequest, TaskResponse, TaskStatus
-
+from core.task_store import ManagedTaskStateClearBlockedError
+from models.task import (
+    TaskDetailResponse,
+    TaskMetricsResponse,
+    TaskRequest,
+    TaskResponse,
+    TaskStatus,
+)
 
 router = APIRouter()
 
 _PLUGIN_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
+
 
 def _validate_plugin_name(name: str) -> str:
     raw = str(name or "").strip()
@@ -47,10 +57,19 @@ def _distill_threshold_for(task_name: str) -> int:
 
 
 @router.post("/", response_model=TaskResponse)
-async def create_task(request: TaskRequest, x_idempotency_key: str | None = Header(default=None, alias="X-Idempotency-Key")):
+async def create_task(
+    request: TaskRequest,
+    x_idempotency_key: str | None = Header(default=None, alias="X-Idempotency-Key"),
+):
     controller = get_task_controller()
-    if request.idempotency_key and x_idempotency_key and request.idempotency_key != x_idempotency_key:
-        raise HTTPException(status_code=400, detail="idempotency key mismatch between body and header")
+    if (
+        request.idempotency_key
+        and x_idempotency_key
+        and request.idempotency_key != x_idempotency_key
+    ):
+        raise HTTPException(
+            status_code=400, detail="idempotency key mismatch between body and header"
+        )
     idempotency_key = request.idempotency_key or x_idempotency_key
 
     if request.script is not None:
@@ -89,7 +108,11 @@ async def _cleanup_failed_tasks_response() -> dict[str, object]:
     """清理所有已停止但未成功的任务轨迹与记录。"""
     controller = get_task_controller()
     count = await run_sync(controller.cleanup_failed_tasks)
-    return {"status": "ok", "count": count, "message": f"Successfully cleaned up {count} failed tasks"}
+    return {
+        "status": "ok",
+        "count": count,
+        "message": f"Successfully cleaned up {count} failed tasks",
+    }
 
 
 @router.delete("/cleanup_failed")
@@ -107,7 +130,7 @@ async def clear_tasks():
     controller = get_task_controller()
     try:
         await run_sync(controller.clear_all)
-    except ManagedTaskStateClearBlocked as exc:
+    except ManagedTaskStateClearBlockedError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {"status": "ok", "message": "managed task state cleared"}
 
@@ -124,7 +147,11 @@ def task_catalog():
             continue
         manifest = entry.manifest
         required = [item.name for item in manifest.inputs if item.required]
-        defaults = {item.name: item.default for item in manifest.inputs if not item.required and item.default is not None}
+        defaults = {
+            item.name: item.default
+            for item in manifest.inputs
+            if not item.required and item.default is not None
+        }
         example_payload = dict(defaults)
         for field in required:
             example_payload.setdefault(field, f"<{field}>")
@@ -144,30 +171,31 @@ def task_catalog():
 @router.get("/catalog/apps")
 def list_apps():
     """列出 config/apps/ 目录下所有已定义的应用程序。"""
-    from core.paths import config_dir
     import yaml
-    
+
+    from core.paths import config_dir
+
     apps_dir = config_dir() / "apps"
     if not apps_dir.exists():
         return {"apps": []}
-    
+
     apps = []
     # 始终包含默认选项
     apps.append({"id": "default", "name": "默认 (系统)"})
-    
+
     for f in apps_dir.glob("*.yaml"):
         app_id = f.stem
         if app_id == "default":
             continue
         try:
-            with open(f, "r", encoding="utf-8") as stream:
+            with open(f, encoding="utf-8") as stream:
                 data = yaml.safe_load(stream)
                 # 尝试从配置中获取友好名称，如果没有则使用 ID
                 display_name = data.get("name") or data.get("display_name") or app_id.upper()
                 apps.append({"id": app_id, "name": display_name})
         except Exception:
             apps.append({"id": app_id, "name": app_id.upper()})
-            
+
     return {"apps": apps}
 
 
@@ -187,12 +215,14 @@ async def plugin_success_metrics():
         name = str(r["task_name"])
         completed = int(r["completed"])
         threshold = _distill_threshold_for(name)
-        result.append({
-            **r,
-            "distill_threshold": threshold,
-            "distill_ready": completed >= threshold,
-            "distill_remaining": max(0, threshold - completed),
-        })
+        result.append(
+            {
+                **r,
+                "distill_threshold": threshold,
+                "distill_ready": completed >= threshold,
+                "distill_remaining": max(0, threshold - completed),
+            }
+        )
     return result
 
 
@@ -201,6 +231,7 @@ async def distill_plugin(plugin_name: str, force: bool = False):
     """触发指定插件的多轮蒸馏，生成 YAML 插件草稿。"""
     import subprocess
     import sys
+
     from core.paths import project_root
     from engine.plugin_loader import get_shared_plugin_loader
 
@@ -300,7 +331,11 @@ async def cancel_task(task_id: str):
     record = await run_sync(controller.get, task_id)
     if record is None:
         raise HTTPException(status_code=404, detail="task not found")
-    if record.status in {TaskStatus.COMPLETED.value, TaskStatus.FAILED.value, TaskStatus.CANCELLED.value}:
+    if record.status in {
+        TaskStatus.COMPLETED.value,
+        TaskStatus.FAILED.value,
+        TaskStatus.CANCELLED.value,
+    }:
         return {"task_id": task_id, "status": record.status, "cancelled": False}
 
     state = await run_sync(controller.cancel_state, task_id)
@@ -326,4 +361,6 @@ async def task_events(task_id: str, after_event_id: int = Query(default=0, ge=0)
     record = await get_task_record(task_id)
     if record is None:
         raise HTTPException(status_code=404, detail="task not found")
-    return StreamingResponse(stream_task_events(task_id, after_event_id), media_type="text/event-stream")
+    return StreamingResponse(
+        stream_task_events(task_id, after_event_id), media_type="text/event-stream"
+    )

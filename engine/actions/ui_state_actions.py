@@ -9,7 +9,9 @@ from engine.ui_state_service import UIStateService
 
 
 def ui_match_state(params: dict[str, object], context: ExecutionContext) -> ActionResult:
-    expected_state_ids = _coerce_state_ids(params.get("expected_state_ids") or params.get("state_ids"))
+    expected_state_ids = _coerce_state_ids(
+        params.get("expected_state_ids") or params.get("state_ids")
+    )
     service, error = _resolve_service(params, expected_state_ids=expected_state_ids)
     if error is not None:
         return error
@@ -40,11 +42,14 @@ def ui_wait_until(params: dict[str, object], context: ExecutionContext) -> Actio
 def ui_observe_transition(params: dict[str, object], context: ExecutionContext) -> ActionResult:
     from_state_ids = _coerce_state_ids(params.get("from_state_ids") or params.get("from_states"))
     to_state_ids = _coerce_state_ids(
-        params.get("to_state_ids") or params.get("state_ids") or params.get("expected_state_ids") or params.get("target_stages")
+        params.get("to_state_ids")
+        or params.get("state_ids")
+        or params.get("expected_state_ids")
+        or params.get("target_stages")
     )
     service, error = _resolve_service(
         params,
-        expected_state_ids=tuple((*from_state_ids, *to_state_ids)),
+        expected_state_ids=(*from_state_ids, *to_state_ids),
     )
     if error is not None:
         return error
@@ -66,7 +71,9 @@ def browser_wait_until(params: dict[str, object], context: ExecutionContext) -> 
     return ui_wait_until(_with_platform(params, platform="browser"), context)
 
 
-def browser_observe_transition(params: dict[str, object], context: ExecutionContext) -> ActionResult:
+def browser_observe_transition(
+    params: dict[str, object], context: ExecutionContext
+) -> ActionResult:
     return ui_observe_transition(_with_platform(params, platform="browser"), context)
 
 
@@ -86,7 +93,9 @@ def _resolve_service(
             ), None
         except ValueError as exc:
             return None, ActionResult(ok=False, code="invalid_params", message=str(exc))
-    return None, ActionResult(ok=False, code="invalid_params", message=f"unsupported platform: {platform}")
+    return None, ActionResult(
+        ok=False, code="invalid_params", message=f"unsupported platform: {platform}"
+    )
 
 
 def _resolve_platform(params: dict[str, object], *, expected_state_ids: Sequence[str]) -> str:

@@ -29,7 +29,9 @@ class TaskAttemptFinalizer:
         self._events = event_store
         self._account_feedback = account_feedback
 
-    def finalize_exception_attempt(self, task_id: str, task_name: str, error: str) -> TaskFinalizeOutcome:
+    def finalize_exception_attempt(
+        self, task_id: str, task_name: str, error: str
+    ) -> TaskFinalizeOutcome:
         outcome = TaskFinalizeOutcome()
         with self._store.transaction(immediate=True) as conn:
             self._append_dispatch_result_event(
@@ -84,7 +86,9 @@ class TaskAttemptFinalizer:
         outcome = TaskFinalizeOutcome()
         feedback_error: str | None = None
         with self._store.transaction(immediate=True) as conn:
-            self._append_dispatch_result_event(conn=conn, task_id=task_id, task_name=task_name, result=result)
+            self._append_dispatch_result_event(
+                conn=conn, task_id=task_id, task_name=task_name, result=result
+            )
             current = self._store.get_task(task_id, conn=conn)
             cancel_requested = bool(current.cancel_requested) if current is not None else False
             if cancel_requested or str(result.get("status")) == "cancelled":
@@ -108,7 +112,10 @@ class TaskAttemptFinalizer:
             else:
                 error = str(result.get("message", "task failed"))
                 outcome.retry_record = self._store.schedule_retry(task_id, error=error, conn=conn)
-                if outcome.retry_record is not None and outcome.retry_record.next_retry_at is not None:
+                if (
+                    outcome.retry_record is not None
+                    and outcome.retry_record.next_retry_at is not None
+                ):
                     self._events.append_event(
                         task_id,
                         "task.retry_scheduled",
@@ -129,7 +136,9 @@ class TaskAttemptFinalizer:
                         self._events.append_event(
                             task_id,
                             "task.cancelled",
-                            build_task_metrics_payload(cancelled, {"reason": "user_exception_path"}),
+                            build_task_metrics_payload(
+                                cancelled, {"reason": "user_exception_path"}
+                            ),
                             conn=conn,
                         )
                     else:

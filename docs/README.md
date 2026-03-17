@@ -38,6 +38,8 @@
 ---
 
 ## 📡 API 参考
+- **[WebRPA HTTP API（本服务）](HTTP_API.md)**  
+  FastAPI 暴露的控制面接口（任务/设备/账号池/蒸馏/Schema 等），以及 `/web` 与 `/ws/logs`。
 - **[盒子内 SDK API（8000）](MYT_SDK_API.md)**  
   设备级 SDK 接口（云机容器、镜像、备份、VPC 等）。
 - **[MYTOS Android API (api_port)](MYTOS_API.md)**  

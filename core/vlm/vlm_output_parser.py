@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -8,10 +9,12 @@ from typing import Any
 # Data classes
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class ParsedAction:
     """Single action parsed from UI-TARS model output."""
-    raw_action: str          # e.g. "click"
+
+    raw_action: str  # e.g. "click"
     args: dict[str, Any] = field(default_factory=dict)
     # Resolved pixel coordinates (populated after coords_to_pixel)
     x: int | None = None
@@ -24,14 +27,16 @@ class ParsedAction:
 @dataclass
 class VLMOutput:
     """Structured output from a single VLM inference step."""
-    thought: str             # <think>...</think> or empty
-    raw_text: str            # full model output text
+
+    thought: str  # <think>...</think> or empty
+    raw_text: str  # full model output text
     actions: list[ParsedAction] = field(default_factory=list)
 
 
 @dataclass
 class VLMAction:
     """Single mapped action for downstream execution or distillation."""
+
     raw_text: str
     raw_action: str
     action: str
@@ -84,6 +89,7 @@ _BOX_COORD_RE = re.compile(
 # Parsing helpers
 # ---------------------------------------------------------------------------
 
+
 def _parse_kwargs(raw_args: str) -> dict[str, str]:
     """Extract keyword arguments from a raw argument string."""
     result: dict[str, str] = {}
@@ -106,6 +112,7 @@ def _extract_coord(value: str) -> tuple[float, float] | None:
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 def parse_vlm_output(text: str) -> VLMOutput:
     """
@@ -134,7 +141,7 @@ def parse_vlm_output(text: str) -> VLMOutput:
         for box_key in ("start_box", "end_box"):
             if box_key in kwargs:
                 coord = _extract_coord(kwargs[box_key])
-                if coord and pa.x is None:   # first coord wins for x/y
+                if coord and pa.x is None:  # first coord wins for x/y
                     pa.x_pct = float(coord[0])
                     pa.y_pct = float(coord[1])
                     pa.x = int(coord[0])
@@ -273,13 +280,15 @@ def map_to_atomic_action(
         elif direction == "right":
             end_x = start_x + delta
 
-        params.update({
-            "x0": int(start_x),
-            "y0": int(start_y),
-            "x1": int(end_x),
-            "y1": int(end_y),
-            "duration": 300,
-        })
+        params.update(
+            {
+                "x0": int(start_x),
+                "y0": int(start_y),
+                "x1": int(end_x),
+                "y1": int(end_y),
+                "duration": 300,
+            }
+        )
 
     # Key / shortcut
     if "key" in pa.args:
@@ -287,13 +296,20 @@ def map_to_atomic_action(
 
     # Long press duration
     if atomic == "ui.long_click" and "duration" in pa.args:
-        try:
+        with suppress(TypeError, ValueError):
             params["duration"] = float(pa.args["duration"])
-        except (TypeError, ValueError):
-            pass
 
     # Passthrough remaining unknown args
-    known = {"content", "text", "start_box", "end_box", "direction", "step_count", "key", "duration"}
+    known = {
+        "content",
+        "text",
+        "start_box",
+        "end_box",
+        "direction",
+        "step_count",
+        "key",
+        "duration",
+    }
     for k, v in pa.args.items():
         if k not in known:
             params[k] = v
@@ -321,7 +337,9 @@ class VLMOutputParser:
             )
 
         action = parsed.actions[0]
-        mapped = map_to_atomic_action(action, screen_width=screen_width, screen_height=screen_height)
+        mapped = map_to_atomic_action(
+            action, screen_width=screen_width, screen_height=screen_height
+        )
         return VLMAction(
             raw_text=raw_text or "",
             raw_action=action.raw_action,

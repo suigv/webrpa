@@ -13,9 +13,7 @@ from http.client import HTTPResponse
 from typing import Protocol, cast
 from uuid import uuid4
 
-from core.config_loader import ConfigLoader
-from core.paths import project_root
-from core.system_settings_loader import get_llm_provider, get_llm_provider_config, get_llm_api_key
+from core.system_settings_loader import get_llm_api_key, get_llm_provider, get_llm_provider_config
 
 DEFAULT_LLM_PROVIDER = "openai"
 DEFAULT_LLM_MODEL = "gpt-5.4"
@@ -52,11 +50,10 @@ def _coerce_modalities(value: object) -> list[str]:
 
 
 def _get_llm_config() -> JSONDict:
-    from core.system_settings_loader import get_llm_provider, get_llm_provider_config, get_llm_api_key
-    
+
     provider_name = get_llm_provider() or DEFAULT_LLM_PROVIDER
     provider_config = get_llm_provider_config(provider_name)
-    
+
     return {
         "provider": provider_name,
         "model": provider_config.model or DEFAULT_LLM_MODEL,
@@ -239,9 +236,15 @@ class OpenAIResponsesProvider:
         base_url: str | None = None,
         transport: Callable[[str, JSONDict, dict[str, str], float | None], JSONDict] | None = None,
     ) -> None:
-        self._api_key: str = (api_key or os.getenv("MYT_OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY") or "").strip()
-        self._base_url: str = (base_url or os.getenv("MYT_LLM_API_BASE_URL") or "https://api.openai.com/v1").rstrip("/")
-        self._transport: Callable[[str, JSONDict, dict[str, str], float | None], JSONDict] = transport or self._http_transport
+        self._api_key: str = (
+            api_key or os.getenv("MYT_OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY") or ""
+        ).strip()
+        self._base_url: str = (
+            base_url or os.getenv("MYT_LLM_API_BASE_URL") or "https://api.openai.com/v1"
+        ).rstrip("/")
+        self._transport: Callable[[str, JSONDict, dict[str, str], float | None], JSONDict] = (
+            transport or self._http_transport
+        )
 
     def invoke(self, request: ResolvedLLMRequest) -> JSONDict:
         api_key = request.api_key.strip() or self._api_key
@@ -306,21 +309,31 @@ class OpenAIResponsesProvider:
         input_tokens = usage_raw.get("input_tokens")
         output_tokens = usage_raw.get("output_tokens")
         total_tokens = usage_raw.get("total_tokens")
-        if total_tokens is None and isinstance(input_tokens, int) and isinstance(output_tokens, int):
+        if (
+            total_tokens is None
+            and isinstance(input_tokens, int)
+            and isinstance(output_tokens, int)
+        ):
             total_tokens = input_tokens + output_tokens
 
         return {
             "provider_request_id": str(raw.get("id") or ""),
             "model": str(raw.get("model") or request.model),
             "output_text": output_text,
-            "structured_state": _as_structured_state(raw.get("structured_state") or raw.get("output_parsed")),
+            "structured_state": _as_structured_state(
+                raw.get("structured_state") or raw.get("output_parsed")
+            ),
             "modality": str(raw.get("modality") or request.modality or "text"),
-            "fallback_modalities": _coerce_modalities(raw.get("fallback_modalities") or request.fallback_modalities),
-            "usage": _as_usage({
-                "input_tokens": input_tokens,
-                "output_tokens": output_tokens,
-                "total_tokens": total_tokens,
-            }),
+            "fallback_modalities": _coerce_modalities(
+                raw.get("fallback_modalities") or request.fallback_modalities
+            ),
+            "usage": _as_usage(
+                {
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                    "total_tokens": total_tokens,
+                }
+            ),
             "finish_reason": str(raw.get("status") or raw.get("finish_reason") or ""),
             "raw": raw,
         }
@@ -369,7 +382,9 @@ class OpenAIResponsesProvider:
             error_payload = _as_dict(details.get("error"))
             raise ProviderInvocationError(
                 code="provider_http_error",
-                message=str(error_payload.get("message") or exc.reason or "Provider request failed"),
+                message=str(
+                    error_payload.get("message") or exc.reason or "Provider request failed"
+                ),
                 provider_code=str(error_payload.get("code") or ""),
                 provider_status=exc.code,
                 retryable=exc.code >= 500,
@@ -394,9 +409,19 @@ class OpenAIChatProvider:
         base_url: str | None = None,
         transport: Callable[[str, JSONDict, dict[str, str], float | None], JSONDict] | None = None,
     ) -> None:
-        self._api_key: str = (api_key or os.getenv("MYT_LLM_API_KEY") or os.getenv("MYT_OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY") or "").strip()
-        self._base_url: str = (base_url or os.getenv("MYT_LLM_API_BASE_URL") or "https://api.openai.com/v1").rstrip("/")
-        self._transport: Callable[[str, JSONDict, dict[str, str], float | None], JSONDict] = transport or OpenAIResponsesProvider._http_transport.__get__(self)
+        self._api_key: str = (
+            api_key
+            or os.getenv("MYT_LLM_API_KEY")
+            or os.getenv("MYT_OPENAI_API_KEY")
+            or os.getenv("OPENAI_API_KEY")
+            or ""
+        ).strip()
+        self._base_url: str = (
+            base_url or os.getenv("MYT_LLM_API_BASE_URL") or "https://api.openai.com/v1"
+        ).rstrip("/")
+        self._transport: Callable[[str, JSONDict, dict[str, str], float | None], JSONDict] = (
+            transport or OpenAIResponsesProvider._http_transport.__get__(self)
+        )
 
     def invoke(self, request: ResolvedLLMRequest) -> JSONDict:
         api_key = request.api_key.strip() or self._api_key
@@ -418,7 +443,9 @@ class OpenAIChatProvider:
             image_url = str(attachment_dict.get("image_url") or "").strip()
             if image_url:
                 user_content.append({"type": "image_url", "image_url": {"url": image_url}})
-        messages.append({"role": "user", "content": user_content if len(user_content) > 1 else request.prompt})
+        messages.append(
+            {"role": "user", "content": user_content if len(user_content) > 1 else request.prompt}
+        )
 
         payload: JSONDict = {"model": request.model, "messages": messages}
         response_format = _as_dict(request.response_format)
@@ -433,7 +460,9 @@ class OpenAIChatProvider:
             "X-Request-Id": request.request_id,
             "User-Agent": "Mozilla/5.0",
         }
-        raw = self._transport(f"{base_url}/chat/completions", payload, headers, request.timeout_seconds)
+        raw = self._transport(
+            f"{base_url}/chat/completions", payload, headers, request.timeout_seconds
+        )
         return self._normalize_response(request, raw)
 
     def _normalize_response(self, request: ResolvedLLMRequest, raw: JSONDict) -> JSONDict:
@@ -458,7 +487,13 @@ class OpenAIChatProvider:
             "structured_state": None,
             "modality": "text",
             "fallback_modalities": [],
-            "usage": _as_usage({"input_tokens": input_tokens, "output_tokens": output_tokens, "total_tokens": total_tokens}),
+            "usage": _as_usage(
+                {
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                    "total_tokens": total_tokens,
+                }
+            ),
             "finish_reason": finish_reason,
             "raw": raw,
         }
@@ -474,8 +509,8 @@ class OpenAIChatProvider:
 
 
 def get_default_provider_registry() -> dict[str, LLMProvider]:
-    # This is now just a static mapping for the shell client. 
-    # The actual provider instantiation happens dynamically if needed, 
+    # This is now just a static mapping for the shell client.
+    # The actual provider instantiation happens dynamically if needed,
     # but for now we keep the default OpenAI chat provider.
     return {"openai": OpenAIChatProvider()}
 
@@ -501,16 +536,24 @@ class LLMClient:
         max_retries: int = DEFAULT_LLM_MAX_RETRIES,
         sleep: Callable[[float], None] | None = None,
     ) -> None:
-        self._providers: dict[str, LLMProvider] = dict(provider_registry or get_default_provider_registry())
+        self._providers: dict[str, LLMProvider] = dict(
+            provider_registry or get_default_provider_registry()
+        )
         self._config_resolver: Callable[[], JSONDict] = config_resolver or _get_llm_config
         self._clock: Callable[[], float] = clock or time.perf_counter
-        self._request_id_factory: Callable[[], str] = request_id_factory or (lambda: f"llm-{uuid4()}")
+        self._request_id_factory: Callable[[], str] = request_id_factory or (
+            lambda: f"llm-{uuid4()}"
+        )
         parsed_max_retries = int(max_retries)
         self._max_retries: int = parsed_max_retries if parsed_max_retries > 0 else 1
         self._sleep: Callable[[float], None] = sleep or time.sleep
 
-    def evaluate(self, request: LLMRequest | str, *, runtime_config: JSONDict | None = None) -> LLMResponse:
-        llm_request = request if isinstance(request, LLMRequest) else LLMRequest(prompt=str(request))
+    def evaluate(
+        self, request: LLMRequest | str, *, runtime_config: JSONDict | None = None
+    ) -> LLMResponse:
+        llm_request = (
+            request if isinstance(request, LLMRequest) else LLMRequest(prompt=str(request))
+        )
         resolved = self._resolve_request(llm_request, runtime_config=runtime_config)
         provider = self._providers.get(resolved.provider)
         if provider is None:
@@ -565,7 +608,9 @@ class LLMClient:
                     output_text=output_text,
                     structured_state=structured_state,
                     modality=str(result.get("modality") or resolved.modality or "text"),
-                    fallback_modalities=_coerce_modalities(result.get("fallback_modalities") or resolved.fallback_modalities),
+                    fallback_modalities=_coerce_modalities(
+                        result.get("fallback_modalities") or resolved.fallback_modalities
+                    ),
                     usage=_as_usage(result.get("usage")),
                     finish_reason=str(result.get("finish_reason") or ""),
                     model_metadata={
@@ -609,7 +654,9 @@ class LLMClient:
                     ),
                 )
 
-    def _resolve_request(self, request: LLMRequest, *, runtime_config: JSONDict | None) -> ResolvedLLMRequest:
+    def _resolve_request(
+        self, request: LLMRequest, *, runtime_config: JSONDict | None
+    ) -> ResolvedLLMRequest:
         runtime_dict = _as_dict(runtime_config)
         runtime_llm = _as_dict(runtime_dict.get("llm")) if "llm" in runtime_dict else runtime_dict
         config = _as_dict(self._config_resolver())
@@ -621,9 +668,9 @@ class LLMClient:
             or str(config.get("provider") or "").strip()
             or DEFAULT_LLM_PROVIDER
         )
-        
+
         # If the provider is different from the default one, load its specific defaults
-        from core.system_settings_loader import get_llm_provider_config, get_llm_api_key
+
         p_config = get_llm_provider_config(provider)
         p_type = getattr(p_config, "provider_type", "openai")
 
@@ -674,7 +721,9 @@ class LLMClient:
             timeout_seconds=timeout_seconds,
         )
 
-    def _error_response(self, request: ResolvedLLMRequest, *, latency_ms: int, error: LLMError) -> LLMResponse:
+    def _error_response(
+        self, request: ResolvedLLMRequest, *, latency_ms: int, error: LLMError
+    ) -> LLMResponse:
         return LLMResponse(
             ok=False,
             request_id=request.request_id,

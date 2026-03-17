@@ -66,8 +66,12 @@ def test_detect_login_stage_account(monkeypatch):
 
     monkeypatch.setattr(mod, "MytRpc", FakeRpc)
 
-    ctx = ExecutionContext(payload={"device_ip": "192.168.1.214", "_target": {"device_id": 1, "cloud_id": 3}})
-    result = mod.detect_login_stage({"stage_patterns": {"account": {"text_markers": ["账号"]}}, "stage_order": ["account"]}, ctx)
+    ctx = ExecutionContext(
+        payload={"device_ip": "192.168.1.214", "_target": {"device_id": 1, "cloud_id": 3}}
+    )
+    result = mod.detect_login_stage(
+        {"stage_patterns": {"account": {"text_markers": ["账号"]}}, "stage_order": ["account"]}, ctx
+    )
     assert result.ok is True
     assert result.data["stage"] == "account"
 
@@ -109,7 +113,9 @@ def test_detect_login_stage_uses_visible_japanese_login_entry_text(monkeypatch):
 
     monkeypatch.setattr(mod, "MytRpc", FakeRpc)
 
-    ctx = ExecutionContext(payload={"device_ip": "192.168.1.214", "_target": {"device_id": 1, "cloud_id": 3}})
+    ctx = ExecutionContext(
+        payload={"device_ip": "192.168.1.214", "_target": {"device_id": 1, "cloud_id": 3}}
+    )
     result = mod.detect_login_stage(
         {
             "stage_patterns": {
@@ -160,7 +166,9 @@ def test_detect_login_stage_uses_attribute_fallback_for_truncated_xml(monkeypatc
 
     monkeypatch.setattr(mod, "MytRpc", FakeRpc)
 
-    ctx = ExecutionContext(payload={"device_ip": "192.168.1.214", "_target": {"device_id": 1, "cloud_id": 3}})
+    ctx = ExecutionContext(
+        payload={"device_ip": "192.168.1.214", "_target": {"device_id": 1, "cloud_id": 3}}
+    )
     result = mod.detect_login_stage(
         {
             "stage_patterns": {
@@ -212,7 +220,9 @@ def test_detect_login_stage_prefers_account_over_forgot_password_link(monkeypatc
 
     monkeypatch.setattr(mod, "MytRpc", FakeRpc)
 
-    ctx = ExecutionContext(payload={"device_ip": "192.168.1.214", "_target": {"device_id": 1, "cloud_id": 3}})
+    ctx = ExecutionContext(
+        payload={"device_ip": "192.168.1.214", "_target": {"device_id": 1, "cloud_id": 3}}
+    )
     result = mod.detect_login_stage({}, ctx)
 
     # Architecture 2.0: no global text_markers — without explicit patterns,
@@ -264,7 +274,9 @@ def test_wait_login_stage_until_home(monkeypatch):
     monkeypatch.setattr(mod, "MytRpc", FakeRpc)
     monkeypatch.setattr(mod.time, "sleep", lambda *_: None)
 
-    ctx = ExecutionContext(payload={"device_ip": "192.168.1.214", "_target": {"device_id": 1, "cloud_id": 3}})
+    ctx = ExecutionContext(
+        payload={"device_ip": "192.168.1.214", "_target": {"device_id": 1, "cloud_id": 3}}
+    )
     result = mod.wait_login_stage(
         {
             "target_stages": ["home"],
@@ -371,7 +383,9 @@ def test_collect_blogger_candidates_across_rounds(monkeypatch):
     monkeypatch.setattr(mod, "MytRpc", FakeRpc)
     monkeypatch.setattr(mod.time, "sleep", lambda *_: None)
     ctx = ExecutionContext(payload={"device_ip": "192.168.1.214"})
-    result = mod.collect_blogger_candidates({"package": "com.example.app", "max_rounds": 2, "max_candidates": 5}, ctx)
+    result = mod.collect_blogger_candidates(
+        {"package": "com.example.app", "max_rounds": 2, "max_candidates": 5}, ctx
+    )
     assert result.ok is True
     assert result.data["count"] == 2
     assert result.data["swipe_count"] == 1
@@ -650,7 +664,9 @@ def test_ui_state_action_wrappers_preserve_legacy_native_contracts(monkeypatch):
 
     monkeypatch.setattr(mod, "MytRpc", FakeRpc)
 
-    ctx = ExecutionContext(payload={"device_ip": "192.168.1.214", "_target": {"device_id": 1, "cloud_id": 3}})
+    ctx = ExecutionContext(
+        payload={"device_ip": "192.168.1.214", "_target": {"device_id": 1, "cloud_id": 3}}
+    )
 
     service_result = resolve_action("ui.match_state")(
         {
@@ -703,13 +719,13 @@ def test_detect_app_stage_prefers_stage_patterns_from_app_config(monkeypatch):
                     "text_markers": ["For you"],
                 }
             },
-            "selectors": {
-                "follow_button": {"type": "text", "mode": "equal", "value": "Follow"}
-            },
+            "selectors": {"follow_button": {"type": "text", "mode": "equal", "value": "Follow"}},
         },
     )
 
-    ctx = ExecutionContext(payload={"device_ip": "192.168.1.214", "_target": {"device_id": 1, "cloud_id": 3}})
+    ctx = ExecutionContext(
+        payload={"device_ip": "192.168.1.214", "_target": {"device_id": 1, "cloud_id": 3}}
+    )
     result = mod.detect_app_stage({"package": "com.twitter.android"}, ctx)
 
     assert result.ok is True
@@ -756,7 +772,9 @@ def test_detect_app_stage_falls_back_to_legacy_stage_like_selectors(monkeypatch)
         },
     )
 
-    ctx = ExecutionContext(payload={"device_ip": "192.168.1.214", "_target": {"device_id": 1, "cloud_id": 3}})
+    ctx = ExecutionContext(
+        payload={"device_ip": "192.168.1.214", "_target": {"device_id": 1, "cloud_id": 3}}
+    )
     result = mod.detect_app_stage({"package": "com.twitter.android"}, ctx)
 
     assert result.ok is True
@@ -802,14 +820,20 @@ def test_ui_state_action_wrappers_expose_browser_contract_and_aliases():
 
     browser_ctx = ExecutionContext(payload={})
     browser_ctx.browser = FakeBrowser(existing={"#login"}, url="https://example.com/login")
-    browser_match = resolve_action("browser.match_state")({"expected_state_ids": ["exists:#login"]}, browser_ctx)
+    browser_match = resolve_action("browser.match_state")(
+        {"expected_state_ids": ["exists:#login"]}, browser_ctx
+    )
 
     wait_ctx = ExecutionContext(payload={})
     wait_ctx.browser = FakeBrowser(url="https://example.com/home", wait_result=True)
-    browser_wait = resolve_action("browser.wait_until")({"expected_state_ids": ["url:/home"], "timeout_ms": 2000}, wait_ctx)
+    browser_wait = resolve_action("browser.wait_until")(
+        {"expected_state_ids": ["url:/home"], "timeout_ms": 2000}, wait_ctx
+    )
 
     transition_ctx = ExecutionContext(payload={})
-    transition_ctx.browser = FakeBrowser(existing={"#login"}, url="https://example.com/home", wait_result=True)
+    transition_ctx.browser = FakeBrowser(
+        existing={"#login"}, url="https://example.com/home", wait_result=True
+    )
     transition = resolve_action("ui.observe_transition")(
         {
             "platform": "browser",

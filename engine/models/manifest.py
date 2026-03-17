@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from enum import Enum
-from typing import Any, List, Literal, Optional
+from enum import StrEnum
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
 
-class InputType(str, Enum):
+class InputType(StrEnum):
     string = "string"
     integer = "integer"
     number = "number"
@@ -29,5 +29,7 @@ class PluginManifest(BaseModel):
     category: str = "其他"
     entry_script: str = "script.yaml"
     description: str = ""
-    inputs: List[PluginInput] = Field(default_factory=list)
-    distill_threshold: int = Field(default=3, ge=1, description="Min completed runs required before distillation")
+    inputs: list[PluginInput] = Field(default_factory=list)
+    distill_threshold: int = Field(
+        default=3, ge=1, description="Min completed runs required before distillation"
+    )

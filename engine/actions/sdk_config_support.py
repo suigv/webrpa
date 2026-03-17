@@ -1,23 +1,25 @@
 from __future__ import annotations
 
-from datetime import datetime
 import os
+from datetime import datetime
 from pathlib import Path
-import time
-from typing import Any, Dict
+from typing import Any
 
 import yaml
 
+from core.app_config import AppConfigManager
 from core.data_store import write_json_atomic
 from core.paths import data_dir, project_root
 
-from core.app_config import AppConfigManager
 
-def get_package_to_app_map() -> Dict[str, str]:
+def get_package_to_app_map() -> dict[str, str]:
     """向后兼容：从 core.app_config 获取映射。"""
     return AppConfigManager.get_package_to_app_map()
 
-DEFAULT_APP_NAME = (os.getenv("MYT_DEFAULT_APP", "default") or "default").strip().lower() or "default"
+
+DEFAULT_APP_NAME = (
+    os.getenv("MYT_DEFAULT_APP", "default") or "default"
+).strip().lower() or "default"
 
 
 def app_from_package(package: str) -> str:

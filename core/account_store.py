@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Optional, List
+from typing import Any
 
-from core.paths import account_db_path
 from core.base_store import BaseStore
+from core.paths import account_db_path
 
 
 def _db_path() -> Path:
@@ -15,7 +15,7 @@ def _db_path() -> Path:
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 class AccountStore(BaseStore):
@@ -45,29 +45,44 @@ class AccountStore(BaseStore):
                 """
             )
             conn.execute("CREATE INDEX IF NOT EXISTS idx_accounts_status ON accounts(status)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_accounts_updated_at ON accounts(updated_at)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_accounts_updated_at ON accounts(updated_at)"
+            )
             conn.commit()
 
     def upsert_account(self, data: dict[str, Any], conn: sqlite3.Connection | None = None) -> None:
         account = str(data.get("account", "")).strip()
         if not account:
             raise ValueError("account is required")
-        
+
         now = _now_iso()
-        fields = ["account", "password", "twofa", "email", "email_password", "token", "email_token", "status", "last_used", "error_msg", "updated_at", "metadata_json"]
-        
+        fields = [
+            "account",
+            "password",
+            "twofa",
+            "email",
+            "email_password",
+            "token",
+            "email_token",
+            "status",
+            "last_used",
+            "error_msg",
+            "updated_at",
+            "metadata_json",
+        ]
+
         metadata = {k: v for k, v in data.items() if k not in fields and k != "created_at"}
-        
-        placeholders = ", ".join(["?"] * (len(fields) + 1)) # +1 for created_at
+
+        placeholders = ", ".join(["?"] * (len(fields) + 1))  # +1 for created_at
         update_set = ", ".join([f"{f} = excluded.{f}" for f in fields if f != "account"])
-        
+
         sql = f"""
             INSERT INTO accounts ({", ".join(fields)}, created_at)
             VALUES ({placeholders})
             ON CONFLICT(account) DO UPDATE SET
                 {update_set}
         """
-        
+
         params = (
             account,
             str(data.get("password", "")),
@@ -81,22 +96,26 @@ class AccountStore(BaseStore):
             data.get("error_msg"),
             now,
             json.dumps(metadata, ensure_ascii=False) if metadata else None,
-            now # created_at (only used if INSERT)
+            now,  # created_at (only used if INSERT)
         )
-        
+
         with self._tx(conn) as tx_conn:
             tx_conn.execute(sql, params)
 
-    def get_account(self, account: str, conn: sqlite3.Connection | None = None) -> Optional[dict[str, Any]]:
+    def get_account(
+        self, account: str, conn: sqlite3.Connection | None = None
+    ) -> dict[str, Any] | None:
         with self._tx(conn) as tx_conn:
             row = tx_conn.execute("SELECT * FROM accounts WHERE account = ?", (account,)).fetchone()
             if row:
                 return self._row_to_dict(row)
         return None
 
-    def list_accounts(self) -> List[dict[str, Any]]:
+    def list_accounts(self) -> list[dict[str, Any]]:
         with self._connect() as conn:
-            rows = conn.execute("SELECT * FROM accounts ORDER BY created_at ASC, account ASC").fetchall()
+            rows = conn.execute(
+                "SELECT * FROM accounts ORDER BY created_at ASC, account ASC"
+            ).fetchall()
             return [self._row_to_dict(row) for row in rows]
 
     def count_accounts(self) -> int:
@@ -104,7 +123,7 @@ class AccountStore(BaseStore):
             row = conn.execute("SELECT COUNT(*) FROM accounts").fetchone()
             return row[0] if row else 0
 
-    def pop_ready_account(self, conn: sqlite3.Connection | None = None) -> Optional[dict[str, Any]]:
+    def pop_ready_account(self, conn: sqlite3.Connection | None = None) -> dict[str, Any] | None:
         """原子化获取一个 ready 状态的账号并标记为 in_progress"""
         now = _now_iso()
         with self._tx(conn) as tx_conn:
@@ -116,7 +135,7 @@ class AccountStore(BaseStore):
                 account = row["account"]
                 tx_conn.execute(
                     "UPDATE accounts SET status = 'in_progress', last_used = ?, updated_at = ? WHERE account = ?",
-                    (now, now, account)
+                    (now, now, account),
                 )
                 data = self._row_to_dict(row)
                 data["status"] = "in_progress"
@@ -125,37 +144,51 @@ class AccountStore(BaseStore):
                 return data
         return None
 
-    def update_status(self, account: str, status: str, error_msg: str | None = None, conn: sqlite3.Connection | None = None) -> bool:
+    def update_status(
+        self,
+        account: str,
+        status: str,
+        error_msg: str | None = None,
+        conn: sqlite3.Connection | None = None,
+    ) -> bool:
         now = _now_iso()
         with self._tx(conn) as tx_conn:
             cur = tx_conn.execute(
                 "UPDATE accounts SET status = ?, error_msg = ?, updated_at = ? WHERE account = ?",
-                (status, error_msg, now, account)
+                (status, error_msg, now, account),
             )
             return cur.rowcount > 0
 
-    def update_fields(self, account: str, data: dict[str, Any], conn: sqlite3.Connection | None = None) -> bool:
+    def update_fields(
+        self, account: str, data: dict[str, Any], conn: sqlite3.Connection | None = None
+    ) -> bool:
         now = _now_iso()
         fields = []
         params = []
         for k, v in data.items():
-            if k == "account": continue
+            if k == "account":
+                continue
             fields.append(f"{k} = ?")
             params.append(v)
-        
+
         if not fields:
             return False
-            
+
         fields.append("updated_at = ?")
         params.append(now)
         params.append(account)
-        
+
         sql = f"UPDATE accounts SET {', '.join(fields)} WHERE account = ?"
         with self._tx(conn) as tx_conn:
             cur = tx_conn.execute(sql, tuple(params))
             return cur.rowcount > 0
 
-    def reset_all_status(self, from_statuses: List[str], to_status: str = "ready", conn: sqlite3.Connection | None = None) -> int:
+    def reset_all_status(
+        self,
+        from_statuses: list[str],
+        to_status: str = "ready",
+        conn: sqlite3.Connection | None = None,
+    ) -> int:
         now = _now_iso()
         placeholders = ", ".join(["?"] * len(from_statuses))
         sql = f"UPDATE accounts SET status = ?, error_msg = NULL, updated_at = ? WHERE status IN ({placeholders})"

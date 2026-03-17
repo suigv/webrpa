@@ -2,21 +2,23 @@
 from __future__ import annotations
 
 import json
-import ipaddress
-import threading
 import logging
-from dataclasses import asdict
+import threading
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 from core.paths import project_root
-from models.humanized import FALLBACK_POLICIES, TARGET_STRATEGIES, HumanizedConfig, HumanizedWrapperConfig
 from models.config import ConfigStore, ConfigStoreUpdate, HumanizedConfigSchema
+from models.humanized import (
+    HumanizedWrapperConfig,
+)
 
 logger = logging.getLogger(__name__)
 
+
 def _project_root() -> Path:
     return project_root()
+
 
 CONFIG_FILE = _project_root() / "config" / "devices.json"
 
@@ -25,6 +27,7 @@ DEFAULT_ALLOCATION_VERSION = 1
 DEFAULT_CLOUD_MACHINES_PER_DEVICE = 12
 DEFAULT_SDK_PORT = 8000  # Device-level control API port
 
+
 def _to_int(value: Any, default: int) -> int:
     try:
         return int(value)
@@ -32,7 +35,7 @@ def _to_int(value: Any, default: int) -> int:
         return default
 
 
-def _to_optional_int(value: Any, default: Optional[int]) -> Optional[int]:
+def _to_optional_int(value: Any, default: int | None) -> int | None:
     try:
         if value is None:
             return default
@@ -40,22 +43,27 @@ def _to_optional_int(value: Any, default: Optional[int]) -> Optional[int]:
     except (TypeError, ValueError):
         return default
 
+
 def _to_float(value: Any, default: float) -> float:
     try:
         return float(value)
     except (TypeError, ValueError):
         return default
 
+
 def _to_bool(value: Any, default: bool) -> bool:
     if isinstance(value, bool):
         return value
     if isinstance(value, str):
         lowered = value.strip().lower()
-        if lowered in {"1", "true", "yes", "on"}: return True
-        if lowered in {"0", "false", "no", "off"}: return False
+        if lowered in {"1", "true", "yes", "on"}:
+            return True
+        if lowered in {"0", "false", "no", "off"}:
+            return False
     return default
 
-def _normalize_humanized(raw: Any, legacy: Dict[str, Any]) -> dict[str, Any]:
+
+def _normalize_humanized(raw: Any, legacy: dict[str, Any]) -> dict[str, Any]:
     source = dict(raw) if isinstance(raw, dict) else {}
     if "enabled" not in source and "humanization_enabled" in legacy:
         source["enabled"] = legacy.get("humanization_enabled")
@@ -68,14 +76,20 @@ def _normalize_humanized(raw: Any, legacy: Dict[str, Any]) -> dict[str, Any]:
         logger.debug(f"Humanized config validation failed, using defaults: {exc}")
         return HumanizedConfigSchema().model_dump()
 
+
 def _normalize_device_ips(raw: Any) -> dict[str, str]:
     if isinstance(raw, dict):
-        return {str(k).strip(): str(v).strip() for k, v in raw.items() if str(k).strip() and str(v).strip()}
+        return {
+            str(k).strip(): str(v).strip()
+            for k, v in raw.items()
+            if str(k).strip() and str(v).strip()
+        }
     if isinstance(raw, (list, tuple)):
         return {str(i): str(v).strip() for i, v in enumerate(raw, start=1) if str(v).strip()}
     return {}
 
-def normalize_config(config: Dict[str, Any]) -> Dict[str, Any]:
+
+def normalize_config(config: dict[str, Any]) -> dict[str, Any]:
     try:
         model = ConfigStore.model_validate(config)
         return model.model_dump(mode="python")
@@ -85,7 +99,7 @@ def normalize_config(config: Dict[str, Any]) -> Dict[str, Any]:
 
 
 class ConfigLoader:
-    _config: Optional[ConfigStore] = None
+    _config: ConfigStore | None = None
     _lock = threading.RLock()
 
     @classmethod
@@ -96,14 +110,14 @@ class ConfigLoader:
                     cls._config = ConfigStore()
                 else:
                     try:
-                        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                        with open(CONFIG_FILE, encoding="utf-8") as f:
                             cls._config = ConfigStore.model_validate(json.load(f))
                     except Exception:
                         cls._config = ConfigStore()
             return cls._config
 
     @classmethod
-    def load_dict(cls, refresh: bool = False) -> Dict[str, Any]:
+    def load_dict(cls, refresh: bool = False) -> dict[str, Any]:
         """向后兼容接口，返回 dict（供需要序列化的场景使用）。"""
         result = cls.load(refresh=refresh)
         if isinstance(result, dict):
@@ -111,7 +125,7 @@ class ConfigLoader:
         return result.model_dump(mode="python")
 
     @classmethod
-    def update(cls, **kwargs) -> Dict[str, Any]:
+    def update(cls, **kwargs) -> dict[str, Any]:
         with cls._lock:
             current = cls.load_dict()
             try:
@@ -141,7 +155,7 @@ class ConfigLoader:
                 cls._config = ConfigStore()
                 return False
             try:
-                with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                with open(CONFIG_FILE, encoding="utf-8") as f:
                     raw = json.load(f)
             except Exception:
                 raw = {}
@@ -159,44 +173,136 @@ class ConfigLoader:
                     json.dump(normalized, f, indent=2, ensure_ascii=False)
             return changed
 
+
 # --- 辅助访问器 (由 API 和 Core 强引用) ---
 def _c() -> ConfigStore:
     result = ConfigLoader.load()
     if isinstance(result, dict):
         return ConfigStore.model_validate(result)
     return result
-def get_host_ip() -> str: return _c().host_ip
-def get_device_ips() -> dict[str, str]: return _c().device_ips
-def get_device_ip(device_id: int) -> str: return get_device_ips().get(str(device_id), "") or get_host_ip()
-def get_total_devices() -> int: return _c().total_devices
-def get_cloud_machines_per_device() -> int: return _c().cloud_machines_per_device
-def get_sdk_port() -> int: return _c().sdk_port
-def get_default_ai() -> str: return _c().default_ai
-def get_schema_version() -> int: return _c().schema_version
-def get_allocation_version() -> int: return _c().allocation_version
-def get_stop_hour() -> Optional[int]: return _c().stop_hour
-def get_cycle_interval() -> int: return _c().cycle_interval
-def get_discovery_enabled() -> bool: return _c().discovery_enabled
-def get_discovery_subnet() -> str: return _c().discovery_subnet
-def get_judge_mode() -> str: return _c().judge_mode
-def get_step_parallel() -> int: return _c().step_parallel
+
+
+def get_host_ip() -> str:
+    return _c().host_ip
+
+
+def get_device_ips() -> dict[str, str]:
+    return _c().device_ips
+
+
+def get_device_ip(device_id: int) -> str:
+    return get_device_ips().get(str(device_id), "") or get_host_ip()
+
+
+def get_total_devices() -> int:
+    return _c().total_devices
+
+
+def get_cloud_machines_per_device() -> int:
+    return _c().cloud_machines_per_device
+
+
+def get_sdk_port() -> int:
+    return _c().sdk_port
+
+
+def get_default_ai() -> str:
+    return _c().default_ai
+
+
+def get_schema_version() -> int:
+    return _c().schema_version
+
+
+def get_allocation_version() -> int:
+    return _c().allocation_version
+
+
+def get_stop_hour() -> int | None:
+    return _c().stop_hour
+
+
+def get_cycle_interval() -> int:
+    return _c().cycle_interval
+
+
+def get_discovery_enabled() -> bool:
+    return _c().discovery_enabled
+
+
+def get_discovery_subnet() -> str:
+    return _c().discovery_subnet
+
+
+def get_judge_mode() -> str:
+    return _c().judge_mode
+
+
+def get_step_parallel() -> int:
+    return _c().step_parallel
+
 
 # --- 拟人化访问器 ---
-def get_humanized_config() -> dict[str, Any]: return _c().humanized.model_dump()
-def get_humanized_wrapper_config() -> HumanizedWrapperConfig: return HumanizedWrapperConfig(**get_humanized_config())
-def get_humanization_enabled() -> bool: return _c().humanization_enabled
-def get_humanization_intensity() -> int: return _c().humanization_intensity
-def get_humanization_seed() -> int: return _c().humanization_seed
-def get_humanization_delay_ms() -> int: return _c().humanization_delay_ms
-def get_humanization_jitter_ms() -> int: return _c().humanization_jitter_ms
+def get_humanized_config() -> dict[str, Any]:
+    return _c().humanized.model_dump()
+
+
+def get_humanized_wrapper_config() -> HumanizedWrapperConfig:
+    return HumanizedWrapperConfig(**get_humanized_config())
+
+
+def get_humanization_enabled() -> bool:
+    return _c().humanization_enabled
+
+
+def get_humanization_intensity() -> int:
+    return _c().humanization_intensity
+
+
+def get_humanization_seed() -> int:
+    return _c().humanization_seed
+
+
+def get_humanization_delay_ms() -> int:
+    return _c().humanization_delay_ms
+
+
+def get_humanization_jitter_ms() -> int:
+    return _c().humanization_jitter_ms
+
 
 # --- Vision 访问器 ---
-def get_vision_monitor_enabled() -> bool: return _c().vision_monitor_enabled
-def get_vision_device_type() -> str: return _c().vision_device_type
-def get_vision_pipeline_type() -> str: return _c().vision_pipeline_type
-def get_vision_model_name() -> str: return _c().vision_model_name
-def get_vision_thought_language() -> str: return _c().vision_thought_language
-def get_vision_timeout_seconds() -> int: return _c().vision_timeout_seconds
-def get_vision_cooldown_ms() -> int: return _c().vision_cooldown_ms
-def get_vision_dedupe_window_ms() -> int: return _c().vision_dedupe_window_ms
-def get_vision_max_fallback_per_step() -> int: return _c().vision_max_fallback_per_step
+def get_vision_monitor_enabled() -> bool:
+    return _c().vision_monitor_enabled
+
+
+def get_vision_device_type() -> str:
+    return _c().vision_device_type
+
+
+def get_vision_pipeline_type() -> str:
+    return _c().vision_pipeline_type
+
+
+def get_vision_model_name() -> str:
+    return _c().vision_model_name
+
+
+def get_vision_thought_language() -> str:
+    return _c().vision_thought_language
+
+
+def get_vision_timeout_seconds() -> int:
+    return _c().vision_timeout_seconds
+
+
+def get_vision_cooldown_ms() -> int:
+    return _c().vision_cooldown_ms
+
+
+def get_vision_dedupe_window_ms() -> int:
+    return _c().vision_dedupe_window_ms
+
+
+def get_vision_max_fallback_per_step() -> int:
+    return _c().vision_max_fallback_per_step

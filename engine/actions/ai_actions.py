@@ -3,15 +3,14 @@
 import base64
 import json
 from collections.abc import Mapping
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
 
 from ai_services.llm_client import JSONDict, LLMClient, LLMRequest, LLMResponse
+from engine.action_registry import ActionMetadata
 from engine.actions.ui_actions import capture_compressed
 from engine.models.runtime import ActionResult, ExecutionContext
-from engine.action_registry import ActionMetadata
-
 
 LLM_EVALUATE_METADATA = ActionMetadata(
     description="Evaluate a text-based LLM prompt",
@@ -19,11 +18,14 @@ LLM_EVALUATE_METADATA = ActionMetadata(
         "type": "object",
         "properties": {
             "prompt": {"type": "string", "description": "The prompt to send to LLM"},
-            "system_prompt": {"type": "string", "description": "Optional system personality/instructions"}
+            "system_prompt": {
+                "type": "string",
+                "description": "Optional system personality/instructions",
+            },
         },
-        "required": ["prompt"]
+        "required": ["prompt"],
     },
-    tags=["skill"]
+    tags=["skill"],
 )
 
 VLM_EVALUATE_METADATA = ActionMetadata(
@@ -33,11 +35,11 @@ VLM_EVALUATE_METADATA = ActionMetadata(
         "properties": {
             "prompt": {"type": "string", "description": "The prompt to send to VLM"},
             "image_url": {"type": "string", "description": "Image URL or base64 data"},
-            "system_prompt": {"type": "string"}
+            "system_prompt": {"type": "string"},
         },
-        "required": ["prompt"]
+        "required": ["prompt"],
     },
-    tags=["skill"]
+    tags=["skill"],
 )
 
 LOCATE_POINT_METADATA = ActionMetadata(
@@ -45,23 +47,29 @@ LOCATE_POINT_METADATA = ActionMetadata(
     params_schema={
         "type": "object",
         "properties": {
-            "prompt": {"type": "string", "description": "Natural language description of the target (e.g. 'the like button')"},
+            "prompt": {
+                "type": "string",
+                "description": "Natural language description of the target (e.g. 'the like button')",
+            },
             "instruction": {"type": "string", "description": "Alias of prompt"},
             "text": {"type": "string", "description": "Alias of prompt"},
             "description": {"type": "string", "description": "Alias of prompt"},
-            "image_url": {"type": "string", "description": "Optional image data (will screenshot if omitted)"}
+            "image_url": {
+                "type": "string",
+                "description": "Optional image data (will screenshot if omitted)",
+            },
         },
-        "required": ["prompt"]
+        "required": ["prompt"],
     },
     returns_schema={
         "type": "object",
         "properties": {
             "x": {"type": "integer"},
             "y": {"type": "integer"},
-            "found": {"type": "boolean"}
-        }
+            "found": {"type": "boolean"},
+        },
     },
-    tags=["skill"]
+    tags=["skill"],
 )
 
 
@@ -120,19 +128,28 @@ def _image_size_from_bytes(data: bytes) -> tuple[int, int] | None:
                 continue
             marker = data[idx + 1]
             if marker in (
-                0xC0, 0xC1, 0xC2, 0xC3,
-                0xC5, 0xC6, 0xC7,
-                0xC9, 0xCA, 0xCB,
-                0xCD, 0xCE, 0xCF,
+                0xC0,
+                0xC1,
+                0xC2,
+                0xC3,
+                0xC5,
+                0xC6,
+                0xC7,
+                0xC9,
+                0xCA,
+                0xCB,
+                0xCD,
+                0xCE,
+                0xCF,
             ):
                 if idx + 8 >= length:
                     return None
-                height = int.from_bytes(data[idx + 5:idx + 7], "big")
-                width = int.from_bytes(data[idx + 7:idx + 9], "big")
+                height = int.from_bytes(data[idx + 5 : idx + 7], "big")
+                width = int.from_bytes(data[idx + 7 : idx + 9], "big")
                 return (width, height)
             if idx + 3 >= length:
                 break
-            segment_len = int.from_bytes(data[idx + 2:idx + 4], "big")
+            segment_len = int.from_bytes(data[idx + 2 : idx + 4], "big")
             if segment_len < 2:
                 break
             idx += 2 + segment_len
@@ -242,11 +259,7 @@ def _encode_image_ref(
         return trimmed, size
 
     path = Path(trimmed)
-    raw_bytes = b""
-    if path.exists():
-        raw_bytes = path.read_bytes()
-    else:
-        raw_bytes = _safe_b64decode(trimmed)
+    raw_bytes = path.read_bytes() if path.exists() else _safe_b64decode(trimmed)
 
     if not raw_bytes:
         return "", None
@@ -272,17 +285,23 @@ def locate_point(params: dict[str, object], context: ExecutionContext) -> Action
     if not prompt:
         return ActionResult(ok=False, code="invalid_params", message="prompt is required")
 
-    screen_width = _to_int(params.get("screen_width")) if params.get("screen_width") is not None else None
-    screen_height = _to_int(params.get("screen_height")) if params.get("screen_height") is not None else None
+    screen_width = (
+        _to_int(params.get("screen_width")) if params.get("screen_width") is not None else None
+    )
+    screen_height = (
+        _to_int(params.get("screen_height")) if params.get("screen_height") is not None else None
+    )
 
-    image_ref = str(params.get("image_url") or params.get("image_ref") or params.get("image_data") or "").strip()
+    image_ref = str(
+        params.get("image_url") or params.get("image_ref") or params.get("image_data") or ""
+    ).strip()
     physical_width: int | None = None
     physical_height: int | None = None
 
     if not image_ref:
         save_dir = Path(str(params.get("save_dir") or "/tmp/webrpa_ai")).resolve()
         save_dir.mkdir(parents=True, exist_ok=True)
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
         save_path = str(params.get("save_path") or (save_dir / f"locate-point-{timestamp}.png"))
         capture_params = {
             "save_path": save_path,
@@ -313,7 +332,9 @@ def locate_point(params: dict[str, object], context: ExecutionContext) -> Action
         screen_height=screen_height,
     )
     if not image_url:
-        return ActionResult(ok=False, code="invalid_image", message="unable to load image for locate_point")
+        return ActionResult(
+            ok=False, code="invalid_image", message="unable to load image for locate_point"
+        )
 
     if size and (screen_width is None or screen_height is None):
         screen_width, screen_height = size
@@ -354,7 +375,9 @@ def locate_point(params: dict[str, object], context: ExecutionContext) -> Action
 
     point = _extract_point(payload)
     if point is None:
-        return ActionResult(ok=False, code="invalid_response", message="missing x/y in llm response")
+        return ActionResult(
+            ok=False, code="invalid_response", message="missing x/y in llm response"
+        )
 
     coord_mode = str(params.get("coord_mode") or "pixel")
     clamp = bool(params.get("clamp", True))
@@ -381,7 +404,7 @@ def locate_point(params: dict[str, object], context: ExecutionContext) -> Action
         # 判断横屏或竖屏：如果图片长宽关系不同步于物理长宽关系，就进行反转投影
         screen_is_landscape = screen_width > screen_height
         physical_is_landscape = physical_width > physical_height
-        
+
         target_physical_w, target_physical_h = physical_width, physical_height
         if screen_is_landscape != physical_is_landscape:
             target_physical_w, target_physical_h = physical_height, physical_width
@@ -405,9 +428,12 @@ def locate_point(params: dict[str, object], context: ExecutionContext) -> Action
     )
 
 
-def _build_llm_request(params: dict[str, object], *, modality: str, attachments: list[dict[str, object]] | None = None) -> LLMRequest:
+def _build_llm_request(
+    params: dict[str, object], *, modality: str, attachments: list[dict[str, object]] | None = None
+) -> LLMRequest:
     normalized_attachments: list[JSONDict] = [
-        {str(item_key): item_value for item_key, item_value in attachment.items()} for attachment in (attachments or [])
+        {str(item_key): item_value for item_key, item_value in attachment.items()}
+        for attachment in (attachments or [])
     ]
     return LLMRequest(
         prompt=str(params.get("prompt", "")),

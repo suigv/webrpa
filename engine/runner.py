@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime, timezone
-from typing import Any, Callable, Dict, Optional
+from collections.abc import Callable
+from datetime import UTC, datetime
+from typing import Any
 
+from core.app_config import resolve_app_payload
 from engine.action_registry import get_registry
 from engine.agent_executor import AgentExecutorRuntime
 from engine.interpreter import Interpreter
@@ -12,11 +14,19 @@ from engine.models.manifest import InputType, PluginInput
 from engine.models.workflow import ActionStep, WorkflowScript
 from engine.parser import ScriptParser, parse_script
 from engine.plugin_loader import get_shared_plugin_loader
-from core.app_config import resolve_app_payload
 
 logger = logging.getLogger(__name__)
 
-ALLOWED_ACTION_PREFIXES = ("app.", "browser.", "core.", "credentials.", "device.", "mytos.", "sdk.", "ui.")
+ALLOWED_ACTION_PREFIXES = (
+    "app.",
+    "browser.",
+    "core.",
+    "credentials.",
+    "device.",
+    "mytos.",
+    "sdk.",
+    "ui.",
+)
 
 
 def strict_plugin_unknown_inputs_enabled() -> bool:
@@ -33,10 +43,10 @@ class Runner:
 
     def run(
         self,
-        script_payload: Dict[str, Any],
+        script_payload: dict[str, Any],
         should_cancel: Callable[[], bool] | None = None,
-        runtime: Dict[str, Any] | None = None,
-    ) -> Dict[str, Any]:
+        runtime: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         # Resolve App Context (App-Awareness)
         app_id = str(script_payload.get("app_id") or script_payload.get("app") or "default")
         enhanced_payload = resolve_app_payload(app_id, script_payload)
@@ -52,16 +62,20 @@ class Runner:
                 "status": "cancelled",
                 "code": "task_cancelled",
                 "message": "task cancelled by user",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
 
         if task_name == self._agent_executor_runtime.task_name:
-            return self._agent_executor_runtime.run(enhanced_payload, should_cancel=should_cancel, runtime=runtime)
+            return self._agent_executor_runtime.run(
+                enhanced_payload, should_cancel=should_cancel, runtime=runtime
+            )
 
         # Try YAML plugin first
         plugin = self._plugin_loader.get(task_name)
         if plugin is not None:
-            return self._run_yaml_plugin(task_name, enhanced_payload, plugin, should_cancel, runtime, emit_event)
+            return self._run_yaml_plugin(
+                task_name, enhanced_payload, plugin, should_cancel, runtime, emit_event
+            )
 
         # Unknown named task
         if task_name and task_name != "anonymous":
@@ -73,7 +87,9 @@ class Runner:
 
         # Anonymous script execution
         if plan.get("steps"):
-            return self._run_anonymous_script(task_name, enhanced_payload, plan, should_cancel, runtime, emit_event)
+            return self._run_anonymous_script(
+                task_name, enhanced_payload, plan, should_cancel, runtime, emit_event
+            )
 
         # Empty anonymous stub
         return {
@@ -81,24 +97,24 @@ class Runner:
             "task": task_name,
             "step_count": 0,
             "status": "stub_executed",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         }
 
     def _run_anonymous_script(
         self,
         task_name: str,
-        payload: Dict[str, Any],
-        plan: Dict[str, Any],
+        payload: dict[str, Any],
+        plan: dict[str, Any],
         should_cancel: Callable[[], bool] | None = None,
-        runtime: Dict[str, Any] | None = None,
-        emit_event: Optional[Callable[[str, Dict[str, Any]], None]] = None,
-    ) -> Dict[str, Any]:
+        runtime: dict[str, Any] | None = None,
+        emit_event: Callable[[str, dict[str, Any]], None] | None = None,
+    ) -> dict[str, Any]:
         try:
             # Construct a WorkflowScript model for validation and execution
             script = WorkflowScript(
                 version="v1",
                 workflow=task_name or "anonymous",
-                steps=[ActionStep(**step) for step in plan.get("steps", [])]
+                steps=[ActionStep(**step) for step in plan.get("steps", [])],
             )
 
             # Validate actions
@@ -115,7 +131,7 @@ class Runner:
                 emit_event=emit_event,
             )
             result.setdefault("task", task_name)
-            result.setdefault("timestamp", datetime.now(timezone.utc).isoformat())
+            result.setdefault("timestamp", datetime.now(UTC).isoformat())
             return result
         except Exception as exc:
             logger.exception("anonymous script execution failed")
@@ -128,12 +144,12 @@ class Runner:
     def _run_yaml_plugin(
         self,
         task_name: str,
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
         plugin: Any,
         should_cancel: Callable[[], bool] | None = None,
-        runtime: Dict[str, Any] | None = None,
-        emit_event: Optional[Callable[[str, Dict[str, Any]], None]] = None,
-    ) -> Dict[str, Any]:
+        runtime: dict[str, Any] | None = None,
+        emit_event: Callable[[str, dict[str, Any]], None] | None = None,
+    ) -> dict[str, Any]:
         try:
             script = parse_script(plugin.script_path)
             payload_error = self._validate_plugin_payload(payload, plugin.manifest.inputs)
@@ -153,7 +169,7 @@ class Runner:
                 emit_event=emit_event,
             )
             result.setdefault("task", task_name)
-            result.setdefault("timestamp", datetime.now(timezone.utc).isoformat())
+            result.setdefault("timestamp", datetime.now(UTC).isoformat())
             return result
         except Exception as exc:
             logger.exception("plugin %s execution failed", task_name)
@@ -163,7 +179,7 @@ class Runner:
                 message=str(exc),
             )
 
-    def _dispatch_error(self, task_name: str, code: str, message: str) -> Dict[str, Any]:
+    def _dispatch_error(self, task_name: str, code: str, message: str) -> dict[str, Any]:
         return {
             "ok": False,
             "task": task_name,
@@ -171,10 +187,12 @@ class Runner:
             "checkpoint": "dispatch",
             "code": code,
             "message": message,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         }
 
-    def _validate_plugin_payload(self, payload: Dict[str, Any], inputs: list[PluginInput]) -> Dict[str, str] | None:
+    def _validate_plugin_payload(
+        self, payload: dict[str, Any], inputs: list[PluginInput]
+    ) -> dict[str, str] | None:
         if self._strict_unknown_inputs_enabled():
             declared_inputs = {plugin_input.name for plugin_input in inputs}
             unknown_inputs = sorted(
@@ -212,7 +230,7 @@ class Runner:
     def _strict_unknown_inputs_enabled() -> bool:
         return strict_plugin_unknown_inputs_enabled()
 
-    def _validate_script_actions(self, script: WorkflowScript) -> Dict[str, str] | None:
+    def _validate_script_actions(self, script: WorkflowScript) -> dict[str, str] | None:
         allowed_actions = set(get_registry().names)
         for step in script.steps:
             if not isinstance(step, ActionStep):
@@ -236,7 +254,9 @@ class Runner:
         if expected_type == InputType.integer:
             return isinstance(value, int) and not isinstance(value, bool)
         if expected_type == InputType.number:
-            return (isinstance(value, int) and not isinstance(value, bool)) or isinstance(value, float)
+            return (isinstance(value, int) and not isinstance(value, bool)) or isinstance(
+                value, float
+            )
         if expected_type == InputType.boolean:
             return isinstance(value, bool)
         return False

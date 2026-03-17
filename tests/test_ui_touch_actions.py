@@ -33,7 +33,9 @@ def test_swipe_accepts_start_end_aliases(monkeypatch):
     monkeypatch.setattr(ui_touch_actions, "_get_rpc", lambda params, context: (rpc, None))
 
     context = ExecutionContext(payload={})
-    result = ui_touch_actions.swipe({"start_x": 10, "start_y": 20, "end_x": 30, "end_y": 40}, context)
+    result = ui_touch_actions.swipe(
+        {"start_x": 10, "start_y": 20, "end_x": 30, "end_y": 40}, context
+    )
 
     assert result.ok is True
     assert rpc.calls == [(0, 10, 20, 30, 40, 300)]

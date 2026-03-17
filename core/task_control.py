@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-import threading
 import logging
+import threading
 import uuid
-from typing import Any, Protocol, Optional
 from collections.abc import Callable
+from typing import Any, Protocol
 
 from core.account_feedback import AccountFeedbackService
 from core.device_manager import get_device_manager
+from core.paths import traces_dir
 from core.task_events import TaskEventStore
 from core.task_execution import TaskExecutionService
 from core.task_finalizer import AccountFeedbackLike, TaskAttemptFinalizer
@@ -18,7 +19,6 @@ from core.task_runtime import (
     TaskTargetRuntimeResolver,
     normalize_dispatch_targets,
 )
-from core.paths import traces_dir
 from core.task_store import TaskRecord, TaskStore
 from engine.plugin_loader import get_shared_plugin_loader
 from engine.runner import Runner
@@ -34,11 +34,12 @@ def _remove_task_traces(task_id: str):
         trace_file = t_dir / f"{task_id}.jsonl"
         if trace_file.exists():
             trace_file.unlink()
-        
+
         # Screenshot directory (if any)
         screenshots = t_dir / task_id
         if screenshots.exists() and screenshots.is_dir():
             import shutil
+
             shutil.rmtree(screenshots)
     except Exception as exc:
         logger.warning(f"Failed to cleanup traces for task {task_id}: {exc}")
@@ -84,6 +85,7 @@ def _normalize_targets_and_devices(
     normalized_targets = normalize_dispatch_targets([], device_ids)
     return device_ids, normalized_targets
 
+
 class RunnerLike(Protocol):
     def run(
         self,
@@ -106,14 +108,16 @@ class TaskController:
         self._store = store or TaskStore()
         self._queue = queue_backend or create_task_queue()
         self._runner = runner or Runner()
-        
+
         # 确保 EventStore 共享同一个路径
         self._events = event_store or TaskEventStore(db_path=self._store._db_path)
         self._account_feedback = account_feedback or AccountFeedbackService()
-        
+
         # 2. 外部服务注入
         self._device_manager = get_device_manager()
-        self._target_runtime_resolver = TaskTargetRuntimeResolver(self._device_manager, task_store=self._store)
+        self._target_runtime_resolver = TaskTargetRuntimeResolver(
+            self._device_manager, task_store=self._store
+        )
         self._plugin_loader = get_shared_plugin_loader()
         self._dispatch_runtime_resolver = TaskDispatchRuntimeResolver(
             target_runtime_resolver=self._target_runtime_resolver,
@@ -121,9 +125,9 @@ class TaskController:
         )
 
         # 3. 延迟初始化子服务
-        self._metrics_service: Optional[TaskMetricsService] = None
-        self._execution_service: Optional[TaskExecutionService] = None
-        self._attempt_finalizer: Optional[TaskAttemptFinalizer] = None
+        self._metrics_service: TaskMetricsService | None = None
+        self._execution_service: TaskExecutionService | None = None
+        self._attempt_finalizer: TaskAttemptFinalizer | None = None
 
     def _ensure_services(self):
         """阶梯式初始化子服务，防止启动瞬间死锁。"""
@@ -260,7 +264,13 @@ class TaskController:
     def list_running_task_ids_by_device(self, device_id: int) -> list[str]:
         return self._store.get_running_tasks_by_device(device_id)
 
-    def task_metrics(self, window_seconds: int, failure_rate_threshold: float, cancellation_rate_threshold: float, min_terminal_samples: int):
+    def task_metrics(
+        self,
+        window_seconds: int,
+        failure_rate_threshold: float,
+        cancellation_rate_threshold: float,
+        min_terminal_samples: int,
+    ):
         self._ensure_services()
         if not self._metrics_service:
             return {}
@@ -271,7 +281,13 @@ class TaskController:
             min_terminal_samples=min_terminal_samples,
         )
 
-    def task_metrics_prometheus(self, window_seconds: int, failure_rate_threshold: float, cancellation_rate_threshold: float, min_terminal_samples: int) -> str:
+    def task_metrics_prometheus(
+        self,
+        window_seconds: int,
+        failure_rate_threshold: float,
+        cancellation_rate_threshold: float,
+        min_terminal_samples: int,
+    ) -> str:
         self._ensure_services()
         if not self._metrics_service:
             return ""
@@ -292,6 +308,7 @@ class TaskController:
 _controller: TaskController | None = None
 _controller_lock = threading.Lock()
 
+
 def get_task_controller() -> TaskController:
     global _controller
     if _controller is None:
@@ -300,12 +317,14 @@ def get_task_controller() -> TaskController:
                 _controller = TaskController()
     return _controller
 
+
 def override_task_controller_for_tests(controller: TaskController) -> None:
     global _controller
     with _controller_lock:
         if _controller is not None:
             _controller.stop()
         _controller = controller
+
 
 def reset_task_controller_for_tests() -> None:
     global _controller

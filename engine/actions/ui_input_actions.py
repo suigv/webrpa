@@ -1,21 +1,21 @@
 from __future__ import annotations
+
 import time
-from typing import Any, Dict
+from typing import Any
+
+from engine.action_registry import ActionMetadata
 from engine.actions import _rpc_bootstrap
 from engine.models.runtime import ActionResult, ErrorType, ExecutionContext
 from hardware_adapters.mytRpc import MytRpc
-from engine.action_registry import ActionMetadata
 
 INPUT_TEXT_METADATA = ActionMetadata(
     description="在当前焦点处输入文本",
     params_schema={
         "type": "object",
-        "properties": {
-            "text": {"type": "string", "description": "要输入的文本内容"}
-        },
-        "required": ["text"]
+        "properties": {"text": {"type": "string", "description": "要输入的文本内容"}},
+        "required": ["text"],
     },
-    tags=["skill"]
+    tags=["skill"],
 )
 
 KEY_PRESS_METADATA = ActionMetadata(
@@ -26,11 +26,11 @@ KEY_PRESS_METADATA = ActionMetadata(
             "key": {
                 "type": "string",
                 "enum": ["back", "home", "enter", "recent"],
-                "description": "按键名称"
+                "description": "按键名称",
             }
         },
-        "required": ["key"]
-    }
+        "required": ["key"],
+    },
 )
 
 KEY_CODE_MAP = {
@@ -40,38 +40,51 @@ KEY_CODE_MAP = {
     "recent": 82,
 }
 
-def _get_rpc(params: Dict[str, Any], context: ExecutionContext) -> tuple[MytRpc | None, ActionResult | None]:
+
+def _get_rpc(
+    params: dict[str, Any], context: ExecutionContext
+) -> tuple[MytRpc | None, ActionResult | None]:
     return _rpc_bootstrap.bootstrap_rpc(
         params,
         context,
-        is_enabled=lambda: _rpc_bootstrap.is_rpc_enabled() if callable(_rpc_bootstrap.is_rpc_enabled) else _rpc_bootstrap.is_rpc_enabled,
+        is_enabled=lambda: (
+            _rpc_bootstrap.is_rpc_enabled()
+            if callable(_rpc_bootstrap.is_rpc_enabled)
+            else _rpc_bootstrap.is_rpc_enabled
+        ),
         resolve_params=_rpc_bootstrap.resolve_connection_params,
         result_factory=ActionResult,
         error_type_env=ErrorType.ENV_ERROR,
         error_type_business=ErrorType.BUSINESS_ERROR,
     )
 
+
 def _close_rpc(rpc: MytRpc | None) -> None:
     _rpc_bootstrap.close_rpc(rpc)
 
-def input_text(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
+
+def input_text(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
     rpc, err = _get_rpc(params, context)
-    if err: return err
+    if err:
+        return err
     try:
         text = str(params.get("text") or "")
         if not text:
             return ActionResult(ok=False, code="invalid_params", message="text is required")
-        
+
         helper = context.humanized
         if helper is None or not helper.config.enabled:
             ok = rpc.sendText(text) if rpc is not None else False
             return ActionResult(ok=ok, code="ok" if ok else "send_text_failed")
-            
+
         sequence = helper.get_typing_sequence(text)
         if context.emit_event:
             delays = [d for _, d in sequence if d > 0]
-            avg_delay = sum(delays)/len(delays) if delays else 0
-            context.emit_event("humanized.typing", {"text_length": len(text), "avg_delay_ms": int(avg_delay * 1000)})
+            avg_delay = sum(delays) / len(delays) if delays else 0
+            context.emit_event(
+                "humanized.typing",
+                {"text_length": len(text), "avg_delay_ms": int(avg_delay * 1000)},
+            )
 
         ok = True
         for char, delay in sequence:
@@ -86,15 +99,19 @@ def input_text(params: Dict[str, Any], context: ExecutionContext) -> ActionResul
     finally:
         _close_rpc(rpc)
 
-def key_press(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
+
+def key_press(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
     rpc, err = _get_rpc(params, context)
-    if err: return err
+    if err:
+        return err
     try:
         key = str(params.get("key", "")).lower()
         code = KEY_CODE_MAP.get(key)
         if code is None:
             return ActionResult(ok=False, code="invalid_key", message=f"unsupported key: {key}")
         ok = rpc.keyPress(code) if rpc is not None else False
-        return ActionResult(ok=ok, code="ok" if ok else "key_press_failed", data={"key": key, "code": code})
+        return ActionResult(
+            ok=ok, code="ok" if ok else "key_press_failed", data={"key": key, "code": code}
+        )
     finally:
         _close_rpc(rpc)

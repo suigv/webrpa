@@ -8,9 +8,9 @@ from core.config_loader import (
     get_cloud_machines_per_device,
     get_cycle_interval,
     get_default_ai,
+    get_device_ips,
     get_discovery_enabled,
     get_discovery_subnet,
-    get_device_ips,
     get_host_ip,
     get_humanization_delay_ms,
     get_humanization_enabled,
@@ -19,11 +19,11 @@ from core.config_loader import (
     get_humanization_seed,
     get_humanized_config,
     get_judge_mode,
+    get_schema_version,
+    get_sdk_port,
     get_step_parallel,
     get_stop_hour,
     get_total_devices,
-    get_schema_version,
-    get_sdk_port,
     get_vision_cooldown_ms,
     get_vision_dedupe_window_ms,
     get_vision_device_type,
@@ -44,12 +44,14 @@ def _validate_ipv4(host_ip: str) -> str:
     value = str(host_ip).strip()
     try:
         ipaddress.IPv4Address(value)
-    except Exception:
-        raise HTTPException(status_code=400, detail="host_ip must be a valid IPv4 address")
+    except ipaddress.AddressValueError as exc:
+        raise HTTPException(status_code=400, detail="host_ip must be a valid IPv4 address") from exc
     return value
 
 
-def _normalize_and_validate_device_ips(raw_device_ips: object, total_devices: int, host_ip: str) -> dict[str, str]:
+def _normalize_and_validate_device_ips(
+    raw_device_ips: object, total_devices: int, host_ip: str
+) -> dict[str, str]:
     if not isinstance(raw_device_ips, dict):
         raise HTTPException(status_code=400, detail="device_ips must be a JSON object")
 
@@ -65,7 +67,10 @@ def _normalize_and_validate_device_ips(raw_device_ips: object, total_devices: in
         try:
             device_id = int(device_id_text)
         except Exception as exc:
-            raise HTTPException(status_code=400, detail=f"device_ips key must be integer-like, got: {device_id_text}") from exc
+            raise HTTPException(
+                status_code=400,
+                detail=f"device_ips key must be integer-like, got: {device_id_text}",
+            ) from exc
         if device_id < 1 or device_id > total_devices:
             raise HTTPException(
                 status_code=400,
@@ -73,7 +78,9 @@ def _normalize_and_validate_device_ips(raw_device_ips: object, total_devices: in
             )
         validated_ip = _validate_ipv4(ip_text)
         if validated_ip in duplicate_guard:
-            raise HTTPException(status_code=400, detail=f"duplicate device ip detected: {validated_ip}")
+            raise HTTPException(
+                status_code=400, detail=f"duplicate device ip detected: {validated_ip}"
+            )
         duplicate_guard.add(validated_ip)
         normalized[str(device_id)] = validated_ip
 
@@ -142,7 +149,9 @@ def update_config(config: ConfigUpdate):
     update_data["total_devices"] = total_devices
 
     device_ips_raw = update_data.get("device_ips", current.device_ips)
-    update_data["device_ips"] = _normalize_and_validate_device_ips(device_ips_raw, total_devices, host_value)
+    update_data["device_ips"] = _normalize_and_validate_device_ips(
+        device_ips_raw, total_devices, host_value
+    )
 
     if "discovery_subnet" in update_data:
         update_data["discovery_subnet"] = str(update_data["discovery_subnet"]).strip()

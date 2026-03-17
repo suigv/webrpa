@@ -23,7 +23,9 @@ from engine.ui_state_native_bindings import (
 
 
 class NativeUIStateAdapter:
-    def __init__(self, binding_id: str = "login_stage", *, action_params: dict[str, object] | None = None) -> None:
+    def __init__(
+        self, binding_id: str = "login_stage", *, action_params: dict[str, object] | None = None
+    ) -> None:
         self._binding: NativeStateBinding
         self._action_params: dict[str, object]
         self._action_params = dict(action_params or {})
@@ -46,7 +48,9 @@ class NativeUIStateAdapter:
             )
 
         started_at = time.monotonic()
-        action_result = self._binding.match_action(self._match_action_params(timeout_ms=timeout_ms), context)
+        action_result = self._binding.match_action(
+            self._match_action_params(timeout_ms=timeout_ms), context
+        )
         finished_at = time.monotonic()
         timing = self._timing(
             started_at=started_at,
@@ -57,14 +61,18 @@ class NativeUIStateAdapter:
         )
         state_id = self._state_id_from_action_result(action_result)
         is_authoritative_match = state_id != "unknown" and state_id in normalized_expected
-        evidence = self._build_evidence(state_id, normalized_expected, matched=is_authoritative_match)
+        evidence = self._build_evidence(
+            state_id, normalized_expected, matched=is_authoritative_match
+        )
         raw_details = self._build_raw_details(
             state_id=state_id,
             expected_state_ids=normalized_expected,
             action_result=action_result,
         )
 
-        if not action_result.ok and not self._is_observed_presence_state(state_id, normalized_expected):
+        if not action_result.ok and not self._is_observed_presence_state(
+            state_id, normalized_expected
+        ):
             return self._error_result(
                 operation="match_state",
                 action_result=action_result,
@@ -219,7 +227,9 @@ class NativeUIStateAdapter:
             )
             match_result_payload = cast(dict[str, object], match_result.model_dump(mode="python"))
             state_payload = cast(dict[str, object], match_result_payload.get("state", {}))
-            current_state = self._binding.normalize_state_id(cast(str, state_payload.get("state_id", "unknown")))
+            current_state = self._binding.normalize_state_id(
+                cast(str, state_payload.get("state_id", "unknown"))
+            )
             if not match_result.ok and match_result.code not in {"no_match"}:
                 timing = self._timing(
                     started_at=started_at,
@@ -233,7 +243,10 @@ class NativeUIStateAdapter:
                     state_id=current_state,
                     expected_state_ids=normalized_to,
                     action_result=match_result.to_action_result(),
-                    extra={"from_state_ids": list(normalized_from), "to_state_ids": list(normalized_to)},
+                    extra={
+                        "from_state_ids": list(normalized_from),
+                        "to_state_ids": list(normalized_to),
+                    },
                 )
                 return self._error_result(
                     operation="observe_transition",
@@ -332,7 +345,11 @@ class NativeUIStateAdapter:
         )
 
     def _normalize_expected_state_ids(self, expected_state_ids: Sequence[str]) -> tuple[str, ...]:
-        normalized = {self._binding.normalize_state_id(state_id) for state_id in expected_state_ids if str(state_id).strip()}
+        normalized = {
+            self._binding.normalize_state_id(state_id)
+            for state_id in expected_state_ids
+            if str(state_id).strip()
+        }
         return tuple(sorted(normalized))
 
     def _state_id_from_action_result(self, action_result: ActionResult) -> str:
@@ -370,7 +387,9 @@ class NativeUIStateAdapter:
             "binding_name": self._binding.display_name,
             "supported_state_ids": list(self._binding.supported_state_ids),
             "stage": state_id,
-            "attempt": int(action_result.data.get("attempt", 1 if action_result.code == "ok" else 0) or 0),
+            "attempt": int(
+                action_result.data.get("attempt", 1 if action_result.code == "ok" else 0) or 0
+            ),
             "elapsed_ms": int(action_result.data.get("elapsed_ms", 0) or 0),
             "target_stages": list(expected_state_ids),
         }
@@ -393,7 +412,11 @@ class NativeUIStateAdapter:
         return raw_details
 
     def _is_observed_presence_state(self, state_id: str, expected_state_ids: Sequence[str]) -> bool:
-        return is_presence_style_binding(self._binding) and state_id == "missing" and state_id in expected_state_ids
+        return (
+            is_presence_style_binding(self._binding)
+            and state_id == "missing"
+            and state_id in expected_state_ids
+        )
 
     def _error_result(
         self,
@@ -420,7 +443,8 @@ class NativeUIStateAdapter:
                 confidence=0.0,
             ),
             timing=timing,
-            raw_details=raw_details or self._build_raw_details(
+            raw_details=raw_details
+            or self._build_raw_details(
                 state_id=state_id,
                 expected_state_ids=expected_state_ids,
                 action_result=action_result,
@@ -450,7 +474,9 @@ class NativeUIStateAdapter:
             message=message,
             platform="native",
             expected_state_ids=expected_state_ids,
-            evidence=UIStateEvidence(summary=message, matched=[], missing=list(expected_state_ids), confidence=0.0),
+            evidence=UIStateEvidence(
+                summary=message, matched=[], missing=list(expected_state_ids), confidence=0.0
+            ),
             timing=timing,
             raw_details={
                 "binding_id": self._binding.binding_id,
@@ -493,7 +519,9 @@ class NativeUIStateAdapter:
             _ = params.setdefault("timeout_ms", timeout_ms)
         return params
 
-    def _wait_action_params(self, *, target_stages: list[str], timeout_ms: int, interval_ms: int) -> dict[str, object]:
+    def _wait_action_params(
+        self, *, target_stages: list[str], timeout_ms: int, interval_ms: int
+    ) -> dict[str, object]:
         params = dict(self._action_params)
         params.update(
             {

@@ -35,7 +35,9 @@ def build_timing(
     samples: int = 0,
     elapsed_ms: int | None = None,
 ) -> UIStateTiming:
-    elapsed = elapsed_ms if elapsed_ms is not None else int(max(0.0, finished_tick - started_tick) * 1000)
+    elapsed = (
+        elapsed_ms if elapsed_ms is not None else int(max(0.0, finished_tick - started_tick) * 1000)
+    )
     return UIStateTiming(
         started_at=started_at,
         finished_at=finished_at,
@@ -129,9 +131,15 @@ def poll_until_result(
         attempts += 1
         last_result = observe()
         if last_result.ok:
-            return UIStatePollingOutcome(result=last_result, attempts=attempts, samples=attempts, timed_out=False)
+            return UIStatePollingOutcome(
+                result=last_result, attempts=attempts, samples=attempts, timed_out=False
+            )
         if last_result.code not in retry_codes:
-            return UIStatePollingOutcome(result=last_result, attempts=attempts, samples=attempts, timed_out=False)
+            return UIStatePollingOutcome(
+                result=last_result, attempts=attempts, samples=attempts, timed_out=False
+            )
         if monotonic_now() >= deadline:
-            return UIStatePollingOutcome(result=last_result, attempts=attempts, samples=attempts, timed_out=True)
+            return UIStatePollingOutcome(
+                result=last_result, attempts=attempts, samples=attempts, timed_out=True
+            )
         sleep(max(0.0, interval_ms) / 1000.0)

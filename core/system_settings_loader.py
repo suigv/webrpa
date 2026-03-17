@@ -10,31 +10,34 @@ Hierarchy:
 Usage:
     from core.system_settings_loader import get_redis_url, get_llm_base_url, ...
 """
+
 from __future__ import annotations
 
 import logging
 import os
 import threading
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 from models.system_settings import SystemSettings, VLMProviderSettings
 
 logger = logging.getLogger(__name__)
 
 _lock = threading.RLock()
-_settings: Optional[SystemSettings] = None
+_settings: SystemSettings | None = None
 
 
 def _system_yaml_path() -> Path:
     from core.paths import project_root
+
     return project_root() / "config" / "system.yaml"
 
 
-def _load_yaml_file(path: Path) -> Dict[str, Any]:
+def _load_yaml_file(path: Path) -> dict[str, Any]:
     try:
         import yaml  # pyyaml
-        with open(path, "r", encoding="utf-8") as f:
+
+        with open(path, encoding="utf-8") as f:
             raw = yaml.safe_load(f)
         if isinstance(raw, dict):
             return raw
@@ -46,7 +49,7 @@ def _load_yaml_file(path: Path) -> Dict[str, Any]:
     return {}
 
 
-def _build_settings(raw: Dict[str, Any]) -> SystemSettings:
+def _build_settings(raw: dict[str, Any]) -> SystemSettings:
     try:
         return SystemSettings.model_validate(raw)
     except Exception as exc:
@@ -66,6 +69,7 @@ def load(refresh: bool = False) -> SystemSettings:
 
 # ─── Feature flags ────────────────────────────────────────────────────────────
 
+
 def get_rpc_enabled() -> bool:
     env_rpc = os.environ.get("MYT_ENABLE_RPC")
     if env_rpc is not None:
@@ -78,6 +82,7 @@ def get_vlm_enabled() -> bool:
 
 
 # ─── Service URLs / config (from yaml) ───────────────────────────────────────
+
 
 def get_redis_url() -> str:
     return load().services.redis_url
@@ -99,7 +104,7 @@ def get_vlm_provider() -> str:
     return load().services.vlm.provider
 
 
-def get_vlm_provider_config(name: Optional[str] = None) -> Any:
+def get_vlm_provider_config(name: str | None = None) -> Any:
     """Get config for a specific VLM provider, or the active one if name is None."""
     settings = load().services.vlm
     provider_name = name or settings.provider
@@ -108,13 +113,11 @@ def get_vlm_provider_config(name: Optional[str] = None) -> Any:
         return config
     # Fallback to top-level if not found in dict
     return VLMProviderSettings(
-        base_url=settings.base_url,
-        model=settings.model,
-        provider_type="standard"
+        base_url=settings.base_url, model=settings.model, provider_type="standard"
     )
 
 
-def get_llm_provider_config(name: Optional[str] = None) -> Any:
+def get_llm_provider_config(name: str | None = None) -> Any:
     """Get config for a specific provider, or the active one if name is None."""
     settings = load().services.llm
     provider_name = name or settings.provider
@@ -123,10 +126,9 @@ def get_llm_provider_config(name: Optional[str] = None) -> Any:
         return config
     # Fallback to top-level if not found in dict
     from models.system_settings import LLMProviderSettings
+
     return LLMProviderSettings(
-        base_url=settings.base_url,
-        model=settings.model,
-        provider_type="openai"
+        base_url=settings.base_url, model=settings.model, provider_type="openai"
     )
 
 
@@ -140,9 +142,10 @@ def get_vlm_model() -> str:
 
 # ─── Secrets (env vars ONLY — never from yaml) ───────────────────────────────
 
-def get_llm_api_key(provider_name: Optional[str] = None) -> str:
+
+def get_llm_api_key(provider_name: str | None = None) -> str:
     """
-    LLM API key. 
+    LLM API key.
     Priority:
     1. MYT_LLM_API_KEY_{PROVIDER_NAME_UPPER}
     2. MYT_LLM_API_KEY
@@ -160,9 +163,9 @@ def get_llm_api_key(provider_name: Optional[str] = None) -> str:
     return (os.environ.get("MYT_LLM_API_KEY") or "").strip()
 
 
-def get_vlm_api_key(provider_name: Optional[str] = None) -> str:
+def get_vlm_api_key(provider_name: str | None = None) -> str:
     """
-    VLM API key. 
+    VLM API key.
     Priority:
     1. MYT_VLM_API_KEY_{PROVIDER_NAME_UPPER}
     2. MYT_VLM_API_KEY (Shared fallback)
@@ -181,6 +184,7 @@ def get_vlm_api_key(provider_name: Optional[str] = None) -> str:
 
 # ─── Paths (from yaml) ────────────────────────────────────────────────────────
 
+
 def get_browser_profiles_dir() -> Path:
     return Path(load().paths.browser_profiles_dir)
 
@@ -190,6 +194,7 @@ def get_ai_work_dir() -> Path:
 
 
 # ─── Credentials (from yaml) ─────────────────────────────────────────────────
+
 
 def get_credential_allowlist() -> str:
     """Colon-separated allowlist of credential root paths."""

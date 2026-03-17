@@ -1,6 +1,6 @@
 import os
-import sys
 import shutil
+import sys
 import time
 from collections.abc import Generator
 from pathlib import Path
@@ -14,13 +14,13 @@ from engine.plugin_loader import clear_shared_plugin_loader_cache
 def pytest_sessionstart(session: object) -> None:
     _ = session
     project_root = Path(__file__).resolve().parents[1]
-    
+
     # 柔性硬件保护逻辑：
     # 1. 如果用户显式想测硬件 (MYT_REAL_HARDWARE=1)，则尊重用户设置
     # 2. 否则，为了安全起见，在测试期间强制禁用 RPC
     if os.environ.get("MYT_REAL_HARDWARE") != "1":
         os.environ["MYT_ENABLE_RPC"] = "0"
-    
+
     # 测试隔离：把所有 runtime 数据写入 config/data/<subdir>（仍在仓库内，但与真实数据隔离）
     run_tag = f".pytest/run-{os.getpid()}-{time.time_ns()}"
     os.environ["MYT_DATA_SUBDIR"] = run_tag
@@ -28,7 +28,7 @@ def pytest_sessionstart(session: object) -> None:
     if test_data_dir.exists():
         shutil.rmtree(test_data_dir)
     test_data_dir.mkdir(parents=True, exist_ok=True)
-    
+
     project_parent = project_root.parent
     parent_text = str(project_parent)
     if parent_text not in sys.path:

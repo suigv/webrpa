@@ -16,25 +16,40 @@ def test_trace_learner_extracts_resource_ids_by_state_and_skips_unknown_and_sens
     records = [
         {
             "record_type": "step",
-            "observation": {"observed_state_ids": ["home"], "data": {"state": {"state_id": "home"}}},
+            "observation": {
+                "observed_state_ids": ["home"],
+                "data": {"state": {"state_id": "home"}},
+            },
             "action_params": {},
             "action_result": {"data": {"resource_id": "com.twitter.android:id/home_timeline"}},
         },
         {
             "record_type": "step",
-            "observation": {"observed_state_ids": ["unknown"], "data": {"state": {"state_id": "unknown"}}},
+            "observation": {
+                "observed_state_ids": ["unknown"],
+                "data": {"state": {"state_id": "unknown"}},
+            },
             "action_params": {"resource_id": "com.twitter.android:id/unknown_button"},
             "action_result": {"data": {}},
         },
         {
             "record_type": "step",
-            "observation": {"observed_state_ids": ["login_password"], "data": {"state": {"state_id": "login_password"}}},
-            "action_params": {"resource_id": "com.twitter.android:id/password_field", "query_type": "password"},
+            "observation": {
+                "observed_state_ids": ["login_password"],
+                "data": {"state": {"state_id": "login_password"}},
+            },
+            "action_params": {
+                "resource_id": "com.twitter.android:id/password_field",
+                "query_type": "password",
+            },
             "action_result": {"data": {"resource_id": "com.twitter.android:id/password_field"}},
         },
         {
             "record_type": "step",
-            "observation": {"observed_state_ids": ["profile"], "data": {"state": {"state_id": "profile"}}},
+            "observation": {
+                "observed_state_ids": ["profile"],
+                "data": {"state": {"state_id": "profile"}},
+            },
             "action_params": {"resource_id": "com.twitter.android:id/profile_header"},
             "action_result": {"data": {}},
         },
@@ -48,7 +63,9 @@ def test_trace_learner_extracts_resource_ids_by_state_and_skips_unknown_and_sens
     }
 
 
-def test_app_config_writer_applies_threshold_before_merging_stage_patterns(tmp_path, monkeypatch) -> None:
+def test_app_config_writer_applies_threshold_before_merging_stage_patterns(
+    tmp_path, monkeypatch
+) -> None:
     config_root = tmp_path / "config"
     apps_dir = config_root / "apps"
     apps_dir.mkdir(parents=True)
@@ -87,7 +104,9 @@ def test_app_config_writer_applies_threshold_before_merging_stage_patterns(tmp_p
     assert third["added"] == {"home": ["com.twitter.android:id/home_timeline"]}
 
     persisted = yaml.safe_load(app_path.read_text(encoding="utf-8"))
-    assert persisted["stage_patterns"]["home"]["resource_ids"] == ["com.twitter.android:id/home_timeline"]
+    assert persisted["stage_patterns"]["home"]["resource_ids"] == [
+        "com.twitter.android:id/home_timeline"
+    ]
     assert persisted["stage_patterns"]["home"]["focus_markers"] == []
     assert persisted["stage_patterns"]["home"]["text_markers"] == []
 
@@ -98,4 +117,6 @@ def test_app_config_writer_applies_threshold_before_merging_stage_patterns(tmp_p
     fourth = writer.merge_stage_resource_ids("x", learned)
     assert fourth["updated"] is False
     persisted_again = yaml.safe_load(app_path.read_text(encoding="utf-8"))
-    assert persisted_again["stage_patterns"]["home"]["resource_ids"] == ["com.twitter.android:id/home_timeline"]
+    assert persisted_again["stage_patterns"]["home"]["resource_ids"] == [
+        "com.twitter.android:id/home_timeline"
+    ]

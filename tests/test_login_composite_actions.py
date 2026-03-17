@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-from typing import cast
 
 from engine.action_registry import register_defaults, resolve_action
 from engine.actions import ui_actions
@@ -26,7 +25,9 @@ def test_click_selector_or_tap_uses_tap_fallback(monkeypatch: pytest.MonkeyPatch
     from engine.actions import login_actions
 
     def tap_fallback(params: dict[str, object], _context: ExecutionContext) -> ActionResult:
-        return ActionResult(ok=True, code="ok", data={"x": params["fallback_x"], "y": params["fallback_y"]})
+        return ActionResult(
+            ok=True, code="ok", data={"x": params["fallback_x"], "y": params["fallback_y"]}
+        )
 
     monkeypatch.setattr(
         login_actions,
@@ -105,17 +106,23 @@ def test_input_text_with_shell_fallback_uses_exec_command(monkeypatch: pytest.Mo
     ]
 
 
-def test_focus_and_input_with_shell_fallback_ignores_focus_failure_when_input_succeeds(monkeypatch: pytest.MonkeyPatch):
+def test_focus_and_input_with_shell_fallback_ignores_focus_failure_when_input_succeeds(
+    monkeypatch: pytest.MonkeyPatch,
+):
     register_defaults()
     from engine.actions import login_actions
 
     calls: list[tuple[str, dict[str, object]]] = []
 
-    def click_selector_or_tap(params: dict[str, object], _context: ExecutionContext) -> ActionResult:
+    def click_selector_or_tap(
+        params: dict[str, object], _context: ExecutionContext
+    ) -> ActionResult:
         calls.append(("focus", params.copy()))
         return ActionResult(ok=False, code="selector_missing")
 
-    def input_text_with_shell_fallback(params: dict[str, object], _context: ExecutionContext) -> ActionResult:
+    def input_text_with_shell_fallback(
+        params: dict[str, object], _context: ExecutionContext
+    ) -> ActionResult:
         calls.append(("input", params.copy()))
         return ActionResult(ok=True, code="ok", data={"used_shell_fallback": True})
 
@@ -155,10 +162,14 @@ def test_focus_and_input_with_shell_fallback_returns_input_failure(monkeypatch: 
     register_defaults()
     from engine.actions import login_actions
 
-    def click_selector_or_tap(_params: dict[str, object], _context: ExecutionContext) -> ActionResult:
+    def click_selector_or_tap(
+        _params: dict[str, object], _context: ExecutionContext
+    ) -> ActionResult:
         return ActionResult(ok=True, code="ok")
 
-    def input_text_with_shell_fallback(_params: dict[str, object], _context: ExecutionContext) -> ActionResult:
+    def input_text_with_shell_fallback(
+        _params: dict[str, object], _context: ExecutionContext
+    ) -> ActionResult:
         return ActionResult(ok=False, code="send_text_failed", message="failed to input")
 
     monkeypatch.setattr(
@@ -201,27 +212,42 @@ def test_fill_form_successfully_inputs_submits_and_waits(monkeypatch: pytest.Mon
     monkeypatch.setattr(
         login_actions,
         "click_selector_or_tap",
-        lambda params, _context: calls.append(("focus_or_submit", params.copy())) or ActionResult(ok=True, code="ok"),
+        lambda params, _context: (
+            calls.append(("focus_or_submit", params.copy())) or ActionResult(ok=True, code="ok")
+        ),
     )
     monkeypatch.setattr(
         login_actions,
         "input_text_with_shell_fallback",
-        lambda params, _context: calls.append(("input", params.copy())) or ActionResult(ok=True, code="ok"),
+        lambda params, _context: (
+            calls.append(("input", params.copy())) or ActionResult(ok=True, code="ok")
+        ),
     )
     monkeypatch.setattr(
         login_actions,
         "_selector_read_one",
-        lambda params, _context: calls.append(("verify", params.copy())) or ActionResult(ok=True, code="ok", data={"node": {"text": str(params.get("text") or "")}}),
+        lambda params, _context: (
+            calls.append(("verify", params.copy()))
+            or ActionResult(
+                ok=True, code="ok", data={"node": {"text": str(params.get("text") or "")}}
+            )
+        ),
     )
     monkeypatch.setattr(
         login_actions,
         "_ui_match_state",
-        lambda params, _context: calls.append(("allowed_state", params.copy())) or ActionResult(ok=True, code="ok", data={"state": {"state_id": "account"}}),
+        lambda params, _context: (
+            calls.append(("allowed_state", params.copy()))
+            or ActionResult(ok=True, code="ok", data={"state": {"state_id": "account"}})
+        ),
     )
     monkeypatch.setattr(
         login_actions,
         "_ui_wait_until",
-        lambda params, _context: calls.append(("wait", params.copy())) or ActionResult(ok=True, code="ok", data={"state": {"state_id": "password"}}),
+        lambda params, _context: (
+            calls.append(("wait", params.copy()))
+            or ActionResult(ok=True, code="ok", data={"state": {"state_id": "password"}})
+        ),
     )
 
     handler = resolve_action("ui.fill_form")
@@ -254,19 +280,36 @@ def test_fill_form_successfully_inputs_submits_and_waits(monkeypatch: pytest.Mon
 
     assert result.ok is True
     assert result.data["state"]["state_id"] == "password"
-    assert [name for name, _ in calls] == ["allowed_state", "focus_or_submit", "input", "verify", "focus_or_submit", "wait"]
+    assert [name for name, _ in calls] == [
+        "allowed_state",
+        "focus_or_submit",
+        "input",
+        "verify",
+        "focus_or_submit",
+        "wait",
+    ]
 
 
 def test_fill_form_returns_verification_failure(monkeypatch: pytest.MonkeyPatch):
     register_defaults()
     from engine.actions import login_actions
 
-    monkeypatch.setattr(login_actions, "click_selector_or_tap", lambda _params, _context: ActionResult(ok=True, code="ok"))
-    monkeypatch.setattr(login_actions, "input_text_with_shell_fallback", lambda _params, _context: ActionResult(ok=True, code="ok"))
+    monkeypatch.setattr(
+        login_actions,
+        "click_selector_or_tap",
+        lambda _params, _context: ActionResult(ok=True, code="ok"),
+    )
+    monkeypatch.setattr(
+        login_actions,
+        "input_text_with_shell_fallback",
+        lambda _params, _context: ActionResult(ok=True, code="ok"),
+    )
     monkeypatch.setattr(
         login_actions,
         "_selector_read_one",
-        lambda _params, _context: ActionResult(ok=True, code="ok", data={"node": {"text": "wrong"}}),
+        lambda _params, _context: ActionResult(
+            ok=True, code="ok", data={"node": {"text": "wrong"}}
+        ),
     )
 
     handler = resolve_action("ui.fill_form")
@@ -294,19 +337,37 @@ def test_fill_form_returns_missing_submit_target_failure(monkeypatch: pytest.Mon
     register_defaults()
     from engine.actions import login_actions
 
-    monkeypatch.setattr(login_actions, "click_selector_or_tap", lambda _params, _context: ActionResult(ok=True, code="ok"))
-    monkeypatch.setattr(login_actions, "input_text_with_shell_fallback", lambda _params, _context: ActionResult(ok=True, code="ok"))
+    monkeypatch.setattr(
+        login_actions,
+        "click_selector_or_tap",
+        lambda _params, _context: ActionResult(ok=True, code="ok"),
+    )
+    monkeypatch.setattr(
+        login_actions,
+        "input_text_with_shell_fallback",
+        lambda _params, _context: ActionResult(ok=True, code="ok"),
+    )
     monkeypatch.setattr(
         login_actions,
         "_selector_read_one",
-        lambda params, _context: ActionResult(ok=True, code="ok", data={"node": {"text": str(params.get("text") or "")}}),
+        lambda params, _context: ActionResult(
+            ok=True, code="ok", data={"node": {"text": str(params.get("text") or "")}}
+        ),
     )
 
     handler = resolve_action("ui.fill_form")
     result = handler(
         {
             "device_ip": "192.168.1.2",
-            "fields": [{"field_id": "account", "type": "id", "mode": "equal", "value": "username_input", "text": "alice"}],
+            "fields": [
+                {
+                    "field_id": "account",
+                    "type": "id",
+                    "mode": "equal",
+                    "value": "username_input",
+                    "text": "alice",
+                }
+            ],
             "submit": {},
         },
         ExecutionContext(payload={"device_ip": "192.168.1.2"}),
@@ -322,17 +383,27 @@ def test_fill_form_injects_session_credentials(monkeypatch: pytest.MonkeyPatch):
 
     seen_inputs: list[str] = []
 
-    monkeypatch.setattr(login_actions, "click_selector_or_tap", lambda _params, _context: ActionResult(ok=True, code="ok"))
+    monkeypatch.setattr(
+        login_actions,
+        "click_selector_or_tap",
+        lambda _params, _context: ActionResult(ok=True, code="ok"),
+    )
 
-    def input_text_with_shell_fallback(params: dict[str, object], _context: ExecutionContext) -> ActionResult:
+    def input_text_with_shell_fallback(
+        params: dict[str, object], _context: ExecutionContext
+    ) -> ActionResult:
         seen_inputs.append(str(params.get("text") or ""))
         return ActionResult(ok=True, code="ok")
 
-    monkeypatch.setattr(login_actions, "input_text_with_shell_fallback", input_text_with_shell_fallback)
+    monkeypatch.setattr(
+        login_actions, "input_text_with_shell_fallback", input_text_with_shell_fallback
+    )
     monkeypatch.setattr(
         login_actions,
         "_selector_read_one",
-        lambda params, _context: ActionResult(ok=True, code="ok", data={"node": {"text": str(params.get("text") or "")}}),
+        lambda params, _context: ActionResult(
+            ok=True, code="ok", data={"node": {"text": str(params.get("text") or "")}}
+        ),
     )
 
     handler = resolve_action("ui.fill_form")
@@ -340,8 +411,20 @@ def test_fill_form_injects_session_credentials(monkeypatch: pytest.MonkeyPatch):
         {
             "device_ip": "192.168.1.2",
             "fields": [
-                {"field_id": "account", "type": "id", "mode": "equal", "value": "username_input", "credential": "account"},
-                {"field_id": "password", "type": "id", "mode": "equal", "value": "password_input", "credential": "password"},
+                {
+                    "field_id": "account",
+                    "type": "id",
+                    "mode": "equal",
+                    "value": "username_input",
+                    "credential": "account",
+                },
+                {
+                    "field_id": "password",
+                    "type": "id",
+                    "mode": "equal",
+                    "value": "password_input",
+                    "credential": "password",
+                },
             ],
         },
         ExecutionContext(
@@ -378,7 +461,9 @@ def test_navigate_to_noops_when_already_at_target(monkeypatch: pytest.MonkeyPatc
     assert result.data["current_route"] == "feed"
 
 
-def test_navigate_to_recognizes_missing_state_page_as_current_route(monkeypatch: pytest.MonkeyPatch):
+def test_navigate_to_recognizes_missing_state_page_as_current_route(
+    monkeypatch: pytest.MonkeyPatch,
+):
     register_defaults()
     from engine.actions import ui_state_actions
 
@@ -416,7 +501,9 @@ def test_navigate_to_runs_successful_bounded_route(monkeypatch: pytest.MonkeyPat
         if binding_id == "feed_binding":
             feed_calls += 1
             if feed_calls == 1:
-                return ActionResult(ok=False, code="no_match", data={"state": {"state_id": "unknown"}})
+                return ActionResult(
+                    ok=False, code="no_match", data={"state": {"state_id": "unknown"}}
+                )
             return ActionResult(ok=True, code="ok", data={"state": {"state_id": "available"}})
         return ActionResult(ok=False, code="no_match", data={"state": {"state_id": "unknown"}})
 
@@ -425,6 +512,7 @@ def test_navigate_to_runs_successful_bounded_route(monkeypatch: pytest.MonkeyPat
     def fake_resolve_action(_name: str):
         def _handler(_params: dict[str, object], _context: ExecutionContext) -> ActionResult:
             return ActionResult(ok=True, code="ok")
+
         return _handler
 
     monkeypatch.setattr("engine.action_registry.resolve_action", fake_resolve_action)

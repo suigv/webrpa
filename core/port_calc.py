@@ -4,7 +4,9 @@ BASE_PORT = 30000
 PORT_STEP = 100
 
 
-def calculate_ports(device_index: int, cloud_index: int, cloud_machines_per_device: int) -> tuple[int, int]:
+def calculate_ports(
+    device_index: int, cloud_index: int, cloud_machines_per_device: int
+) -> tuple[int, int]:
     """Calculate API and RPA ports for a given cloud machine.
 
     Port roles:
@@ -46,11 +48,15 @@ def calculate_ports(device_index: int, cloud_index: int, cloud_machines_per_devi
     return api_port, rpa_port
 
 
-def build_task_port_map(total_devices: int, cloud_machines_per_device: int) -> dict[tuple[int, int], tuple[int, int]]:
+def build_task_port_map(
+    total_devices: int, cloud_machines_per_device: int
+) -> dict[tuple[int, int], tuple[int, int]]:
     if total_devices < 1:
         raise ValueError("total_devices must be >= 1")
     result: dict[tuple[int, int], tuple[int, int]] = {}
     for device_id in range(1, total_devices + 1):
         for cloud_id in range(1, cloud_machines_per_device + 1):
-            result[(device_id, cloud_id)] = calculate_ports(device_id, cloud_id, cloud_machines_per_device)
+            result[(device_id, cloud_id)] = calculate_ports(
+                device_id, cloud_id, cloud_machines_per_device
+            )
     return result

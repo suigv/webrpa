@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
 import fcntl
 import json
 import os
-from pathlib import Path
 import threading
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from pathlib import Path
 from typing import Any
 
-from engine.models.runtime import ActionResult, ExecutionContext
 import core.paths as paths
+from engine.models.runtime import ActionResult, ExecutionContext
 
 
 def shared_path() -> Path:
@@ -61,12 +61,11 @@ def update_store(
     thread_lock: threading.Lock,
 ) -> dict[str, Any]:
     path = shared_path()
-    with thread_lock:
-        with exclusive_shared_lock(path):
-            store = read_store()
-            updater(store)
-            write_json_atomic(path, store)
-            return store
+    with thread_lock, exclusive_shared_lock(path):
+        store = read_store()
+        updater(store)
+        write_json_atomic(path, store)
+        return store
 
 
 def resolve_shared_key(params: dict[str, Any], context: ExecutionContext | None) -> str:
@@ -88,7 +87,9 @@ def resolve_shared_key(params: dict[str, Any], context: ExecutionContext | None)
             scope_value = context.task_id if context is not None else ""
         elif scope == "cloud":
             scope_value = (
-                context.cloud_target_label if context is not None else str(payload.get("name") or "").strip()
+                context.cloud_target_label
+                if context is not None
+                else str(payload.get("name") or "").strip()
             )
 
     if not scope_value:
@@ -184,6 +185,7 @@ def append_shared_unique_action(
         added = False
 
     if added:
+
         def _updater(store: dict[str, Any]) -> None:
             current_items = store.get(key)
             if not isinstance(current_items, list):
@@ -239,4 +241,6 @@ def increment_shared_counter_action(
         result_value = current_value
 
     update_store(_updater)
-    return ActionResult(ok=True, code="ok", data={"key": key, "value": result_value, "amount": amount})
+    return ActionResult(
+        ok=True, code="ok", data={"key": key, "value": result_value, "amount": amount}
+    )

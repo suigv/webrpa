@@ -31,7 +31,9 @@ def test_normalize_config_preserves_legacy_humanization_compatibility() -> None:
     assert normalized["humanization_jitter_ms"] == 7
 
 
-def test_config_loader_update_uses_cached_config_seam_and_writes_normalized_payload(tmp_path: Path) -> None:
+def test_config_loader_update_uses_cached_config_seam_and_writes_normalized_payload(
+    tmp_path: Path,
+) -> None:
     config_path = tmp_path / "devices.json"
     _ = config_path.write_text("{}", encoding="utf-8")
 

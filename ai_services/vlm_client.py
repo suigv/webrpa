@@ -1,16 +1,14 @@
 from __future__ import annotations
 
 import base64
-import os
 import threading
-import time
 from pathlib import Path
-from typing import Any, Dict, Optional, Protocol, Mapping, Callable
+from typing import Any, Protocol
 
 import httpx
 
-from core.vlm.vlm_output_parser import VLMOutputParser, VLMAction
-from core.system_settings_loader import get_vlm_provider, get_vlm_provider_config, get_vlm_api_key
+from core.system_settings_loader import get_vlm_api_key, get_vlm_provider, get_vlm_provider_config
+from core.vlm.vlm_output_parser import VLMAction, VLMOutputParser
 
 _shared_http_client: httpx.Client | None = None
 _CLIENT_LOCK = threading.Lock()
@@ -31,25 +29,24 @@ def _get_shared_http_client(timeout: float = 60.0) -> httpx.Client:
 
 class VLMProvider(Protocol):
     """Protocol for VLM service providers."""
+
     def predict(
         self,
         image_b64: str,
         task: str,
-        history: Optional[list[dict[str, object]]] = None,
+        history: list[dict[str, object]] | None = None,
         *,
         screen_width: int | None = None,
         screen_height: int | None = None,
         timeout: float | None = None,
-    ) -> VLMAction:
-        ...
+    ) -> VLMAction: ...
 
-    def close(self) -> None:
-        ...
+    def close(self) -> None: ...
 
 
 class StandardVLMProvider:
     """Standard VLM provider using OpenAI-compatible chat completions API."""
-    
+
     def __init__(
         self,
         base_url: str,
@@ -69,7 +66,7 @@ class StandardVLMProvider:
         self,
         image_b64: str,
         task: str,
-        history: Optional[list[dict[str, object]]] = None,
+        history: list[dict[str, object]] | None = None,
         *,
         screen_width: int | None = None,
         screen_height: int | None = None,
@@ -122,14 +119,14 @@ def create_vlm_provider_by_type(
     """Factory function to create VLM providers."""
     config = get_vlm_provider_config(provider_name)
     api_key = get_vlm_api_key(provider_name)
-    
+
     if provider_type == "standard":
         return StandardVLMProvider(
             base_url=config.base_url,
             model=config.model,
             api_key=api_key,
             system_prompt=system_prompt,
-            http_client=http_client
+            http_client=http_client,
         )
     # Default fallback
     return StandardVLMProvider(
@@ -137,7 +134,7 @@ def create_vlm_provider_by_type(
         model=config.model,
         api_key=api_key,
         system_prompt=system_prompt,
-        http_client=http_client
+        http_client=http_client,
     )
 
 
@@ -152,11 +149,11 @@ class VLMClient:
 
     def __init__(
         self,
-        provider: Optional[str] = None,
-        base_url: Optional[str] = None,
-        model: Optional[str] = None,
-        api_key: Optional[str] = None,
-        system_prompt: Optional[str] = None,
+        provider: str | None = None,
+        base_url: str | None = None,
+        model: str | None = None,
+        api_key: str | None = None,
+        system_prompt: str | None = None,
         timeout: float = 60.0,
         http_client: httpx.Client | None = None,
     ) -> None:
@@ -199,8 +196,8 @@ class VLMClient:
         *,
         screen_width: int | None = None,
         screen_height: int | None = None,
-        provider: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        provider: str | None = None,
+    ) -> dict[str, Any]:
         """Legacy single-shot evaluate (keeps backward compat with stub interface)."""
         action = self.predict(
             image_ref,
@@ -221,30 +218,30 @@ class VLMClient:
         self,
         image_ref: str,
         task: str,
-        history: Optional[list[dict[str, object]]] = None,
+        history: list[dict[str, object]] | None = None,
         *,
         screen_width: int | None = None,
         screen_height: int | None = None,
-        provider: Optional[str] = None,
+        provider: str | None = None,
     ) -> VLMAction:
         """Send screenshot + task to VLM, return parsed action."""
         p_name = provider or self.provider_name
         vlm = self._get_provider(p_name)
-        
+
         image_b64, size = self._load_image_payload(
             image_ref,
             screen_width=screen_width,
             screen_height=screen_height,
         )
         screen_width, screen_height = size if size else (None, None)
-        
+
         return vlm.predict(
             image_b64,
             task,
             history=history,
             screen_width=screen_width,
             screen_height=screen_height,
-            timeout=self.timeout
+            timeout=self.timeout,
         )
 
     def _load_image_payload(
@@ -266,9 +263,16 @@ class VLMClient:
             raw_bytes = _safe_b64decode(image_ref)
 
         if raw_bytes:
-            size = (int(screen_width), int(screen_height)) if screen_width and screen_height else _image_size_from_bytes(raw_bytes)
+            size = (
+                (int(screen_width), int(screen_height))
+                if screen_width and screen_height
+                else _image_size_from_bytes(raw_bytes)
+            )
             return base64.b64encode(raw_bytes).decode(), size
-        return image_ref, (int(screen_width), int(screen_height)) if screen_width and screen_height else None
+        return image_ref, (
+            int(screen_width),
+            int(screen_height),
+        ) if screen_width and screen_height else None
 
 
 def _safe_b64decode(value: str) -> bytes:
@@ -294,19 +298,28 @@ def _image_size_from_bytes(data: bytes) -> tuple[int, int] | None:
                 continue
             marker = data[idx + 1]
             if marker in (
-                0xC0, 0xC1, 0xC2, 0xC3,
-                0xC5, 0xC6, 0xC7,
-                0xC9, 0xCA, 0xCB,
-                0xCD, 0xCE, 0xCF,
+                0xC0,
+                0xC1,
+                0xC2,
+                0xC3,
+                0xC5,
+                0xC6,
+                0xC7,
+                0xC9,
+                0xCA,
+                0xCB,
+                0xCD,
+                0xCE,
+                0xCF,
             ):
                 if idx + 8 >= length:
                     return None
-                height = int.from_bytes(data[idx + 5:idx + 7], "big")
-                width = int.from_bytes(data[idx + 7:idx + 9], "big")
+                height = int.from_bytes(data[idx + 5 : idx + 7], "big")
+                width = int.from_bytes(data[idx + 7 : idx + 9], "big")
                 return (width, height)
             if idx + 3 >= length:
                 break
-            segment_len = int.from_bytes(data[idx + 2:idx + 4], "big")
+            segment_len = int.from_bytes(data[idx + 2 : idx + 4], "big")
             if segment_len < 2:
                 break
             idx += 2 + segment_len

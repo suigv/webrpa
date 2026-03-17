@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import importlib.util
 import argparse
+import importlib.util
 import json
 from pathlib import Path
 
@@ -24,7 +24,9 @@ from core.model_trace_store import ModelTraceContext, ModelTraceStore
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Distill one successful golden-run trace into reviewable YAML drafts.")
+    parser = argparse.ArgumentParser(
+        description="Distill one successful golden-run trace into reviewable YAML drafts."
+    )
     parser.add_argument("--task-id", required=True)
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--target-label", required=True)
@@ -34,7 +36,11 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--display-name")
     parser.add_argument("--category", default="AI Drafts")
     parser.add_argument("--traces-root", type=Path)
-    parser.add_argument("--use-llm-refiner", action="store_true", help="Run LLM-based parametrization refinement after base distillation")
+    parser.add_argument(
+        "--use-llm-refiner",
+        action="store_true",
+        help="Run LLM-based parametrization refinement after base distillation",
+    )
     return parser
 
 
@@ -46,7 +52,9 @@ def main() -> int:
         target_label=args.target_label,
         attempt_number=args.attempt_number,
     )
-    distiller = GoldenRunDistiller(trace_store=ModelTraceStore(root_dir=args.traces_root) if args.traces_root else None)
+    distiller = GoldenRunDistiller(
+        trace_store=ModelTraceStore(root_dir=args.traces_root) if args.traces_root else None
+    )
     try:
         draft = distiller.distill(
             context=context,

@@ -8,9 +8,11 @@ import os
 import queue
 import threading
 import time
+from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, Protocol
+from datetime import UTC, datetime, timedelta
+from typing import Any, Protocol
 
 from core.account_feedback import AccountFeedbackService
 from core.device_manager import get_device_manager
@@ -18,7 +20,11 @@ from core.task_events import TaskEventStore
 from core.task_finalizer import TaskAttemptFinalizer
 from core.task_metrics import build_task_metrics_payload
 from core.task_queue import QueueBackend, RedisTaskQueue
-from core.task_runtime import TaskDispatchRuntimeResolver, TaskTargetRuntimeResolver, build_queue_schedule
+from core.task_runtime import (
+    TaskDispatchRuntimeResolver,
+    TaskTargetRuntimeResolver,
+    build_queue_schedule,
+)
 from core.task_store import TaskStore
 from engine.plugin_loader import get_shared_plugin_loader
 from engine.runner import Runner
@@ -31,6 +37,7 @@ class RunnerLike(Protocol):
         should_cancel: Any = None,
         runtime: dict[str, Any] | None = None,
     ) -> dict[str, Any]: ...
+
 
 logger = logging.getLogger(__name__)
 
@@ -70,9 +77,7 @@ def _build_target_trip(
     if state != "unavailable" or bool(snapshot.get("stale", False)):
         return None
     reason = str(snapshot.get("availability_reason") or "unknown")
-    message = (
-        f"target became unavailable during execution: device={device_id}, cloud={cloud_id}, reason={reason}"
-    )
+    message = f"target became unavailable during execution: device={device_id}, cloud={cloud_id}, reason={reason}"
     return TargetCircuitBreakerTrip(
         code="target_unavailable",
         message=message,
@@ -120,15 +125,20 @@ class ActiveTargetCircuitBreaker:
 
         # NEW: Check if RPC is enabled; if not, do not activate circuit breaker
         from core.system_settings_loader import get_rpc_enabled
+
         if not get_rpc_enabled():
             return
 
         manager = get_device_manager()
-        self._unsubscribe = manager.subscribe_cloud_probe(self._device_id, self._cloud_id, self._handle_probe_update)
+        self._unsubscribe = manager.subscribe_cloud_probe(
+            self._device_id, self._cloud_id, self._handle_probe_update
+        )
         self._handle_probe_update(manager.get_cloud_probe_snapshot(self._device_id, self._cloud_id))
 
     def _handle_probe_update(self, snapshot: dict[str, Any]) -> None:
-        trip = _build_target_trip(device_id=self._device_id, cloud_id=self._cloud_id, snapshot=snapshot)
+        trip = _build_target_trip(
+            device_id=self._device_id, cloud_id=self._cloud_id, snapshot=snapshot
+        )
         if trip is None:
             return
         should_emit = False
@@ -206,8 +216,8 @@ class SubprocessCancellationState:
 def _delay_seconds(next_retry_at: str) -> int:
     dt = datetime.fromisoformat(next_retry_at)
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    now = datetime.now(timezone.utc)
+        dt = dt.replace(tzinfo=UTC)
+    now = datetime.now(UTC)
     delta = (dt - now).total_seconds()
     if delta <= 0:
         return 0
@@ -217,7 +227,7 @@ def _delay_seconds(next_retry_at: str) -> int:
 def _iso_to_epoch(timestamp: str) -> float:
     dt = datetime.fromisoformat(timestamp)
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
+        dt = dt.replace(tzinfo=UTC)
     return dt.timestamp()
 
 
@@ -343,13 +353,14 @@ def _execute_task(
                     first_failure = prepared.error
                 continue
 
-            def emit_event(event_type: str, data: dict[str, Any]):
-                try:
-                    target_label = prepared.runtime.get("cloud_target")
-                    data["target"] = target_label
+            target_label = prepared.runtime.get("cloud_target")
+
+            def emit_event(
+                event_type: str, data: dict[str, Any], target: Any = target_label
+            ) -> None:
+                with suppress(Exception):
+                    data["target"] = target
                     events.append_event(task_id, event_type, data)
-                except Exception:
-                    pass
 
             runtime = dict(prepared.runtime)
             runtime["emit_event"] = emit_event
@@ -374,13 +385,14 @@ def _execute_task(
                 "message": "target execution did not produce a result",
             }
             try:
-                def _target_cancel() -> bool:
-                    if local_breaker.should_cancel():
-                        return True
-                    return _combined_cancel()
 
-                def _current_trip() -> TargetCircuitBreakerTrip | None:
-                    trip = local_breaker.trip()
+                def _target_cancel(_breaker: ActiveTargetCircuitBreaker = local_breaker) -> bool:
+                    return _breaker.should_cancel() or _combined_cancel()
+
+                def _current_trip(
+                    _breaker: ActiveTargetCircuitBreaker = local_breaker,
+                ) -> TargetCircuitBreakerTrip | None:
+                    trip = _breaker.trip()
                     if trip is not None:
                         return trip
                     if trip_provider is not None:
@@ -440,7 +452,9 @@ def _execute_task(
                 "targets": target_results,
             }
     except Exception as exc:
-        outcome = finalizer.finalize_exception_attempt(task_id=task_id, task_name=task_name, error=str(exc))
+        outcome = finalizer.finalize_exception_attempt(
+            task_id=task_id, task_name=task_name, error=str(exc)
+        )
         if queue_backend is not None:
             _enqueue_retry(queue_backend, outcome.retry_record, outcome.should_enqueue_retry)
         time.sleep(0)
@@ -459,6 +473,7 @@ def _execute_task(
 
 def _create_process_queue_backend() -> QueueBackend:
     from core.system_settings_loader import get_redis_url
+
     return RedisTaskQueue(redis_url=get_redis_url())
 
 
@@ -484,12 +499,14 @@ def _process_task_subprocess(
     )
     runner = Runner()
     queue_backend = _create_process_queue_backend()
-    cancellation_state = SubprocessCancellationState(cancel_event=cancel_event, control_queue=control_queue)
+    cancellation_state = SubprocessCancellationState(
+        cancel_event=cancel_event, control_queue=control_queue
+    )
 
     def _notify_target_started(target: dict[str, Any]) -> None:
         if status_queue is None:
             return
-        try:
+        with suppress(Exception):
             status_queue.put(
                 {
                     "type": "target_started",
@@ -497,16 +514,12 @@ def _process_task_subprocess(
                     "cloud_id": int(target.get("cloud_id", 0) or 0),
                 }
             )
-        except Exception:
-            pass
 
     def _notify_target_finished(_target: dict[str, Any], _result: dict[str, Any]) -> None:
         if status_queue is None:
             return
-        try:
+        with suppress(Exception):
             status_queue.put({"type": "target_finished"})
-        except Exception:
-            pass
 
     _execute_task(
         task_id=task_id,
@@ -559,17 +572,25 @@ class TaskExecutionService:
         requested_mode = os.environ.get("MYT_TASK_EXECUTOR_MODE", "process")
         self._executor_mode = _resolve_executor_mode(requested_mode, self._queue)
         if self._executor_mode == "thread":
-            if requested_mode.strip().lower() in {"process", "proc"} and not isinstance(self._queue, RedisTaskQueue):
-                logger.warning("process executor requested but queue backend is not redis; falling back to thread")
+            if requested_mode.strip().lower() in {"process", "proc"} and not isinstance(
+                self._queue, RedisTaskQueue
+            ):
+                logger.warning(
+                    "process executor requested but queue backend is not redis; falling back to thread"
+                )
             self._executor = concurrent.futures.ThreadPoolExecutor(
                 max_workers=self._max_workers,
                 thread_name_prefix="task-worker",
             )
         else:
             self._executor = None
-            self._monitor = threading.Thread(target=self._monitor_loop, name="task-process-monitor", daemon=True)
+            self._monitor = threading.Thread(
+                target=self._monitor_loop, name="task-process-monitor", daemon=True
+            )
             self._monitor.start()
-        self._worker = threading.Thread(target=self._work_loop, name="task-controller-worker", daemon=True)
+        self._worker = threading.Thread(
+            target=self._work_loop, name="task-controller-worker", daemon=True
+        )
         self._worker.start()
 
     def stop(self) -> None:
@@ -626,9 +647,11 @@ class TaskExecutionService:
 
     def _recover_stale_running_tasks(self) -> None:
         stale_after_seconds = self._stale_running_seconds()
-        stale_before = (datetime.now(timezone.utc) - timedelta(seconds=stale_after_seconds)).isoformat()
+        stale_before = (datetime.now(UTC) - timedelta(seconds=stale_after_seconds)).isoformat()
         with self._store.transaction(immediate=True) as conn:
-            recovered = self._store.recover_stale_running_tasks(stale_before=stale_before, conn=conn)
+            recovered = self._store.recover_stale_running_tasks(
+                stale_before=stale_before, conn=conn
+            )
             for record in recovered:
                 self._events.append_event(
                     record.task_id,
@@ -694,7 +717,11 @@ class TaskExecutionService:
                 handle.target_trip_sent = False
 
     def _maybe_trip_process_target(self, handle: ProcessTaskHandle, now: float) -> None:
-        if handle.cancel_signaled_at is not None or handle.current_target is None or handle.target_trip_sent:
+        if (
+            handle.cancel_signaled_at is not None
+            or handle.current_target is None
+            or handle.target_trip_sent
+        ):
             return
         device_id, cloud_id = handle.current_target
         snapshot = get_device_manager().get_cloud_probe_snapshot(device_id, cloud_id)
@@ -702,7 +729,7 @@ class TaskExecutionService:
         if trip is None:
             return
         if handle.control_queue is not None:
-            try:
+            with suppress(Exception):
                 handle.control_queue.put(
                     {
                         "type": "trip",
@@ -713,17 +740,13 @@ class TaskExecutionService:
                         },
                     }
                 )
-            except Exception:
-                pass
-        try:
+        with suppress(Exception):
             control = handle.cancel_event
-            _ = getattr(control, "set")()
-        except Exception:
-            pass
+            _ = control.set()
         handle.cancel_signaled_at = now
         handle.target_trip_sent = True
         handle.breaker_trip = trip
-        try:
+        with suppress(Exception):
             self._events.append_event(
                 handle.task_id,
                 "task.circuit_breaker",
@@ -733,8 +756,6 @@ class TaskExecutionService:
                     "message": trip.message,
                 },
             )
-        except Exception:
-            pass
 
     def _start_process_task(self, task_id: str) -> None:
         with self._active_lock:
@@ -786,17 +807,17 @@ class TaskExecutionService:
             self._drain_status_queue(handle)
             if not proc.is_alive():
                 exit_code = proc.exitcode
-                try:
+                with suppress(Exception):
                     proc.join(timeout=0.1)
-                except Exception:
-                    pass
                 with self._active_lock:
                     self._active.pop(handle.task_id, None)
                 if not self._stop_event.is_set():
                     self._handle_process_exit(handle, exit_code)
                 continue
 
-            if handle.cancel_signaled_at is None and self._store.is_cancel_requested(handle.task_id):
+            if handle.cancel_signaled_at is None and self._store.is_cancel_requested(
+                handle.task_id
+            ):
                 handle.cancel_event.set()
                 handle.cancel_signaled_at = now
 
@@ -807,19 +828,15 @@ class TaskExecutionService:
 
             elapsed = now - handle.cancel_signaled_at
             if elapsed >= grace and handle.terminate_sent_at is None:
-                try:
+                with suppress(Exception):
                     proc.terminate()
-                except Exception:
-                    pass
                 handle.terminate_sent_at = now
                 continue
 
             if handle.terminate_sent_at is not None and elapsed >= force_kill:
-                try:
+                with suppress(Exception):
                     if proc.is_alive():
                         proc.kill()
-                except Exception:
-                    pass
 
     def _handle_process_exit(self, handle: ProcessTaskHandle, exit_code: int | None) -> None:
         task_id = handle.task_id
@@ -852,7 +869,9 @@ class TaskExecutionService:
 
         task_name = str(record.payload.get("task") or "anonymous")
         error = f"task worker exited with code {exit_code}"
-        outcome = self._finalizer.finalize_exception_attempt(task_id=task_id, task_name=task_name, error=error)
+        outcome = self._finalizer.finalize_exception_attempt(
+            task_id=task_id, task_name=task_name, error=error
+        )
         self._enqueue_retry(outcome.retry_record, outcome.should_enqueue_retry)
 
     def _shutdown_processes(self) -> None:
@@ -861,23 +880,17 @@ class TaskExecutionService:
         for handle in handles:
             handle.cancel_event.set()
         for handle in handles:
-            try:
+            with suppress(Exception):
                 if handle.process.is_alive():
                     handle.process.terminate()
-            except Exception:
-                pass
         deadline = time.monotonic() + 2.0
         for handle in handles:
             remaining = max(0.0, deadline - time.monotonic())
-            try:
+            with suppress(Exception):
                 handle.process.join(timeout=remaining)
-            except Exception:
-                pass
         for handle in handles:
-            try:
+            with suppress(Exception):
                 if handle.process.is_alive():
                     handle.process.kill()
-            except Exception:
-                pass
         with self._active_lock:
             self._active.clear()

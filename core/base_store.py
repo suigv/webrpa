@@ -6,11 +6,12 @@ import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Dict, List, Optional, TypeVar
+from typing import TypeVar
 
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
+
 
 class BaseStore:
     """

@@ -5,8 +5,9 @@ import os
 import platform
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable, cast
+from typing import cast
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +29,9 @@ class MytRpc:
         self._detected_system: str = str(platform.system()).strip().lower()
         self._detected_machine: str = self._normalized_machine()
         self._lib_candidates: list[Path] = self._resolve_library_candidates(root)
-        self._lib_path: Path = self._lib_candidates[0] if self._lib_candidates else root / "lib" / "libmytrpc.so"
+        self._lib_path: Path = (
+            self._lib_candidates[0] if self._lib_candidates else root / "lib" / "libmytrpc.so"
+        )
         self._rpc: ctypes.CDLL | None = None
         self._handle: int = 0
         self._video_cb_ref: object | None = None
@@ -113,7 +116,9 @@ class MytRpc:
         if load_errors:
             logger.warning("Failed to load mytrpc library candidates: %s", "; ".join(load_errors))
         else:
-            logger.warning("mytrpc library not found in candidates: %s", [str(p) for p in self._lib_candidates])
+            logger.warning(
+                "mytrpc library not found in candidates: %s", [str(p) for p in self._lib_candidates]
+            )
         return None
 
     def _rpc_fn(self, *names: str):
@@ -226,7 +231,9 @@ class MytRpc:
         try:
             self._rpc.execCmd.argtypes = [ctypes.c_long, ctypes.c_int, ctypes.c_char_p]
             self._rpc.execCmd.restype = ctypes.c_void_p
-            ptr = self._rpc.execCmd(self._handle, ctypes.c_int(1), ctypes.c_char_p(cmd.encode("utf-8")))
+            ptr = self._rpc.execCmd(
+                self._handle, ctypes.c_int(1), ctypes.c_char_p(cmd.encode("utf-8"))
+            )
             if ptr is None:
                 return "", True
             text = self._owned_ptr_text(ptr)
@@ -311,7 +318,9 @@ class MytRpc:
     def take_capture(self) -> dict[str, object] | None:
         return self._capture_rgba("takeCaptrue")
 
-    def take_capture_ex(self, left: int, top: int, right: int, bottom: int) -> dict[str, object] | None:
+    def take_capture_ex(
+        self, left: int, top: int, right: int, bottom: int
+    ) -> dict[str, object] | None:
         return self._capture_rgba("takeCaptrueEx", int(left), int(top), int(right), int(bottom))
 
     def _capture_compressed(self, fn_name: str, *args: int) -> bytes | None:
@@ -322,7 +331,11 @@ class MytRpc:
             if fn is None:
                 return None
             data_len = ctypes.c_int(0)
-            fn.argtypes = [ctypes.c_long, *([ctypes.c_int] * len(args)), ctypes.POINTER(ctypes.c_int)]
+            fn.argtypes = [
+                ctypes.c_long,
+                *([ctypes.c_int] * len(args)),
+                ctypes.POINTER(ctypes.c_int),
+            ]
             fn.restype = ctypes.c_void_p
             ptr = fn(self._handle, *args, ctypes.byref(data_len))
             if not ptr or data_len.value <= 0:
@@ -458,7 +471,12 @@ class MytRpc:
         if self._rpc is None or self._handle <= 0:
             return False
         try:
-            self._rpc.touchClick.argtypes = [ctypes.c_long, ctypes.c_int, ctypes.c_int, ctypes.c_int]
+            self._rpc.touchClick.argtypes = [
+                ctypes.c_long,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+            ]
             self._rpc.touchClick.restype = ctypes.c_int
             return self._rpc.touchClick(self._handle, finger_id, x, y) == 1
         except Exception:
@@ -619,9 +637,28 @@ class MytRpc:
                 return False
             self._video_cb_ref = VIDEO_CB_FUNC(video_callback or _noop_video_cb)
             self._audio_cb_ref = AUDIO_CB_FUNC(audio_callback or _noop_audio_cb)
-            fn.argtypes = [ctypes.c_long, ctypes.c_int, ctypes.c_int, ctypes.c_int, VIDEO_CB_FUNC, AUDIO_CB_FUNC]
+            fn.argtypes = [
+                ctypes.c_long,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                VIDEO_CB_FUNC,
+                AUDIO_CB_FUNC,
+            ]
             fn.restype = ctypes.c_int
-            return int(fn(self._handle, int(width), int(height), int(bitrate), self._video_cb_ref, self._audio_cb_ref)) == 1
+            return (
+                int(
+                    fn(
+                        self._handle,
+                        int(width),
+                        int(height),
+                        int(bitrate),
+                        self._video_cb_ref,
+                        self._audio_cb_ref,
+                    )
+                )
+                == 1
+            )
         except Exception:
             return False
 
@@ -854,20 +891,34 @@ class MytRpc:
             fn = self._rpc_fn("BoundsEqual")
             if fn is None:
                 return False
-            fn.argtypes = [ctypes.c_longlong, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int]
+            fn.argtypes = [
+                ctypes.c_longlong,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+            ]
             fn(int(selector), int(left), int(top), int(right), int(bottom))
             return True
         except Exception:
             return False
 
-    def addQuery_BoundsInside(self, selector: int, left: int, top: int, right: int, bottom: int) -> bool:
+    def addQuery_BoundsInside(
+        self, selector: int, left: int, top: int, right: int, bottom: int
+    ) -> bool:
         if self._rpc is None or self._handle <= 0:
             return False
         try:
             fn = self._rpc_fn("BoundsInside")
             if fn is None:
                 return False
-            fn.argtypes = [ctypes.c_longlong, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int]
+            fn.argtypes = [
+                ctypes.c_longlong,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+            ]
             fn(int(selector), int(left), int(top), int(right), int(bottom))
             return True
         except Exception:
@@ -1053,10 +1104,26 @@ class MytRpc:
             top = ctypes.c_int(0)
             right = ctypes.c_int(0)
             bottom = ctypes.c_int(0)
-            ok = int(fn(int(node), ctypes.byref(left), ctypes.byref(top), ctypes.byref(right), ctypes.byref(bottom))) == 1
+            ok = (
+                int(
+                    fn(
+                        int(node),
+                        ctypes.byref(left),
+                        ctypes.byref(top),
+                        ctypes.byref(right),
+                        ctypes.byref(bottom),
+                    )
+                )
+                == 1
+            )
             if not ok:
                 return None
-            return {"left": int(left.value), "top": int(top.value), "right": int(right.value), "bottom": int(bottom.value)}
+            return {
+                "left": int(left.value),
+                "top": int(top.value),
+                "right": int(right.value),
+                "bottom": int(bottom.value),
+            }
         except Exception:
             return None
 
@@ -1067,7 +1134,11 @@ class MytRpc:
             fn = self._rpc_fn("getNodeNoundCenter")
             if fn is None:
                 return None
-            fn.argtypes = [ctypes.c_longlong, ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_int)]
+            fn.argtypes = [
+                ctypes.c_longlong,
+                ctypes.POINTER(ctypes.c_int),
+                ctypes.POINTER(ctypes.c_int),
+            ]
             fn.restype = ctypes.c_int
             x = ctypes.c_int(0)
             y = ctypes.c_int(0)

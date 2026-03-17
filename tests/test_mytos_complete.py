@@ -3,6 +3,7 @@
 Previously tested MytSdkClient methods that have been migrated to AndroidApiClient.
 Now validates the correct 30001 paths per official MYTOS API documentation.
 """
+
 import importlib
 from pathlib import Path
 
@@ -163,11 +164,18 @@ def test_mytos_actions_registered(monkeypatch):
     register_defaults()
 
     mytos_actions = [
-        "mytos.query_s5_proxy", "mytos.set_s5_proxy", "mytos.stop_s5_proxy",
-        "mytos.get_clipboard", "mytos.set_clipboard",
-        "mytos.screenshot", "mytos.download_file", "mytos.upload_file",
-        "mytos.set_language_country", "mytos.refresh_location",
-        "mytos.get_google_id", "mytos.install_magisk",
+        "mytos.query_s5_proxy",
+        "mytos.set_s5_proxy",
+        "mytos.stop_s5_proxy",
+        "mytos.get_clipboard",
+        "mytos.set_clipboard",
+        "mytos.screenshot",
+        "mytos.download_file",
+        "mytos.upload_file",
+        "mytos.set_language_country",
+        "mytos.refresh_location",
+        "mytos.get_google_id",
+        "mytos.install_magisk",
     ]
     for action in mytos_actions:
         assert reg.has(action), f"Missing action: {action}"

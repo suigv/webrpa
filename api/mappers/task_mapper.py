@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from core.task_store import TaskRecord
 from engine.plugin_loader import get_shared_plugin_loader
@@ -56,7 +56,7 @@ def _base_task_fields(record: TaskRecord) -> dict[str, object]:
         "ai_type": record.ai_type,
         "idempotency_key": record.idempotency_key,
         "status": TaskStatus(record.status),
-        "created_at": parse_datetime(record.created_at) or datetime.now(timezone.utc),
+        "created_at": parse_datetime(record.created_at) or datetime.now(UTC),
         "retry_count": record.retry_count,
         "max_retries": record.max_retries,
         "retry_backoff_seconds": record.retry_backoff_seconds,

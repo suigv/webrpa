@@ -21,6 +21,7 @@
 - `POST /api/runtime/execute`：debug/internal-only 直跑入口；同步执行 runtime payload，不创建 `/api/tasks` 托管任务、重试、取消、SSE 事件或指标
 - `POST /api/binding/analyze`：捕获 UI XML 并由 AI 建议识别特征与状态 ID
 - `POST /api/binding/draft`：汇总多条 UI 记录并生成 Python 探测代码
+- 其他控制面 API（配置/账号池/诊断等）详见 `docs/HTTP_API.md`，或启动后访问 `/docs` 查看 OpenAPI。
 - `GET /web`：控制台静态入口页面（smoke-backed）
 
 ### 2) 设备管理（`/api/devices`）

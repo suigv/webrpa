@@ -21,7 +21,9 @@ class _FakeProbeService:
         self.started: int = 0
         self.stopped: int = 0
 
-    def query_cloud_model_map(self, device_ip: str, refresh_if_missing: bool = False) -> dict[int, dict[str, object]]:
+    def query_cloud_model_map(
+        self, device_ip: str, refresh_if_missing: bool = False
+    ) -> dict[int, dict[str, object]]:
         self.calls.append((device_ip, refresh_if_missing))
         return self.model_map
 
@@ -100,7 +102,9 @@ def _disable_lifespan(monkeypatch: MonkeyPatch) -> None:
     monkeypatch.setattr(app.router, "lifespan_context", _noop_lifespan)
 
 
-def _patch_lifespan_services(monkeypatch: MonkeyPatch) -> tuple[_FakeController, _FakeDeviceManager, _FakeProbeService]:
+def _patch_lifespan_services(
+    monkeypatch: MonkeyPatch,
+) -> tuple[_FakeController, _FakeDeviceManager, _FakeProbeService]:
     fake_controller = _FakeController()
     fake_manager = _FakeDeviceManager()
     fake_probe = _FakeProbeService({})
@@ -239,7 +243,9 @@ def test_api_devices_list_preserves_payload_shape_for_available_only(monkeypatch
         ConfigLoader._config = backup
 
 
-def test_api_devices_available_only_filters_out_devices_without_available_clouds(monkeypatch: MonkeyPatch):
+def test_api_devices_available_only_filters_out_devices_without_available_clouds(
+    monkeypatch: MonkeyPatch,
+):
     _disable_lifespan(monkeypatch)
     backup = ConfigLoader._config
     try:

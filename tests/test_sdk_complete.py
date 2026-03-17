@@ -42,8 +42,18 @@ def test_sdk_core_endpoint_mapping(monkeypatch):
     assert ("GET", "/info/device", None, None) in captured
     assert ("GET", "/info", None, None) in captured
     assert ("POST", "/android/start", {"name": "android-01"}, None) in captured
-    assert ("POST", "/android/switchModel", {"name": "android-01", "modelId": "m1"}, None) in captured
-    assert ("POST", "/android/switchModel", {"name": "android-02", "localModel": "pixel"}, None) in captured
+    assert (
+        "POST",
+        "/android/switchModel",
+        {"name": "android-01", "modelId": "m1"},
+        None,
+    ) in captured
+    assert (
+        "POST",
+        "/android/switchModel",
+        {"name": "android-02", "localModel": "pixel"},
+        None,
+    ) in captured
     assert ("POST", "/link/ssh/changePwd", {"password": "pass123"}, None) in captured
 
 
@@ -109,7 +119,10 @@ def test_sdk_box_endpoint_mapping_expanded(monkeypatch, tmp_path):
     file_path = tmp_path / "package.tar"
     file_path.write_text("x", encoding="utf-8")
 
-    assert sdk.create_android({"name": "a-01", "imageUrl": "repo/a:v1", "dns": "223.5.5.5"})["ok"] is True
+    assert (
+        sdk.create_android({"name": "a-01", "imageUrl": "repo/a:v1", "dns": "223.5.5.5"})["ok"]
+        is True
+    )
     assert sdk.reset_android({"name": "a-01"})["ok"] is True
     assert sdk.delete_android("a-01")["ok"] is True
     assert sdk.delete_image("repo/a:v1")["ok"] is True
@@ -140,7 +153,12 @@ def test_sdk_box_endpoint_mapping_expanded(monkeypatch, tmp_path):
     assert sdk.start_lm_server()["ok"] is True
     assert sdk.stop_lm_server()["ok"] is True
 
-    assert ("POST", "/android", {"name": "a-01", "imageUrl": "repo/a:v1", "dns": "223.5.5.5"}, None) in calls
+    assert (
+        "POST",
+        "/android",
+        {"name": "a-01", "imageUrl": "repo/a:v1", "dns": "223.5.5.5"},
+        None,
+    ) in calls
     assert ("PUT", "/android", {"name": "a-01"}, None) in calls
     assert ("DELETE", "/android", {"name": "a-01"}, None) in calls
     assert ("DELETE", "/android/image", {"imageUrl": "repo/a:v1"}, None) in calls
@@ -167,10 +185,18 @@ def test_sdk_box_endpoint_mapping_expanded(monkeypatch, tmp_path):
     assert ("POST", "/lm/server/start", None, None) in calls
     assert ("POST", "/lm/server/stop", None, None) in calls
 
-    assert sdk.get_ssh_ws_url(username="root")["data"]["url"].startswith("ws://192.168.1.2:8000/link/ssh")
-    assert sdk.get_ssh_page_url(token="abc")["data"]["url"].startswith("http://192.168.1.2:8000/ssh")
-    assert sdk.get_container_exec_page_url(name="a-01")["data"]["url"].startswith("http://192.168.1.2:8000/container/exec")
-    assert sdk.get_container_exec_ws_url(name="a-01")["data"]["url"].startswith("ws://192.168.1.2:8000/link/exec")
+    assert sdk.get_ssh_ws_url(username="root")["data"]["url"].startswith(
+        "ws://192.168.1.2:8000/link/ssh"
+    )
+    assert sdk.get_ssh_page_url(token="abc")["data"]["url"].startswith(
+        "http://192.168.1.2:8000/ssh"
+    )
+    assert sdk.get_container_exec_page_url(name="a-01")["data"]["url"].startswith(
+        "http://192.168.1.2:8000/container/exec"
+    )
+    assert sdk.get_container_exec_ws_url(name="a-01")["data"]["url"].startswith(
+        "ws://192.168.1.2:8000/link/exec"
+    )
 
 
 def test_sdk_box_parameter_contracts(monkeypatch, tmp_path):
@@ -179,7 +205,10 @@ def test_sdk_box_parameter_contracts(monkeypatch, tmp_path):
     MytSdkClient = mod.MytSdkClient
 
     def fake_request_json(self, method, path, payload=None, query=None):
-        return {"ok": True, "data": {"method": method, "path": path, "payload": payload, "query": query}}
+        return {
+            "ok": True,
+            "data": {"method": method, "path": path, "payload": payload, "query": query},
+        }
 
     def fake_request_bytes(self, method, path, query=None):
         return {"ok": True, "data": b"bin"}

@@ -80,5 +80,7 @@ class ModelTraceStore:
                     continue
                 loaded = json.loads(item)
                 if isinstance(loaded, Mapping):
-                    records.append(cast(dict[str, object], {str(key): value for key, value in loaded.items()}))
+                    records.append(
+                        cast(dict[str, object], {str(key): value for key, value in loaded.items()})
+                    )
         return records

@@ -66,7 +66,9 @@ _DM_UNREAD_BINDING = NativeStateBinding(
     display_name="DM unread conversation",
     state_noun="state",
     supported_state_ids=("available", "missing", "unknown"),
-    normalize_state_id=lambda state_id: normalize_supported_state(state_id, ("available", "missing", "unknown")),
+    normalize_state_id=lambda state_id: normalize_supported_state(
+        state_id, ("available", "missing", "unknown")
+    ),
     state_id_from_action_result=extract_presence_state_id(
         present_state_id="available",
         missing_codes=("unread_dm_missing",),
@@ -79,7 +81,9 @@ _DM_LAST_MESSAGE_BINDING = NativeStateBinding(
     display_name="DM last message",
     state_noun="state",
     supported_state_ids=("available", "missing", "unknown"),
-    normalize_state_id=lambda state_id: normalize_supported_state(state_id, ("available", "missing", "unknown")),
+    normalize_state_id=lambda state_id: normalize_supported_state(
+        state_id, ("available", "missing", "unknown")
+    ),
     state_id_from_action_result=extract_presence_state_id(
         present_state_id="available",
         missing_codes=("dm_message_missing",),
@@ -92,7 +96,9 @@ _DM_LAST_OUTBOUND_BINDING = NativeStateBinding(
     display_name="DM last outbound message",
     state_noun="state",
     supported_state_ids=("available", "missing", "unknown"),
-    normalize_state_id=lambda state_id: normalize_supported_state(state_id, ("available", "missing", "unknown")),
+    normalize_state_id=lambda state_id: normalize_supported_state(
+        state_id, ("available", "missing", "unknown")
+    ),
     state_id_from_action_result=extract_presence_state_id(
         present_state_id="available",
         missing_codes=("dm_outbound_message_missing",),
@@ -105,7 +111,9 @@ _SEARCH_CANDIDATES_BINDING = NativeStateBinding(
     display_name="search candidates",
     state_noun="state",
     supported_state_ids=("available", "missing", "unknown"),
-    normalize_state_id=lambda state_id: normalize_supported_state(state_id, ("available", "missing", "unknown")),
+    normalize_state_id=lambda state_id: normalize_supported_state(
+        state_id, ("available", "missing", "unknown")
+    ),
     state_id_from_action_result=extract_presence_state_id(
         present_state_id="available",
         missing_codes=("no_candidates",),
@@ -118,7 +126,9 @@ _TIMELINE_CANDIDATES_BINDING = NativeStateBinding(
     display_name="timeline candidates",
     state_noun="state",
     supported_state_ids=("available", "missing", "unknown"),
-    normalize_state_id=lambda state_id: normalize_supported_state(state_id, ("available", "missing", "unknown")),
+    normalize_state_id=lambda state_id: normalize_supported_state(
+        state_id, ("available", "missing", "unknown")
+    ),
     state_id_from_action_result=extract_presence_state_id(
         present_state_id="available",
         missing_codes=("no_candidates",),
@@ -131,7 +141,9 @@ _FOLLOW_TARGETS_BINDING = NativeStateBinding(
     display_name="follow targets",
     state_noun="state",
     supported_state_ids=("available", "missing", "unknown"),
-    normalize_state_id=lambda state_id: normalize_supported_state(state_id, ("available", "missing", "unknown")),
+    normalize_state_id=lambda state_id: normalize_supported_state(
+        state_id, ("available", "missing", "unknown")
+    ),
     state_id_from_action_result=extract_presence_state_id(
         present_state_id="available",
         missing_codes=("follow_targets_missing",),

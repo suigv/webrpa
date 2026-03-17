@@ -4,10 +4,11 @@ models/system_settings.py
 Pydantic models for config/system.yaml.
 Single source of truth for system-level settings (services, paths, features).
 """
+
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
@@ -50,13 +51,9 @@ class LLMSettings(BaseModel):
             legacy_provider = data.get("provider", "openai")
             base_url = data.get("base_url", "https://api.openai.com/v1")
             model = data.get("model", "gpt-5.4")
-            
+
             data["providers"] = {
-                legacy_provider: {
-                    "base_url": base_url,
-                    "model": model,
-                    "provider_type": "openai"
-                }
+                legacy_provider: {"base_url": base_url, "model": model, "provider_type": "openai"}
             }
         return data
 
@@ -95,11 +92,7 @@ class VLMSettings(BaseModel):
             model = data.get("model", "vlm-model")
 
             data["providers"] = {
-                legacy_provider: {
-                    "base_url": base_url,
-                    "model": model,
-                    "provider_type": "standard"
-                }
+                legacy_provider: {"base_url": base_url, "model": model, "provider_type": "standard"}
             }
         return data
 

@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any
+
 from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
@@ -13,10 +14,11 @@ ActionCallable = Callable[[dict[str, object], "ExecutionContext"], "ActionResult
 
 class ActionMetadata(BaseModel):
     """Metadata describing an action's purpose and schema."""
+
     description: str = ""
-    params_schema: Optional[Dict[str, Any]] = None
-    returns_schema: Optional[Dict[str, Any]] = None
-    tags: List[str] = Field(default_factory=list)
+    params_schema: dict[str, Any] | None = None
+    returns_schema: dict[str, Any] | None = None
+    tags: list[str] = Field(default_factory=list)
 
 
 class ActionRegistry:
@@ -26,7 +28,9 @@ class ActionRegistry:
         self._actions: dict[str, ActionCallable] = {}
         self._metadata: dict[str, ActionMetadata] = {}
 
-    def register(self, name: str, handler: ActionCallable, metadata: ActionMetadata | None = None) -> None:
+    def register(
+        self, name: str, handler: ActionCallable, metadata: ActionMetadata | None = None
+    ) -> None:
         self._actions[name] = handler
         if metadata:
             self._metadata[name] = metadata
@@ -45,11 +49,7 @@ class ActionRegistry:
     def describe_all(self, tag: str | None = None) -> dict[str, ActionMetadata]:
         if not tag:
             return dict(self._metadata)
-        return {
-            name: meta
-            for name, meta in self._metadata.items()
-            if tag in meta.tags
-        }
+        return {name: meta for name, meta in self._metadata.items() if tag in meta.tags}
 
     def has(self, name: str) -> bool:
         return name in self._actions
@@ -77,6 +77,7 @@ def list_actions() -> list[str]:
     _ensure_defaults_registered()
     return sorted(_registry.list_actions())
 
+
 def get_registry() -> ActionRegistry:
     _ensure_defaults_registered()
     return _registry
@@ -88,7 +89,9 @@ def reset_registry() -> None:
     _defaults_registered = False
 
 
-def register_action(name: str, handler: ActionCallable, metadata: ActionMetadata | None = None) -> None:
+def register_action(
+    name: str, handler: ActionCallable, metadata: ActionMetadata | None = None
+) -> None:
     _registry.register(name, handler, metadata=metadata)
 
 
@@ -100,6 +103,7 @@ def resolve_action(name: str) -> ActionCallable:
 def register_defaults() -> None:
     """Register all built-in actions. Call once at engine startup."""
     from engine.actions.browser_actions import (
+        browser_add_cookies,
         browser_check_html,
         browser_click,
         browser_close,
@@ -107,29 +111,17 @@ def register_defaults() -> None:
         browser_input,
         browser_open,
         browser_wait_url,
-        browser_add_cookies,
     )
-    from .actions.credential_actions import credentials_load, credentials_checkout
-    from .actions.ui_actions import (
-        click, touch_down, touch_move, touch_up, swipe, long_click,
-        input_text, key_press,
-        create_selector, selector_add_query, selector_click_one, selector_exec_one,
-        selector_exec_all, selector_find_nodes, selector_get_nodes_size,
-        selector_get_node_by_index, selector_free, selector_free_nodes, selector_clear,
-        node_click, node_long_click, node_get_json, node_get_text, node_get_desc,
-        node_get_package, node_get_class, node_get_id, node_get_bound,
-        node_get_bound_center, node_get_parent, node_get_child_count, node_get_child,
-        dump_node_xml_ex, dumpNodeXml, selector_click_with_fallback,
-        app_open, app_stop, app_ensure_running, app_dismiss_popups, app_grant_permissions,
-        screenshot, capture_raw, capture_compressed,
-        check_connect_state, set_work_mode, use_new_node_mode,
-        start_video_stream, stop_video_stream,
-        get_display_rotate, get_sdk_version, exec_command,
-        CLICK_METADATA, SWIPE_METADATA, LONG_CLICK_METADATA,
-        INPUT_TEXT_METADATA, KEY_PRESS_METADATA,
-        CAPTURE_COMPRESSED_METADATA,
-        APP_OPEN_METADATA, APP_STOP_METADATA, APP_ENSURE_RUNNING_METADATA
+
+    from .actions.ai_actions import (
+        LLM_EVALUATE_METADATA,
+        LOCATE_POINT_METADATA,
+        VLM_EVALUATE_METADATA,
+        llm_evaluate,
+        locate_point,
+        vlm_evaluate,
     )
+    from .actions.credential_actions import credentials_checkout, credentials_load
     from .actions.login_actions import (
         click_selector_or_tap,
         fill_form,
@@ -137,15 +129,9 @@ def register_defaults() -> None:
         input_text_with_shell_fallback,
     )
     from .actions.navigation_actions import navigate_to
-    from .actions.ui_state_actions import (
-        browser_match_state,
-        browser_observe_transition,
-        browser_wait_until,
-        ui_match_state,
-        ui_observe_transition,
-        ui_wait_until,
-    )
     from .actions.sdk_actions import (
+        LOAD_SHARED_REQUIRED_METADATA,
+        SAVE_SHARED_METADATA,
         append_shared_unique,
         check_daily_limit,
         check_processed,
@@ -159,40 +145,103 @@ def register_defaults() -> None:
         increment_daily_counter,
         increment_shared_counter,
         is_text_blacklisted,
-        mark_processed,
-        pick_candidate,
-        pick_weighted_keyword,
-        plan_follow_rounds,
-        save_blogger_candidates,
-        save_blogger_candidate,
+        load_shared_optional,
+        load_shared_required,
         load_ui_scheme,
         load_ui_selector,
         load_ui_selectors,
         load_ui_value,
-        load_shared_optional,
-        load_shared_required,
+        mark_processed,
+        pick_candidate,
+        pick_weighted_keyword,
+        plan_follow_rounds,
         resolve_first_non_empty,
+        save_blogger_candidate,
+        save_blogger_candidates,
         save_shared,
-        SAVE_SHARED_METADATA,
-        LOAD_SHARED_REQUIRED_METADATA
     )
     from .actions.state_actions import (
         collect_blogger_candidates,
         detect_login_stage,
         extract_dm_last_message,
         extract_dm_last_outbound_message,
-        extract_unread_dm_targets,
         extract_follow_targets,
-        open_candidate,
         extract_search_candidates,
         extract_timeline_candidates,
+        extract_unread_dm_targets,
         follow_visible_targets,
+        open_candidate,
         open_first_unread_dm,
         wait_login_stage,
     )
-    from .actions.ai_actions import (
-        llm_evaluate, vlm_evaluate, locate_point,
-        LLM_EVALUATE_METADATA, VLM_EVALUATE_METADATA, LOCATE_POINT_METADATA
+    from .actions.ui_actions import (
+        APP_ENSURE_RUNNING_METADATA,
+        APP_OPEN_METADATA,
+        APP_STOP_METADATA,
+        CAPTURE_COMPRESSED_METADATA,
+        CLICK_METADATA,
+        INPUT_TEXT_METADATA,
+        KEY_PRESS_METADATA,
+        LONG_CLICK_METADATA,
+        SWIPE_METADATA,
+        app_dismiss_popups,
+        app_ensure_running,
+        app_grant_permissions,
+        app_open,
+        app_stop,
+        capture_compressed,
+        capture_raw,
+        check_connect_state,
+        click,
+        create_selector,
+        dump_node_xml_ex,
+        exec_command,
+        get_display_rotate,
+        get_sdk_version,
+        input_text,
+        key_press,
+        long_click,
+        node_click,
+        node_get_bound,
+        node_get_bound_center,
+        node_get_child,
+        node_get_child_count,
+        node_get_class,
+        node_get_desc,
+        node_get_id,
+        node_get_json,
+        node_get_package,
+        node_get_parent,
+        node_get_text,
+        node_long_click,
+        screenshot,
+        selector_add_query,
+        selector_clear,
+        selector_click_one,
+        selector_click_with_fallback,
+        selector_exec_all,
+        selector_exec_one,
+        selector_find_nodes,
+        selector_free,
+        selector_free_nodes,
+        selector_get_node_by_index,
+        selector_get_nodes_size,
+        set_work_mode,
+        start_video_stream,
+        stop_video_stream,
+        swipe,
+        touch_down,
+        touch_move,
+        touch_up,
+        use_new_node_mode,
+    )
+    from .actions.ui_state_actions import (
+        browser_match_state,
+        browser_observe_transition,
+        browser_wait_until,
+        ui_match_state,
+        ui_observe_transition,
+        ui_wait_until,
     )
 
     _registry.register("browser.open", browser_open)
@@ -209,7 +258,9 @@ def register_defaults() -> None:
     _registry.register("credentials.load", credentials_load)
     _registry.register("credentials.checkout", credentials_checkout)
     _registry.register("core.save_shared", save_shared, metadata=SAVE_SHARED_METADATA)
-    _registry.register("core.load_shared_required", load_shared_required, metadata=LOAD_SHARED_REQUIRED_METADATA)
+    _registry.register(
+        "core.load_shared_required", load_shared_required, metadata=LOAD_SHARED_REQUIRED_METADATA
+    )
     _registry.register("core.load_shared_optional", load_shared_optional)
     _registry.register("core.append_shared_unique", append_shared_unique)
     _registry.register("core.increment_shared_counter", increment_shared_counter)
@@ -293,19 +344,25 @@ def register_defaults() -> None:
     _registry.register("ui.capture_compressed", capture_compressed)
     _registry.register("ui.click_selector_or_tap", click_selector_or_tap)
     _registry.register("ui.input_text_with_shell_fallback", input_text_with_shell_fallback)
-    _registry.register("ui.focus_and_input_with_shell_fallback", focus_and_input_with_shell_fallback)
+    _registry.register(
+        "ui.focus_and_input_with_shell_fallback", focus_and_input_with_shell_fallback
+    )
     _registry.register("ui.fill_form", fill_form)
     _registry.register("ui.match_state", ui_match_state)
     _registry.register("ui.wait_until", ui_wait_until)
     _registry.register("ui.observe_transition", ui_observe_transition)
     _registry.register("app.open", app_open, metadata=APP_OPEN_METADATA)
     _registry.register("app.stop", app_stop, metadata=APP_STOP_METADATA)
-    _registry.register("app.ensure_running", app_ensure_running, metadata=APP_ENSURE_RUNNING_METADATA)
+    _registry.register(
+        "app.ensure_running", app_ensure_running, metadata=APP_ENSURE_RUNNING_METADATA
+    )
     _registry.register("app.grant_permissions", app_grant_permissions)
     _registry.register("app.dismiss_popups", app_dismiss_popups)
     _registry.register("device.screenshot", screenshot)
     _registry.register("device.capture_raw", capture_raw)
-    _registry.register("device.capture_compressed", capture_compressed, metadata=CAPTURE_COMPRESSED_METADATA)
+    _registry.register(
+        "device.capture_compressed", capture_compressed, metadata=CAPTURE_COMPRESSED_METADATA
+    )
     _registry.register("device.get_display_rotate", get_display_rotate)
     _registry.register("device.get_sdk_version", get_sdk_version)
     _registry.register("device.check_connect_state", check_connect_state)
@@ -318,29 +375,58 @@ def register_defaults() -> None:
         _registry.register(action_name, handler)
 
     from engine.actions.android_api_actions import (
-        android_get_clipboard, android_set_clipboard,
-        android_query_proxy, android_set_proxy, android_stop_proxy, android_set_proxy_filter,
-        android_screenshot,
-        android_download_file, android_upload_file,
-        android_set_language, android_refresh_location, android_get_google_adid,
-        android_receive_sms, android_add_contact, android_get_container_info,
-        android_set_key_block, android_set_background_keepalive,
-        android_backup_app, android_restore_app, android_upload_google_cert,
-        android_batch_install_apps, android_export_app_info, android_import_app_info,
-        android_get_call_records, android_ip_geolocation,
-        android_query_adb, android_switch_adb,
-        android_get_google_id, android_set_google_id,
-        android_install_magisk, android_camera_hot_start, android_autoclick,
-        android_get_root_allowed_apps, android_set_root_allowed_app,
-        GET_CLIPBOARD_METADATA, SET_CLIPBOARD_METADATA,
-        QUERY_PROXY_METADATA, SET_PROXY_METADATA,
+        ADD_CONTACT_METADATA,
+        BACKUP_APP_METADATA,
+        GET_CLIPBOARD_METADATA,
+        QUERY_PROXY_METADATA,
+        RECEIVE_SMS_METADATA,
+        RESTORE_APP_METADATA,
         SCREENSHOT_METADATA,
+        SET_CLIPBOARD_METADATA,
         SET_LANGUAGE_METADATA,
-        RECEIVE_SMS_METADATA, ADD_CONTACT_METADATA,
-        BACKUP_APP_METADATA, RESTORE_APP_METADATA,
+        SET_PROXY_METADATA,
+        android_add_contact,
+        android_autoclick,
+        android_backup_app,
+        android_batch_install_apps,
+        android_camera_hot_start,
+        android_download_file,
+        android_export_app_info,
+        android_get_call_records,
+        android_get_clipboard,
+        android_get_container_info,
+        android_get_google_adid,
+        android_get_google_id,
+        android_get_root_allowed_apps,
+        android_import_app_info,
+        android_install_magisk,
+        android_ip_geolocation,
+        android_query_adb,
+        android_query_proxy,
+        android_receive_sms,
+        android_refresh_location,
+        android_restore_app,
+        android_screenshot,
+        android_set_background_keepalive,
+        android_set_clipboard,
+        android_set_google_id,
+        android_set_key_block,
+        android_set_language,
+        android_set_proxy,
+        android_set_proxy_filter,
+        android_set_root_allowed_app,
+        android_stop_proxy,
+        android_switch_adb,
+        android_upload_file,
+        android_upload_google_cert,
     )
-    _registry.register("android.get_clipboard", android_get_clipboard, metadata=GET_CLIPBOARD_METADATA)
-    _registry.register("android.set_clipboard", android_set_clipboard, metadata=SET_CLIPBOARD_METADATA)
+
+    _registry.register(
+        "android.get_clipboard", android_get_clipboard, metadata=GET_CLIPBOARD_METADATA
+    )
+    _registry.register(
+        "android.set_clipboard", android_set_clipboard, metadata=SET_CLIPBOARD_METADATA
+    )
     _registry.register("android.query_proxy", android_query_proxy, metadata=QUERY_PROXY_METADATA)
     _registry.register("android.set_proxy", android_set_proxy, metadata=SET_PROXY_METADATA)
     _registry.register("android.stop_proxy", android_stop_proxy)

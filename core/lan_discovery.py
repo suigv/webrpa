@@ -3,7 +3,6 @@ import socket
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Optional
 
 from .config_loader import get_discovery_enabled, get_discovery_subnet, get_sdk_port
 
@@ -22,10 +21,10 @@ class LanDeviceDiscovery:
     def __init__(self) -> None:
         if not hasattr(self, "_initialized"):
             self._discovered_ips: list[str] = []
-            self._last_scan_at: Optional[float] = None
+            self._last_scan_at: float | None = None
             self._scan_lock = threading.Lock()
             self._stop_event = threading.Event()
-            self._thread: Optional[threading.Thread] = None
+            self._thread: threading.Thread | None = None
             self._scan_interval_seconds = 20.0
             self._connect_timeout_seconds = 0.2
             self._max_workers = 128
@@ -66,10 +65,7 @@ class LanDeviceDiscovery:
             return []
         if network.prefixlen < 24:
             network = ipaddress.ip_network(f"{network.network_address}/24", strict=False)
-        return [
-            str(ip) for ip in network.hosts()
-            if not ipaddress.ip_address(ip).is_loopback
-        ]
+        return [str(ip) for ip in network.hosts() if not ipaddress.ip_address(ip).is_loopback]
 
     def _probe_ip(self, ip: str, port: int) -> bool:
         try:
@@ -122,6 +118,6 @@ class LanDeviceDiscovery:
         ips = self.get_discovered_ips()
         return {str(index): ip for index, ip in enumerate(ips, start=1)}
 
-    def get_last_scan_at(self) -> Optional[float]:
+    def get_last_scan_at(self) -> float | None:
         with self._scan_lock:
             return self._last_scan_at

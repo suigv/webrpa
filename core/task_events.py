@@ -2,15 +2,15 @@ from __future__ import annotations
 
 import json
 import sqlite3
-import threading
 from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from core.paths import task_db_path
 from core.base_store import BaseStore
+from core.paths import task_db_path
 
 
 def _db_path() -> Path:
@@ -18,7 +18,7 @@ def _db_path() -> Path:
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 @dataclass
@@ -44,9 +44,8 @@ class TaskEventStore(BaseStore):
 
     def _notify(self, event: TaskEvent) -> None:
         for observer in self._observers:
-            try:
+            with suppress(Exception):
                 observer(event)
-            except Exception: pass
 
     def init_schema(self) -> None:
         with self._connect() as conn:
@@ -75,7 +74,7 @@ class TaskEventStore(BaseStore):
     ) -> int:
         now = _now_iso()
         payload_json = json.dumps(payload, ensure_ascii=False)
-        
+
         sql = """
             INSERT INTO task_events (task_id, event_type, payload_json, created_at)
             VALUES (?, ?, ?, ?)
@@ -88,7 +87,9 @@ class TaskEventStore(BaseStore):
             self._notify(TaskEvent(event_id, task_id, event_type, payload, now))
             return event_id
 
-    def list_events(self, task_id: str, after_event_id: int = 0, limit: int = 200) -> list[TaskEvent]:
+    def list_events(
+        self, task_id: str, after_event_id: int = 0, limit: int = 200
+    ) -> list[TaskEvent]:
         with self._connect() as conn:
             rows = conn.execute(
                 """
@@ -100,7 +101,7 @@ class TaskEventStore(BaseStore):
                 """,
                 (task_id, int(after_event_id), int(limit)),
             ).fetchall()
-            
+
         output: list[TaskEvent] = []
         for row in rows:
             output.append(

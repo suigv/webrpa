@@ -2,12 +2,14 @@
 
 from typing import cast
 
-from api.routes import config as config_route
 import core.config_loader as config_loader
+from api.routes import config as config_route
 from models.config import HumanizedConfigSchema
 
 
-def test_config_route_serializes_humanized_subset_and_legacy_fields_from_normalized_config() -> None:
+def test_config_route_serializes_humanized_subset_and_legacy_fields_from_normalized_config() -> (
+    None
+):
     backup = config_loader.ConfigLoader._config
     try:
         config_loader.ConfigLoader._config = config_loader.normalize_config(

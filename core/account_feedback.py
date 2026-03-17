@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from core.data_store import read_lines, write_lines
 
@@ -66,7 +67,9 @@ class AccountFeedbackService:
 
     def _target_status_for_error(self, error: str) -> str | None:
         error_lower = error.lower()
-        if any(token in error_lower for token in ["wrong password", "incorrect", "bad credentials"]):
+        if any(
+            token in error_lower for token in ["wrong password", "incorrect", "bad credentials"]
+        ):
             return "bad_auth"
         if any(token in error_lower for token in ["suspended", "banned", "locked"]):
             return "banned"

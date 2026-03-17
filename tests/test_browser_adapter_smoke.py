@@ -17,7 +17,9 @@ def test_browser_adapter_missing_dependency_error_code(monkeypatch):
         raise AssertionError(f"unexpected import: {name}")
 
     monkeypatch.setattr(browser_client_module.importlib, "import_module", _fake_import)
-    monkeypatch.setattr(browser_client_module, "_detect_browser_binary", lambda: "/usr/bin/chromium")
+    monkeypatch.setattr(
+        browser_client_module, "_detect_browser_binary", lambda: "/usr/bin/chromium"
+    )
 
     client = BrowserClient()
     assert client.available is False
@@ -55,7 +57,9 @@ def test_browser_adapter_available_when_dependencies_and_binary_present(monkeypa
         raise AssertionError(f"unexpected import: {name}")
 
     monkeypatch.setattr(browser_client_module.importlib, "import_module", _fake_import)
-    monkeypatch.setattr(browser_client_module, "_detect_browser_binary", lambda: "/usr/bin/chromium")
+    monkeypatch.setattr(
+        browser_client_module, "_detect_browser_binary", lambda: "/usr/bin/chromium"
+    )
 
     client = BrowserClient()
     assert client.available is True

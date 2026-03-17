@@ -47,7 +47,9 @@ class MonkeyPatchLike(Protocol):
     def setattr(self, target: str, value: object) -> None: ...
 
 
-def test_browser_ui_state_adapter_matches_exists_and_keeps_lazy_context(monkeypatch: MonkeyPatchLike) -> None:
+def test_browser_ui_state_adapter_matches_exists_and_keeps_lazy_context(
+    monkeypatch: MonkeyPatchLike,
+) -> None:
     created: list[FakeBrowser] = []
 
     def _fake_browser_client_class():
@@ -58,7 +60,9 @@ def test_browser_ui_state_adapter_matches_exists_and_keeps_lazy_context(monkeypa
 
         return _Factory
 
-    monkeypatch.setattr("engine.ui_state_browser_service._load_browser_client_class", _fake_browser_client_class)
+    monkeypatch.setattr(
+        "engine.ui_state_browser_service._load_browser_client_class", _fake_browser_client_class
+    )
     service = BrowserUIStateService()
     context = ExecutionContext(payload={})
 
@@ -93,7 +97,9 @@ def test_browser_ui_state_adapter_matches_url_via_wait_primitive() -> None:
     context = ExecutionContext(payload={})
     context.browser = browser
 
-    result = service.wait_until(context, expected_state_ids=["url:/home"], timeout_ms=2000, interval_ms=250)
+    result = service.wait_until(
+        context, expected_state_ids=["url:/home"], timeout_ms=2000, interval_ms=250
+    )
 
     assert result.ok is True
     assert result.operation == "wait_until"
@@ -106,9 +112,13 @@ def test_browser_ui_state_adapter_returns_no_match_without_mutating_context_vars
     service = BrowserUIStateService()
     context = ExecutionContext(payload={})
     context.vars["sentinel"] = "keep"
-    context.browser = FakeBrowser(existing={"#other"}, html="<body>Other</body>", url="https://example.com/login")
+    context.browser = FakeBrowser(
+        existing={"#other"}, html="<body>Other</body>", url="https://example.com/login"
+    )
 
-    result = service.match_state(context, expected_state_ids=["exists:#missing", "html:welcome", "url:/home"])
+    result = service.match_state(
+        context, expected_state_ids=["exists:#missing", "html:welcome", "url:/home"]
+    )
 
     assert result.ok is False
     assert result.code == "no_match"
@@ -124,7 +134,9 @@ def test_browser_ui_state_adapter_returns_timeout_for_unmet_url_wait() -> None:
     context = ExecutionContext(payload={})
     context.browser = browser
 
-    result = service.wait_until(context, expected_state_ids=["url:/home"], timeout_ms=3000, interval_ms=200)
+    result = service.wait_until(
+        context, expected_state_ids=["url:/home"], timeout_ms=3000, interval_ms=200
+    )
 
     assert result.ok is False
     assert result.code == "timeout"
@@ -134,15 +146,23 @@ def test_browser_ui_state_adapter_returns_timeout_for_unmet_url_wait() -> None:
     assert browser.wait_calls == [("/home", 3)]
 
 
-def test_browser_ui_state_adapter_returns_unavailable_error_without_caching_browser(monkeypatch: MonkeyPatchLike) -> None:
+def test_browser_ui_state_adapter_returns_unavailable_error_without_caching_browser(
+    monkeypatch: MonkeyPatchLike,
+) -> None:
     def _fake_browser_client_class():
         class _Factory(FakeBrowser):
             def __init__(self):
-                super().__init__(available=False, error="browser runtime missing", error_code="browser_unavailable")
+                super().__init__(
+                    available=False,
+                    error="browser runtime missing",
+                    error_code="browser_unavailable",
+                )
 
         return _Factory
 
-    monkeypatch.setattr("engine.ui_state_browser_service._load_browser_client_class", _fake_browser_client_class)
+    monkeypatch.setattr(
+        "engine.ui_state_browser_service._load_browser_client_class", _fake_browser_client_class
+    )
     service = BrowserUIStateService()
     context = ExecutionContext(payload={})
 

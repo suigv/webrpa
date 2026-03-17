@@ -1,8 +1,7 @@
 # pyright: reportUnknownMemberType=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportUnknownVariableType=false, reportUnknownArgumentType=false, reportUnknownLambdaType=false, reportPrivateUsage=false
-from types import SimpleNamespace
-
 import ctypes
 import importlib
+from types import SimpleNamespace
 
 from hardware_adapters.mytRpc import MytRpc
 
@@ -134,7 +133,9 @@ def test_ui_core_actions_success(monkeypatch):
     ui_actions = _load_ui_actions_module()
     ExecutionContext = _load_execution_context()
     monkeypatch.setattr(ui_actions, "MytRpc", FakeRpc)
-    ctx = ExecutionContext(payload={"device_ip": "192.168.1.2", "cloud_index": 1, "cloud_machines_per_device": 2})
+    ctx = ExecutionContext(
+        payload={"device_ip": "192.168.1.2", "cloud_index": 1, "cloud_machines_per_device": 2}
+    )
 
     assert ui_actions.click({"x": 100, "y": 200}, ctx).ok is True
     assert ui_actions.touch_down({"x": 100, "y": 200}, ctx).ok is True
@@ -157,7 +158,10 @@ def test_ui_core_actions_success(monkeypatch):
     assert ui_actions.get_display_rotate({}, ctx).ok is True
     assert ui_actions.set_work_mode({"mode": 1}, ctx).ok is True
     assert ui_actions.use_new_node_mode({"enabled": True}, ctx).ok is True
-    assert ui_actions.start_video_stream({"width": 320, "height": 640, "bitrate": 20000}, ctx).ok is True
+    assert (
+        ui_actions.start_video_stream({"width": 320, "height": 640, "bitrate": 20000}, ctx).ok
+        is True
+    )
     assert ui_actions.stop_video_stream({}, ctx).ok is True
     assert ui_actions.create_selector({}, ctx).ok is True
 
@@ -182,7 +186,21 @@ def test_rpc_node_helpers():
     ui_actions = _load_ui_actions_module()
     parent = SimpleNamespace(id="parent")
     children = [SimpleNamespace(id="c1"), SimpleNamespace(id="c2")]
-    node = ui_actions.RpcNode(SimpleNamespace(text="t", id="i", class_name="c", package="p", desc="d", bound={"left": 0, "top": 0, "right": 10, "bottom": 20}, children=children, get_node_parent=lambda: parent, Click_events=lambda: True, longClick_events=lambda: True, getNodeJson=lambda: "{}"))
+    node = ui_actions.RpcNode(
+        SimpleNamespace(
+            text="t",
+            id="i",
+            class_name="c",
+            package="p",
+            desc="d",
+            bound={"left": 0, "top": 0, "right": 10, "bottom": 20},
+            children=children,
+            get_node_parent=lambda: parent,
+            Click_events=lambda: True,
+            longClick_events=lambda: True,
+            getNodeJson=lambda: "{}",
+        )
+    )
     assert node.get_node_text() == "t"
     assert node.get_node_bound_center() == {"x": 5, "y": 10}
     assert node.get_node_parent().id == "parent"

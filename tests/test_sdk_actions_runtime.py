@@ -63,7 +63,13 @@ def test_sdk_action_invocation_maps_to_client(monkeypatch):
     ExecutionContext = _load_execution_context()
 
     class FakeSdkClient:
-        def __init__(self, device_ip: str, sdk_port: int = 8000, timeout_seconds: float = 30.0, retries: int = 3):
+        def __init__(
+            self,
+            device_ip: str,
+            sdk_port: int = 8000,
+            timeout_seconds: float = 30.0,
+            retries: int = 3,
+        ):
             self.device_ip = device_ip
             self.sdk_port = sdk_port
 
@@ -71,7 +77,9 @@ def test_sdk_action_invocation_maps_to_client(monkeypatch):
             return {"ok": True, "data": {"ip": self.device_ip, "port": self.sdk_port}}
 
     class FakeAndroidApiClient:
-        def __init__(self, device_ip: str, api_port: int, timeout_seconds: float = 30.0, retries: int = 3):
+        def __init__(
+            self, device_ip: str, api_port: int, timeout_seconds: float = 30.0, retries: int = 3
+        ):
             self.device_ip = device_ip
             self.api_port = api_port
 
@@ -90,7 +98,9 @@ def test_sdk_action_invocation_maps_to_client(monkeypatch):
     monkeypatch.setattr(mod, "_registry", reg)
     register_defaults()
 
-    ctx = ExecutionContext(payload={"device_ip": "192.168.1.8", "sdk_port": 8010}, runtime={"api_port": 30001})
+    ctx = ExecutionContext(
+        payload={"device_ip": "192.168.1.8", "sdk_port": 8010}, runtime={"api_port": 30001}
+    )
     res1 = reg.resolve("sdk.get_device_info")({}, ctx)
     assert res1.ok is True
     assert res1.data["result"]["data"]["ip"] == "192.168.1.8"

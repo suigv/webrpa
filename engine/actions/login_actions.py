@@ -42,7 +42,9 @@ def click_selector_or_tap(params: dict[str, object], context: ExecutionContext) 
     return fallback_result
 
 
-def input_text_with_shell_fallback(params: dict[str, object], context: ExecutionContext) -> ActionResult:
+def input_text_with_shell_fallback(
+    params: dict[str, object], context: ExecutionContext
+) -> ActionResult:
     from engine.actions import ui_actions
 
     text = str(params.get("text") or "")
@@ -75,7 +77,9 @@ def input_text_with_shell_fallback(params: dict[str, object], context: Execution
     return shell_result
 
 
-def focus_and_input_with_shell_fallback(params: dict[str, object], context: ExecutionContext) -> ActionResult:
+def focus_and_input_with_shell_fallback(
+    params: dict[str, object], context: ExecutionContext
+) -> ActionResult:
     focus_result = click_selector_or_tap(params, context)
     input_result = input_text_with_shell_fallback(params, context)
     if not input_result.ok:
@@ -146,7 +150,9 @@ def _resolve_credential_value(field: dict[str, object], context: ExecutionContex
     return str(field.get("text") or "").strip()
 
 
-def _resolve_field_text(field: dict[str, object], context: ExecutionContext) -> tuple[str, str | None]:
+def _resolve_field_text(
+    field: dict[str, object], context: ExecutionContext
+) -> tuple[str, str | None]:
     text = _resolve_credential_value(field, context)
     if text:
         return text, None
@@ -167,7 +173,9 @@ def _clear_field(field: dict[str, object], context: ExecutionContext) -> ActionR
 
     command = str(clear_config.get("command") or "").strip()
     if command:
-        return ui_actions.exec_command({"device_ip": field.get("device_ip"), "command": command}, context)
+        return ui_actions.exec_command(
+            {"device_ip": field.get("device_ip"), "command": command}, context
+        )
 
     key = str(clear_config.get("key") or "").strip().lower()
     if key:
@@ -183,12 +191,16 @@ def _clear_field(field: dict[str, object], context: ExecutionContext) -> ActionR
         presses = max(presses_value, 1)
         result = ActionResult(ok=True, code="ok", data={"presses": 0})
         for _ in range(presses):
-            result = ui_actions.key_press({"device_ip": field.get("device_ip"), "key": key}, context)
+            result = ui_actions.key_press(
+                {"device_ip": field.get("device_ip"), "key": key}, context
+            )
             if not result.ok:
                 return result
         return result
 
-    return ActionResult(ok=False, code="invalid_params", message="clear.command or clear.key is required")
+    return ActionResult(
+        ok=False, code="invalid_params", message="clear.command or clear.key is required"
+    )
 
 
 def _masked_or_exact_match(expected: str, observed_values: list[str]) -> bool:
@@ -204,9 +216,13 @@ def _masked_or_exact_match(expected: str, observed_values: list[str]) -> bool:
     return False
 
 
-def _verify_field_input(field: dict[str, object], text: str, context: ExecutionContext) -> ActionResult:
+def _verify_field_input(
+    field: dict[str, object], text: str, context: ExecutionContext
+) -> ActionResult:
     verify = field.get("verify")
-    verify_config: dict[str, object] = cast(dict[str, object], verify) if isinstance(verify, dict) else {}
+    verify_config: dict[str, object] = (
+        cast(dict[str, object], verify) if isinstance(verify, dict) else {}
+    )
     mode = str(verify_config.get("mode") or "").strip().lower()
     if not mode:
         credential = str(field.get("credential") or "").strip().lower()
@@ -235,7 +251,9 @@ def _verify_field_input(field: dict[str, object], text: str, context: ExecutionC
     elif mode == "masked_or_exact":
         matched = _masked_or_exact_match(expected, observed_values)
     else:
-        return ActionResult(ok=False, code="invalid_params", message=f"unsupported verify.mode: {mode}")
+        return ActionResult(
+            ok=False, code="invalid_params", message=f"unsupported verify.mode: {mode}"
+        )
 
     if matched:
         return ActionResult(
@@ -263,12 +281,16 @@ def _verify_field_input(field: dict[str, object], text: str, context: ExecutionC
     )
 
 
-def _run_allowed_state_check(params: dict[str, object], context: ExecutionContext) -> ActionResult | None:
+def _run_allowed_state_check(
+    params: dict[str, object], context: ExecutionContext
+) -> ActionResult | None:
     allowed_state = params.get("allowed_state")
     if not allowed_state:
         return None
     if not isinstance(allowed_state, dict):
-        return ActionResult(ok=False, code="invalid_params", message="allowed_state must be an object")
+        return ActionResult(
+            ok=False, code="invalid_params", message="allowed_state must be an object"
+        )
 
     result = _ui_match_state(cast(dict[str, object], allowed_state), context)
     if result.ok:
@@ -281,7 +303,9 @@ def _run_allowed_state_check(params: dict[str, object], context: ExecutionContex
     )
 
 
-def _build_field_params(base_params: dict[str, object], field: dict[str, object], *, text: str) -> dict[str, object]:
+def _build_field_params(
+    base_params: dict[str, object], field: dict[str, object], *, text: str
+) -> dict[str, object]:
     field_params = dict(base_params)
     field_params.update(field)
     field_params["text"] = text
@@ -304,7 +328,9 @@ def _submit_form(params: dict[str, object], context: ExecutionContext) -> Action
 
     key = str(submit_params.get("key") or "").strip().lower()
     if key:
-        return ui_actions.key_press({"device_ip": submit_params.get("device_ip"), "key": key}, context)
+        return ui_actions.key_press(
+            {"device_ip": submit_params.get("device_ip"), "key": key}, context
+        )
 
     return ActionResult(ok=False, code="missing_submit_target", message="submit target is required")
 
@@ -312,7 +338,9 @@ def _submit_form(params: dict[str, object], context: ExecutionContext) -> Action
 def fill_form(params: dict[str, object], context: ExecutionContext) -> ActionResult:
     raw_fields = params.get("fields")
     if not isinstance(raw_fields, list) or not raw_fields:
-        return ActionResult(ok=False, code="invalid_params", message="fields must be a non-empty list")
+        return ActionResult(
+            ok=False, code="invalid_params", message="fields must be a non-empty list"
+        )
 
     allowed_state_result = _run_allowed_state_check(params, context)
     if allowed_state_result is not None and not allowed_state_result.ok:
@@ -322,7 +350,9 @@ def fill_form(params: dict[str, object], context: ExecutionContext) -> ActionRes
     field_results: list[dict[str, object]] = []
     for raw_field in cast(list[object], raw_fields):
         if not isinstance(raw_field, dict):
-            return ActionResult(ok=False, code="invalid_params", message="each field must be an object")
+            return ActionResult(
+                ok=False, code="invalid_params", message="each field must be an object"
+            )
         field = dict(cast(dict[str, object], raw_field))
         text, error_message = _resolve_field_text(field, context)
         if error_message:
@@ -372,7 +402,9 @@ def fill_form(params: dict[str, object], context: ExecutionContext) -> ActionRes
     wait_for_state = params.get("wait_for_state")
     if wait_for_state:
         if not isinstance(wait_for_state, dict):
-            return ActionResult(ok=False, code="invalid_params", message="wait_for_state must be an object")
+            return ActionResult(
+                ok=False, code="invalid_params", message="wait_for_state must be an object"
+            )
         wait_result = _ui_wait_until(cast(dict[str, object], wait_for_state), context)
         if not wait_result.ok:
             return wait_result

@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from contextlib import AbstractContextManager
 import threading
-from typing import Optional
+from contextlib import AbstractContextManager, suppress
 
 import anyio
 from anyio.from_thread import start_blocking_portal
@@ -11,7 +10,7 @@ from anyio.from_thread import start_blocking_portal
 class WaitSignal:
     """Thread-safe wait/notify bridge built on anyio.Event."""
 
-    def __init__(self, *, name: Optional[str] = None) -> None:
+    def __init__(self, *, name: str | None = None) -> None:
         self._lock = threading.Lock()
         self._closed = False
         self._portal_cm: AbstractContextManager = start_blocking_portal(name=name)
@@ -39,19 +38,15 @@ class WaitSignal:
             if self._closed:
                 return
             event = self._event
-        try:
+        with suppress(RuntimeError):
             self._portal.call(event.set)
-        except RuntimeError:
-            pass
 
     def reset(self) -> None:
         with self._lock:
             if self._closed:
                 return
-            try:
+            with suppress(RuntimeError):
                 self._event = self._portal.call(anyio.Event)
-            except RuntimeError:
-                pass
 
     def close(self) -> None:
         with self._lock:
@@ -59,7 +54,5 @@ class WaitSignal:
                 return
             self._closed = True
             portal_cm = self._portal_cm
-        try:
+        with suppress(Exception):
             portal_cm.__exit__(None, None, None)
-        except Exception:
-            pass

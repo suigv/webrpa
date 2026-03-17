@@ -239,8 +239,18 @@ def test_llm_client_retries_empty_model_output():
 
     provider = _SequencedProvider(
         [
-            {"model": DEFAULT_LLM_MODEL, "output_text": "", "finish_reason": "stop", "provider_request_id": "resp-empty"},
-            {"model": DEFAULT_LLM_MODEL, "output_text": '{"done": false}', "finish_reason": "stop", "provider_request_id": "resp-ok"},
+            {
+                "model": DEFAULT_LLM_MODEL,
+                "output_text": "",
+                "finish_reason": "stop",
+                "provider_request_id": "resp-empty",
+            },
+            {
+                "model": DEFAULT_LLM_MODEL,
+                "output_text": '{"done": false}',
+                "finish_reason": "stop",
+                "provider_request_id": "resp-ok",
+            },
         ]
     )
     client = LLMClient(
@@ -272,7 +282,12 @@ def test_llm_client_returns_explicit_error_after_empty_model_output_retries_exha
 
         def invoke(self, request: ResolvedLLMRequest) -> dict[str, object]:
             self.requests.append(request)
-            return {"model": DEFAULT_LLM_MODEL, "output_text": "", "finish_reason": "stop", "provider_request_id": "resp-empty"}
+            return {
+                "model": DEFAULT_LLM_MODEL,
+                "output_text": "",
+                "finish_reason": "stop",
+                "provider_request_id": "resp-empty",
+            }
 
     provider = _AlwaysEmptyProvider()
     client = LLMClient(
@@ -330,11 +345,14 @@ class _FakeVLMHttpClient:
                 ]
             }
         )
+
+
 def test_vlm_client_predict_converts_normalized_coordinates_to_pixels(monkeypatch):
     fake_http = _FakeVLMHttpClient()
 
     def mock_get_config(name):
         from models.system_settings import VLMProviderSettings
+
         return VLMProviderSettings(base_url="http://vlm.local/v1", model="ui-tars-test")
 
     monkeypatch.setattr("ai_services.vlm_client.get_vlm_provider_config", mock_get_config)
@@ -344,7 +362,9 @@ def test_vlm_client_predict_converts_normalized_coordinates_to_pixels(monkeypatc
         http_client=cast(httpx.Client, cast(object, fake_http)),
     )
 
-    action = client.predict("data:image/png;base64,AA==", "tap the button", screen_width=200, screen_height=100)
+    action = client.predict(
+        "data:image/png;base64,AA==", "tap the button", screen_width=200, screen_height=100
+    )
 
     assert action.action == "ui.click"
     assert action.coord_space == "pixel"

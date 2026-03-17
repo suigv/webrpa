@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import importlib.util
 import argparse
+import importlib.util
+import re
 from collections import defaultdict
 from collections.abc import Sequence
 from pathlib import Path
-import re
 from typing import cast
-
 
 if __package__:
     from tools._bootstrap import bootstrap_project_root
@@ -74,13 +73,17 @@ def collect_evidence_chain_problems(evidence_root: Path = DEFAULT_EVIDENCE_ROOT)
         seen_kinds = grouped[prefix]
         missing_kinds = sorted(REQUIRED_KINDS - seen_kinds)
         if missing_kinds:
-            problems.append(f"{prefix}: missing required evidence kinds: {', '.join(missing_kinds)}")
+            problems.append(
+                f"{prefix}: missing required evidence kinds: {', '.join(missing_kinds)}"
+            )
 
     return problems
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Validate evidence-chain filename and triplet rules")
+    parser = argparse.ArgumentParser(
+        description="Validate evidence-chain filename and triplet rules"
+    )
     _ = parser.add_argument(
         "--evidence-root",
         default=str(DEFAULT_EVIDENCE_ROOT),

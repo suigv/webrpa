@@ -24,7 +24,7 @@ def test_startup_fails_on_port_collision():
 
 def test_startup_validation_passes_for_valid_topology():
     """With new formula (port determined by cloud only), devices need different IPs.
-    
+
     This is because: device 1 cloud 1 → 30001, device 2 cloud 1 → 30001 (same port).
     If all devices share the same IP, ports would conflict.
     """

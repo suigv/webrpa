@@ -5,8 +5,9 @@ import random
 import string
 import sys
 import time
+from contextlib import suppress
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from core.config_loader import get_humanized_wrapper_config
 from models.humanized import HumanizedWrapperConfig
@@ -162,11 +163,15 @@ class HumanizedElement:
             if enable_typo and self._rng.random() < self._config.typo_probability:
                 wrong_char = _pick_typo_char(self._rng, char)
                 actions.type(wrong_char)
-                typo_delay = self._rng.uniform(self._config.typo_delay_min, self._config.typo_delay_max)
+                typo_delay = self._rng.uniform(
+                    self._config.typo_delay_min, self._config.typo_delay_max
+                )
                 if typo_delay > 0:
                     time.sleep(typo_delay)
                 actions.type("\b")
-                backspace_delay = self._rng.uniform(self._config.backspace_delay_min, self._config.backspace_delay_max)
+                backspace_delay = self._rng.uniform(
+                    self._config.backspace_delay_min, self._config.backspace_delay_max
+                )
                 if backspace_delay > 0:
                     time.sleep(backspace_delay)
 
@@ -197,8 +202,12 @@ class HumanizedElement:
                 target_x = self._rng.randint(int(left), int(right))
                 target_y = self._rng.randint(int(top), int(bottom))
 
-        offset_x = self._rng.randint(self._config.click_offset_x_min, self._config.click_offset_x_max)
-        offset_y = self._rng.randint(self._config.click_offset_y_min, self._config.click_offset_y_max)
+        offset_x = self._rng.randint(
+            self._config.click_offset_x_min, self._config.click_offset_x_max
+        )
+        offset_y = self._rng.randint(
+            self._config.click_offset_y_min, self._config.click_offset_y_max
+        )
         target_x += offset_x
         target_y += offset_y
 
@@ -228,7 +237,9 @@ class HumanizedElement:
                 x += self._rng.randint(-2, 2)
                 y += self._rng.randint(-2, 2)
             x, y = _clamp_point(x, y, bounds, viewport)
-            duration = self._rng.uniform(self._config.move_duration_min, self._config.move_duration_max)
+            duration = self._rng.uniform(
+                self._config.move_duration_min, self._config.move_duration_max
+            )
             moves.append(((int(round(x)), int(round(y))), duration))
 
         if self._rng.random() < self._config.movement_overshoot_probability and len(moves) >= 1:
@@ -236,11 +247,15 @@ class HumanizedElement:
             over_x = target_x + self._rng.randint(-span, span)
             over_y = target_y + self._rng.randint(-span, span)
             over_x, over_y = _clamp_point(over_x, over_y, bounds, viewport)
-            duration = self._rng.uniform(self._config.move_duration_min, self._config.move_duration_max)
+            duration = self._rng.uniform(
+                self._config.move_duration_min, self._config.move_duration_max
+            )
             moves.insert(-1, ((int(round(over_x)), int(round(over_y))), duration))
 
         if self._config.pre_hover_enabled:
-            pre_hover_delay = self._rng.uniform(self._config.pre_hover_delay_min, self._config.pre_hover_delay_max)
+            pre_hover_delay = self._rng.uniform(
+                self._config.pre_hover_delay_min, self._config.pre_hover_delay_max
+            )
             moves.append(((int(round(target_x)), int(round(target_y))), pre_hover_delay))
 
         return moves
@@ -267,7 +282,9 @@ class HumanizedElement:
         for (x, y), duration in moves:
             actions.move_to((x, y), duration=duration)
 
-        pre_pause = self._rng.uniform(self._config.pre_click_pause_min, self._config.pre_click_pause_max)
+        pre_pause = self._rng.uniform(
+            self._config.pre_click_pause_min, self._config.pre_click_pause_max
+        )
         if pre_pause > 0:
             time.sleep(pre_pause)
 
@@ -283,7 +300,9 @@ class HumanizedElement:
             self._fallback_click("actions click unavailable")
             return
 
-        post_pause = self._rng.uniform(self._config.post_click_pause_min, self._config.post_click_pause_max)
+        post_pause = self._rng.uniform(
+            self._config.post_click_pause_min, self._config.post_click_pause_max
+        )
         if post_pause > 0:
             time.sleep(post_pause)
 
@@ -314,7 +333,7 @@ class BrowserClient:
         self._humanized_page: Any = None
         self._web_page_cls: Any = None
         self._chromium_options_cls: Any = None
-        self._current_profile_dir: Optional[Path] = None
+        self._current_profile_dir: Path | None = None
 
         if humanized_config is None:
             humanized_config = get_humanized_wrapper_config()
@@ -410,10 +429,10 @@ class BrowserClient:
                     options.headless(on_off=headless)
                 if profile_id:
                     import hashlib
-                    import os
 
                     safe_id = hashlib.md5(profile_id.encode("utf-8")).hexdigest()
                     from core.paths import browser_profiles_dir as _bpd
+
                     base_dir = str(_bpd())
                     profile_dir = Path(base_dir) / safe_id
                     profile_dir.mkdir(parents=True, exist_ok=True)
@@ -421,7 +440,9 @@ class BrowserClient:
                     if hasattr(options, "set_user_data_path"):
                         options.set_user_data_path(str(profile_dir))
 
-            self._page = self._web_page_cls(chromium_options=options) if options else self._web_page_cls()
+            self._page = (
+                self._web_page_cls(chromium_options=options) if options else self._web_page_cls()
+            )
             self._humanized_page = HumanizedWrapper(self._page, self._humanized_config)
             self._page.get(url)
             return True
@@ -432,21 +453,17 @@ class BrowserClient:
     def close(self) -> None:
         if self._page is None:
             return
-        try:
+        with suppress(Exception):
             if hasattr(self._page, "close"):
                 self._page.close()
             elif hasattr(self._page, "quit"):
                 self._page.quit()
-        except Exception:
-            pass
 
         if self._current_profile_dir and self._current_profile_dir.exists():
             import shutil
 
-            try:
+            with suppress(Exception):
                 shutil.rmtree(self._current_profile_dir, ignore_errors=True)
-            except Exception:
-                pass
 
         self._page = None
         self._humanized_page = None

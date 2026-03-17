@@ -21,7 +21,6 @@ ROOT = bootstrap_project_root()
 from core.paths import plugins_dir
 from engine.parser import parse_manifest
 
-
 PLUGINS_ROOT = plugins_dir()
 PAYLOAD_REF_PATTERN = re.compile(r"\$\{payload\.([A-Za-z_][A-Za-z0-9_\.]*)[^}]*\}")
 
@@ -59,7 +58,9 @@ def collect_manifest_input_gaps(plugins_root: Path = PLUGINS_ROOT) -> list[str]:
         script_inputs = _extract_script_payload_inputs(script_path)
         missing_inputs = sorted(script_inputs - declared_inputs)
         if missing_inputs:
-            gaps.append(f"{plugin_dir.name}: missing manifest inputs for payload refs: {', '.join(missing_inputs)}")
+            gaps.append(
+                f"{plugin_dir.name}: missing manifest inputs for payload refs: {', '.join(missing_inputs)}"
+            )
 
     return gaps
 

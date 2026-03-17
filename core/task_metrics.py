@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from core.task_events import TaskEventStore
@@ -42,7 +42,7 @@ class TaskMetricsService:
         cancellation_rate_threshold: float = 0.2,
         min_terminal_samples: int = 20,
     ) -> dict[str, Any]:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         since = now - timedelta(seconds=max(0, int(window_seconds)))
         since_iso = since.isoformat()
         event_counts = self._events.count_by_type(since=since_iso)
@@ -53,9 +53,15 @@ class TaskMetricsService:
             "cancelled": int(event_counts.get("task.cancelled", 0)),
         }
         terminal_total = max(0, sum(int(value) for value in terminal_outcomes.values()))
-        completion_rate = float(terminal_outcomes["completed"]) / terminal_total if terminal_total > 0 else 0.0
-        failure_rate = float(terminal_outcomes["failed"]) / terminal_total if terminal_total > 0 else 0.0
-        cancellation_rate = float(terminal_outcomes["cancelled"]) / terminal_total if terminal_total > 0 else 0.0
+        completion_rate = (
+            float(terminal_outcomes["completed"]) / terminal_total if terminal_total > 0 else 0.0
+        )
+        failure_rate = (
+            float(terminal_outcomes["failed"]) / terminal_total if terminal_total > 0 else 0.0
+        )
+        cancellation_rate = (
+            float(terminal_outcomes["cancelled"]) / terminal_total if terminal_total > 0 else 0.0
+        )
 
         threshold_failure = min(1.0, max(0.0, float(failure_rate_threshold)))
         threshold_cancel = min(1.0, max(0.0, float(cancellation_rate_threshold)))
@@ -145,13 +151,13 @@ class TaskMetricsService:
             [
                 "# HELP new_task_completion_rate Completion rate in terminal outcomes window.",
                 "# TYPE new_task_completion_rate gauge",
-                f'new_task_completion_rate {float(rates.get("completion_rate", 0.0))}',
+                f"new_task_completion_rate {float(rates.get('completion_rate', 0.0))}",
                 "# HELP new_task_failure_rate Failure rate in terminal outcomes window.",
                 "# TYPE new_task_failure_rate gauge",
-                f'new_task_failure_rate {float(rates.get("failure_rate", 0.0))}',
+                f"new_task_failure_rate {float(rates.get('failure_rate', 0.0))}",
                 "# HELP new_task_cancellation_rate Cancellation rate in terminal outcomes window.",
                 "# TYPE new_task_cancellation_rate gauge",
-                f'new_task_cancellation_rate {float(rates.get("cancellation_rate", 0.0))}',
+                f"new_task_cancellation_rate {float(rates.get('cancellation_rate', 0.0))}",
             ]
         )
 
@@ -160,13 +166,13 @@ class TaskMetricsService:
             [
                 "# HELP new_task_alert_evaluated Whether alert thresholds were evaluated.",
                 "# TYPE new_task_alert_evaluated gauge",
-                f'new_task_alert_evaluated {1 if bool(alerts.get("evaluated")) else 0}',
+                f"new_task_alert_evaluated {1 if bool(alerts.get('evaluated')) else 0}",
                 "# HELP new_task_alert_triggered Whether any alert threshold was triggered.",
                 "# TYPE new_task_alert_triggered gauge",
-                f'new_task_alert_triggered {1 if bool(alerts.get("triggered")) else 0}',
+                f"new_task_alert_triggered {1 if bool(alerts.get('triggered')) else 0}",
                 "# HELP new_task_alert_terminal_total Terminal task sample size used for alert evaluation.",
                 "# TYPE new_task_alert_terminal_total gauge",
-                f'new_task_alert_terminal_total {int(alerts.get("terminal_total", 0))}',
+                f"new_task_alert_terminal_total {int(alerts.get('terminal_total', 0))}",
             ]
         )
 
@@ -179,7 +185,9 @@ class TaskMetricsService:
         reasons = alerts.get("reasons", [])
         if isinstance(reasons, list):
             for reason in sorted(str(item) for item in reasons):
-                lines.append(f'new_task_alert_reason{{reason="{self._prometheus_escape(reason)}"}} 1')
+                lines.append(
+                    f'new_task_alert_reason{{reason="{self._prometheus_escape(reason)}"}} 1'
+                )
 
         return "\n".join(lines) + "\n"
 

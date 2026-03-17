@@ -124,6 +124,8 @@ class AppConfigManager:
             "schemes": {},
             "selectors": {},
         }
-        path.write_text(yaml.safe_dump(skeleton, allow_unicode=False, sort_keys=False), encoding="utf-8")
+        path.write_text(
+            yaml.safe_dump(skeleton, allow_unicode=False, sort_keys=False), encoding="utf-8"
+        )
         logger.info("Bootstrapped app config for %s at %s", package, path)
         return path

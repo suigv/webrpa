@@ -1,8 +1,9 @@
 import asyncio
+import json
 import logging
 import os
 import sys
-import json
+from contextlib import suppress
 from datetime import datetime
 
 
@@ -31,7 +32,9 @@ class Logger:
             console.stream = os.fdopen(sys.stdout.fileno(), "w", buffering=1)
         except Exception:
             console.stream = sys.stdout
-        console.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s", datefmt="%H:%M:%S"))
+        console.setFormatter(
+            logging.Formatter("%(asctime)s - %(levelname)s - %(message)s", datefmt="%H:%M:%S")
+        )
         self.logger.addHandler(console)
         Logger._initialized = True
 
@@ -48,7 +51,7 @@ class Logger:
         Sends a JSON object to WebSocket clients.
         """
         timestamp = datetime.now().strftime("%H:%M:%S")
-        
+
         # 1. Console Logging (Formatted String)
         prefix = f"[{target or 'System'}] " if target else ""
         console_msg = f"{prefix}{message}"
@@ -66,17 +69,14 @@ class Logger:
                 "level": level,
                 "message": message,
                 "task_id": task_id,
-                "target": target or "System"
+                "target": target or "System",
             }
-            try:
+            with suppress(Exception):
                 # 跨线程安全调度：任务往往在 ThreadPoolExecutor 的 worker 线程中运行
                 # 所以必须使用 run_coroutine_threadsafe
                 asyncio.run_coroutine_threadsafe(
-                    self._ws_broadcast(json.dumps(log_entry, ensure_ascii=False)), 
-                    self._main_loop
+                    self._ws_broadcast(json.dumps(log_entry, ensure_ascii=False)), self._main_loop
                 )
-            except Exception as e:
-                pass
 
 
 log_manager = Logger()

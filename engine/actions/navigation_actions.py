@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass
-from typing import Any
 
 from engine.actions import ui_state_actions
 from engine.models.runtime import ActionResult, ExecutionContext
@@ -56,7 +55,9 @@ def _common_params(params: dict[str, object], context: ExecutionContext) -> dict
     return {}
 
 
-def _build_routes(params: dict[str, object], context: ExecutionContext) -> tuple[dict[str, RouteDefinition], ActionResult | None]:
+def _build_routes(
+    params: dict[str, object], context: ExecutionContext
+) -> tuple[dict[str, RouteDefinition], ActionResult | None]:
     raw_routes = params.get("routes") or context.get_session_default("routes")
     if not isinstance(raw_routes, dict) or not raw_routes:
         return {}, ActionResult(ok=False, code="invalid_params", message="routes is required")
@@ -66,14 +67,24 @@ def _build_routes(params: dict[str, object], context: ExecutionContext) -> tuple
         if not route_id:
             continue
         if not isinstance(raw, dict):
-            return {}, ActionResult(ok=False, code="invalid_params", message=f"invalid route definition: {route_id}")
+            return {}, ActionResult(
+                ok=False, code="invalid_params", message=f"invalid route definition: {route_id}"
+            )
         binding_id = str(raw.get("binding_id") or "").strip()
         if not binding_id:
-            return {}, ActionResult(ok=False, code="invalid_params", message=f"binding_id is required for route: {route_id}")
+            return {}, ActionResult(
+                ok=False,
+                code="invalid_params",
+                message=f"binding_id is required for route: {route_id}",
+            )
         display_name = str(raw.get("display_name") or route_id).strip() or str(route_id)
         platform = str(raw.get("platform") or "native").strip().lower() or "native"
-        current_state_ids = _coerce_state_ids(raw.get("current_state_ids"), fallback=("available", "missing"))
-        arrival_state_ids = _coerce_state_ids(raw.get("arrival_state_ids"), fallback=current_state_ids)
+        current_state_ids = _coerce_state_ids(
+            raw.get("current_state_ids"), fallback=("available", "missing")
+        )
+        arrival_state_ids = _coerce_state_ids(
+            raw.get("arrival_state_ids"), fallback=current_state_ids
+        )
         routes[str(route_id)] = RouteDefinition(
             route_id=str(route_id),
             display_name=display_name,
@@ -87,7 +98,9 @@ def _build_routes(params: dict[str, object], context: ExecutionContext) -> tuple
     return routes, None
 
 
-def _build_hops(params: dict[str, object], context: ExecutionContext) -> tuple[tuple[RouteHop, ...], ActionResult | None]:
+def _build_hops(
+    params: dict[str, object], context: ExecutionContext
+) -> tuple[tuple[RouteHop, ...], ActionResult | None]:
     raw_hops = params.get("hops") or context.get_session_default("hops") or []
     if not isinstance(raw_hops, list):
         return (), ActionResult(ok=False, code="invalid_params", message="hops must be a list")
@@ -97,30 +110,50 @@ def _build_hops(params: dict[str, object], context: ExecutionContext) -> tuple[t
     hops: list[RouteHop] = []
     for idx, raw in enumerate(raw_hops):
         if not isinstance(raw, dict):
-            return (), ActionResult(ok=False, code="invalid_params", message=f"invalid hop definition at index {idx}")
+            return (), ActionResult(
+                ok=False, code="invalid_params", message=f"invalid hop definition at index {idx}"
+            )
         from_route = str(raw.get("from_route") or "").strip()
         to_route = str(raw.get("to_route") or "").strip()
         if not from_route or not to_route:
-            return (), ActionResult(ok=False, code="invalid_params", message=f"from_route/to_route required at hop index {idx}")
+            return (), ActionResult(
+                ok=False,
+                code="invalid_params",
+                message=f"from_route/to_route required at hop index {idx}",
+            )
         hop_id = str(raw.get("hop_id") or f"{from_route}_to_{to_route}").strip()
         raw_attempts = raw.get("attempts")
         if not isinstance(raw_attempts, list) or not raw_attempts:
-            return (), ActionResult(ok=False, code="invalid_params", message=f"attempts required at hop index {idx}")
+            return (), ActionResult(
+                ok=False, code="invalid_params", message=f"attempts required at hop index {idx}"
+            )
 
         attempts: list[RouteAttempt] = []
         for attempt_idx, attempt_raw in enumerate(raw_attempts):
             if not isinstance(attempt_raw, dict):
-                return (), ActionResult(ok=False, code="invalid_params", message=f"invalid attempt at hop {hop_id} index {attempt_idx}")
+                return (), ActionResult(
+                    ok=False,
+                    code="invalid_params",
+                    message=f"invalid attempt at hop {hop_id} index {attempt_idx}",
+                )
             action = str(attempt_raw.get("action") or "").strip()
             if not action:
-                return (), ActionResult(ok=False, code="invalid_params", message=f"action required at hop {hop_id} index {attempt_idx}")
+                return (), ActionResult(
+                    ok=False,
+                    code="invalid_params",
+                    message=f"action required at hop {hop_id} index {attempt_idx}",
+                )
             attempt_id = str(attempt_raw.get("attempt_id") or f"{hop_id}_{attempt_idx}").strip()
             description = str(attempt_raw.get("description") or action).strip()
             attempt_params = attempt_raw.get("params")
             if attempt_params is None:
                 attempt_params = {}
             if not isinstance(attempt_params, dict):
-                return (), ActionResult(ok=False, code="invalid_params", message=f"invalid params at hop {hop_id} index {attempt_idx}")
+                return (), ActionResult(
+                    ok=False,
+                    code="invalid_params",
+                    message=f"invalid params at hop {hop_id} index {attempt_idx}",
+                )
             attempts.append(
                 RouteAttempt(
                     attempt_id=attempt_id,
@@ -143,12 +176,17 @@ def _build_hops(params: dict[str, object], context: ExecutionContext) -> tuple[t
 def _build_graph(hops: tuple[RouteHop, ...]) -> dict[str, tuple[RouteHop, ...]]:
     graph: dict[str, tuple[RouteHop, ...]] = {}
     for hop in hops:
-        existing = graph.get(hop.from_route, tuple())
+        existing = graph.get(hop.from_route, ())
         graph[hop.from_route] = (*existing, hop)
     return graph
 
 
-def _probe_route(route: RouteDefinition, params: dict[str, object], context: ExecutionContext, state_ids: tuple[str, ...]) -> dict[str, object]:
+def _probe_route(
+    route: RouteDefinition,
+    params: dict[str, object],
+    context: ExecutionContext,
+    state_ids: tuple[str, ...],
+) -> dict[str, object]:
     probe_params = {
         **_common_params(params, context),
         "platform": route.platform,
@@ -167,7 +205,9 @@ def _probe_route(route: RouteDefinition, params: dict[str, object], context: Exe
     }
 
 
-def _resolve_current_route(routes: dict[str, RouteDefinition], params: dict[str, object], context: ExecutionContext) -> dict[str, object]:
+def _resolve_current_route(
+    routes: dict[str, RouteDefinition], params: dict[str, object], context: ExecutionContext
+) -> dict[str, object]:
     matched_routes: list[str] = []
     probes: dict[str, dict[str, object]] = {}
     for route_id, route in routes.items():
@@ -180,7 +220,9 @@ def _resolve_current_route(routes: dict[str, RouteDefinition], params: dict[str,
     return {"route_id": None, "probes": probes}
 
 
-def _resolve_path(graph: dict[str, tuple[RouteHop, ...]], start: str, target: str) -> list[RouteHop]:
+def _resolve_path(
+    graph: dict[str, tuple[RouteHop, ...]], start: str, target: str
+) -> list[RouteHop]:
     queue: deque[tuple[str, list[RouteHop]]] = deque([(start, [])])
     visited = {start}
     while queue:
@@ -196,7 +238,9 @@ def _resolve_path(graph: dict[str, tuple[RouteHop, ...]], start: str, target: st
     return []
 
 
-def _run_attempt(attempt: RouteAttempt, params: dict[str, object], context: ExecutionContext) -> ActionResult:
+def _run_attempt(
+    attempt: RouteAttempt, params: dict[str, object], context: ExecutionContext
+) -> ActionResult:
     from engine.action_registry import resolve_action
 
     handler = resolve_action(attempt.action)
@@ -225,10 +269,16 @@ def _execute_hop(
                 "action_message": action_result.message,
             }
         )
-        destination_probe = _probe_route(destination, params, context, state_ids=destination.arrival_state_ids)
+        destination_probe = _probe_route(
+            destination, params, context, state_ids=destination.arrival_state_ids
+        )
         attempts[-1]["postcondition"] = destination_probe
         if destination_probe["matched"]:
-            return {"code": "ok", "message": f"reached {destination.display_name}", "attempts": attempts}
+            return {
+                "code": "ok",
+                "message": f"reached {destination.display_name}",
+                "attempts": attempts,
+            }
 
     observed_route = _resolve_current_route(routes, params, context)
     observed_id = observed_route["route_id"]
@@ -261,13 +311,17 @@ def navigate_to(params: dict[str, object], context: ExecutionContext) -> ActionR
         return ActionResult(ok=False, code="invalid_params", message="target is required")
     route = routes.get(target)
     if route is None:
-        return ActionResult(ok=False, code="target_unreachable", message=f"unsupported navigation target: {target}")
+        return ActionResult(
+            ok=False, code="target_unreachable", message=f"unsupported navigation target: {target}"
+        )
 
     current_route = _resolve_current_route(routes, params, context)
     if current_route["route_id"] is None:
         probes_obj = current_route.get("probes")
         probes = probes_obj if isinstance(probes_obj, dict) else {}
-        diag_msg = " | ".join(f"{key}:{value.get('state_id', '?')}" for key, value in probes.items())
+        diag_msg = " | ".join(
+            f"{key}:{value.get('state_id', '?')}" for key, value in probes.items()
+        )
         return ActionResult(
             ok=False,
             code="unknown_current_state",

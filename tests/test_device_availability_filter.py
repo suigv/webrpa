@@ -16,7 +16,9 @@ class _FakeProbeService:
         self.model_map: dict[int, dict[str, object]] = model_map
         self.calls: list[tuple[str, bool]] = []
 
-    def query_cloud_model_map(self, device_ip: str, refresh_if_missing: bool = False) -> dict[int, dict[str, object]]:
+    def query_cloud_model_map(
+        self, device_ip: str, refresh_if_missing: bool = False
+    ) -> dict[int, dict[str, object]]:
         self.calls.append((device_ip, refresh_if_missing))
         return self.model_map
 
@@ -26,13 +28,17 @@ class _ProbeManager:
         self.updates: list[tuple[int, int, bool, int | None, str]] = []
         self.refresh_called: bool = False
 
-    def _update_probe_cache(self, device_id: int, cloud_id: int, ok: bool, latency_ms: int | None, reason: str) -> None:
+    def _update_probe_cache(
+        self, device_id: int, cloud_id: int, ok: bool, latency_ms: int | None, reason: str
+    ) -> None:
         self.updates.append((device_id, cloud_id, ok, latency_ms, reason))
 
     def _refresh_device_snapshots(self) -> None:
         self.refresh_called = True
 
-    def update_cloud_probe(self, device_id: int, cloud_id: int, ok: bool, latency_ms: int | None, reason: str) -> None:
+    def update_cloud_probe(
+        self, device_id: int, cloud_id: int, ok: bool, latency_ms: int | None, reason: str
+    ) -> None:
         self._update_probe_cache(device_id, cloud_id, ok, latency_ms, reason)
 
     def refresh_device_snapshots(self) -> None:
@@ -49,7 +55,9 @@ def _reset_manager_state(manager: DeviceManager) -> None:
         manager._devices = {}
 
 
-def test_device_snapshot_filters_available_clouds_and_uses_probe_service_model_map(monkeypatch: MonkeyPatch):
+def test_device_snapshot_filters_available_clouds_and_uses_probe_service_model_map(
+    monkeypatch: MonkeyPatch,
+):
     backup = ConfigLoader._config
     manager = DeviceManager()
     try:
@@ -114,6 +122,7 @@ def test_cloud_probe_service_drives_probe_cache_updates(monkeypatch: MonkeyPatch
 
         service = CloudProbeService()
         manager = _ProbeManager()
+
         def _fake_probe_rpa_port(_ip: str, _port: int) -> tuple[bool, int, str]:
             return True, 5, "ok"
 
@@ -122,7 +131,9 @@ def test_cloud_probe_service_drives_probe_cache_updates(monkeypatch: MonkeyPatch
         model_calls: list[tuple[str, bool]] = []
         model_lock = threading.Lock()
 
-        def _record_model_call(device_ip: str, refresh_if_missing: bool = False) -> dict[int, dict[str, object]]:
+        def _record_model_call(
+            device_ip: str, refresh_if_missing: bool = False
+        ) -> dict[int, dict[str, object]]:
             with model_lock:
                 model_calls.append((device_ip, refresh_if_missing))
             return {}
@@ -155,7 +166,9 @@ def test_mark_cloud_released_does_not_overwrite_probe_unavailable_state(monkeypa
             "cloud_machines_per_device": 1,
             "sdk_port": 8000,
         }
-        monkeypatch.setattr("core.cloud_probe_service.get_cloud_probe_service", lambda: _FakeProbeService({}))
+        monkeypatch.setattr(
+            "core.cloud_probe_service.get_cloud_probe_service", lambda: _FakeProbeService({})
+        )
 
         manager.update_cloud_probe(1, 1, False, 11, "connect_failed")
         manager.update_cloud_probe(1, 1, False, 12, "connect_failed")

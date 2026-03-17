@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import random
 import time
-from typing import Any, List, Tuple
+from typing import Any
 
 from models.humanized import HumanizedConfig
 
@@ -18,8 +18,8 @@ class HumanizedHelper:
         self,
         x: int,
         y: int,
-        bounds: Tuple[int, int, int, int] | None = None,
-    ) -> Tuple[int, int]:
+        bounds: tuple[int, int, int, int] | None = None,
+    ) -> tuple[int, int]:
         """计算带随机偏移的点击坐标。
 
         bounds: 可选的元素边界 (x_min, y_min, x_max, y_max)，
@@ -40,7 +40,7 @@ class HumanizedHelper:
 
         return new_x, new_y
 
-    def get_typing_sequence(self, text: str) -> List[Tuple[str, float]]:
+    def get_typing_sequence(self, text: str) -> list[tuple[str, float]]:
         """将文本拆分为带延迟的按键序列。"""
         if not self.config.enabled:
             return [(text, 0.0)]
@@ -49,24 +49,28 @@ class HumanizedHelper:
         for char in text:
             # 基础打字延迟
             delay = self._rng.uniform(self.config.typing_delay_min, self.config.typing_delay_max)
-            
+
             # 单词间的额外停顿
             if char == " " and self._rng.random() < self.config.word_pause_probability:
                 delay += self._rng.uniform(self.config.word_pause_min, self.config.word_pause_max)
-            
+
             sequence.append((char, delay))
         return sequence
 
     def sleep_before_click(self) -> None:
         """点击前的心理停顿。"""
         if self.config.enabled:
-            pause = self._rng.uniform(self.config.pre_click_pause_min, self.config.pre_click_pause_max)
+            pause = self._rng.uniform(
+                self.config.pre_click_pause_min, self.config.pre_click_pause_max
+            )
             time.sleep(pause)
 
     def sleep_after_click(self) -> None:
         """点击后的确认停顿。"""
         if self.config.enabled:
-            pause = self._rng.uniform(self.config.post_click_pause_min, self.config.post_click_pause_max)
+            pause = self._rng.uniform(
+                self.config.post_click_pause_min, self.config.post_click_pause_max
+            )
             time.sleep(pause)
 
     def get_click_hold_time(self) -> float:

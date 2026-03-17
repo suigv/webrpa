@@ -191,7 +191,7 @@ class _RpcBase:
 
     def click_node(self, node):
         _ = node
-        return bool(True)
+        return True
 
     def long_click_node(self, node):
         _ = node
@@ -218,7 +218,9 @@ def test_selector_query_success(monkeypatch):
     ui_actions = _load_ui_actions_module()
     ExecutionContext = _load_execution_context()
     monkeypatch.setattr(ui_actions, "MytRpc", FakeRpcHasNode)
-    ctx = ExecutionContext(payload={"device_ip": "192.168.1.2", "cloud_index": 1, "cloud_machines_per_device": 2})
+    ctx = ExecutionContext(
+        payload={"device_ip": "192.168.1.2", "cloud_index": 1, "cloud_machines_per_device": 2}
+    )
 
     result = ui_actions.create_selector({}, ctx)
     assert result.ok is True
@@ -242,7 +244,9 @@ def test_selector_query_not_found(monkeypatch):
     reg = reg_mod.ActionRegistry()
     monkeypatch.setattr(reg_mod, "_registry", reg)
     reg_mod.register_defaults()
-    ctx = ExecutionContext(payload={"device_ip": "192.168.1.2", "cloud_index": 1, "cloud_machines_per_device": 2})
+    ctx = ExecutionContext(
+        payload={"device_ip": "192.168.1.2", "cloud_index": 1, "cloud_machines_per_device": 2}
+    )
 
     assert reg.resolve("ui.create_selector")({}, ctx).ok is True
     one = reg.resolve("ui.selector_exec_one")({}, ctx)
@@ -262,7 +266,9 @@ def test_selector_runtime_actions_registered_and_work(monkeypatch):
     monkeypatch.setattr(reg_mod, "_registry", reg)
     reg_mod.register_defaults()
 
-    ctx = ExecutionContext(payload={"device_ip": "192.168.1.2", "cloud_index": 1, "cloud_machines_per_device": 2})
+    ctx = ExecutionContext(
+        payload={"device_ip": "192.168.1.2", "cloud_index": 1, "cloud_machines_per_device": 2}
+    )
     assert reg.resolve("ui.create_selector")({}, ctx).ok is True
     assert reg.resolve("ui.selector_add_query")({"type": "text", "value": "hello"}, ctx).ok is True
     one = reg.resolve("ui.selector_exec_one")({}, ctx)
@@ -277,12 +283,27 @@ def test_selector_add_query_extended_modes(monkeypatch):
     ui_actions = _load_ui_actions_module()
     ExecutionContext = _load_execution_context()
     monkeypatch.setattr(ui_actions, "MytRpc", FakeRpcHasNode)
-    ctx = ExecutionContext(payload={"device_ip": "192.168.1.2", "cloud_index": 1, "cloud_machines_per_device": 2})
+    ctx = ExecutionContext(
+        payload={"device_ip": "192.168.1.2", "cloud_index": 1, "cloud_machines_per_device": 2}
+    )
 
     assert ui_actions.create_selector({}, ctx).ok is True
-    assert ui_actions.selector_add_query({"type": "class", "mode": "contains", "value": "btn"}, ctx).ok is True
-    assert ui_actions.selector_add_query({"type": "package", "mode": "start_with", "value": "com.demo"}, ctx).ok is True
-    assert ui_actions.selector_add_query({"type": "bounds", "left": 1, "top": 2, "right": 3, "bottom": 4}, ctx).ok is True
+    assert (
+        ui_actions.selector_add_query({"type": "class", "mode": "contains", "value": "btn"}, ctx).ok
+        is True
+    )
+    assert (
+        ui_actions.selector_add_query(
+            {"type": "package", "mode": "start_with", "value": "com.demo"}, ctx
+        ).ok
+        is True
+    )
+    assert (
+        ui_actions.selector_add_query(
+            {"type": "bounds", "left": 1, "top": 2, "right": 3, "bottom": 4}, ctx
+        ).ok
+        is True
+    )
     assert ui_actions.selector_add_query({"type": "clickable", "enabled": True}, ctx).ok is True
     assert ui_actions.selector_add_query({"type": "index", "index": 2}, ctx).ok is True
 
@@ -291,10 +312,14 @@ def test_selector_node_collection_actions(monkeypatch):
     ui_actions = _load_ui_actions_module()
     ExecutionContext = _load_execution_context()
     monkeypatch.setattr(ui_actions, "MytRpc", FakeRpcHasNode)
-    ctx = ExecutionContext(payload={"device_ip": "192.168.1.2", "cloud_index": 1, "cloud_machines_per_device": 2})
+    ctx = ExecutionContext(
+        payload={"device_ip": "192.168.1.2", "cloud_index": 1, "cloud_machines_per_device": 2}
+    )
 
     assert ui_actions.create_selector({}, ctx).ok is True
-    find_res = ui_actions.selector_find_nodes({"max_count": 10, "timeout_ms": 500, "save_as": "nodes_h"}, ctx)
+    find_res = ui_actions.selector_find_nodes(
+        {"max_count": 10, "timeout_ms": 500, "save_as": "nodes_h"}, ctx
+    )
     assert find_res.ok is True
     assert ctx.vars["nodes_h"] == 101
 
@@ -302,7 +327,9 @@ def test_selector_node_collection_actions(monkeypatch):
     assert size_res.ok is True
     assert size_res.data["count"] == 2
 
-    node_res = ui_actions.selector_get_node_by_index({"nodes_var": "nodes_h", "index": 1, "save_as": "node_h"}, ctx)
+    node_res = ui_actions.selector_get_node_by_index(
+        {"nodes_var": "nodes_h", "index": 1, "save_as": "node_h"}, ctx
+    )
     assert node_res.ok is True
     assert ctx.vars["node_h"] == 201
 
@@ -314,7 +341,9 @@ def test_selector_node_collection_actions(monkeypatch):
     assert child_count_res.ok is True
     assert child_count_res.data["count"] == 3
 
-    child_res = ui_actions.node_get_child({"node_var": "node_h", "index": 0, "save_as": "child_h"}, ctx)
+    child_res = ui_actions.node_get_child(
+        {"node_var": "node_h", "index": 0, "save_as": "child_h"}, ctx
+    )
     assert child_res.ok is True
     assert ctx.vars["child_h"] == 202
 
@@ -326,7 +355,9 @@ def test_selector_node_collection_actions(monkeypatch):
 def test_selector_replace_frees_previous_before_close(monkeypatch):
     ui_actions = _load_ui_actions_module()
     ExecutionContext = _load_execution_context()
-    ctx = ExecutionContext(payload={"device_ip": "192.168.1.2", "cloud_index": 1, "cloud_machines_per_device": 2})
+    ctx = ExecutionContext(
+        payload={"device_ip": "192.168.1.2", "cloud_index": 1, "cloud_machines_per_device": 2}
+    )
     events = []
 
     class RecordingRpc(_RpcBase):
@@ -365,11 +396,12 @@ def test_selector_replace_frees_previous_before_close(monkeypatch):
     ]
 
 
-
 def test_selector_click_one_always_tears_down_before_close(monkeypatch):
     ui_actions = _load_ui_actions_module()
     ExecutionContext = _load_execution_context()
-    ctx = ExecutionContext(payload={"device_ip": "192.168.1.2", "cloud_index": 1, "cloud_machines_per_device": 2})
+    ctx = ExecutionContext(
+        payload={"device_ip": "192.168.1.2", "cloud_index": 1, "cloud_machines_per_device": 2}
+    )
 
     class RecordingRpc(_RpcBase):
         def __init__(self, events, click_ok=True):
@@ -409,11 +441,11 @@ def test_selector_click_one_always_tears_down_before_close(monkeypatch):
         rpc = RecordingRpc(events, click_ok=click_ok)
 
         class RecordingSelector(original_selector_cls):
-            def clear_selector(self):
+            def clear_selector(self, events=events):
                 events.append("clear")
                 return True
 
-            def free_selector(self):
+            def free_selector(self, events=events):
                 events.append("free")
                 return True
 
@@ -426,11 +458,12 @@ def test_selector_click_one_always_tears_down_before_close(monkeypatch):
         assert events[:3] == ["clear", "free", "close"]
 
 
-
 def test_release_selector_context_frees_tracked_nodes_before_selector(monkeypatch):
     ui_actions = _load_ui_actions_module()
     ExecutionContext = _load_execution_context()
-    ctx = ExecutionContext(payload={"device_ip": "192.168.1.2", "cloud_index": 1, "cloud_machines_per_device": 2})
+    ctx = ExecutionContext(
+        payload={"device_ip": "192.168.1.2", "cloud_index": 1, "cloud_machines_per_device": 2}
+    )
     events = []
 
     class RecordingRpc(_RpcBase):
@@ -473,7 +506,9 @@ def test_selector_node_runtime_accessors_work(monkeypatch):
     ui_actions = _load_ui_actions_module()
     ExecutionContext = _load_execution_context()
     monkeypatch.setattr(ui_actions, "MytRpc", FakeRpcHasNode)
-    ctx = ExecutionContext(payload={"device_ip": "192.168.1.2", "cloud_index": 1, "cloud_machines_per_device": 2})
+    ctx = ExecutionContext(
+        payload={"device_ip": "192.168.1.2", "cloud_index": 1, "cloud_machines_per_device": 2}
+    )
 
     assert ui_actions.create_selector({}, ctx).ok is True
     ctx.vars["node_handle"] = 300

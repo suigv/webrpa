@@ -26,9 +26,9 @@ from __future__ import annotations
 import json
 import logging
 import os
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from collections.abc import Mapping
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any, Protocol
 
 from ai_services.llm_client import LLMRequest
@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 
 def _timestamp() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _json_dict(value: object) -> dict[str, object]:
@@ -77,6 +77,7 @@ class _StructuredPlannerConfig:
 # ---------------------------------------------------------------------------
 # Data contracts
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True, slots=True)
 class PlannerInput:
@@ -158,6 +159,7 @@ class PlannerOutput:
 # Protocol
 # ---------------------------------------------------------------------------
 
+
 class BasePlanner(Protocol):
     """Minimal contract that every planner must satisfy."""
 
@@ -169,6 +171,7 @@ class BasePlanner(Protocol):
 # ---------------------------------------------------------------------------
 # StructuredPlanner – production baseline
 # ---------------------------------------------------------------------------
+
 
 class StructuredPlanner:
     """Structured-state-first planner.
@@ -314,6 +317,7 @@ class OmniVisionPlanner:
         if save_path:
             import base64
             from pathlib import Path
+
             img_path = Path(save_path)
             if img_path.exists():
                 try:
@@ -321,7 +325,9 @@ class OmniVisionPlanner:
                     b64 = base64.b64encode(img_bytes).decode("ascii")
                     attachments.append({"image_url": f"data:image/png;base64,{b64}"})
                 except Exception as exc:
-                    logger.warning("OmniVisionPlanner: failed to read screenshot %s: %s", save_path, exc)
+                    logger.warning(
+                        "OmniVisionPlanner: failed to read screenshot %s: %s", save_path, exc
+                    )
 
         request = LLMRequest(
             prompt=json.dumps(prompt_payload, ensure_ascii=False),
@@ -391,13 +397,17 @@ class OmniVisionPlanner:
             action=str(plan.get("action") or "").strip(),
             params=dict(plan["params"]) if isinstance(plan.get("params"), dict) else {},
             message=str(plan.get("message") or ""),
-            extracted_data=dict(plan["extracted_data"]) if isinstance(plan.get("extracted_data"), dict) else None,
+            extracted_data=dict(plan["extracted_data"])
+            if isinstance(plan.get("extracted_data"), dict)
+            else None,
             planned_at=planned_at,
             request_id=str(getattr(response, "request_id", "") or ""),
             provider=str(getattr(response, "provider", "") or ""),
             model=str(getattr(response, "model", "") or ""),
             planner_structured_state=getattr(response, "structured_state", None),
-            fallback_reason="omnivision" if not inp.fallback_enabled else "omnivision_with_fallback",
+            fallback_reason="omnivision"
+            if not inp.fallback_enabled
+            else "omnivision_with_fallback",
             diagnostics={
                 "request": request_trace,
                 "response": response_trace,
@@ -410,6 +420,7 @@ class OmniVisionPlanner:
 # ---------------------------------------------------------------------------
 # Factory
 # ---------------------------------------------------------------------------
+
 
 def resolve_planner(runtime: Any) -> BasePlanner:
     """Select the active planner based on environment configuration.
@@ -427,14 +438,26 @@ def resolve_planner(runtime: Any) -> BasePlanner:
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _legacy_dict_to_output(raw: dict[str, object]) -> PlannerOutput:
     """Convert the dict returned by the legacy ``_plan_next_step`` into a
     ``PlannerOutput`` dataclass."""
     # Separate known fields from diagnostics.
     known_keys = {
-        "ok", "done", "action", "params", "message", "extracted_data",
-        "code", "retryable", "fallback_reason", "planned_at",
-        "request_id", "provider", "model", "planner_structured_state",
+        "ok",
+        "done",
+        "action",
+        "params",
+        "message",
+        "extracted_data",
+        "code",
+        "retryable",
+        "fallback_reason",
+        "planned_at",
+        "request_id",
+        "provider",
+        "model",
+        "planner_structured_state",
     }
     diagnostics = {k: v for k, v in raw.items() if k not in known_keys}
     params_raw = raw.get("params")

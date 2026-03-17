@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Optional, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 from engine.models.runtime import ExecutionContext
 from engine.models.ui_state import UIStateObservationResult
@@ -22,7 +22,7 @@ class UIStateService(Protocol):
         context: ExecutionContext,
         *,
         expected_state_ids: Sequence[str],
-        timeout_ms: Optional[int] = None,
+        timeout_ms: int | None = None,
     ) -> UIStateObservationResult: ...
 
     def wait_until(
@@ -38,8 +38,8 @@ class UIStateService(Protocol):
         self,
         context: ExecutionContext,
         *,
-        from_state_ids: Optional[Sequence[str]] = None,
-        to_state_ids: Optional[Sequence[str]] = None,
+        from_state_ids: Sequence[str] | None = None,
+        to_state_ids: Sequence[str] | None = None,
         timeout_ms: int = 15000,
         interval_ms: int = 500,
     ) -> UIStateObservationResult: ...

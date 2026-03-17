@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
-import os
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
+
 import pyotp
 
 
@@ -37,6 +38,7 @@ class Credentials:
 
 def _allowed_credential_roots() -> list[Path]:
     from core.system_settings_loader import get_credential_allowlist
+
     raw = get_credential_allowlist()
     roots: list[Path] = []
     roots.append(Path(".").resolve())
@@ -49,10 +51,7 @@ def _allowed_credential_roots() -> list[Path]:
 
 
 def _is_allowed_path(path: Path) -> bool:
-    for root in _allowed_credential_roots():
-        if path == root or root in path.parents:
-            return True
-    return False
+    return any(path == root or root in path.parents for root in _allowed_credential_roots())
 
 
 def load_credentials_from_ref(credentials_ref: str) -> Credentials:
@@ -65,9 +64,9 @@ def load_credentials_from_ref(credentials_ref: str) -> Credentials:
     if ref.startswith("{") and ref.endswith("}"):
         try:
             payload = json.loads(ref)
-            return _build_creds(payload)
         except Exception as exc:
-            raise ValueError(f"Direct credentials JSON is invalid: {exc}")
+            raise ValueError(f"Direct credentials JSON is invalid: {exc}") from exc
+        return _build_creds(payload)
 
     raw_path = Path(ref).expanduser()
     if raw_path.is_symlink():
@@ -82,28 +81,30 @@ def load_credentials_from_ref(credentials_ref: str) -> Credentials:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except Exception as exc:
-        raise ValueError(f"credentials_ref JSON file is invalid: {exc}")
+        raise ValueError(f"credentials_ref JSON file is invalid: {exc}") from exc
 
     return _build_creds(payload)
 
 
-def _build_creds(payload: dict) -> Credentials:
+def _build_creds(payload: dict[str, Any]) -> Credentials:
     """从结构化字典构造 Credentials 对象"""
     if not isinstance(payload, dict):
         raise ValueError("credentials must be a JSON object")
 
     account = str(payload.get("account") or payload.get("username_or_email") or "").strip()
     password = str(payload.get("password") or "").strip()
-    
+
     if not account or not password:
         raise ValueError("credentials requires at least account and password")
 
     return Credentials(
         account=account,
         password=password,
-        twofa_secret=payload.get("twofa_secret") or payload.get("twofa") or payload.get("otp_secret"),
+        twofa_secret=payload.get("twofa_secret")
+        or payload.get("twofa")
+        or payload.get("otp_secret"),
         email=payload.get("email"),
         email_password=payload.get("email_password"),
         token=payload.get("token"),
-        email_token=payload.get("email_token")
+        email_token=payload.get("email_token"),
     )

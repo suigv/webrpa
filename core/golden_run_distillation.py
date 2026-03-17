@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 # pyright: reportUnknownParameterType=false, reportUnknownArgumentType=false, reportUnknownVariableType=false, reportUnknownMemberType=false, reportUnusedCallResult=false, reportUnannotatedClassAttribute=false, reportExplicitAny=false
-
 import json
 import re
 from dataclasses import dataclass
@@ -11,10 +10,13 @@ from typing import Any
 import yaml
 
 from core.model_trace_store import ModelTraceContext, ModelTraceStore
-from engine.actions.sdk_config_support import app_config_path, app_from_package, load_app_config_document
+from engine.actions.sdk_config_support import (
+    app_config_path,
+    app_from_package,
+    load_app_config_document,
+)
 from engine.models.manifest import InputType, PluginInput, PluginManifest
 from engine.models.workflow import ActionStep, WorkflowScript
-
 
 _WORD_RE = re.compile(r"[^a-z0-9]+")
 
@@ -54,7 +56,9 @@ class GoldenRunDraft:
 
 
 class GoldenRunDistillationError(RuntimeError):
-    def __init__(self, *, code: str, message: str, details: dict[str, object] | None = None) -> None:
+    def __init__(
+        self, *, code: str, message: str, details: dict[str, object] | None = None
+    ) -> None:
         super().__init__(message)
         self.code = code
         self.message = message
@@ -150,7 +154,9 @@ class GoldenRunDistiller:
                 },
             )
 
-        step_records = [record for record in records if str(record.get("record_type") or "") == "step"]
+        step_records = [
+            record for record in records if str(record.get("record_type") or "") == "step"
+        ]
         if not step_records:
             raise GoldenRunDistillationError(
                 code="bad_golden_run",
@@ -239,7 +245,9 @@ class GoldenRunDistiller:
             if isinstance(transition, dict):
                 next_states = transition.get("next_observed_state_ids")
                 if isinstance(next_states, list):
-                    expected_state_ids = [str(item).strip() for item in next_states if str(item).strip()]
+                    expected_state_ids = [
+                        str(item).strip() for item in next_states if str(item).strip()
+                    ]
                     if expected_state_ids:
                         steps.append(
                             {
@@ -256,7 +264,9 @@ class GoldenRunDistiller:
 
             for result_path, result_value in _iter_scalar_paths(action_result_data):
                 dotted_path = ".".join(result_path)
-                produced_refs[_stable_key(result_value)] = f"${{vars.{step_payload['save_as']}.{dotted_path}}}"
+                produced_refs[_stable_key(result_value)] = (
+                    f"${{vars.{step_payload['save_as']}.{dotted_path}}}"
+                )
 
         steps.append(
             {
@@ -343,7 +353,9 @@ class GoldenRunDistiller:
         produced_ref = produced_refs.get(stable_key)
         if produced_ref is not None:
             return produced_ref
-        if not self._should_parameterize_literal(value=value, path=path, literal_counts=literal_counts):
+        if not self._should_parameterize_literal(
+            value=value, path=path, literal_counts=literal_counts
+        ):
             return value
 
         alias = payload_aliases.get(stable_key)
@@ -405,13 +417,18 @@ class GoldenRunDistiller:
     # Selector extraction
     # ------------------------------------------------------------------
 
-    _UI_LOCATOR_ACTIONS = frozenset({
-        "ui.click", "ui.long_click", "ui.input_text",
-        "ui.node_click", "ui.node_long_click",
-        "ui.focus_and_input_with_shell_fallback",
-        "ui.input_text_with_shell_fallback",
-        "ui.click_selector_or_tap",
-    })
+    _UI_LOCATOR_ACTIONS = frozenset(
+        {
+            "ui.click",
+            "ui.long_click",
+            "ui.input_text",
+            "ui.node_click",
+            "ui.node_long_click",
+            "ui.focus_and_input_with_shell_fallback",
+            "ui.input_text_with_shell_fallback",
+            "ui.click_selector_or_tap",
+        }
+    )
 
     def _extract_package_from_records(self, records: list[dict[str, object]]) -> str:
         for record in records:
@@ -426,7 +443,9 @@ class GoldenRunDistiller:
                 return pkg
         return ""
 
-    def _infer_state_id_from_features(self, resource_ids: list[str], texts: list[str]) -> str | None:
+    def _infer_state_id_from_features(
+        self, resource_ids: list[str], texts: list[str]
+    ) -> str | None:
         """从 resource_id 推断通用 state_id，不包含 app 特定关键字。"""
         for rid in resource_ids:
             part = rid.split(":id/")[-1].strip().lower()
@@ -439,9 +458,11 @@ class GoldenRunDistiller:
                 return part
         return None
 
-    def _extract_states_from_records(self, records: list[dict[str, object]]) -> list[dict[str, str]]:
+    def _extract_states_from_records(
+        self, records: list[dict[str, object]]
+    ) -> list[dict[str, str]]:
         import xml.etree.ElementTree as ET
-        from collections import Counter
+
         state_map: dict[str, dict[str, str]] = {}
         for record in records:
             fe = record.get("fallback_evidence") or {}
@@ -478,6 +499,7 @@ class GoldenRunDistiller:
 
     def _compute_xml_filter(self, records: list[dict[str, object]]) -> dict[str, int] | None:
         import xml.etree.ElementTree as ET
+
         text_lens: list[int] = []
         desc_lens: list[int] = []
         for record in records:
@@ -549,7 +571,9 @@ class GoldenRunDistiller:
 
         # merge selectors
         if new_selectors:
-            existing_sel: dict[str, object] = doc.get("selectors") if isinstance(doc.get("selectors"), dict) else {}  # type: ignore[assignment]
+            existing_sel: dict[str, object] = (
+                doc.get("selectors") if isinstance(doc.get("selectors"), dict) else {}
+            )  # type: ignore[assignment]
             for key, selector in new_selectors.items():
                 if key not in existing_sel:
                     existing_sel[key] = selector
@@ -559,7 +583,9 @@ class GoldenRunDistiller:
         # merge states
         new_states = self._extract_states_from_records(records)
         if new_states:
-            existing_states: list[dict[str, str]] = doc.get("states") if isinstance(doc.get("states"), list) else []  # type: ignore[assignment]
+            existing_states: list[dict[str, str]] = (
+                doc.get("states") if isinstance(doc.get("states"), list) else []
+            )  # type: ignore[assignment]
             existing_ids = {str(s.get("id") or "") for s in existing_states}
             for state in new_states:
                 if state["id"] not in existing_ids:
@@ -664,6 +690,7 @@ class LLMDraftRefiner:
         if self._llm_client is not None:
             return self._llm_client
         from ai_services.llm_client import LLMClient
+
         return LLMClient()
 
     def refine(
@@ -673,6 +700,7 @@ class LLMDraftRefiner:
     ) -> GoldenRunDraft:
         """Attempt LLM-based refinement. Returns original draft on any failure."""
         import logging
+
         logger = logging.getLogger(__name__)
 
         try:
@@ -697,11 +725,13 @@ class LLMDraftRefiner:
         for record in records:
             if str(record.get("record_type") or "") != "step":
                 continue
-            compressed_trace.append({
-                "step": record.get("step_index"),
-                "action": record.get("chosen_action"),
-                "params": record.get("action_params"),
-            })
+            compressed_trace.append(
+                {
+                    "step": record.get("step_index"),
+                    "action": record.get("chosen_action"),
+                    "params": record.get("action_params"),
+                }
+            )
 
         prompt_payload = {
             "script_yaml": script_yaml,
@@ -710,6 +740,7 @@ class LLMDraftRefiner:
         }
 
         from ai_services.llm_client import LLMRequest
+
         request = LLMRequest(
             prompt=_json.dumps(prompt_payload, ensure_ascii=False),
             system_prompt=_LLM_REFINER_SYSTEM_PROMPT,
@@ -721,6 +752,7 @@ class LLMDraftRefiner:
 
         if not bool(getattr(response, "ok", False)):
             import logging
+
             logging.getLogger(__name__).warning(
                 "LLMDraftRefiner: LLM returned error, skipping refinement"
             )
@@ -752,6 +784,7 @@ class LLMDraftRefiner:
         If any replacement would break the YAML, we bail out entirely.
         """
         import logging
+
         logger = logging.getLogger(__name__)
 
         script_text = draft.script_path.read_text(encoding="utf-8")
@@ -773,9 +806,20 @@ class LLMDraftRefiner:
                 continue
 
             # Safety: don't replace action names or structural keys
-            if original in {"ui.click", "ui.input_text", "ui.swipe", "ui.long_click",
-                            "ui.key_press", "ui.wait_until", "ui.match_state",
-                            "action", "kind", "label", "stop", "success"}:
+            if original in {
+                "ui.click",
+                "ui.input_text",
+                "ui.swipe",
+                "ui.long_click",
+                "ui.key_press",
+                "ui.wait_until",
+                "ui.match_state",
+                "action",
+                "kind",
+                "label",
+                "stop",
+                "success",
+            }:
                 continue
 
             # Safety: variable name must be valid identifier
@@ -792,11 +836,15 @@ class LLMDraftRefiner:
             applied_count += 1
 
             if var_name not in existing_input_names:
-                new_inputs.append({
-                    "name": var_name,
-                    "type": input_type if input_type in {"string", "integer", "number", "boolean"} else "string",
-                    "required": True,
-                })
+                new_inputs.append(
+                    {
+                        "name": var_name,
+                        "type": input_type
+                        if input_type in {"string", "integer", "number", "boolean"}
+                        else "string",
+                        "required": True,
+                    }
+                )
                 existing_input_names.add(var_name)
 
         if applied_count == 0:
@@ -848,4 +896,3 @@ class LLMDraftRefiner:
             manifest_path=draft.manifest_path,
             script_path=draft.script_path,
         )
-

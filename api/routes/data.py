@@ -1,15 +1,22 @@
-from fastapi import APIRouter
-from pydantic import BaseModel
-from typing import Any, Dict, Optional
+from typing import Any
 
 from anyio.to_thread import run_sync
+from fastapi import APIRouter
+from pydantic import BaseModel
+
 from core.account_service import (
     get_accounts_raw_text,
     import_accounts_content,
     list_accounts,
-    pop_account as pop_account_from_pool,
-    reset_accounts as reset_accounts_store,
     update_account_fields,
+)
+from core.account_service import (
+    pop_account as pop_account_from_pool,
+)
+from core.account_service import (
+    reset_accounts as reset_accounts_store,
+)
+from core.account_service import (
     update_account_status as set_account_status,
 )
 from core.data_text_service import (
@@ -30,14 +37,14 @@ class AccountsImportRequest(BaseModel):
     content: str
     overwrite: bool = True
     delimiter: str | None = None
-    mapping: Dict[int, str] | None = None
-    app_id: Optional[str] = "default"
+    mapping: dict[int, str] | None = None
+    app_id: str | None = "default"
 
 
 class AccountStatusUpdate(BaseModel):
     account: str
     status: str
-    error_msg: Optional[str] = None
+    error_msg: str | None = None
 
 
 @router.get("/accounts")
@@ -62,7 +69,7 @@ async def import_accounts(data: AccountsImportRequest):
 
 class AccountUpdate(BaseModel):
     old_account: str
-    new_data: Dict[str, Any]
+    new_data: dict[str, Any]
 
 
 @router.post("/accounts/update")
@@ -79,7 +86,10 @@ async def update_account_status(data: AccountStatusUpdate):
     """更新账号状态"""
     ok = await run_sync(set_account_status, data.account, data.status, data.error_msg)
     if ok:
-        return {"status": "ok", "message": f"Account {data.account} status updated to {data.status}"}
+        return {
+            "status": "ok",
+            "message": f"Account {data.account} status updated to {data.status}",
+        }
     return {"status": "error", "message": "Account not found"}
 
 

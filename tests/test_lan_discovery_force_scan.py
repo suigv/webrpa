@@ -15,7 +15,9 @@ def test_scan_now_force_bypasses_discovery_enabled(monkeypatch):
             "discovery_subnet": "192.168.1.0/24",
         }
 
-        monkeypatch.setattr(discovery, "_scan_targets", lambda subnet: ["192.168.1.214", "192.168.1.215"])
+        monkeypatch.setattr(
+            discovery, "_scan_targets", lambda subnet: ["192.168.1.214", "192.168.1.215"]
+        )
         monkeypatch.setattr(discovery, "_probe_ip", lambda ip, port: ip == "192.168.1.214")
 
         assert discovery.scan_now() == []

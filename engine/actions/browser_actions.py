@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict
+from contextlib import suppress
+from typing import Any
 
 from engine.models.runtime import ActionResult, ExecutionContext
 
@@ -13,13 +14,14 @@ def _get_browser(context: ExecutionContext) -> Any:
     if context.browser is None:
         try:
             from hardware_adapters.browser_client import BrowserClient
+
             context.browser = BrowserClient()
         except Exception as exc:
             raise RuntimeError(f"browser adapter unavailable: {exc}") from exc
     return context.browser
 
 
-def browser_open(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
+def browser_open(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
     browser = _get_browser(context)
     url = str(params.get("url", ""))
     if not url:
@@ -33,7 +35,7 @@ def browser_open(params: Dict[str, Any], context: ExecutionContext) -> ActionRes
     return ActionResult(ok=True, code="ok", message=f"opened {url}")
 
 
-def browser_input(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
+def browser_input(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
     browser = _get_browser(context)
     selectors = params.get("selectors", [])
     text = str(params.get("text", ""))
@@ -48,7 +50,7 @@ def browser_input(params: Dict[str, Any], context: ExecutionContext) -> ActionRe
     return ActionResult(ok=False, code="input_failed", message="no selector matched")
 
 
-def browser_click(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
+def browser_click(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
     browser = _get_browser(context)
     selectors = params.get("selectors", [])
     if isinstance(selectors, str):
@@ -62,7 +64,7 @@ def browser_click(params: Dict[str, Any], context: ExecutionContext) -> ActionRe
     return ActionResult(ok=False, code="click_failed", message="no selector matched")
 
 
-def browser_exists(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
+def browser_exists(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
     browser = _get_browser(context)
     selectors = params.get("selectors", [])
     if isinstance(selectors, str):
@@ -76,7 +78,7 @@ def browser_exists(params: Dict[str, Any], context: ExecutionContext) -> ActionR
     return ActionResult(ok=False, code="not_found", message="element not found")
 
 
-def browser_check_html(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
+def browser_check_html(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
     browser = _get_browser(context)
     contains = params.get("contains", [])
     if isinstance(contains, str):
@@ -92,7 +94,7 @@ def browser_check_html(params: Dict[str, Any], context: ExecutionContext) -> Act
     return ActionResult(ok=False, code="not_found", message="no keyword found in html")
 
 
-def browser_wait_url(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
+def browser_wait_url(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
     browser = _get_browser(context)
     fragment = str(params.get("fragment", ""))
     timeout_s = int(params.get("timeout_s", 15))
@@ -104,10 +106,12 @@ def browser_wait_url(params: Dict[str, Any], context: ExecutionContext) -> Actio
         return ActionResult(ok=False, code="wait_url_failed", message=str(exc))
     if result:
         return ActionResult(ok=True, code="ok", message=f"url contains {fragment}")
-    return ActionResult(ok=False, code="timeout", message=f"url did not contain {fragment} within {timeout_s}s")
+    return ActionResult(
+        ok=False, code="timeout", message=f"url did not contain {fragment} within {timeout_s}s"
+    )
 
 
-def browser_add_cookies(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
+def browser_add_cookies(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
     browser = _get_browser(context)
     cookies = params.get("cookies", [])
     if isinstance(cookies, dict):
@@ -118,17 +122,16 @@ def browser_add_cookies(params: Dict[str, Any], context: ExecutionContext) -> Ac
         # Assuming DrissionPage set.cookies exists on the page
         if hasattr(browser._page, "set"):
             browser._page.set.cookies(cookies)
-        elif hasattr(browser._page, "cookies"): # Playwright style
-            pass # Implement fallback if necessary
+        elif hasattr(browser._page, "cookies"):  # Playwright style
+            pass  # Implement fallback if necessary
         return ActionResult(ok=True, code="ok", message=f"added {len(cookies)} cookies")
     except Exception as exc:
         return ActionResult(ok=False, code="cookie_error", message=str(exc))
 
-def browser_close(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
+
+def browser_close(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
     if context.browser is not None:
-        try:
+        with suppress(Exception):
             context.browser.close()
-        except Exception:
-            pass
         context.browser = None
     return ActionResult(ok=True, code="ok", message="browser closed")

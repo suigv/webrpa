@@ -7,35 +7,37 @@ import logging
 import os
 import re
 import time
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, Callable, Protocol
-
-logger = logging.getLogger(__name__)
+from typing import TYPE_CHECKING, Any, Protocol
 
 from ai_services.llm_client import LLMClient, LLMRequest
 from ai_services.vlm_client import VLMClient
-from core.app_config_writer import AppConfigWriter
 from core.app_config import AppConfigManager
+from core.app_config_writer import AppConfigWriter
 from core.model_trace_store import ModelTraceContext, ModelTraceStore
 from core.paths import traces_dir
 from core.trace_learner import TraceLearner
-from engine.action_registry import ActionRegistry, get_registry
 from engine.action_dispatcher import dispatch_action
+from engine.action_registry import ActionRegistry, get_registry
 from engine.models.runtime import ExecutionContext
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from engine.planners import BasePlanner
 
 
 class LLMClientLike(Protocol):
-    def evaluate(self, request: LLMRequest, *, runtime_config: dict[str, object] | None = None) -> Any: ...
+    def evaluate(
+        self, request: LLMRequest, *, runtime_config: dict[str, object] | None = None
+    ) -> Any: ...
 
 
 def _timestamp() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _json_dict(value: object) -> dict[str, object]:
@@ -50,7 +52,9 @@ def _json_safe(value: object, *, string_limit: int = 4000) -> object:
     if isinstance(value, str):
         return value if len(value) <= string_limit else f"{value[:string_limit]}…"
     if isinstance(value, Mapping):
-        return {str(key): _json_safe(item, string_limit=string_limit) for key, item in value.items()}
+        return {
+            str(key): _json_safe(item, string_limit=string_limit) for key, item in value.items()
+        }
     if isinstance(value, list):
         return [_json_safe(item, string_limit=string_limit) for item in value]
     if isinstance(value, tuple):
@@ -60,6 +64,8 @@ def _json_safe(value: object, *, string_limit: int = 4000) -> object:
 
 _SAFE_PART_RE = re.compile(r"[^a-zA-Z0-9._-]+")
 _XML_PACKAGE_RE = re.compile(r'package="([^"]+)"')
+
+
 def _safe_path_part(value: object, *, default: str) -> str:
     raw = str(value or "").strip()
     if not raw:
@@ -118,13 +124,15 @@ def _build_history_digest(
     for entry in recent:
         result = entry.get("result")
         result_dict = result if isinstance(result, dict) else {}
-        digest.append({
-            "step": entry.get("step_index"),
-            "action": str(entry.get("action") or ""),
-            "params_summary": _params_summary(entry.get("params")),
-            "ok": bool(result_dict.get("ok", True)),
-            "message": str(result_dict.get("message") or "")[:120],
-        })
+        digest.append(
+            {
+                "step": entry.get("step_index"),
+                "action": str(entry.get("action") or ""),
+                "params_summary": _params_summary(entry.get("params")),
+                "ok": bool(result_dict.get("ok", True)),
+                "message": str(result_dict.get("message") or "")[:120],
+            }
+        )
     return digest
 
 
@@ -265,7 +273,9 @@ def _planner_allowed_actions(
         and isinstance(result_data.get("y"), (int, float))
         and "ui.click" in actions
     ):
-        actions = [item for item in actions if item not in {"ai.locate_point", "ui.swipe"}] or ["ui.click"]
+        actions = [item for item in actions if item not in {"ai.locate_point", "ui.swipe"}] or [
+            "ui.click"
+        ]
         actions = _prioritize_action(actions, "ui.click")
 
     return actions
@@ -289,7 +299,12 @@ def _infer_login_stage_from_last_action(last_action: Mapping[str, object] | None
     result = _json_dict(_json_dict(last_action).get("result"))
     result_data = _json_dict(result.get("data"))
     raw = _json_dict(result_data.get("raw"))
-    for candidate in (raw.get("page"), result_data.get("page"), raw.get("stage"), result_data.get("stage")):
+    for candidate in (
+        raw.get("page"),
+        result_data.get("page"),
+        raw.get("stage"),
+        result_data.get("stage"),
+    ):
         value = str(candidate or "").strip().lower()
         if value in {"login_entry", "account", "password", "two_factor", "home"}:
             return value
@@ -303,7 +318,9 @@ def _infer_login_stage_from_fallback_xml(fallback_evidence: Mapping[str, object]
 
     password_fields = len(re.findall(r'password="true"', xml_text))
     password_tokens = len(re.findall(r'resource-id="[^"]*password[^"]*"', xml_text))
-    verification_tokens = len(re.findall(r'resource-id="[^"]*(otp|code|token|verify)[^"]*"', xml_text))
+    verification_tokens = len(
+        re.findall(r'resource-id="[^"]*(otp|code|token|verify)[^"]*"', xml_text)
+    )
     edit_fields = len(re.findall(r'class="android\.widget\.edittext"', xml_text))
     buttons = len(re.findall(r'class="android\.widget\.(button|imagebutton)"', xml_text))
     list_views = len(re.findall(r'class="androidx\.recyclerview\.widget\.recyclerview"', xml_text))
@@ -332,7 +349,9 @@ def _apply_fallback_state_hint(
         return {}
     if _observation_state_id(observation) not in {"", "unknown"}:
         return observation
-    inferred_state = _infer_login_stage_from_last_action(last_action) or _infer_login_stage_from_fallback_xml(fallback_evidence)
+    inferred_state = _infer_login_stage_from_last_action(
+        last_action
+    ) or _infer_login_stage_from_fallback_xml(fallback_evidence)
     if not inferred_state:
         return observation
 
@@ -372,7 +391,9 @@ def _planner_inputs(payload: Mapping[str, object]) -> dict[str, object]:
     }
 
 
-def _needs_form_submit(last_action: Mapping[str, object] | None, observation_state: Mapping[str, object] | None) -> bool:
+def _needs_form_submit(
+    last_action: Mapping[str, object] | None, observation_state: Mapping[str, object] | None
+) -> bool:
     observation_dict = _json_dict(observation_state)
     state_dict = _json_dict(observation_dict.get("state"))
     state_id = str(state_dict.get("state_id") or "").strip()
@@ -446,26 +467,32 @@ class AgentExecutorRuntime:
     ) -> dict[str, Any]:
         config_error = self.validate_payload(payload)
         if config_error is not None:
-            return self._result(ok=False, status="failed_config_error", checkpoint="dispatch", **config_error)
+            return self._result(
+                ok=False, status="failed_config_error", checkpoint="dispatch", **config_error
+            )
 
         config = self._parse_config(payload, runtime=runtime)
         context = ExecutionContext(payload=dict(payload), runtime=dict(runtime or {}))
         context.should_cancel = should_cancel
         context.emit_event = (runtime or {}).get("emit_event")
-        llm_client = self._llm_client_factory()
         ui_match_state = self._registry.resolve("ui.match_state")
         target_package = str(payload.get("package") or "").strip()
 
         if target_package:
             app_ensure_running = self._registry.resolve("app.ensure_running")
-            ensure_running_result = app_ensure_running({"package": target_package, "verify_timeout": 1.5}, context)
+            ensure_running_result = app_ensure_running(
+                {"package": target_package, "verify_timeout": 1.5}, context
+            )
             if not ensure_running_result.ok:
                 return self._result(
                     ok=False,
                     status="failed_runtime_error",
                     checkpoint="dispatch",
                     code=str(ensure_running_result.code or "app_ensure_running_failed"),
-                    message=str(ensure_running_result.message or f"failed to bring {target_package} to foreground"),
+                    message=str(
+                        ensure_running_result.message
+                        or f"failed to bring {target_package} to foreground"
+                    ),
                 )
 
         stagnant_observation_count = 0
@@ -497,12 +524,17 @@ class AgentExecutorRuntime:
                         step_index=step_index - 1,
                         observation=_json_dict(last_observation.get("data")),
                         observation_ok=bool(last_observation.get("ok")),
-                        observation_modality=str(last_observation.get("modality") or "structured_state"),
+                        observation_modality=str(
+                            last_observation.get("modality") or "structured_state"
+                        ),
                         observed_state_ids=_string_list(last_observation.get("observed_state_ids")),
-                        fallback_reason=str(last_observation.get("fallback_reason") or self._fallback_reason(
-                            observation_ok=bool(last_observation.get("ok")),
-                            observation_payload=_json_dict(last_observation.get("data")),
-                        )),
+                        fallback_reason=str(
+                            last_observation.get("fallback_reason")
+                            or self._fallback_reason(
+                                observation_ok=bool(last_observation.get("ok")),
+                                observation_payload=_json_dict(last_observation.get("data")),
+                            )
+                        ),
                         fallback_evidence=_json_dict(last_observation.get("fallback_evidence")),
                         code="task_cancelled",
                         message="task cancelled by user",
@@ -512,7 +544,10 @@ class AgentExecutorRuntime:
                 return self._cancelled(step_index=step_index - 1, history=history)
 
             observation = ui_match_state(
-                {**config.observation_params, "expected_state_ids": list(config.expected_state_ids)},
+                {
+                    **config.observation_params,
+                    "expected_state_ids": list(config.expected_state_ids),
+                },
                 context,
             )
             observed_at = _timestamp()
@@ -545,12 +580,15 @@ class AgentExecutorRuntime:
                 xml_content = _json_dict(fallback_evidence.get("ui_xml")).get("content", "")
                 observation_fingerprint = _stable_fingerprint(xml_content)
             if context.emit_event:
-                context.emit_event("task.observation", {
-                    "step": step_index,
-                    "modality": observation_modality,
-                    "observed_state_ids": observed_state_ids,
-                    "ok": bool(observation.ok),
-                })
+                context.emit_event(
+                    "task.observation",
+                    {
+                        "step": step_index,
+                        "modality": observation_modality,
+                        "observed_state_ids": observed_state_ids,
+                        "ok": bool(observation.ok),
+                    },
+                )
             last_observation = {
                 "data": observation_state if isinstance(observation_state, dict) else {},
                 "ok": bool(observation.ok),
@@ -574,7 +612,11 @@ class AgentExecutorRuntime:
                 self._append_trace(trace_context, pending_trace_record)
                 pending_trace_record = None
 
-            if step_index > 1 and observation_fingerprint == previous_observation_fingerprint and not _is_non_mutating_action(last_action):
+            if (
+                step_index > 1
+                and observation_fingerprint == previous_observation_fingerprint
+                and not _is_non_mutating_action(last_action)
+            ):
                 stagnant_observation_count += 1
             else:
                 stagnant_observation_count = 0
@@ -587,7 +629,9 @@ class AgentExecutorRuntime:
                         status="failed_circuit_breaker",
                         sequence=step_index,
                         step_index=step_index,
-                        observation=observation_state if isinstance(observation_state, dict) else {},
+                        observation=observation_state
+                        if isinstance(observation_state, dict)
+                        else {},
                         observation_ok=bool(observation.ok),
                         observation_modality=observation_modality,
                         observed_state_ids=observed_state_ids,
@@ -627,7 +671,9 @@ class AgentExecutorRuntime:
                 last_action=last_action,
                 observation_requires_fallback=observation_requires_fallback,
             )
-            if _needs_form_submit(last_action, observation_state if isinstance(observation_state, dict) else None):
+            if _needs_form_submit(
+                last_action, observation_state if isinstance(observation_state, dict) else None
+            ):
                 plan = {
                     "ok": True,
                     "done": False,
@@ -668,7 +714,9 @@ class AgentExecutorRuntime:
 
                     if plan.get("retryable") and attempt < max_planner_retries - 1:
                         backoff = 2 ** (attempt + 1)
-                        logger.warning(f"Planner failed (retryable), backing off {backoff}s: {plan.get('message')}")
+                        logger.warning(
+                            f"Planner failed (retryable), backing off {backoff}s: {plan.get('message')}"
+                        )
                         if self._interruptible_sleep(backoff, should_cancel):
                             break
                         continue
@@ -681,7 +729,9 @@ class AgentExecutorRuntime:
                         status="failed_runtime_error",
                         sequence=step_index,
                         step_index=step_index,
-                        observation=observation_state if isinstance(observation_state, dict) else {},
+                        observation=observation_state
+                        if isinstance(observation_state, dict)
+                        else {},
                         observation_ok=bool(last_observation.get("ok")),
                         observation_modality=observation_modality,
                         observed_state_ids=observed_state_ids,
@@ -711,7 +761,9 @@ class AgentExecutorRuntime:
                         status="completed",
                         sequence=step_index,
                         step_index=step_index,
-                        observation=observation_state if isinstance(observation_state, dict) else {},
+                        observation=observation_state
+                        if isinstance(observation_state, dict)
+                        else {},
                         observation_ok=bool(last_observation.get("ok")),
                         observation_modality=observation_modality,
                         observed_state_ids=observed_state_ids,
@@ -748,7 +800,9 @@ class AgentExecutorRuntime:
                         status="failed_runtime_error",
                         sequence=step_index,
                         step_index=step_index,
-                        observation=observation_state if isinstance(observation_state, dict) else {},
+                        observation=observation_state
+                        if isinstance(observation_state, dict)
+                        else {},
                         observation_ok=bool(last_observation.get("ok")),
                         observation_modality=observation_modality,
                         observed_state_ids=observed_state_ids,
@@ -772,21 +826,29 @@ class AgentExecutorRuntime:
                 )
 
             if context.emit_event:
-                context.emit_event("task.planning", {
-                    "step": step_index,
-                    "action": action_name,
-                    "params": action_params,
-                    "message": str(plan.get("message") or ""),
-                })
-            action_result = dispatch_action(action_name, action_params, context, registry=self._registry)
+                context.emit_event(
+                    "task.planning",
+                    {
+                        "step": step_index,
+                        "action": action_name,
+                        "params": action_params,
+                        "message": str(plan.get("message") or ""),
+                    },
+                )
+            action_result = dispatch_action(
+                action_name, action_params, context, registry=self._registry
+            )
             action_result_payload = action_result.model_dump(mode="python")
             if context.emit_event:
-                context.emit_event("task.action_result", {
-                    "step": step_index,
-                    "label": action_name,
-                    "ok": action_result.ok,
-                    "message": action_result.message or "",
-                })
+                context.emit_event(
+                    "task.action_result",
+                    {
+                        "step": step_index,
+                        "label": action_name,
+                        "ok": action_result.ok,
+                        "message": action_result.message or "",
+                    },
+                )
             last_action = {
                 "action": action_name,
                 "params": action_params,
@@ -848,7 +910,9 @@ class AgentExecutorRuntime:
                         status="cancelled",
                         sequence=step_index + 1,
                         step_index=step_index,
-                        observation=observation_state if isinstance(observation_state, dict) else {},
+                        observation=observation_state
+                        if isinstance(observation_state, dict)
+                        else {},
                         observation_ok=bool(observation.ok),
                         observation_modality=observation_modality,
                         observed_state_ids=observed_state_ids,
@@ -874,10 +938,13 @@ class AgentExecutorRuntime:
                 observation_ok=bool(last_observation.get("ok")),
                 observation_modality=str(last_observation.get("modality") or "structured_state"),
                 observed_state_ids=_string_list(last_observation.get("observed_state_ids")),
-                fallback_reason=str(last_observation.get("fallback_reason") or self._fallback_reason(
-                    observation_ok=bool(last_observation.get("ok")),
-                    observation_payload=_json_dict(last_observation.get("data")),
-                )),
+                fallback_reason=str(
+                    last_observation.get("fallback_reason")
+                    or self._fallback_reason(
+                        observation_ok=bool(last_observation.get("ok")),
+                        observation_payload=_json_dict(last_observation.get("data")),
+                    )
+                ),
                 fallback_evidence=_json_dict(last_observation.get("fallback_evidence")),
                 code="step_budget_exhausted",
                 message="gpt executor exhausted configured step budget",
@@ -919,13 +986,13 @@ class AgentExecutorRuntime:
     def _binding_xml_filter(self, app_package: str) -> dict[str, int] | None:
         if not app_package:
             return None
-        
+
         # 委托给核心管理器进行发现和加载
         app_name = AppConfigManager.find_app_by_package(app_package)
         if not app_name:
             AppConfigManager.bootstrap_app_config(app_package)
             return None
-            
+
         data = AppConfigManager.load_app_config(app_name)
         xml_filter = data.get("xml_filter")
         if isinstance(xml_filter, list):
@@ -943,15 +1010,17 @@ class AgentExecutorRuntime:
             return normalized or None
         return None
 
-    def _interruptible_sleep(self, seconds: float, should_cancel: Callable[[], bool] | None) -> bool:
+    def _interruptible_sleep(
+        self, seconds: float, should_cancel: Callable[[], bool] | None
+    ) -> bool:
         """执行可中断的休眠。如果休眠期间触发了取消，返回 True。"""
         if seconds <= 0:
             return False
-            
+
         deadline = time.monotonic() + seconds
         # 使用 0.5s 作为最小轮询颗粒度
         step = 0.5
-        
+
         while time.monotonic() < deadline:
             if should_cancel is not None and should_cancel():
                 return True
@@ -972,12 +1041,16 @@ class AgentExecutorRuntime:
             return {"code": "invalid_params", "message": str(exc)}
         return None
 
-    def _parse_config(self, payload: Mapping[str, object], *, runtime: Mapping[str, object] | None = None) -> AgentExecutorConfig:
+    def _parse_config(
+        self, payload: Mapping[str, object], *, runtime: Mapping[str, object] | None = None
+    ) -> AgentExecutorConfig:
         goal = str(payload.get("goal") or "").strip()
         if not goal:
             raise ValueError("agent_executor requires non-empty goal")
 
-        expected_state_ids = _string_list(payload.get("expected_state_ids") or payload.get("state_ids"))
+        expected_state_ids = _string_list(
+            payload.get("expected_state_ids") or payload.get("state_ids")
+        )
         if not expected_state_ids:
             raise ValueError("agent_executor requires expected_state_ids")
 
@@ -987,7 +1060,9 @@ class AgentExecutorRuntime:
         unknown_actions = [action for action in allowed_actions if not self._registry.has(action)]
         if unknown_actions:
             rendered = ", ".join(sorted(unknown_actions))
-            raise ValueError(f"agent_executor allowed_actions must reference registered actions: {rendered}")
+            raise ValueError(
+                f"agent_executor allowed_actions must reference registered actions: {rendered}"
+            )
         if "ui.match_state" in allowed_actions:
             raise ValueError("agent_executor allowed_actions must not include ui.match_state")
 
@@ -1004,7 +1079,9 @@ class AgentExecutorRuntime:
             expected_state_ids=expected_state_ids,
             allowed_actions=allowed_actions,
             max_steps=_int_in_range(payload.get("max_steps"), default=8, minimum=1, maximum=100),
-            stagnant_limit=_int_in_range(payload.get("stagnant_limit"), default=5, minimum=1, maximum=20),
+            stagnant_limit=_int_in_range(
+                payload.get("stagnant_limit"), default=5, minimum=1, maximum=20
+            ),
             system_prompt=str(payload.get("system_prompt") or "").strip(),
             llm_runtime=llm_runtime,
             planner_inputs=_planner_inputs(payload),
@@ -1074,7 +1151,7 @@ class AgentExecutorRuntime:
                 "action": "string",
                 "params": "object",
                 "message": "string",
-                "extracted_data": "object (optional, populate with key findings when done=true)"
+                "extracted_data": "object (optional, populate with key findings when done=true)",
             },
         }
         if history_digest:
@@ -1211,17 +1288,19 @@ class AgentExecutorRuntime:
             _ph = screen_meta.get("physical_height")
             _sw = screen_meta.get("screen_width")
             _sh = screen_meta.get("screen_height")
-            
+
             def _to_int_safe(v: Any) -> int | None:
                 if isinstance(v, (int, float, str)) and str(v).strip().isdigit():
                     return int(v)
                 return None
-            
+
             # 优先使用物理分辨率
             _screen_w = _to_int_safe(_pw) or _to_int_safe(_sw)
             _screen_h = _to_int_safe(_ph) or _to_int_safe(_sh)
-            
-            action = client.predict(image_ref, prompt, screen_width=_screen_w, screen_height=_screen_h)
+
+            action = client.predict(
+                image_ref, prompt, screen_width=_screen_w, screen_height=_screen_h
+            )
             response_trace = {
                 "ok": True,
                 "output_text": action.raw_text,
@@ -1241,7 +1320,10 @@ class AgentExecutorRuntime:
 
         raw_action = str(action.raw_action or "").strip().lower()
         normalized_action = str(action.action or "").strip()
-        if raw_action in {"finished", "finish", "done"} or normalized_action in {"task.finished", "task.complete"}:
+        if raw_action in {"finished", "finish", "done"} or normalized_action in {
+            "task.finished",
+            "task.complete",
+        }:
             return {
                 "ok": True,
                 "done": True,
@@ -1286,13 +1368,16 @@ class AgentExecutorRuntime:
     @staticmethod
     def _wants_vlm(modalities: list[str]) -> bool:
         from core.system_settings_loader import get_vlm_enabled
+
         if not get_vlm_enabled():
             return False
         normalized = {item.strip().lower() for item in modalities if str(item).strip()}
         return bool(normalized.intersection({"vlm", "vision"}))
 
     @staticmethod
-    def _vlm_screen_capture_ref(fallback_evidence: dict[str, object]) -> tuple[str, dict[str, object]]:
+    def _vlm_screen_capture_ref(
+        fallback_evidence: dict[str, object],
+    ) -> tuple[str, dict[str, object]]:
         screen_capture = _json_dict(fallback_evidence.get("screen_capture"))
         metadata = _json_dict(screen_capture.get("metadata"))
         save_path = str(metadata.get("save_path") or "").strip()
@@ -1400,7 +1485,9 @@ class AgentExecutorRuntime:
         task_id = str(runtime_dict.get("task_id") or self.task_name)
         run_id = str(runtime_dict.get("run_id") or f"{task_id}-run-1")
         attempt_number = int(runtime_dict.get("attempt_number") or 1)
-        target_label = str(runtime_dict.get("cloud_target") or f"device-{device_id}-cloud-{cloud_id}")
+        target_label = str(
+            runtime_dict.get("cloud_target") or f"device-{device_id}-cloud-{cloud_id}"
+        )
         return ModelTraceContext(
             task_id=task_id,
             run_id=run_id,
@@ -1436,7 +1523,9 @@ class AgentExecutorRuntime:
         except Exception as exc:
             logger.warning("Learning hook failed for %s: %s", package, exc)
 
-    def _flush_pending_trace(self, context: ModelTraceContext, record: dict[str, object] | None) -> None:
+    def _flush_pending_trace(
+        self, context: ModelTraceContext, record: dict[str, object] | None
+    ) -> None:
         if record is None:
             return
         if "post_action_transition" not in record:
@@ -1519,7 +1608,9 @@ class AgentExecutorRuntime:
                 evidence["browser_html"] = browser_html
             return evidence
 
-        native_xml = self._collect_native_xml(context, trace_context=trace_context, step_index=step_index)
+        native_xml = self._collect_native_xml(
+            context, trace_context=trace_context, step_index=step_index
+        )
         if native_xml:
             evidence["ui_xml"] = native_xml
         screenshot = self._collect_native_capture(
@@ -1567,13 +1658,19 @@ class AgentExecutorRuntime:
         trace_context: ModelTraceContext | None = None,
         step_index: int | None = None,
     ) -> dict[str, object]:
-        preferred = self._call_optional_action("ui.dump_node_xml_ex", {"work_mode": False, "timeout_ms": 1500}, context)
+        preferred = self._call_optional_action(
+            "ui.dump_node_xml_ex", {"work_mode": False, "timeout_ms": 1500}, context
+        )
         if bool(preferred.get("ok")):
-            return self._xml_evidence_from_result("ui.dump_node_xml_ex", preferred, trace_context=trace_context, step_index=step_index)
+            return self._xml_evidence_from_result(
+                "ui.dump_node_xml_ex", preferred, trace_context=trace_context, step_index=step_index
+            )
 
         fallback = self._call_optional_action("ui.dump_node_xml", {"dump_all": False}, context)
         if bool(fallback.get("ok")):
-            return self._xml_evidence_from_result("ui.dump_node_xml", fallback, trace_context=trace_context, step_index=step_index)
+            return self._xml_evidence_from_result(
+                "ui.dump_node_xml", fallback, trace_context=trace_context, step_index=step_index
+            )
 
         failure = _json_dict(preferred or fallback)
         if not failure:
@@ -1598,7 +1695,7 @@ class AgentExecutorRuntime:
             run_part = _safe_path_part(trace_context.run_id, default="run")
             target_part = _safe_path_part(trace_context.target_label, default="target")
             step_part = f"step-{int(step_index) if step_index is not None else 0}"
-            timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+            timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
             screens_dir = traces_dir() / task_part / run_part / "screens" / target_part
             screens_dir.mkdir(parents=True, exist_ok=True)
             save_path = str(screens_dir / f"{step_part}-{timestamp}.png")
@@ -1606,7 +1703,9 @@ class AgentExecutorRuntime:
         preferred_params: dict[str, object] = {}
         if save_path:
             preferred_params["save_path"] = save_path
-        preferred = self._call_optional_action("device.capture_compressed", preferred_params, context)
+        preferred = self._call_optional_action(
+            "device.capture_compressed", preferred_params, context
+        )
         if bool(preferred.get("ok")):
             data = _json_dict(_json_safe(preferred.get("data")))
             if save_path:
@@ -1655,7 +1754,7 @@ class AgentExecutorRuntime:
             run_part = _safe_path_part(trace_context.run_id, default="run")
             target_part = _safe_path_part(trace_context.target_label, default="target")
             step_part = f"step-{int(step_index) if step_index is not None else 0}"
-            timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+            timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
             xml_dir = traces_dir() / task_part / run_part / "xml" / target_part
             xml_dir.mkdir(parents=True, exist_ok=True)
             save_path = str(xml_dir / f"{step_part}-{timestamp}.xml")
@@ -1669,6 +1768,7 @@ class AgentExecutorRuntime:
         if xml:
             try:
                 import re as _re
+
                 m = _re.search(r'bounds="\[0,0\]\[(\d+),(\d+)\]"', xml)
                 if m:
                     screen_width = int(m.group(1))
@@ -1687,6 +1787,7 @@ class AgentExecutorRuntime:
         else:
             # fallback: 预处理后存入 JSONL
             from engine.actions._state_detection_support import preprocess_xml as _preprocess_xml
+
             app_package = self._extract_xml_package(xml)
             flt = self._binding_xml_filter(app_package) or {}
             processed = _preprocess_xml(xml, **flt)
@@ -1705,7 +1806,12 @@ class AgentExecutorRuntime:
         try:
             result = dispatch_action(action_name, params, context, registry=self._registry)
         except Exception as exc:
-            return {"action": action_name, "ok": False, "code": "fallback_capture_failed", "message": str(exc)}
+            return {
+                "action": action_name,
+                "ok": False,
+                "code": "fallback_capture_failed",
+                "message": str(exc),
+            }
         payload = result.model_dump(mode="python")
         return {"action": action_name, **_json_dict(_json_safe(payload))}
 
@@ -1764,7 +1870,9 @@ class AgentExecutorRuntime:
         return record
 
     @staticmethod
-    def _llm_request_trace(request: LLMRequest, *, runtime_config: dict[str, object]) -> dict[str, object]:
+    def _llm_request_trace(
+        request: LLMRequest, *, runtime_config: dict[str, object]
+    ) -> dict[str, object]:
         sanitized_runtime = _redact_runtime_config(runtime_config)
         return {
             "prompt": request.prompt,
@@ -1808,7 +1916,12 @@ def _redact_runtime_config(runtime_config: dict[str, object]) -> dict[str, objec
             redacted[key] = _redact_runtime_config(value)
             continue
         key_lower = str(key).lower()
-        if "api_key" in key_lower or "apikey" in key_lower or "authorization" in key_lower or "token" in key_lower:
+        if (
+            "api_key" in key_lower
+            or "apikey" in key_lower
+            or "authorization" in key_lower
+            or "token" in key_lower
+        ):
             redacted[key] = "***"
         else:
             redacted[key] = value

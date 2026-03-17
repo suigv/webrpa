@@ -3,19 +3,21 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from datetime import datetime, timezone
-from typing import Any, Callable, Dict, List, Optional
+from collections.abc import Callable
+from contextlib import suppress
+from datetime import UTC, datetime
+from typing import Any
 
-from engine.action_registry import get_registry, register_defaults
 from engine.action_dispatcher import dispatch_action
-from engine.conditions import browser_condition_state_id, evaluate as eval_condition
+from engine.action_registry import get_registry, register_defaults
+from engine.conditions import browser_condition_state_id
+from engine.conditions import evaluate as eval_condition
 from engine.models.manifest import PluginInput
 from engine.models.runtime import ActionResult, ExecutionCancelled, ExecutionContext
 from engine.models.workflow import (
     ActionStep,
     Condition,
     ConditionExpr,
-    ConditionType,
     FailStrategy,
     GotoStep,
     IfStep,
@@ -54,19 +56,21 @@ class Interpreter:
     def execute(
         self,
         script: WorkflowScript,
-        payload: Dict[str, Any],
-        plugin_inputs: List[PluginInput] | None = None,
+        payload: dict[str, Any],
+        plugin_inputs: list[PluginInput] | None = None,
         should_cancel: Any = None,
-        runtime: Dict[str, Any] | None = None,
-        emit_event: Optional[Callable[[str, Dict[str, Any]], None]] = None,
-    ) -> Dict[str, Any]:
+        runtime: dict[str, Any] | None = None,
+        emit_event: Callable[[str, dict[str, Any]], None] | None = None,
+    ) -> dict[str, Any]:
         """Execute a workflow script with the given payload.
 
         Returns a result dict with ok, status, message, and workflow metadata.
         """
         context = ExecutionContext(
             payload=payload,
-            session={"defaults": self._build_session_defaults(payload, plugin_inputs or [], runtime)},
+            session={
+                "defaults": self._build_session_defaults(payload, plugin_inputs or [], runtime)
+            },
             runtime=runtime,
         )
         context.should_cancel = should_cancel
@@ -104,7 +108,7 @@ class Interpreter:
                 "workflow": script.workflow,
                 "status": "completed",
                 "message": "workflow finished",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
             if context.last_result:
                 res["data"] = context.last_result.data
@@ -117,7 +121,7 @@ class Interpreter:
                 "workflow": script.workflow,
                 "status": "failed",
                 "message": str(exc),
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
         except ExecutionCancelled as exc:
             return {
@@ -125,7 +129,7 @@ class Interpreter:
                 "workflow": script.workflow,
                 "status": "cancelled",
                 "message": str(exc),
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
         except Exception as exc:
             logger.exception("interpreter unexpected error")
@@ -134,13 +138,11 @@ class Interpreter:
                 "workflow": script.workflow,
                 "status": "error",
                 "message": str(exc),
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
         finally:
-            try:
+            with suppress(Exception):
                 context.close()
-            except Exception:
-                pass
             try:
                 from engine.actions import _ui_selector_support
 
@@ -155,10 +157,8 @@ class Interpreter:
             except Exception:
                 logger.debug("failed to release selector context", exc_info=True)
             if context.browser is not None:
-                try:
+                with suppress(Exception):
                     context.browser.close()
-                except Exception:
-                    pass
                 context.browser = None
 
     # ---- Step executors ----
@@ -168,7 +168,7 @@ class Interpreter:
         step: ActionStep,
         context: ExecutionContext,
         registry: Any,
-        label_map: Dict[str, int],
+        label_map: dict[str, int],
     ) -> None:
         interp_ctx = {"payload": context.payload, "vars": context.vars}
         params = interpolate_params(step.params, interp_ctx)
@@ -185,25 +185,32 @@ class Interpreter:
         if context.emit_event:
             # `label` is a human-readable hint from YAML (e.g. "go_home").
             display_label = str(step.label or step.action)
-            context.emit_event("task.action_result", {
-                "step": context.pc + 1,
-                "label": display_label,
-                "ok": result.ok,
-                "message": result.message,
-            })
+            context.emit_event(
+                "task.action_result",
+                {
+                    "step": context.pc + 1,
+                    "label": display_label,
+                    "ok": result.ok,
+                    "message": result.message,
+                },
+            )
 
         if step.save_as:
-            context.vars[step.save_as] = result.data if result.data else {
-                "ok": result.ok,
-                "code": result.code,
-                "message": result.message,
-            }
+            context.vars[step.save_as] = (
+                result.data
+                if result.data
+                else {
+                    "ok": result.ok,
+                    "code": result.code,
+                    "message": result.message,
+                }
+            )
 
     def _exec_if(
         self,
         step: IfStep,
         context: ExecutionContext,
-        label_map: Dict[str, int],
+        label_map: dict[str, int],
     ) -> None:
         matched = eval_condition(step.when, context)
         target = step.then if matched else step.otherwise
@@ -214,13 +221,13 @@ class Interpreter:
         self,
         step: WaitUntilStep,
         context: ExecutionContext,
-        label_map: Dict[str, int],
+        label_map: dict[str, int],
     ) -> None:
         timeout_ms = min(int(step.timeout_ms), int(WAIT_UNTIL_HARD_LIMIT_S * 1000))
         timeout_s = timeout_ms / 1000.0
         interval_s = step.interval_ms / 1000.0
         service_state_ids = self._browser_wait_state_ids(step.check, context)
-        
+
         deadline = time.monotonic() + timeout_s
         first_iteration = True
 
@@ -253,7 +260,9 @@ class Interpreter:
                     if result.code != "timeout":
                         logger.debug(f"Service wait failed: {result.message}")
                 except Exception:
-                    logger.debug("service-backed wait_until failed; falling back to polling", exc_info=True)
+                    logger.debug(
+                        "service-backed wait_until failed; falling back to polling", exc_info=True
+                    )
 
                 # 普通轮询回退（事件驱动等待）
                 if eval_condition(step.check, context):
@@ -338,7 +347,7 @@ class Interpreter:
         self,
         expr: ConditionExpr,
         context: ExecutionContext,
-    ) -> List[str] | None:
+    ) -> list[str] | None:
         if context.browser is None:
             return None
 
@@ -349,7 +358,7 @@ class Interpreter:
             return [state_id] if state_id else None
 
         if expr.any is not None:
-            state_ids: List[str] = []
+            state_ids: list[str] = []
             for condition in expr.any:
                 state_id = self._browser_condition_state_id(condition)
                 if state_id is None:
@@ -366,23 +375,23 @@ class Interpreter:
         self,
         step: GotoStep,
         context: ExecutionContext,
-        label_map: Dict[str, int],
+        label_map: dict[str, int],
     ) -> None:
         self._jump_to(step.target, context, label_map)
 
-    def _exec_stop(self, step: StopStep, workflow: str) -> Dict[str, Any]:
+    def _exec_stop(self, step: StopStep, workflow: str) -> dict[str, Any]:
         return {
             "ok": step.status == "success",
             "workflow": workflow,
             "status": step.status,
             "message": step.message,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         }
 
     # ---- Helpers ----
 
-    def _build_label_map(self, steps: List[Step]) -> Dict[str, int]:
-        label_map: Dict[str, int] = {}
+    def _build_label_map(self, steps: list[Step]) -> dict[str, int]:
+        label_map: dict[str, int] = {}
         for i, step in enumerate(steps):
             label = getattr(step, "label", None)
             if label:
@@ -395,7 +404,7 @@ class Interpreter:
         self,
         label: str,
         context: ExecutionContext,
-        label_map: Dict[str, int],
+        label_map: dict[str, int],
     ) -> None:
         if label not in label_map:
             raise InterpreterError(f"unknown label: {label}")
@@ -411,9 +420,9 @@ class Interpreter:
     def _run_with_on_fail(
         self,
         fn: Any,
-        on_fail: Optional[OnFail],
+        on_fail: OnFail | None,
         context: ExecutionContext,
-        label_map: Dict[str, int],
+        label_map: dict[str, int],
     ) -> ActionResult:
         """Execute fn(), applying on_fail strategy if it returns a failed result."""
         result = fn()
@@ -464,7 +473,7 @@ class Interpreter:
         self,
         on_fail: OnFail,
         context: ExecutionContext,
-        label_map: Dict[str, int],
+        label_map: dict[str, int],
         message: str,
     ) -> None:
         """Handle on_fail for non-action steps (wait_until timeout)."""
@@ -484,17 +493,17 @@ class Interpreter:
 
     def _build_session_defaults(
         self,
-        payload: Dict[str, Any],
-        plugin_inputs: List[PluginInput],
-        runtime: Dict[str, Any] | None = None,
-    ) -> Dict[str, Any]:
+        payload: dict[str, Any],
+        plugin_inputs: list[PluginInput],
+        runtime: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         payload_dict = dict(payload) if isinstance(payload, dict) else {}
-        target: Dict[str, Any] = {}
+        target: dict[str, Any] = {}
         if isinstance(runtime, dict):
             runtime_target = runtime.get("target")
             if isinstance(runtime_target, dict):
                 target = runtime_target
-        defaults: Dict[str, Any] = {}
+        defaults: dict[str, Any] = {}
 
         for plugin_input in plugin_inputs:
             value = payload_dict.get(plugin_input.name)

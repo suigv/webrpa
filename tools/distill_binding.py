@@ -10,10 +10,11 @@
 示例:
     python tools/distill_binding.py 882b29cf-9f96-400b-b860-4ace326e0918
 """
+
 from __future__ import annotations
 
-import importlib.util
 import argparse
+import importlib.util
 import json
 import xml.etree.ElementTree as ET
 from collections import Counter
@@ -33,7 +34,6 @@ else:
 bootstrap_project_root()
 
 from core.paths import traces_dir
-
 
 TRACES_DIR = traces_dir()
 
@@ -61,7 +61,7 @@ def extract_xml(record: dict) -> str | None:
     content = ui_xml.get("content") or ""
     if content:
         return content.strip()
-    
+
     save_path = ui_xml.get("save_path") or ""
     if save_path:
         p = Path(save_path)
@@ -77,40 +77,48 @@ def parse_features(xml_content: str) -> dict:
         "texts": Counter(),
         "content_descs": Counter(),
     }
-    
+
     # 首先尝试正常解析
     try:
         root = ET.fromstring(xml_content)
         for node in root.iter():
             pkg = node.get("package", "")
-            if pkg: features["packages"][pkg] += 1
+            if pkg:
+                features["packages"][pkg] += 1
             rid = node.get("resource-id", "")
-            if rid and ":id/" in rid: features["resource_ids"][rid] += 1
+            if rid and ":id/" in rid:
+                features["resource_ids"][rid] += 1
             text = node.get("text", "").strip()
-            if text and len(text) < 60: features["texts"][text] += 1
+            if text and len(text) < 60:
+                features["texts"][text] += 1
             desc = node.get("content-desc", "").strip()
-            if desc and len(desc) < 60: features["content_descs"][desc] += 1
+            if desc and len(desc) < 60:
+                features["content_descs"][desc] += 1
         return features
     except ET.ParseError:
         pass
 
     # 如果 XML 不完整（常见于 4KB 截断），使用正则提取特征
     import re
+
     patterns = {
         "packages": r'package="([^"]*)"',
         "resource_ids": r'resource-id="([^"]*)"',
         "texts": r'text="([^"]*)"',
         "content_descs": r'content-desc="([^"]*)"',
     }
-    
+
     for key, pattern in patterns.items():
         matches = re.findall(pattern, xml_content)
         for m in matches:
-            if not m.strip(): continue
-            if key == "resource_ids" and ":id/" not in m: continue
-            if key in ("texts", "content_descs") and len(m) > 60: continue
+            if not m.strip():
+                continue
+            if key == "resource_ids" and ":id/" not in m:
+                continue
+            if key in ("texts", "content_descs") and len(m) > 60:
+                continue
             features[key][m] += 1
-            
+
     return features
 
 
@@ -162,11 +170,13 @@ def _build_state_patterns(steps: list[dict]) -> dict[str, dict[str, list[str]]]:
 
 
 def generate_code(binding_id: str, app_package: str, steps: list[dict]) -> str:
-    state_ids = sorted(set(s["label"] for s in steps))
+    state_ids = sorted({s["label"] for s in steps})
     state_tuple = ", ".join(f'"{s}"' for s in state_ids)
     binding_var = f"_{binding_id.upper()}_BINDING"
     state_patterns = _build_state_patterns(steps)
-    state_patterns_literal = json.dumps(state_patterns, ensure_ascii=False, indent=4, sort_keys=True)
+    state_patterns_literal = json.dumps(
+        state_patterns, ensure_ascii=False, indent=4, sort_keys=True
+    )
     state_order_literal = ", ".join(f'"{state_id}"' for state_id in state_ids)
 
     hints = []
@@ -209,33 +219,33 @@ def generate_code(binding_id: str, app_package: str, steps: list[dict]) -> str:
         "from engine.ui_state_native_bindings import NativeStateBinding",
         "from engine.models.runtime import ActionResult, ExecutionContext",
         "",
-        f"_{bid_upper}_STATE_IDS = ({state_tuple}, \"unknown\")",
+        f'_{bid_upper}_STATE_IDS = ({state_tuple}, "unknown")',
         "",
         f"_{bid_upper}_STAGE_PATTERNS = {state_patterns_literal}",
         "",
         f"_{bid_upper}_STAGE_ORDER = ({state_order_literal},)",
         "",
         f"def _normalize_{bid}_state(state_id: str) -> str:",
-        f"    return state_id if state_id in _{bid_upper}_STATE_IDS else \"unknown\"",
+        f'    return state_id if state_id in _{bid_upper}_STATE_IDS else "unknown"',
         "",
         f"def _detect_{bid}_stage(",
         "    params: dict,",
         "    context: ExecutionContext,",
         ") -> ActionResult:",
         "    merged_params = dict(params)",
-        f"    merged_params.setdefault(\"package\", \"{app_package}\")",
-        f"    merged_params[\"stage_patterns\"] = _{bid_upper}_STAGE_PATTERNS",
-        f"    merged_params[\"stage_order\"] = list(_{bid_upper}_STAGE_ORDER)",
+        f'    merged_params.setdefault("package", "{app_package}")',
+        f'    merged_params["stage_patterns"] = _{bid_upper}_STAGE_PATTERNS',
+        f'    merged_params["stage_order"] = list(_{bid_upper}_STAGE_ORDER)',
         "    return state_actions.detect_login_stage(merged_params, context)",
         "",
         f"{binding_var} = NativeStateBinding(",
-        f"    binding_id=\"{bid}\",",
-        f"    display_name=\"{bid} (auto-distilled from trace)\",",
-        "    state_noun=\"stage\",",
+        f'    binding_id="{bid}",',
+        f'    display_name="{bid} (auto-distilled from trace)",',
+        '    state_noun="stage",',
         f"    supported_state_ids=_{bid_upper}_STATE_IDS,",
         f"    normalize_state_id=_normalize_{bid}_state,",
         f"    state_id_from_action_result=lambda r: _normalize_{bid}_state(",
-        "        str(r.data.get(\"stage\", \"unknown\"))",
+        '        str(r.data.get("stage", "unknown"))',
         "    ),",
         f"    match_action=_detect_{bid}_stage,",
         ")",
@@ -295,7 +305,9 @@ def main() -> None:
     if not app_package and all_packages:
         # 取出现最多的非系统包名
         for pkg, _ in all_packages.most_common():
-            if not any(sys in pkg for sys in ["android.systemui", "android.launcher", "com.android"]):
+            if not any(
+                sys in pkg for sys in ["android.systemui", "android.launcher", "com.android"]
+            ):
                 app_package = pkg
                 break
         if not app_package:
@@ -310,7 +322,7 @@ def main() -> None:
 
     print(f"\napp_package : {app_package}")
     print(f"binding_id  : {binding_id}")
-    print(f"states      : {sorted(set(s['label'] for s in steps))}")
+    print(f"states      : {sorted({s['label'] for s in steps})}")
 
     code = generate_code(binding_id, app_package, steps)
 

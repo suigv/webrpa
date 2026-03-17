@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Literal, Optional
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -11,15 +11,23 @@ UIStateOperation = Literal["match_state", "wait_until", "observe_transition"]
 UIStatePlatform = Literal["native", "browser", "unknown"]
 UIStateMatchStatus = Literal["matched", "no_match", "timeout", "transition_observed", "unknown"]
 
-LOGIN_STAGE_VALUES: tuple[str, ...] = ("home", "two_factor", "captcha", "password", "account", "login_entry", "unknown")
+LOGIN_STAGE_VALUES: tuple[str, ...] = (
+    "home",
+    "two_factor",
+    "captcha",
+    "password",
+    "account",
+    "login_entry",
+    "unknown",
+)
 
 
 class UIStateIdentity(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     state_id: str = "unknown"
-    display_name: Optional[str] = None
-    group: Optional[str] = None
+    display_name: str | None = None
+    group: str | None = None
     aliases: list[str] = Field(default_factory=list)
 
 
@@ -27,10 +35,10 @@ class UIStateEvidence(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     summary: str = ""
-    selector: Optional[str] = None
-    text: Optional[str] = None
-    url: Optional[str] = None
-    confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    selector: str | None = None
+    text: str | None = None
+    url: str | None = None
+    confidence: float | None = Field(default=None, ge=0.0, le=1.0)
     matched: list[str] = Field(default_factory=list)
     missing: list[str] = Field(default_factory=list)
 
@@ -38,11 +46,11 @@ class UIStateEvidence(BaseModel):
 class UIStateTiming(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    started_at: Optional[float] = None
-    finished_at: Optional[float] = None
+    started_at: float | None = None
+    finished_at: float | None = None
     elapsed_ms: int = 0
-    timeout_ms: Optional[int] = None
-    interval_ms: Optional[int] = None
+    timeout_ms: int | None = None
+    interval_ms: int | None = None
     attempt: int = 0
     samples: int = 0
 
@@ -69,10 +77,12 @@ class UIStateObservationResult(BaseModel):
     evidence: UIStateEvidence = Field(default_factory=UIStateEvidence)
     timing: UIStateTiming = Field(default_factory=UIStateTiming)
     raw_details: dict[str, object] = Field(default_factory=dict)
-    transition: Optional[UIStateTransition] = None
+    transition: UIStateTransition | None = None
 
     def to_action_result(self) -> ActionResult:
-        return ActionResult(ok=self.ok, code=self.code, message=self.message, data=self.model_dump(mode="python"))
+        return ActionResult(
+            ok=self.ok, code=self.code, message=self.message, data=self.model_dump(mode="python")
+        )
 
     @classmethod
     def matched(
@@ -81,12 +91,12 @@ class UIStateObservationResult(BaseModel):
         operation: UIStateOperation,
         state_id: str,
         platform: UIStatePlatform = "unknown",
-        expected_state_ids: Optional[Sequence[str]] = None,
+        expected_state_ids: Sequence[str] | None = None,
         message: str = "",
-        evidence: Optional[UIStateEvidence] = None,
-        timing: Optional[UIStateTiming] = None,
-        raw_details: Optional[dict[str, object]] = None,
-    ) -> "UIStateObservationResult":
+        evidence: UIStateEvidence | None = None,
+        timing: UIStateTiming | None = None,
+        raw_details: dict[str, object] | None = None,
+    ) -> UIStateObservationResult:
         return cls(
             ok=True,
             code="ok",
@@ -108,12 +118,12 @@ class UIStateObservationResult(BaseModel):
         operation: UIStateOperation,
         state_id: str = "unknown",
         platform: UIStatePlatform = "unknown",
-        expected_state_ids: Optional[Sequence[str]] = None,
+        expected_state_ids: Sequence[str] | None = None,
         message: str = "state did not match",
-        evidence: Optional[UIStateEvidence] = None,
-        timing: Optional[UIStateTiming] = None,
-        raw_details: Optional[dict[str, object]] = None,
-    ) -> "UIStateObservationResult":
+        evidence: UIStateEvidence | None = None,
+        timing: UIStateTiming | None = None,
+        raw_details: dict[str, object] | None = None,
+    ) -> UIStateObservationResult:
         return cls(
             ok=False,
             code="no_match",
@@ -135,12 +145,12 @@ class UIStateObservationResult(BaseModel):
         operation: UIStateOperation,
         state_id: str = "unknown",
         platform: UIStatePlatform = "unknown",
-        expected_state_ids: Optional[Sequence[str]] = None,
+        expected_state_ids: Sequence[str] | None = None,
         message: str = "timed out waiting for state",
-        evidence: Optional[UIStateEvidence] = None,
-        timing: Optional[UIStateTiming] = None,
-        raw_details: Optional[dict[str, object]] = None,
-    ) -> "UIStateObservationResult":
+        evidence: UIStateEvidence | None = None,
+        timing: UIStateTiming | None = None,
+        raw_details: dict[str, object] | None = None,
+    ) -> UIStateObservationResult:
         return cls(
             ok=False,
             code="timeout",

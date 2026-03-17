@@ -11,7 +11,9 @@ from engine.ui_state_native_adapter import NativeUIStateAdapter
 from engine.ui_state_native_bindings import NativeStateBinding
 
 
-def test_native_adapter_login_stage_match_returns_structured_evidence(monkeypatch: MonkeyPatch) -> None:
+def test_native_adapter_login_stage_match_returns_structured_evidence(
+    monkeypatch: MonkeyPatch,
+) -> None:
     @final
     class FakeRpc:
         query_text: str
@@ -58,8 +60,15 @@ def test_native_adapter_login_stage_match_returns_structured_evidence(monkeypatc
 
     # Architecture 2.0: pass stage_patterns explicitly via action_params.
     # The global YAML no longer contains locale text — patterns are app/task-specific.
-    service = NativeUIStateAdapter(action_params={"stage_patterns": {"account": {"text_markers": ["账号"]}}, "stage_order": ["account"]})
-    ctx = ExecutionContext(payload={"device_ip": "192.168.1.214", "_target": {"device_id": 1, "cloud_id": 3}})
+    service = NativeUIStateAdapter(
+        action_params={
+            "stage_patterns": {"account": {"text_markers": ["账号"]}},
+            "stage_order": ["account"],
+        }
+    )
+    ctx = ExecutionContext(
+        payload={"device_ip": "192.168.1.214", "_target": {"device_id": 1, "cloud_id": 3}}
+    )
     result = service.match_state(ctx, expected_state_ids=["home", "account"])
 
     assert result.ok is True
@@ -72,7 +81,15 @@ def test_native_adapter_login_stage_match_returns_structured_evidence(monkeypatc
     assert result.evidence.missing == ["home"]
     assert result.raw_details["stage"] == "account"
     assert result.raw_details["target_stages"] == ["account", "home"]
-    assert result.raw_details["supported_state_ids"] == ["home", "two_factor", "captcha", "password", "account", "login_entry", "unknown"]
+    assert result.raw_details["supported_state_ids"] == [
+        "home",
+        "two_factor",
+        "captcha",
+        "password",
+        "account",
+        "login_entry",
+        "unknown",
+    ]
     assert result.timing.attempt == 1
     assert result.timing.samples == 1
 
@@ -122,8 +139,15 @@ def test_native_adapter_login_stage_no_match_preserves_evidence(monkeypatch: Mon
 
     monkeypatch.setattr(state_actions, "MytRpc", FakeRpc)
 
-    service = NativeUIStateAdapter(action_params={"stage_patterns": {"password": {"text_markers": ["password"]}}, "stage_order": ["password"]})
-    ctx = ExecutionContext(payload={"device_ip": "192.168.1.214", "_target": {"device_id": 1, "cloud_id": 3}})
+    service = NativeUIStateAdapter(
+        action_params={
+            "stage_patterns": {"password": {"text_markers": ["password"]}},
+            "stage_order": ["password"],
+        }
+    )
+    ctx = ExecutionContext(
+        payload={"device_ip": "192.168.1.214", "_target": {"device_id": 1, "cloud_id": 3}}
+    )
     result = service.match_state(ctx, expected_state_ids=["home"])
 
     assert result.ok is False
@@ -135,7 +159,9 @@ def test_native_adapter_login_stage_no_match_preserves_evidence(monkeypatch: Mon
     assert result.raw_details["stage"] == "password"
 
 
-def test_native_adapter_unknown_stage_is_not_authoritative_even_if_expected(monkeypatch: MonkeyPatch) -> None:
+def test_native_adapter_unknown_stage_is_not_authoritative_even_if_expected(
+    monkeypatch: MonkeyPatch,
+) -> None:
     @final
     class FakeRpc:
         query_text: str
@@ -180,8 +206,15 @@ def test_native_adapter_unknown_stage_is_not_authoritative_even_if_expected(monk
 
     monkeypatch.setattr(state_actions, "MytRpc", FakeRpc)
 
-    service = NativeUIStateAdapter(action_params={"stage_patterns": {"account": {"text_markers": ["account"]}}, "stage_order": ["account"]})
-    ctx = ExecutionContext(payload={"device_ip": "192.168.1.214", "_target": {"device_id": 1, "cloud_id": 3}})
+    service = NativeUIStateAdapter(
+        action_params={
+            "stage_patterns": {"account": {"text_markers": ["account"]}},
+            "stage_order": ["account"],
+        }
+    )
+    ctx = ExecutionContext(
+        payload={"device_ip": "192.168.1.214", "_target": {"device_id": 1, "cloud_id": 3}}
+    )
     result = service.match_state(ctx, expected_state_ids=["home", "unknown"])
 
     assert result.ok is False
@@ -192,7 +225,9 @@ def test_native_adapter_unknown_stage_is_not_authoritative_even_if_expected(monk
     assert result.evidence.matched == []
 
 
-def test_native_adapter_wait_until_timeout_returns_structured_timeout(monkeypatch: MonkeyPatch) -> None:
+def test_native_adapter_wait_until_timeout_returns_structured_timeout(
+    monkeypatch: MonkeyPatch,
+) -> None:
     @final
     class FakeClock:
         now: float
@@ -254,8 +289,15 @@ def test_native_adapter_wait_until_timeout_returns_structured_timeout(monkeypatc
     monkeypatch.setattr("engine.actions.state_actions.time.sleep", clock.sleep)
     monkeypatch.setattr("engine.ui_state_native_adapter.time.monotonic", clock.monotonic)
 
-    service = NativeUIStateAdapter(action_params={"stage_patterns": {"password": {"text_markers": ["password"]}}, "stage_order": ["password"]})
-    ctx = ExecutionContext(payload={"device_ip": "192.168.1.214", "_target": {"device_id": 1, "cloud_id": 3}})
+    service = NativeUIStateAdapter(
+        action_params={
+            "stage_patterns": {"password": {"text_markers": ["password"]}},
+            "stage_order": ["password"],
+        }
+    )
+    ctx = ExecutionContext(
+        payload={"device_ip": "192.168.1.214", "_target": {"device_id": 1, "cloud_id": 3}}
+    )
     result = service.wait_until(ctx, expected_state_ids=["home"], timeout_ms=30, interval_ms=1)
 
     assert result.ok is False
@@ -285,7 +327,9 @@ def test_native_adapter_wait_until_cancellation_raises(monkeypatch: MonkeyPatch)
     def _wait_action(params: dict[str, object], context: ExecutionContext) -> ActionResult:
         _ = context
         wait_calls.append(params)
-        return ActionResult(ok=True, code="ok", data={"stage": "home", "attempt": 1, "elapsed_ms": 0})
+        return ActionResult(
+            ok=True, code="ok", data={"stage": "home", "attempt": 1, "elapsed_ms": 0}
+        )
 
     def _normalize_state_id(state_id: str) -> str:
         return "home" if state_id == "home" else "unknown"
@@ -308,7 +352,9 @@ def test_native_adapter_wait_until_cancellation_raises(monkeypatch: MonkeyPatch)
         _ = binding_id
         return binding
 
-    monkeypatch.setattr("engine.ui_state_native_adapter.resolve_native_state_binding", _resolve_binding)
+    monkeypatch.setattr(
+        "engine.ui_state_native_adapter.resolve_native_state_binding", _resolve_binding
+    )
 
     service = NativeUIStateAdapter(binding_id="cancel_wait")
     ctx = ExecutionContext(payload={"device_ip": "192.168.1.214"})
@@ -350,7 +396,9 @@ def test_wait_login_stage_cancellation_interrupts_loop(monkeypatch: MonkeyPatch)
     monkeypatch.setattr(state_actions, "MytRpc", FakeRpc)
     monkeypatch.setattr(state_actions, "_detect_login_stage_with_rpc", _detect_stage)
 
-    ctx = ExecutionContext(payload={"device_ip": "192.168.1.214", "_target": {"device_id": 1, "cloud_id": 3}})
+    ctx = ExecutionContext(
+        payload={"device_ip": "192.168.1.214", "_target": {"device_id": 1, "cloud_id": 3}}
+    )
     cancel_calls = 0
 
     def _should_cancel() -> bool:
@@ -361,13 +409,17 @@ def test_wait_login_stage_cancellation_interrupts_loop(monkeypatch: MonkeyPatch)
     ctx.should_cancel = _should_cancel
 
     with pytest.raises(ExecutionCancelled):
-        _ = state_actions.wait_login_stage({"timeout_ms": 50, "interval_ms": 1, "target_stages": ["home"]}, ctx)
+        _ = state_actions.wait_login_stage(
+            {"timeout_ms": 50, "interval_ms": 1, "target_stages": ["home"]}, ctx
+        )
 
     assert detect_calls == 1
     assert cancel_calls == 3
 
 
-def test_native_adapter_wait_until_rpc_disabled_returns_structured_error(monkeypatch: MonkeyPatch) -> None:
+def test_native_adapter_wait_until_rpc_disabled_returns_structured_error(
+    monkeypatch: MonkeyPatch,
+) -> None:
     monkeypatch.setattr(state_actions, "_is_rpc_enabled", lambda: False)
 
     service = NativeUIStateAdapter()
@@ -385,7 +437,9 @@ def test_native_adapter_wait_until_rpc_disabled_returns_structured_error(monkeyp
     assert result.timing.samples == 0
 
 
-def test_native_adapter_wait_until_unavailable_returns_structured_error(monkeypatch: MonkeyPatch) -> None:
+def test_native_adapter_wait_until_unavailable_returns_structured_error(
+    monkeypatch: MonkeyPatch,
+) -> None:
     @final
     class FailingRpc:
         init_calls = 0
@@ -414,7 +468,9 @@ def test_native_adapter_wait_until_unavailable_returns_structured_error(monkeypa
     assert FailingRpc.init_calls == 1
 
 
-def test_native_adapter_presence_binding_treats_missing_as_matched_state(monkeypatch: MonkeyPatch) -> None:
+def test_native_adapter_presence_binding_treats_missing_as_matched_state(
+    monkeypatch: MonkeyPatch,
+) -> None:
     @final
     class FakeRpc:
         def init(self, ip: object, port: object, timeout: object) -> bool:
@@ -447,7 +503,9 @@ def test_native_adapter_presence_binding_treats_missing_as_matched_state(monkeyp
     assert result.raw_details["legacy_code"] == "dm_message_missing"
 
 
-def test_native_adapter_dm_unread_binding_exposes_first_target_alias(monkeypatch: MonkeyPatch) -> None:
+def test_native_adapter_dm_unread_binding_exposes_first_target_alias(
+    monkeypatch: MonkeyPatch,
+) -> None:
     @final
     class FakeRpc:
         def init(self, ip: object, port: object, timeout: object) -> bool:
@@ -483,7 +541,9 @@ def test_native_adapter_dm_unread_binding_exposes_first_target_alias(monkeypatch
     assert result.raw_details["target"] == targets[0]
 
 
-def test_native_adapter_timeline_candidates_binding_exposes_first_candidate_alias(monkeypatch: MonkeyPatch) -> None:
+def test_native_adapter_timeline_candidates_binding_exposes_first_candidate_alias(
+    monkeypatch: MonkeyPatch,
+) -> None:
     @final
     class FakeRpc:
         def init(self, ip: object, port: object, timeout: object) -> bool:
@@ -522,7 +582,9 @@ def test_native_adapter_timeline_candidates_binding_exposes_first_candidate_alia
     assert result.raw_details["supported_state_ids"] == ["available", "missing", "unknown"]
 
 
-def test_native_adapter_follow_targets_binding_treats_missing_as_matched_state(monkeypatch: MonkeyPatch) -> None:
+def test_native_adapter_follow_targets_binding_treats_missing_as_matched_state(
+    monkeypatch: MonkeyPatch,
+) -> None:
     @final
     class FakeRpc:
         def init(self, ip: object, port: object, timeout: object) -> bool:

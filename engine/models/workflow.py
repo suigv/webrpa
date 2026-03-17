@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from enum import Enum
-from typing import Annotated, Any, Dict, List, Literal, Optional, Union
+from enum import StrEnum
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-
 # ---- Failure handling ----
 
-class FailStrategy(str, Enum):
+
+class FailStrategy(StrEnum):
     abort = "abort"
     skip = "skip"
     retry = "retry"
@@ -19,12 +19,13 @@ class OnFail(BaseModel):
     strategy: FailStrategy = FailStrategy.abort
     retries: int = 0
     delay_ms: int = 300
-    goto: Optional[str] = None
+    goto: str | None = None
 
 
 # ---- Conditions ----
 
-class ConditionType(str, Enum):
+
+class ConditionType(StrEnum):
     exists = "exists"
     text_contains = "text_contains"
     url_contains = "url_contains"
@@ -35,76 +36,80 @@ class ConditionType(str, Enum):
 
 class Condition(BaseModel):
     type: ConditionType
-    selector: Optional[str] = None
-    text: Optional[str] = None
-    value: Optional[str] = None
-    var: Optional[str] = None
+    selector: str | None = None
+    text: str | None = None
+    value: str | None = None
+    var: str | None = None
     equals: Any = None
 
 
 class ConditionExpr(BaseModel):
-    all: Optional[List[Condition]] = None
-    any: Optional[List[Condition]] = None
+    all: list[Condition] | None = None
+    any: list[Condition] | None = None
 
 
 # ---- Step types ----
 
+
 class ActionStep(BaseModel):
-    label: Optional[str] = None
+    label: str | None = None
     kind: Literal["action"]
     action: str
-    params: Dict[str, Any] = Field(default_factory=dict)
-    save_as: Optional[str] = None
-    timeout_ms: Optional[int] = None
-    on_fail: Optional[OnFail] = None
+    params: dict[str, Any] = Field(default_factory=dict)
+    save_as: str | None = None
+    timeout_ms: int | None = None
+    on_fail: OnFail | None = None
 
 
 class IfStep(BaseModel):
-    label: Optional[str] = None
+    label: str | None = None
     kind: Literal["if"]
     when: ConditionExpr
     then: str
-    otherwise: Optional[str] = None
-    timeout_ms: Optional[int] = None
-    on_fail: Optional[OnFail] = None
+    otherwise: str | None = None
+    timeout_ms: int | None = None
+    on_fail: OnFail | None = None
 
 
 class WaitUntilStep(BaseModel):
-    label: Optional[str] = None
+    label: str | None = None
     kind: Literal["wait_until"]
     check: ConditionExpr
     interval_ms: int = 500
     timeout_ms: int = 10000
-    on_timeout: Optional[OnFail] = None
-    on_fail: Optional[OnFail] = None
+    on_timeout: OnFail | None = None
+    on_fail: OnFail | None = None
 
 
 class GotoStep(BaseModel):
-    label: Optional[str] = None
+    label: str | None = None
     kind: Literal["goto"]
     target: str
-    timeout_ms: Optional[int] = None
-    on_fail: Optional[OnFail] = None
+    timeout_ms: int | None = None
+    on_fail: OnFail | None = None
 
 
 class StopStep(BaseModel):
-    label: Optional[str] = None
+    label: str | None = None
     kind: Literal["stop"]
     status: Literal["success", "failed"] = "success"
     message: str = ""
-    timeout_ms: Optional[int] = None
-    on_fail: Optional[OnFail] = None
+    timeout_ms: int | None = None
+    on_fail: OnFail | None = None
 
 
-Step = Annotated[Union[ActionStep, IfStep, WaitUntilStep, GotoStep, StopStep], Field(discriminator="kind")]
+Step = Annotated[
+    ActionStep | IfStep | WaitUntilStep | GotoStep | StopStep, Field(discriminator="kind")
+]
 
 
 # ---- Workflow script ----
+
 
 class WorkflowScript(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     version: Literal["v1"]
     workflow: str
-    vars: Dict[str, Any] = Field(default_factory=dict)
-    steps: List[Step] = Field(default_factory=list)
+    vars: dict[str, Any] = Field(default_factory=dict)
+    steps: list[Step] = Field(default_factory=list)

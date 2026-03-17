@@ -9,6 +9,7 @@ from engine.actions._state_detection_support import preprocess_xml
 
 logger = logging.getLogger(__name__)
 
+
 class BindingDistiller:
     def __init__(self, llm_client: LLMClient | None = None) -> None:
         self._llm_client = llm_client or LLMClient()
@@ -24,7 +25,7 @@ class BindingDistiller:
         flt = xml_filter or {}
         node_text = preprocess_xml(xml, **flt)
         known_str = ", ".join(known_states) if known_states else "None"
-        
+
         prompt = f"""You are a mobile UI analysis expert. Below is a compressed node list of the current screen for the app '{app_name}':
 
 {node_text}
@@ -50,21 +51,25 @@ Return EXACTLY a JSON object:
             prompt=prompt,
             response_format={"type": "json_object"},
         )
-        
+
         try:
             response = self._llm_client.evaluate(request)
             if not response.ok:
-                return {"state_id": "unknown", "features": [], "reason": f"LLM error: {response.error}"}
-            
+                return {
+                    "state_id": "unknown",
+                    "features": [],
+                    "reason": f"LLM error: {response.error}",
+                }
+
             if response.structured_state and isinstance(response.structured_state, dict):
                 return response.structured_state
-            
+
             output = response.output_text.strip()
             # Clean markdown if present
             if output.startswith("```"):
                 lines = output.splitlines()
                 output = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
-                
+
             return json.loads(output)
         except Exception as exc:
             logger.exception("AI UI state analysis failed")
@@ -75,7 +80,7 @@ Return EXACTLY a JSON object:
         # Sanitize records for prompt
         slim = [{"state_id": r["state_id"], "features": r["features"]} for r in records]
         records_str = json.dumps(slim, ensure_ascii=False, indent=2)
-        
+
         prompt = f"""Based on the following UI state records for the app '{app_name}', generate a Python function 'detect_{app_name}_stage(rpc)'.
 
 Records:

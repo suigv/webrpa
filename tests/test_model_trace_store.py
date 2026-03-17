@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from core.paths import traces_dir
 from core.model_trace_store import ModelTraceContext, ModelTraceStore, ModelTraceStoreError
+from core.paths import traces_dir
 
 
 def test_model_trace_store_appends_jsonl_records_under_config_data(tmp_path):

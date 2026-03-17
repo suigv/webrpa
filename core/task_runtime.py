@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
-from core.task_store import TaskRecord
 from core.runtime_profiles import load_runtime_profile
+from core.task_store import TaskRecord
 
 
 def normalize_dispatch_targets(raw_targets: Any, devices: list[int]) -> list[dict[str, int]]:
@@ -91,7 +92,9 @@ class TaskTargetRuntimeResolver:
         clouds_raw = info.get("cloud_machines") if isinstance(info, dict) else []
         clouds = clouds_raw if isinstance(clouds_raw, list) else []
         probe_unknown = any(
-            isinstance(c, dict) and c.get("cloud_id") == cloud_id and c.get("availability_state") == "unknown"
+            isinstance(c, dict)
+            and c.get("cloud_id") == cloud_id
+            and c.get("availability_state") == "unknown"
             for c in clouds
         )
         if probe_unknown:
@@ -181,7 +184,9 @@ class PreparedTaskTarget:
 
 
 class TaskDispatchRuntimeResolver:
-    def __init__(self, target_runtime_resolver: TaskTargetRuntimeResolver, plugin_loader: Any) -> None:
+    def __init__(
+        self, target_runtime_resolver: TaskTargetRuntimeResolver, plugin_loader: Any
+    ) -> None:
         self._target_runtime_resolver = target_runtime_resolver
         self._plugin_loader = plugin_loader
 
@@ -198,12 +203,13 @@ class TaskDispatchRuntimeResolver:
         runtime_overrides = _resolve_runtime_overrides(payload_for_run)
         dispatch_targets = normalize_dispatch_targets(targets, devices)
         from core.system_settings_loader import get_rpc_enabled
+
         rpc_enabled = get_rpc_enabled()
-        is_anonymous = (task_name == "anonymous" or not task_name)
+        is_anonymous = task_name == "anonymous" or not task_name
         has_steps = bool(payload_for_run.get("steps"))
         should_resolve_target = rpc_enabled and (
-            self._plugin_loader.has(task_name) 
-            or task_name == "agent_executor" 
+            self._plugin_loader.has(task_name)
+            or task_name == "agent_executor"
             or (is_anonymous and has_steps)
         )
 
@@ -212,7 +218,9 @@ class TaskDispatchRuntimeResolver:
             target_runtime: dict[str, Any] | None = None
             target_error: dict[str, Any] | None = None
             if should_resolve_target:
-                target_runtime, target_error = self._target_runtime_resolver.resolve(target, enforce_availability=enforce_availability)
+                target_runtime, target_error = self._target_runtime_resolver.resolve(
+                    target, enforce_availability=enforce_availability
+                )
 
             runtime_target = target_runtime or target
             target_payload = dict(payload_for_run)
@@ -238,7 +246,9 @@ class TaskDispatchRuntimeResolver:
 def _resolve_runtime_overrides(payload: dict[str, Any]) -> dict[str, Any]:
     runtime_overrides: dict[str, Any] = {}
 
-    profile_name = str(payload.pop("_runtime_profile", "") or payload.pop("_profile", "") or "").strip()
+    profile_name = str(
+        payload.pop("_runtime_profile", "") or payload.pop("_profile", "") or ""
+    ).strip()
     if not profile_name:
         profile_name = os.getenv("MYT_RUNTIME_PROFILE", "").strip()
     if profile_name:

@@ -2,13 +2,12 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import yaml
 
 from engine.models.manifest import PluginManifest
 from engine.models.workflow import WorkflowScript
-
 
 # ---- Variable interpolation ----
 
@@ -31,7 +30,7 @@ def _resolve_dotpath(obj: Any, path: str) -> Any:
     return current
 
 
-def interpolate(template: Any, context: Dict[str, Any]) -> Any:
+def interpolate(template: Any, context: dict[str, Any]) -> Any:
     """Interpolate ${payload.*} and ${vars.*} references in a value.
 
     Supports:
@@ -45,7 +44,7 @@ def interpolate(template: Any, context: Dict[str, Any]) -> Any:
 
     def _replace(match: re.Match) -> str:
         expr = match.group(1)
-        default: Optional[str] = None
+        default: str | None = None
         if ":-" in expr:
             expr, default = expr.split(":-", 1)
 
@@ -67,7 +66,7 @@ def interpolate(template: Any, context: Dict[str, Any]) -> Any:
     full_match = _INTERP_RE.fullmatch(template)
     if full_match:
         expr = full_match.group(1)
-        default: Optional[str] = None
+        default: str | None = None
         if ":-" in expr:
             expr, default = expr.split(":-", 1)
         parts = expr.strip().split(".", 1)
@@ -84,7 +83,7 @@ def interpolate(template: Any, context: Dict[str, Any]) -> Any:
     return _INTERP_RE.sub(_replace, template)
 
 
-def _interpolate_value(value: Any, context: Dict[str, Any]) -> Any:
+def _interpolate_value(value: Any, context: dict[str, Any]) -> Any:
     if isinstance(value, str):
         return interpolate(value, context)
     if isinstance(value, list):
@@ -94,12 +93,13 @@ def _interpolate_value(value: Any, context: Dict[str, Any]) -> Any:
     return value
 
 
-def interpolate_params(params: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
+def interpolate_params(params: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
     """Interpolate all nested values in a params dict."""
     return {key: _interpolate_value(value, context) for key, value in params.items()}
 
 
 # ---- YAML loading ----
+
 
 def parse_manifest(path: Path) -> PluginManifest:
     """Load and validate a plugin manifest.yaml file."""
@@ -125,13 +125,14 @@ def parse_script(path: Path) -> WorkflowScript:
 
 # ---- Legacy parser (backward compat) ----
 
+
 class ScriptParser:
-    def parse(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def parse(self, payload: dict[str, Any]) -> dict[str, Any]:
         task = str(payload.get("task") or "anonymous")
         steps = payload.get("steps")
         if not isinstance(steps, list):
             steps = []
-        normalized_steps: List[Dict[str, Any]] = []
+        normalized_steps: list[dict[str, Any]] = []
         for index, step in enumerate(steps):
             if isinstance(step, dict):
                 action = str(step.get("action") or f"noop_{index}")

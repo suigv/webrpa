@@ -142,7 +142,9 @@ class RedisTaskQueue:
 
     def _promote_due(self) -> None:
         now = time.time()
-        due_items = self._client.zrangebyscore(self._delayed_key, min="-inf", max=now, start=0, num=100)
+        due_items = self._client.zrangebyscore(
+            self._delayed_key, min="-inf", max=now, start=0, num=100
+        )
         if not due_items:
             return
         pipe = self._client.pipeline()
@@ -179,6 +181,7 @@ class RedisTaskQueue:
 def create_task_queue() -> QueueBackend:
     backend = os.environ.get("MYT_TASK_QUEUE_BACKEND", "redis").strip().lower()
     from core.system_settings_loader import get_redis_url
+
     redis_url = get_redis_url()
     if backend == "memory":
         return InMemoryTaskQueue()

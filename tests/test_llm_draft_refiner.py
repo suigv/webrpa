@@ -9,7 +9,7 @@ from typing import Any
 import yaml
 
 from core.golden_run_distillation import GoldenRunDraft, LLMDraftRefiner
-from engine.models.manifest import PluginInput, PluginManifest
+from engine.models.manifest import PluginManifest
 from engine.models.workflow import ActionStep, WorkflowScript
 
 
@@ -84,16 +84,18 @@ def test_llm_refiner_applies_replacement(tmp_path: Path) -> None:
     draft = _write_draft(tmp_path)
     llm_response = _FakeLLMResponse(
         ok=True,
-        output_text=json.dumps({
-            "replacements": [
-                {
-                    "original_value": "hello@example.com",
-                    "variable_name": "user_email",
-                    "input_type": "string",
-                    "description": "the email to input",
-                }
-            ]
-        }),
+        output_text=json.dumps(
+            {
+                "replacements": [
+                    {
+                        "original_value": "hello@example.com",
+                        "variable_name": "user_email",
+                        "input_type": "string",
+                        "description": "the email to input",
+                    }
+                ]
+            }
+        ),
     )
     client = _FakeLLMClient(llm_response)
     refiner = LLMDraftRefiner(llm_client=client)
@@ -158,16 +160,18 @@ def test_llm_refiner_skips_action_name_replacements(tmp_path: Path) -> None:
     draft = _write_draft(tmp_path)
     llm_response = _FakeLLMResponse(
         ok=True,
-        output_text=json.dumps({
-            "replacements": [
-                {
-                    "original_value": "ui.click",
-                    "variable_name": "action_type",
-                    "input_type": "string",
-                    "description": "should be blocked",
-                }
-            ]
-        }),
+        output_text=json.dumps(
+            {
+                "replacements": [
+                    {
+                        "original_value": "ui.click",
+                        "variable_name": "action_type",
+                        "input_type": "string",
+                        "description": "should be blocked",
+                    }
+                ]
+            }
+        ),
     )
     client = _FakeLLMClient(llm_response)
     refiner = LLMDraftRefiner(llm_client=client)

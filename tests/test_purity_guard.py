@@ -1,6 +1,6 @@
-import core.data_store as data_store
 from fastapi.testclient import TestClient
 
+import core.data_store as data_store
 from api.server import app
 
 

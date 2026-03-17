@@ -1,10 +1,9 @@
-from enum import Enum
-from typing import Optional
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
 
-class DeviceStatus(str, Enum):
+class DeviceStatus(StrEnum):
     IDLE = "idle"
     RUNNING = "running"
     OFFLINE = "offline"
@@ -21,12 +20,12 @@ class CloudMachineInfo(BaseModel):
     rpa_port_role: str = Field(default="mytrpc_control", description="Role of rpa_port")
     status: DeviceStatus = DeviceStatus.IDLE
     availability_state: str = Field(default="unknown")
-    availability_reason: Optional[str] = None
-    last_checked_at: Optional[str] = None
-    latency_ms: Optional[int] = None
+    availability_reason: str | None = None
+    last_checked_at: str | None = None
+    latency_ms: int | None = None
     stale: bool = False
-    machine_model_name: Optional[str] = None
-    machine_model_id: Optional[str] = None
+    machine_model_name: str | None = None
+    machine_model_id: str | None = None
 
 
 class DeviceInfo(BaseModel):
@@ -34,7 +33,9 @@ class DeviceInfo(BaseModel):
     allocation_version: int
     device_id: int
     ip: str
-    sdk_port: int = Field(default=8000, description="Device-level control API port, shared across all clouds")
+    sdk_port: int = Field(
+        default=8000, description="Device-level control API port, shared across all clouds"
+    )
     sdk_port_role: str = Field(default="device_control_api", description="Role of sdk_port")
     ai_type: str
     status: DeviceStatus = DeviceStatus.IDLE
@@ -48,5 +49,5 @@ class DeviceInfo(BaseModel):
 class DeviceStatusResponse(BaseModel):
     device_id: int
     status: DeviceStatus
-    current_task: Optional[str] = None
-    message: Optional[str] = None
+    current_task: str | None = None
+    message: str | None = None

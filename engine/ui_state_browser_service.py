@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Optional, Protocol, cast
+from typing import Protocol, cast
 
 from engine.models.runtime import ExecutionContext
 from engine.models.ui_state import (
@@ -68,18 +68,20 @@ class BrowserUIStateService(UIStateService):
         context: ExecutionContext,
         *,
         expected_state_ids: Sequence[str],
-        timeout_ms: Optional[int] = None,
+        timeout_ms: int | None = None,
     ) -> UIStateObservationResult:
         started_at = time.time()
         started_tick = time.monotonic()
         expected_ids = list(expected_state_ids)
-        browser, unavailable = self._get_browser(context, operation="match_state", expected_state_ids=expected_ids)
+        browser, unavailable = self._get_browser(
+            context, operation="match_state", expected_state_ids=expected_ids
+        )
         if unavailable is not None:
             return unavailable
 
         assert browser is not None
         observations: list[dict[str, object]] = []
-        last_match: Optional[_BrowserStateMatch] = None
+        last_match: _BrowserStateMatch | None = None
 
         for state_id in expected_ids:
             try:
@@ -117,14 +119,24 @@ class BrowserUIStateService(UIStateService):
                     raw_details={"observations": observations},
                 )
 
-        evidence = last_match.evidence if last_match is not None else UIStateEvidence(summary="no browser states configured")
+        evidence = (
+            last_match.evidence
+            if last_match is not None
+            else UIStateEvidence(summary="no browser states configured")
+        )
         return UIStateObservationResult.no_match(
             operation="match_state",
             platform=self.platform,
             expected_state_ids=expected_ids,
             message="browser state did not match any expected observation",
             evidence=evidence,
-            timing=self._timing(started_at=started_at, started_tick=started_tick, timeout_ms=timeout_ms, attempt=1, samples=1),
+            timing=self._timing(
+                started_at=started_at,
+                started_tick=started_tick,
+                timeout_ms=timeout_ms,
+                attempt=1,
+                samples=1,
+            ),
             raw_details={"observations": observations},
         )
 
@@ -139,7 +151,9 @@ class BrowserUIStateService(UIStateService):
         started_at = time.time()
         started_tick = time.monotonic()
         expected_ids = list(expected_state_ids)
-        browser, unavailable = self._get_browser(context, operation="wait_until", expected_state_ids=expected_ids)
+        browser, unavailable = self._get_browser(
+            context, operation="wait_until", expected_state_ids=expected_ids
+        )
         if unavailable is not None:
             return unavailable
 
@@ -172,7 +186,11 @@ class BrowserUIStateService(UIStateService):
                         attempt=1,
                         samples=1,
                     ),
-                    raw_details={"observations": [{"kind": "url", "target": url_spec.value, "current_url": current_url}]},
+                    raw_details={
+                        "observations": [
+                            {"kind": "url", "target": url_spec.value, "current_url": current_url}
+                        ]
+                    },
                 )
 
             return UIStateObservationResult.timeout(
@@ -194,11 +212,17 @@ class BrowserUIStateService(UIStateService):
                     attempt=1,
                     samples=1,
                 ),
-                raw_details={"observations": [{"kind": "url", "target": url_spec.value, "current_url": current_url}]},
+                raw_details={
+                    "observations": [
+                        {"kind": "url", "target": url_spec.value, "current_url": current_url}
+                    ]
+                },
             )
 
         poll_outcome = poll_until_result(
-            observe=lambda: self.match_state(context, expected_state_ids=expected_ids, timeout_ms=timeout_ms),
+            observe=lambda: self.match_state(
+                context, expected_state_ids=expected_ids, timeout_ms=timeout_ms
+            ),
             timeout_ms=timeout_ms,
             interval_ms=interval_ms,
             monotonic_now=time.monotonic,
@@ -232,16 +256,18 @@ class BrowserUIStateService(UIStateService):
         self,
         context: ExecutionContext,
         *,
-        from_state_ids: Optional[Sequence[str]] = None,
-        to_state_ids: Optional[Sequence[str]] = None,
+        from_state_ids: Sequence[str] | None = None,
+        to_state_ids: Sequence[str] | None = None,
         timeout_ms: int = 15000,
         interval_ms: int = 500,
     ) -> UIStateObservationResult:
         started_at = time.time()
         started_tick = time.monotonic()
-        from_result: Optional[UIStateObservationResult] = None
+        from_result: UIStateObservationResult | None = None
         if from_state_ids:
-            from_result = self.match_state(context, expected_state_ids=from_state_ids, timeout_ms=timeout_ms)
+            from_result = self.match_state(
+                context, expected_state_ids=from_state_ids, timeout_ms=timeout_ms
+            )
             if not from_result.ok:
                 return self._copy_result(
                     from_result,
@@ -272,14 +298,21 @@ class BrowserUIStateService(UIStateService):
                 raw_details={},
             )
 
-        to_result = self.wait_until(context, expected_state_ids=to_state_ids, timeout_ms=timeout_ms, interval_ms=interval_ms)
+        to_result = self.wait_until(
+            context, expected_state_ids=to_state_ids, timeout_ms=timeout_ms, interval_ms=interval_ms
+        )
         transition = build_transition(
             from_state=(from_result.state if from_result is not None else None),
             to_state=to_result.state,
             changed=to_result.ok,
         )
         if not to_result.ok:
-            return self._copy_result(to_result, operation="observe_transition", timing=to_result.timing, transition=transition)
+            return self._copy_result(
+                to_result,
+                operation="observe_transition",
+                timing=to_result.timing,
+                transition=transition,
+            )
         return UIStateObservationResult(
             ok=True,
             code="ok",
@@ -308,8 +341,10 @@ class BrowserUIStateService(UIStateService):
             if not available:
                 return None, self._error_result(
                     operation=operation,
-                    code=getattr(browser, "error_code", "browser_unavailable") or "browser_unavailable",
-                    message=getattr(browser, "error", "browser adapter unavailable") or "browser adapter unavailable",
+                    code=getattr(browser, "error_code", "browser_unavailable")
+                    or "browser_unavailable",
+                    message=getattr(browser, "error", "browser adapter unavailable")
+                    or "browser adapter unavailable",
                     expected_state_ids=expected_state_ids,
                     attempt=0,
                     samples=0,
@@ -338,8 +373,10 @@ class BrowserUIStateService(UIStateService):
         if not getattr(candidate, "available", True):
             return None, self._error_result(
                 operation=operation,
-                code=getattr(candidate, "error_code", "browser_unavailable") or "browser_unavailable",
-                message=getattr(candidate, "error", "browser adapter unavailable") or "browser adapter unavailable",
+                code=getattr(candidate, "error_code", "browser_unavailable")
+                or "browser_unavailable",
+                message=getattr(candidate, "error", "browser adapter unavailable")
+                or "browser adapter unavailable",
                 expected_state_ids=expected_state_ids,
                 attempt=0,
                 samples=0,
@@ -359,7 +396,9 @@ class BrowserUIStateService(UIStateService):
             return _BrowserStateMatch(
                 state_id=state_id,
                 matched=False,
-                evidence=UIStateEvidence(summary=f"unsupported browser state id {state_id}", missing=[state_id]),
+                evidence=UIStateEvidence(
+                    summary=f"unsupported browser state id {state_id}", missing=[state_id]
+                ),
                 raw_details={"state_id": state_id, "supported": False},
             )
 
@@ -369,13 +408,22 @@ class BrowserUIStateService(UIStateService):
                 state_id=state_id,
                 matched=matched,
                 evidence=UIStateEvidence(
-                    summary=(f"selector {spec.value} exists" if matched else f"selector {spec.value} not found"),
+                    summary=(
+                        f"selector {spec.value} exists"
+                        if matched
+                        else f"selector {spec.value} not found"
+                    ),
                     selector=spec.value,
                     url=self._safe_current_url(browser) or None,
                     matched=[spec.value] if matched else [],
                     missing=[] if matched else [spec.value],
                 ),
-                raw_details={"kind": "exists", "target": spec.value, "matched": matched, "current_url": self._safe_current_url(browser)},
+                raw_details={
+                    "kind": "exists",
+                    "target": spec.value,
+                    "matched": matched,
+                    "current_url": self._safe_current_url(browser),
+                },
             )
 
         if spec.kind == "html":
@@ -385,7 +433,9 @@ class BrowserUIStateService(UIStateService):
                 state_id=state_id,
                 matched=matched,
                 evidence=UIStateEvidence(
-                    summary=(f"html contains {spec.value}" if matched else f"html missing {spec.value}"),
+                    summary=(
+                        f"html contains {spec.value}" if matched else f"html missing {spec.value}"
+                    ),
                     text=spec.value,
                     url=self._safe_current_url(browser) or None,
                     matched=[spec.value] if matched else [],
@@ -412,10 +462,15 @@ class BrowserUIStateService(UIStateService):
                 matched=[spec.value] if matched else [],
                 missing=[] if matched else [spec.value],
             ),
-            raw_details={"kind": "url", "target": spec.value, "matched": matched, "current_url": current_url},
+            raw_details={
+                "kind": "url",
+                "target": spec.value,
+                "matched": matched,
+                "current_url": current_url,
+            },
         )
 
-    def _parse_state_id(self, state_id: str) -> Optional[_BrowserStateSpec]:
+    def _parse_state_id(self, state_id: str) -> _BrowserStateSpec | None:
         kind, separator, value = str(state_id).partition(":")
         if separator != ":":
             return None
@@ -425,7 +480,7 @@ class BrowserUIStateService(UIStateService):
             return None
         return _BrowserStateSpec(kind=kind, value=value)
 
-    def _single_url_spec(self, expected_state_ids: Sequence[str]) -> Optional[_BrowserStateSpec]:
+    def _single_url_spec(self, expected_state_ids: Sequence[str]) -> _BrowserStateSpec | None:
         if len(expected_state_ids) != 1:
             return None
         spec = self._parse_state_id(expected_state_ids[0])
@@ -445,7 +500,7 @@ class BrowserUIStateService(UIStateService):
         *,
         operation: UIStateOperation,
         timing: UIStateTiming,
-        transition: Optional[UIStateTransition] = None,
+        transition: UIStateTransition | None = None,
     ) -> UIStateObservationResult:
         return copy_result(result, operation=operation, timing=timing, transition=transition)
 
@@ -456,13 +511,13 @@ class BrowserUIStateService(UIStateService):
         code: str,
         message: str,
         expected_state_ids: Sequence[str],
-        started_at: Optional[float] = None,
-        started_tick: Optional[float] = None,
-        timeout_ms: Optional[int] = None,
-        interval_ms: Optional[int] = None,
+        started_at: float | None = None,
+        started_tick: float | None = None,
+        timeout_ms: int | None = None,
+        interval_ms: int | None = None,
         attempt: int = 0,
         samples: int = 0,
-        raw_details: Optional[dict[str, object]] = None,
+        raw_details: dict[str, object] | None = None,
     ) -> UIStateObservationResult:
         if started_at is None:
             started_at = time.time()
@@ -490,8 +545,8 @@ class BrowserUIStateService(UIStateService):
         *,
         started_at: float,
         started_tick: float,
-        timeout_ms: Optional[int] = None,
-        interval_ms: Optional[int] = None,
+        timeout_ms: int | None = None,
+        interval_ms: int | None = None,
         attempt: int,
         samples: int,
     ) -> UIStateTiming:

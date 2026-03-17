@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 import ipaddress
-from typing import Any, Callable, ClassVar, Optional, cast
+from collections.abc import Callable
+from typing import ClassVar, cast
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -43,7 +44,7 @@ def _coerce_int(value: object, default: int) -> int:
     return default
 
 
-def _coerce_optional_int(value: object) -> Optional[int]:
+def _coerce_optional_int(value: object) -> int | None:
     if value is None:
         return None
     if isinstance(value, (int, float, str, bool)):
@@ -151,16 +152,20 @@ class HumanizedRuntimeConfigSchema(BaseModel):
 
     fallback_policy: str = DEFAULT_HUMANIZED_CONFIG.fallback_policy
     fallback_retry_count: int = DEFAULT_HUMANIZED_CONFIG.fallback_retry_count
-    random_seed: Optional[int] = DEFAULT_HUMANIZED_CONFIG.random_seed
+    random_seed: int | None = DEFAULT_HUMANIZED_CONFIG.random_seed
 
     @model_validator(mode="after")
     def validate_ranges(self):
         # Clamp probabilities to [0, 1]
         self.typo_probability = max(0.0, min(1.0, self.typo_probability))
         self.word_pause_probability = max(0.0, min(1.0, self.word_pause_probability))
-        self.target_center_bias_probability = max(0.0, min(1.0, self.target_center_bias_probability))
+        self.target_center_bias_probability = max(
+            0.0, min(1.0, self.target_center_bias_probability)
+        )
         self.movement_jitter_probability = max(0.0, min(1.0, self.movement_jitter_probability))
-        self.movement_overshoot_probability = max(0.0, min(1.0, self.movement_overshoot_probability))
+        self.movement_overshoot_probability = max(
+            0.0, min(1.0, self.movement_overshoot_probability)
+        )
 
         # Clamp move_steps to >= 1
         self.move_steps_min = max(1, self.move_steps_min)
@@ -248,14 +253,16 @@ class HumanizedConfigSchema(BaseModel):
     move_steps_min: int = Field(default=8, ge=1)
     move_steps_max: int = Field(default=24, ge=1)
 
-    random_seed: Optional[int] = None
+    random_seed: int | None = None
 
     @model_validator(mode="after")
     def validate_ranges(self):
         # Clamp probabilities
         self.typo_probability = max(0.0, min(1.0, self.typo_probability))
         self.word_pause_probability = max(0.0, min(1.0, self.word_pause_probability))
-        self.target_center_bias_probability = max(0.0, min(1.0, self.target_center_bias_probability))
+        self.target_center_bias_probability = max(
+            0.0, min(1.0, self.target_center_bias_probability)
+        )
         # Clamp move_steps to >= 1
         self.move_steps_min = max(1, self.move_steps_min)
         self.move_steps_max = max(1, self.move_steps_max)
@@ -299,11 +306,15 @@ def _build_humanized_source(raw: object, legacy: dict[str, object]) -> dict[str,
         source["enabled"] = _coerce_bool(legacy.get("humanization_enabled"), True)
     if "random_seed" not in source:
         if "humanization_seed" in legacy:
-            source["random_seed"] = _coerce_int(legacy.get("humanization_seed"), DEFAULT_HUMANIZATION_SEED)
+            source["random_seed"] = _coerce_int(
+                legacy.get("humanization_seed"), DEFAULT_HUMANIZATION_SEED
+            )
     else:
         random_seed_raw = source.get("random_seed")
         if random_seed_raw in ("", "null") and "humanization_seed" in legacy:
-            source["random_seed"] = _coerce_int(legacy.get("humanization_seed"), DEFAULT_HUMANIZATION_SEED)
+            source["random_seed"] = _coerce_int(
+                legacy.get("humanization_seed"), DEFAULT_HUMANIZATION_SEED
+            )
     return source
 
 
@@ -315,7 +326,9 @@ def _normalize_humanized(raw: object, legacy: dict[str, object]) -> HumanizedCon
         return HumanizedConfigSchema()
 
 
-def _normalize_humanized_runtime(raw: object, legacy: dict[str, object]) -> HumanizedRuntimeConfigSchema:
+def _normalize_humanized_runtime(
+    raw: object, legacy: dict[str, object]
+) -> HumanizedRuntimeConfigSchema:
     source = _build_humanized_source(raw, legacy)
     try:
         return HumanizedRuntimeConfigSchema.model_validate(source)
@@ -342,7 +355,9 @@ def _normalize_config_payload(raw: dict[str, object], humanized: BaseModel) -> d
     except Exception:
         normalized["discovery_subnet"] = f"{host_ip}/24"
 
-    total_devices = _coerce_int(raw.get("total_devices", DEFAULT_TOTAL_DEVICES), DEFAULT_TOTAL_DEVICES)
+    total_devices = _coerce_int(
+        raw.get("total_devices", DEFAULT_TOTAL_DEVICES), DEFAULT_TOTAL_DEVICES
+    )
     normalized["total_devices"] = max(1, total_devices)
 
     cloud_machines_per_device = _coerce_int(
@@ -351,10 +366,14 @@ def _normalize_config_payload(raw: dict[str, object], humanized: BaseModel) -> d
     )
     normalized["cloud_machines_per_device"] = max(1, cloud_machines_per_device)
 
-    schema_version = _coerce_int(raw.get("schema_version", DEFAULT_SCHEMA_VERSION), DEFAULT_SCHEMA_VERSION)
+    schema_version = _coerce_int(
+        raw.get("schema_version", DEFAULT_SCHEMA_VERSION), DEFAULT_SCHEMA_VERSION
+    )
     normalized["schema_version"] = max(1, schema_version)
 
-    allocation_version = _coerce_int(raw.get("allocation_version", DEFAULT_ALLOCATION_VERSION), DEFAULT_ALLOCATION_VERSION)
+    allocation_version = _coerce_int(
+        raw.get("allocation_version", DEFAULT_ALLOCATION_VERSION), DEFAULT_ALLOCATION_VERSION
+    )
     normalized["allocation_version"] = max(1, allocation_version)
 
     sdk_port = _coerce_int(raw.get("sdk_port", DEFAULT_SDK_PORT), DEFAULT_SDK_PORT)
@@ -368,15 +387,21 @@ def _normalize_config_payload(raw: dict[str, object], humanized: BaseModel) -> d
         stop_hour = DEFAULT_STOP_HOUR
     normalized["stop_hour"] = stop_hour
 
-    cycle_interval = _coerce_int(raw.get("cycle_interval", DEFAULT_CYCLE_INTERVAL), DEFAULT_CYCLE_INTERVAL)
+    cycle_interval = _coerce_int(
+        raw.get("cycle_interval", DEFAULT_CYCLE_INTERVAL), DEFAULT_CYCLE_INTERVAL
+    )
     if not (1 <= cycle_interval <= 3600):
         cycle_interval = DEFAULT_CYCLE_INTERVAL
     normalized["cycle_interval"] = cycle_interval
 
     judge_mode_raw = str(raw.get("judge_mode", DEFAULT_JUDGE_MODE)).strip().lower()
-    normalized["judge_mode"] = judge_mode_raw if judge_mode_raw in {"off", "lite", "full"} else DEFAULT_JUDGE_MODE
+    normalized["judge_mode"] = (
+        judge_mode_raw if judge_mode_raw in {"off", "lite", "full"} else DEFAULT_JUDGE_MODE
+    )
 
-    step_parallel = _coerce_int(raw.get("step_parallel", DEFAULT_STEP_PARALLEL), DEFAULT_STEP_PARALLEL)
+    step_parallel = _coerce_int(
+        raw.get("step_parallel", DEFAULT_STEP_PARALLEL), DEFAULT_STEP_PARALLEL
+    )
     if not (1 <= step_parallel <= 64):
         step_parallel = DEFAULT_STEP_PARALLEL
     normalized["step_parallel"] = step_parallel
@@ -385,10 +410,16 @@ def _normalize_config_payload(raw: dict[str, object], humanized: BaseModel) -> d
         raw.get("vision_monitor_enabled", DEFAULT_VISION_MONITOR_ENABLED),
         DEFAULT_VISION_MONITOR_ENABLED,
     )
-    normalized["vision_device_type"] = str(raw.get("vision_device_type", DEFAULT_VISION_DEVICE_TYPE))
-    normalized["vision_pipeline_type"] = str(raw.get("vision_pipeline_type", DEFAULT_VISION_PIPELINE_TYPE))
+    normalized["vision_device_type"] = str(
+        raw.get("vision_device_type", DEFAULT_VISION_DEVICE_TYPE)
+    )
+    normalized["vision_pipeline_type"] = str(
+        raw.get("vision_pipeline_type", DEFAULT_VISION_PIPELINE_TYPE)
+    )
     normalized["vision_model_name"] = str(raw.get("vision_model_name", DEFAULT_VISION_MODEL_NAME))
-    normalized["vision_thought_language"] = str(raw.get("vision_thought_language", DEFAULT_VISION_THOUGHT_LANGUAGE))
+    normalized["vision_thought_language"] = str(
+        raw.get("vision_thought_language", DEFAULT_VISION_THOUGHT_LANGUAGE)
+    )
     normalized["vision_timeout_seconds"] = _coerce_int(
         raw.get("vision_timeout_seconds", DEFAULT_VISION_TIMEOUT_SECONDS),
         DEFAULT_VISION_TIMEOUT_SECONDS,
@@ -411,7 +442,9 @@ def _normalize_config_payload(raw: dict[str, object], humanized: BaseModel) -> d
     enabled_value = getattr(humanized, "enabled", True)
     normalized["humanization_enabled"] = bool(enabled_value)
     seed_value = getattr(humanized, "random_seed", None)
-    normalized["humanization_seed"] = seed_value if seed_value is not None else DEFAULT_HUMANIZATION_SEED
+    normalized["humanization_seed"] = (
+        seed_value if seed_value is not None else DEFAULT_HUMANIZATION_SEED
+    )
     normalized["humanization_intensity"] = _coerce_int(
         raw.get("humanization_intensity", DEFAULT_HUMANIZATION_INTENSITY),
         DEFAULT_HUMANIZATION_INTENSITY,
@@ -443,7 +476,7 @@ class Config(BaseModel):
     cloud_machines_per_device: int = DEFAULT_CLOUD_MACHINES_PER_DEVICE
     sdk_port: int = DEFAULT_SDK_PORT
     default_ai: str = DEFAULT_DEFAULT_AI
-    stop_hour: Optional[int] = DEFAULT_STOP_HOUR
+    stop_hour: int | None = DEFAULT_STOP_HOUR
     cycle_interval: int = DEFAULT_CYCLE_INTERVAL
     judge_mode: str = DEFAULT_JUDGE_MODE
     step_parallel: int = DEFAULT_STEP_PARALLEL
@@ -461,7 +494,9 @@ class Config(BaseModel):
     humanization_seed: int = DEFAULT_HUMANIZATION_SEED
     humanization_delay_ms: int = DEFAULT_HUMANIZATION_DELAY_MS
     humanization_jitter_ms: int = DEFAULT_HUMANIZATION_JITTER_MS
-    humanized: HumanizedConfigSchema | HumanizedRuntimeConfigSchema = Field(default_factory=HumanizedConfigSchema)
+    humanized: HumanizedConfigSchema | HumanizedRuntimeConfigSchema = Field(
+        default_factory=HumanizedConfigSchema
+    )
 
     @model_validator(mode="before")
     @classmethod
@@ -489,7 +524,7 @@ class ConfigStore(BaseModel):
     cloud_machines_per_device: int = DEFAULT_CLOUD_MACHINES_PER_DEVICE
     sdk_port: int = DEFAULT_SDK_PORT
     default_ai: str = DEFAULT_DEFAULT_AI
-    stop_hour: Optional[int] = DEFAULT_STOP_HOUR
+    stop_hour: int | None = DEFAULT_STOP_HOUR
     cycle_interval: int = DEFAULT_CYCLE_INTERVAL
     judge_mode: str = DEFAULT_JUDGE_MODE
     step_parallel: int = DEFAULT_STEP_PARALLEL
@@ -527,9 +562,13 @@ def _normalize_update_payload(
     normalized: dict[str, object] = dict(raw)
 
     if "schema_version" in raw:
-        normalized["schema_version"] = _coerce_int(raw.get("schema_version"), DEFAULT_SCHEMA_VERSION)
+        normalized["schema_version"] = _coerce_int(
+            raw.get("schema_version"), DEFAULT_SCHEMA_VERSION
+        )
     if "allocation_version" in raw:
-        normalized["allocation_version"] = _coerce_int(raw.get("allocation_version"), DEFAULT_ALLOCATION_VERSION)
+        normalized["allocation_version"] = _coerce_int(
+            raw.get("allocation_version"), DEFAULT_ALLOCATION_VERSION
+        )
     if "host_ip" in raw:
         normalized["host_ip"] = str(raw.get("host_ip"))
     if "device_ips" in raw:
@@ -563,7 +602,9 @@ def _normalize_update_payload(
         normalized["cycle_interval"] = cycle_interval
     if "judge_mode" in raw:
         judge_mode_raw = str(raw.get("judge_mode", "")).strip().lower()
-        normalized["judge_mode"] = judge_mode_raw if judge_mode_raw in {"off", "lite", "full"} else DEFAULT_JUDGE_MODE
+        normalized["judge_mode"] = (
+            judge_mode_raw if judge_mode_raw in {"off", "lite", "full"} else DEFAULT_JUDGE_MODE
+        )
     if "step_parallel" in raw:
         step_parallel = _coerce_int(raw.get("step_parallel"), DEFAULT_STEP_PARALLEL)
         if not (1 <= step_parallel <= 64):
@@ -587,7 +628,9 @@ def _normalize_update_payload(
             DEFAULT_VISION_TIMEOUT_SECONDS,
         )
     if "vision_cooldown_ms" in raw:
-        normalized["vision_cooldown_ms"] = _coerce_int(raw.get("vision_cooldown_ms"), DEFAULT_VISION_COOLDOWN_MS)
+        normalized["vision_cooldown_ms"] = _coerce_int(
+            raw.get("vision_cooldown_ms"), DEFAULT_VISION_COOLDOWN_MS
+        )
     if "vision_dedupe_window_ms" in raw:
         normalized["vision_dedupe_window_ms"] = _coerce_int(
             raw.get("vision_dedupe_window_ms"), DEFAULT_VISION_DEDUPE_WINDOW_MS
@@ -603,7 +646,9 @@ def _normalize_update_payload(
             raw.get("humanization_intensity"), DEFAULT_HUMANIZATION_INTENSITY
         )
     if "humanization_seed" in raw:
-        normalized["humanization_seed"] = _coerce_int(raw.get("humanization_seed"), DEFAULT_HUMANIZATION_SEED)
+        normalized["humanization_seed"] = _coerce_int(
+            raw.get("humanization_seed"), DEFAULT_HUMANIZATION_SEED
+        )
     if "humanization_delay_ms" in raw:
         normalized["humanization_delay_ms"] = _coerce_int(
             raw.get("humanization_delay_ms"), DEFAULT_HUMANIZATION_DELAY_MS
@@ -621,35 +666,35 @@ def _normalize_update_payload(
 class ConfigUpdate(BaseModel):
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="allow")
 
-    schema_version: Optional[int] = None
-    allocation_version: Optional[int] = None
-    host_ip: Optional[str] = None
-    device_ips: Optional[dict[str, str]] = None
-    total_devices: Optional[int] = None
-    discovery_enabled: Optional[bool] = None
-    discovery_subnet: Optional[str] = None
-    cloud_machines_per_device: Optional[int] = None
-    sdk_port: Optional[int] = None
-    default_ai: Optional[str] = None
-    stop_hour: Optional[int] = DEFAULT_STOP_HOUR
-    cycle_interval: Optional[int] = None
-    judge_mode: Optional[str] = None
-    step_parallel: Optional[int] = None
-    vision_monitor_enabled: Optional[bool] = None
-    vision_device_type: Optional[str] = None
-    vision_pipeline_type: Optional[str] = None
-    vision_model_name: Optional[str] = None
-    vision_thought_language: Optional[str] = None
-    vision_timeout_seconds: Optional[int] = None
-    vision_cooldown_ms: Optional[int] = None
-    vision_dedupe_window_ms: Optional[int] = None
-    vision_max_fallback_per_step: Optional[int] = None
-    humanization_enabled: Optional[bool] = None
-    humanization_intensity: Optional[int] = None
-    humanization_seed: Optional[int] = None
-    humanization_delay_ms: Optional[int] = None
-    humanization_jitter_ms: Optional[int] = None
-    humanized: Optional[HumanizedConfigSchema] = None
+    schema_version: int | None = None
+    allocation_version: int | None = None
+    host_ip: str | None = None
+    device_ips: dict[str, str] | None = None
+    total_devices: int | None = None
+    discovery_enabled: bool | None = None
+    discovery_subnet: str | None = None
+    cloud_machines_per_device: int | None = None
+    sdk_port: int | None = None
+    default_ai: str | None = None
+    stop_hour: int | None = DEFAULT_STOP_HOUR
+    cycle_interval: int | None = None
+    judge_mode: str | None = None
+    step_parallel: int | None = None
+    vision_monitor_enabled: bool | None = None
+    vision_device_type: str | None = None
+    vision_pipeline_type: str | None = None
+    vision_model_name: str | None = None
+    vision_thought_language: str | None = None
+    vision_timeout_seconds: int | None = None
+    vision_cooldown_ms: int | None = None
+    vision_dedupe_window_ms: int | None = None
+    vision_max_fallback_per_step: int | None = None
+    humanization_enabled: bool | None = None
+    humanization_intensity: int | None = None
+    humanization_seed: int | None = None
+    humanization_delay_ms: int | None = None
+    humanization_jitter_ms: int | None = None
+    humanized: HumanizedConfigSchema | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -664,35 +709,35 @@ class ConfigUpdate(BaseModel):
 class ConfigStoreUpdate(BaseModel):
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="allow")
 
-    schema_version: Optional[int] = None
-    allocation_version: Optional[int] = None
-    host_ip: Optional[str] = None
-    device_ips: Optional[dict[str, str]] = None
-    total_devices: Optional[int] = None
-    discovery_enabled: Optional[bool] = None
-    discovery_subnet: Optional[str] = None
-    cloud_machines_per_device: Optional[int] = None
-    sdk_port: Optional[int] = None
-    default_ai: Optional[str] = None
-    stop_hour: Optional[int] = DEFAULT_STOP_HOUR
-    cycle_interval: Optional[int] = None
-    judge_mode: Optional[str] = None
-    step_parallel: Optional[int] = None
-    vision_monitor_enabled: Optional[bool] = None
-    vision_device_type: Optional[str] = None
-    vision_pipeline_type: Optional[str] = None
-    vision_model_name: Optional[str] = None
-    vision_thought_language: Optional[str] = None
-    vision_timeout_seconds: Optional[int] = None
-    vision_cooldown_ms: Optional[int] = None
-    vision_dedupe_window_ms: Optional[int] = None
-    vision_max_fallback_per_step: Optional[int] = None
-    humanization_enabled: Optional[bool] = None
-    humanization_intensity: Optional[int] = None
-    humanization_seed: Optional[int] = None
-    humanization_delay_ms: Optional[int] = None
-    humanization_jitter_ms: Optional[int] = None
-    humanized: Optional[HumanizedRuntimeConfigSchema] = None
+    schema_version: int | None = None
+    allocation_version: int | None = None
+    host_ip: str | None = None
+    device_ips: dict[str, str] | None = None
+    total_devices: int | None = None
+    discovery_enabled: bool | None = None
+    discovery_subnet: str | None = None
+    cloud_machines_per_device: int | None = None
+    sdk_port: int | None = None
+    default_ai: str | None = None
+    stop_hour: int | None = DEFAULT_STOP_HOUR
+    cycle_interval: int | None = None
+    judge_mode: str | None = None
+    step_parallel: int | None = None
+    vision_monitor_enabled: bool | None = None
+    vision_device_type: str | None = None
+    vision_pipeline_type: str | None = None
+    vision_model_name: str | None = None
+    vision_thought_language: str | None = None
+    vision_timeout_seconds: int | None = None
+    vision_cooldown_ms: int | None = None
+    vision_dedupe_window_ms: int | None = None
+    vision_max_fallback_per_step: int | None = None
+    humanization_enabled: bool | None = None
+    humanization_intensity: int | None = None
+    humanization_seed: int | None = None
+    humanization_delay_ms: int | None = None
+    humanization_jitter_ms: int | None = None
+    humanized: HumanizedRuntimeConfigSchema | None = None
 
     @model_validator(mode="before")
     @classmethod

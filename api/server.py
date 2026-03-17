@@ -3,33 +3,35 @@ import os
 import shutil
 import time
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
+from api.routes import binding_routes as binding_route
 from api.routes import config as config_route
 from api.routes import data as data_route
 from api.routes import devices as devices_route
+from api.routes import engine_routes
 from api.routes import task_routes as tasks_route
 from api.routes import websocket as websocket_route
-from api.routes import engine_routes
-from api.routes import binding_routes as binding_route
-from core.device_manager import get_device_manager
 from core.cloud_probe_service import get_cloud_probe_service
+from core.device_manager import get_device_manager
 from core.paths import project_root
 from core.task_control import get_task_controller
 from engine.actions._rpc_bootstrap import is_rpc_enabled
 from engine.runner import Runner, strict_plugin_unknown_inputs_enabled
 from hardware_adapters.browser_client import BrowserClient
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
 
 
 def _cleanup_stale_browser_profiles() -> None:
     from core.paths import browser_profiles_dir
+
     base_dir = browser_profiles_dir()
     if not base_dir.exists():
         return
@@ -47,7 +49,13 @@ def _cleanup_stale_browser_profiles() -> None:
 async def lifespan(_app: FastAPI):
     # 注册 WebSocket 日志广播桥接
     import asyncio
-    from api.routes.websocket import get_event_broadcaster, start_db_event_poller, stop_db_event_poller
+
+    from api.routes.websocket import (
+        get_event_broadcaster,
+        start_db_event_poller,
+        stop_db_event_poller,
+    )
+
     controller = get_task_controller()
     loop = asyncio.get_running_loop()
     observer = get_event_broadcaster(loop)
@@ -117,6 +125,7 @@ def web_index():
 def health():
     rpc_enabled = is_rpc_enabled()
     from engine.plugin_loader import get_shared_plugin_loader
+
     loader = get_shared_plugin_loader()
     loaded_plugins = loader.names
     return {

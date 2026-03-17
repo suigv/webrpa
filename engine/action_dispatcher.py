@@ -23,4 +23,3 @@ def dispatch_action(
     handler = reg.resolve(action_name)
     normalized = dict(params) if params is not None else {}
     return handler(normalized, context)
-

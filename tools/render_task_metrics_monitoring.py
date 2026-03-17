@@ -57,7 +57,7 @@ def build_alert_rules() -> str:
             "          description: 'Failure/cancellation ratio exceeded configured threshold in the task metrics window.'",
             "",
             "      - alert: NewTaskFailureRateHigh",
-            "        expr: new_task_alert_reason{reason=\"failure_rate_exceeded\"} == 1",
+            '        expr: new_task_alert_reason{reason="failure_rate_exceeded"} == 1',
             "        for: 2m",
             "        labels:",
             "          severity: warning",
@@ -66,7 +66,7 @@ def build_alert_rules() -> str:
             "          description: 'new_task_failure_rate exceeded configured threshold.'",
             "",
             "      - alert: NewTaskCancellationRateHigh",
-            "        expr: new_task_alert_reason{reason=\"cancellation_rate_exceeded\"} == 1",
+            '        expr: new_task_alert_reason{reason="cancellation_rate_exceeded"} == 1',
             "        for: 2m",
             "        labels:",
             "          severity: warning",
@@ -75,7 +75,7 @@ def build_alert_rules() -> str:
             "          description: 'new_task_cancellation_rate exceeded configured threshold.'",
             "",
             "      - alert: NewTaskStaleRunningRecovered",
-            "        expr: new_task_event_type_count{event_type=\"task.recovered_stale_running\"} > 0",
+            '        expr: new_task_event_type_count{event_type="task.recovered_stale_running"} > 0',
             "        for: 0m",
             "        labels:",
             "          severity: info",
@@ -100,7 +100,7 @@ def build_alertmanager_config(*, receiver_name: str, webhook_url: str) -> str:
             "  routes:",
             f"    - receiver: {receiver_name}",
             "      matchers:",
-            "        - alertname=~\"NewTask.*\"",
+            '        - alertname=~"NewTask.*"',
             "",
             "receivers:",
             f"  - name: {receiver_name}",
@@ -113,16 +113,37 @@ def build_alertmanager_config(*, receiver_name: str, webhook_url: str) -> str:
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Render Prometheus scrape + alert config for task metrics")
+    parser = argparse.ArgumentParser(
+        description="Render Prometheus scrape + alert config for task metrics"
+    )
     _ = parser.add_argument("--target", default="127.0.0.1:8001", help="Task API target host:port")
-    _ = parser.add_argument("--metrics-path", default="/api/tasks/metrics/prometheus", help="Prometheus metrics path")
+    _ = parser.add_argument(
+        "--metrics-path", default="/api/tasks/metrics/prometheus", help="Prometheus metrics path"
+    )
     _ = parser.add_argument("--scrape-interval", default="30s", help="Prometheus scrape interval")
-    _ = parser.add_argument("--window-seconds", type=int, default=3600, help="Metrics rolling window size")
-    _ = parser.add_argument("--failure-rate-threshold", type=float, default=0.2, help="Failure ratio threshold")
-    _ = parser.add_argument("--cancellation-rate-threshold", type=float, default=0.2, help="Cancellation ratio threshold")
-    _ = parser.add_argument("--min-terminal-samples", type=int, default=20, help="Minimum terminal samples to evaluate")
-    _ = parser.add_argument("--alertmanager-receiver", default="webrpa-task-alerts", help="Alertmanager receiver name")
-    _ = parser.add_argument("--alertmanager-webhook-url", default="http://127.0.0.1:19093/webhook", help="Alertmanager webhook receiver URL")
+    _ = parser.add_argument(
+        "--window-seconds", type=int, default=3600, help="Metrics rolling window size"
+    )
+    _ = parser.add_argument(
+        "--failure-rate-threshold", type=float, default=0.2, help="Failure ratio threshold"
+    )
+    _ = parser.add_argument(
+        "--cancellation-rate-threshold",
+        type=float,
+        default=0.2,
+        help="Cancellation ratio threshold",
+    )
+    _ = parser.add_argument(
+        "--min-terminal-samples", type=int, default=20, help="Minimum terminal samples to evaluate"
+    )
+    _ = parser.add_argument(
+        "--alertmanager-receiver", default="webrpa-task-alerts", help="Alertmanager receiver name"
+    )
+    _ = parser.add_argument(
+        "--alertmanager-webhook-url",
+        default="http://127.0.0.1:19093/webhook",
+        help="Alertmanager webhook receiver URL",
+    )
     _ = parser.add_argument(
         "--output-dir",
         default=None,

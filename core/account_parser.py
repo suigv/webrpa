@@ -85,33 +85,35 @@ def parse_accounts_text(raw_text: str) -> dict[str, object]:
         "invalid": invalid,
     }
 
+
 def detect_delimiter(text: str) -> str:
     """智能侦测分隔符：优先匹配 ----, 然后是 |, \t, 最后是逗号或空格"""
     if not text:
         return ","
-    
+
     # 取前 5 行进行采样
     lines = [line.strip() for line in text.splitlines() if line.strip()][:5]
     if not lines:
         return ","
 
     candidates = ["----", "|", "\t", ","]
-    counts = {c: 0 for c in candidates}
-    
+    counts = dict.fromkeys(candidates, 0)
+
     for line in lines:
         for c in candidates:
             if c in line:
                 counts[c] += line.count(c)
-    
+
     # 找到出现频率最高且稳定的分隔符
     best_delimiter = max(counts, key=lambda key: counts[key])
     if counts[best_delimiter] > 0:
         return best_delimiter
-    
+
     # 兜底：尝试匹配连续空格
     if re.search(r"\s{2,}", lines[0]):
-        return "  " 
+        return "  "
     return ","
+
 
 def parse_accounts_advanced(
     raw_text: str,
@@ -124,7 +126,7 @@ def parse_accounts_advanced(
     """
     if not delimiter:
         delimiter = detect_delimiter(raw_text)
-    
+
     # 默认映射
     if not mapping:
         mapping = {0: "account", 1: "password", 2: "twofa"}
@@ -139,10 +141,10 @@ def parse_accounts_advanced(
             parts = [p.strip() for p in re.split(r"\s+", line) if p.strip()]
         else:
             parts = [p.strip() for p in line.split(delimiter)]
-        
+
         if idx == 1:
             print(f"DEBUG: Delimiter='{delimiter}', Mapping={mapping}, First line parts={parts}")
-        
+
         if len(parts) < 2:
             errors.append({"line": idx, "content": line, "error": "字段不足"})
             continue
@@ -152,7 +154,7 @@ def parse_accounts_advanced(
             col_idx = int(col_idx)
             if col_idx < len(parts):
                 entry[field_name] = parts[col_idx]
-        
+
         acc = entry.get("account")
         pwd = entry.get("password")
 
@@ -161,12 +163,12 @@ def parse_accounts_advanced(
             continue
 
         account_obj = _build_account_obj(account=acc, password=pwd, twofa=entry.get("twofa", ""))
-        
+
         # Merge other fields from entry into account_obj (token, email, etc.)
         for field, value in entry.items():
             if field not in ["account", "password", "twofa"]:
                 account_obj[field] = value
-        
+
         accounts.append(account_obj)
         normalized_json_lines.append(json.dumps(account_obj, ensure_ascii=False))
 
@@ -177,6 +179,7 @@ def parse_accounts_advanced(
         "errors": errors,
         "valid": len(accounts),
     }
+
 
 def parse_accounts_lines(lines: list[str]) -> list[dict[str, str]]:
     """将存储的 JSON 行列表解析回对象列表"""

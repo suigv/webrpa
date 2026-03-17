@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 import random
 import re
+from collections.abc import Callable
 from typing import Any
 
 from engine.models.runtime import ActionResult, ExecutionContext
@@ -17,7 +17,16 @@ def pick_weighted_keyword_action(
     ai_type = str(params.get("ai_type") or "default").strip()
     blogger = str(params.get("blogger") or "").strip()
     if override:
-        return ActionResult(ok=True, code="ok", data={"keyword": override, "rendered_keyword": override, "source": "override", "ai_type": ai_type})
+        return ActionResult(
+            ok=True,
+            code="ok",
+            data={
+                "keyword": override,
+                "rendered_keyword": override,
+                "source": "override",
+                "ai_type": ai_type,
+            },
+        )
 
     try:
         document = load_strategy_document()
@@ -27,7 +36,9 @@ def pick_weighted_keyword_action(
     strategies = document.get("strategies", {})
     strategy = strategies.get(ai_type) or strategies.get("default")
     if not isinstance(strategy, dict):
-        return ActionResult(ok=False, code="strategy_missing", message=f"strategy not found: {ai_type}")
+        return ActionResult(
+            ok=False, code="strategy_missing", message=f"strategy not found: {ai_type}"
+        )
 
     keywords = strategy.get("keywords", {})
     weights = strategy.get("weights", {})
@@ -46,14 +57,21 @@ def pick_weighted_keyword_action(
             weighted_pool.extend([(bucket_name, entry_text)] * max(weight, 1))
 
     if not weighted_pool:
-        return ActionResult(ok=False, code="empty_keyword_pool", message=f"keyword pool empty: {ai_type}")
+        return ActionResult(
+            ok=False, code="empty_keyword_pool", message=f"keyword pool empty: {ai_type}"
+        )
 
     bucket, keyword = random.choice(weighted_pool)
     rendered = keyword.replace("{blogger}", blogger) if blogger else keyword
     return ActionResult(
         ok=True,
         code="ok",
-        data={"ai_type": ai_type, "bucket": bucket, "keyword": keyword, "rendered_keyword": rendered},
+        data={
+            "ai_type": ai_type,
+            "bucket": bucket,
+            "keyword": keyword,
+            "rendered_keyword": rendered,
+        },
     )
 
 
@@ -71,15 +89,23 @@ def is_text_blacklisted_action(
     strategies = document.get("strategies", {})
     strategy = strategies.get(ai_type) or strategies.get("default")
     if not isinstance(strategy, dict):
-        return ActionResult(ok=False, code="strategy_missing", message=f"strategy not found: {ai_type}")
+        return ActionResult(
+            ok=False, code="strategy_missing", message=f"strategy not found: {ai_type}"
+        )
     blacklist = strategy.get("blacklist", [])
     if not isinstance(blacklist, list):
         blacklist = []
     for word in blacklist:
         word_text = str(word).strip()
         if word_text and word_text in text:
-            return ActionResult(ok=True, code="ok", data={"contains": True, "matched": word_text, "ai_type": ai_type})
-    return ActionResult(ok=True, code="ok", data={"contains": False, "matched": "", "ai_type": ai_type})
+            return ActionResult(
+                ok=True,
+                code="ok",
+                data={"contains": True, "matched": word_text, "ai_type": ai_type},
+            )
+    return ActionResult(
+        ok=True, code="ok", data={"contains": False, "matched": "", "ai_type": ai_type}
+    )
 
 
 def generate_dm_reply_action(
@@ -91,7 +117,11 @@ def generate_dm_reply_action(
     ai_type = str(params.get("ai_type") or "default").strip()
     last_message = str(params.get("last_message") or "").strip()
     if override:
-        return ActionResult(ok=True, code="ok", data={"reply_text": override, "source": "override", "ai_type": ai_type})
+        return ActionResult(
+            ok=True,
+            code="ok",
+            data={"reply_text": override, "source": "override", "ai_type": ai_type},
+        )
     try:
         template = select_interaction_template("dm_reply", ai_type)
     except Exception as exc:
@@ -105,7 +135,12 @@ def generate_dm_reply_action(
     return ActionResult(
         ok=True,
         code="ok",
-        data={"reply_text": reply_text[:120], "source": "template", "ai_type": ai_type, "last_message": last_message},
+        data={
+            "reply_text": reply_text[:120],
+            "source": "template",
+            "ai_type": ai_type,
+            "last_message": last_message,
+        },
     )
 
 
@@ -116,9 +151,18 @@ def generate_quote_text_action(
 ) -> ActionResult:
     override = str(params.get("override") or "").strip()
     ai_type = str(params.get("ai_type") or "default").strip()
-    source_text = str(params.get("source_text") or params.get("candidate_text") or params.get("target_post_url") or "").strip()
+    source_text = str(
+        params.get("source_text")
+        or params.get("candidate_text")
+        or params.get("target_post_url")
+        or ""
+    ).strip()
     if override:
-        return ActionResult(ok=True, code="ok", data={"quote_text": override, "source": "override", "ai_type": ai_type})
+        return ActionResult(
+            ok=True,
+            code="ok",
+            data={"quote_text": override, "source": "override", "ai_type": ai_type},
+        )
     try:
         template = select_interaction_template("quote_text", ai_type)
     except Exception as exc:
@@ -132,7 +176,12 @@ def generate_quote_text_action(
     return ActionResult(
         ok=True,
         code="ok",
-        data={"quote_text": quote_text[:140], "source": "template", "ai_type": ai_type, "source_text": source_text},
+        data={
+            "quote_text": quote_text[:140],
+            "source": "template",
+            "ai_type": ai_type,
+            "source_text": source_text,
+        },
     )
 
 
@@ -180,8 +229,15 @@ def get_blogger_candidate_action(
         items = []
     index = int(params.get("index", 0) or 0)
     if index < 0 or index >= len(items):
-        return ActionResult(ok=False, code="blogger_candidate_missing", message="blogger candidate not found", data={"size": len(items), "index": index})
-    return ActionResult(ok=True, code="ok", data={"candidate": items[index], "index": index, "size": len(items)})
+        return ActionResult(
+            ok=False,
+            code="blogger_candidate_missing",
+            message="blogger candidate not found",
+            data={"size": len(items), "index": index},
+        )
+    return ActionResult(
+        ok=True, code="ok", data={"candidate": items[index], "index": index, "size": len(items)}
+    )
 
 
 def mark_processed_action(
@@ -229,7 +285,9 @@ def check_processed_action(
     if not isinstance(items, list):
         items = []
     contains = item in items
-    return ActionResult(ok=True, code="ok", data={"contains": contains, "item": item, "size": len(items)})
+    return ActionResult(
+        ok=True, code="ok", data={"contains": contains, "item": item, "size": len(items)}
+    )
 
 
 def pick_candidate_action(
@@ -250,7 +308,9 @@ def pick_candidate_action(
         strategies = document.get("strategies", {})
         strategy_cfg = strategies.get(ai_type) or strategies.get("default") or {}
         blacklist = strategy_cfg.get("blacklist", []) if isinstance(strategy_cfg, dict) else []
-        scoring_cfg = strategy_cfg.get("candidate_scoring", {}) if isinstance(strategy_cfg, dict) else {}
+        scoring_cfg = (
+            strategy_cfg.get("candidate_scoring", {}) if isinstance(strategy_cfg, dict) else {}
+        )
     except Exception:
         blacklist = []
         scoring_cfg = {}
@@ -290,7 +350,16 @@ def pick_candidate_action(
         _, selected = scored[0]
     else:
         selected = max(scored, key=lambda item: item[0])[1]
-    return ActionResult(ok=True, code="ok", data={"candidate": selected, "count": len(scored), "ai_type": ai_type, "strategy": strategy})
+    return ActionResult(
+        ok=True,
+        code="ok",
+        data={
+            "candidate": selected,
+            "count": len(scored),
+            "ai_type": ai_type,
+            "strategy": strategy,
+        },
+    )
 
 
 def choose_blogger_search_query_action(
@@ -301,7 +370,9 @@ def choose_blogger_search_query_action(
     override = str(params.get("override") or "").strip()
     ai_type = str(params.get("ai_type") or "default").strip()
     if override:
-        return ActionResult(ok=True, code="ok", data={"query": override, "source": "override", "ai_type": ai_type})
+        return ActionResult(
+            ok=True, code="ok", data={"query": override, "source": "override", "ai_type": ai_type}
+        )
     try:
         document = load_interaction_document()
     except Exception as exc:
@@ -309,9 +380,15 @@ def choose_blogger_search_query_action(
     search_query_cfg = document.get("search_query", {})
     candidates = search_query_cfg.get(ai_type) or search_query_cfg.get("default") or []
     if not candidates:
-        return ActionResult(ok=False, code="search_query_missing", message=f"no search_query configured for: {ai_type}")
+        return ActionResult(
+            ok=False,
+            code="search_query_missing",
+            message=f"no search_query configured for: {ai_type}",
+        )
     query = random.choice(candidates)
-    return ActionResult(ok=True, code="ok", data={"query": query, "source": "config", "ai_type": ai_type})
+    return ActionResult(
+        ok=True, code="ok", data={"query": query, "source": "config", "ai_type": ai_type}
+    )
 
 
 def derive_blogger_profile_action(
@@ -330,7 +407,9 @@ def derive_blogger_profile_action(
         fallback_profile=str(params.get("fallback_profile") or "").strip(),
     )
     if profile is None:
-        return ActionResult(ok=False, code="blogger_profile_missing", message="unable to derive blogger identity")
+        return ActionResult(
+            ok=False, code="blogger_profile_missing", message="unable to derive blogger identity"
+        )
 
     return ActionResult(ok=True, code="ok", data=profile)
 
@@ -360,7 +439,9 @@ def save_blogger_candidates_action(
         if not isinstance(candidate, dict):
             skipped_count += 1
             continue
-        derived = derive_blogger_profile_data(candidate=candidate, fallback_profile=fallback_profile)
+        derived = derive_blogger_profile_data(
+            candidate=candidate, fallback_profile=fallback_profile
+        )
         if derived is None or not str(derived.get(identity_field) or "").strip():
             skipped_count += 1
             continue

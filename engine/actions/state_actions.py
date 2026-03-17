@@ -4,15 +4,14 @@ import time
 from collections.abc import Iterable, Mapping
 from typing import cast
 
+from engine.actions import _rpc_bootstrap, sdk_config_support
+from engine.actions import _state_detection_support as _support
+from engine.models.runtime import ActionResult, ErrorType, ExecutionContext
+from hardware_adapters import mytRpc as MytRpcModule
+from hardware_adapters.mytRpc import MytRpc
+
 Params = dict[str, object]
 Candidate = dict[str, object]
-
-from engine.actions import _rpc_bootstrap
-from engine.actions import _state_detection_support as _support
-from engine.actions import sdk_config_support
-from engine.models.runtime import ActionResult, ErrorType, ExecutionContext
-from hardware_adapters import mytRpc as _myt_rpc_module
-from hardware_adapters.mytRpc import MytRpc
 
 
 def _is_rpc_enabled() -> bool:
@@ -23,11 +22,11 @@ def _resolve_connection_params(params: Params, context: ExecutionContext) -> tup
     return _rpc_bootstrap.resolve_connection_params(params, context)
 
 
-def _connect_rpc(params: Params, context: ExecutionContext) -> tuple[MytRpc | None, ActionResult | None]:
+def _connect_rpc(
+    params: Params, context: ExecutionContext
+) -> tuple[MytRpc | None, ActionResult | None]:
     def _is_enabled_for_factory() -> bool:
-        if _is_rpc_enabled():
-            return True
-        return MytRpc is not _myt_rpc_module.MytRpc
+        return _is_rpc_enabled() or MytRpc is not MytRpcModule.MytRpc
 
     rpc, err = _rpc_bootstrap.bootstrap_rpc(
         params,
@@ -89,11 +88,8 @@ def _coerce_text_list(raw: object) -> list[str]:
 
 
 def _resolve_package(params: Params, context: ExecutionContext) -> str:
-    return str(
-        params.get("package")
-        or context.get_session_default("package")
-        or ""
-    ).strip()
+    return str(params.get("package") or context.get_session_default("package") or "").strip()
+
 
 DEFAULT_LOGIN_STAGE_ORDER = ("captcha", "two_factor", "account", "password", "login_entry", "home")
 
@@ -103,8 +99,12 @@ def _normalize_stage_entry(raw: object) -> dict[str, list[str]]:
         return {"resource_ids": [], "focus_markers": [], "text_markers": []}
     if isinstance(raw, dict):
         return {
-            "resource_ids": _coerce_text_list(raw.get("resource_ids") or raw.get("resource_id_markers")),
-            "focus_markers": _coerce_text_list(raw.get("focus_markers") or raw.get("window_markers")),
+            "resource_ids": _coerce_text_list(
+                raw.get("resource_ids") or raw.get("resource_id_markers")
+            ),
+            "focus_markers": _coerce_text_list(
+                raw.get("focus_markers") or raw.get("window_markers")
+            ),
             "text_markers": _coerce_text_list(raw.get("text_markers") or raw.get("texts")),
         }
     # Allow shorthand list/string as text markers
@@ -132,7 +132,19 @@ def _extract_app_stage_patterns(config: object) -> dict[str, dict[str, list[str]
         stage_key = str(stage_id or "").strip()
         if not stage_key or not isinstance(entry, dict):
             continue
-        if any(key in entry for key in ("resource_ids", "resource_id_markers", "focus_markers", "window_markers", "text_markers", "texts", "content_descs", "p95_text_markers")):
+        if any(
+            key in entry
+            for key in (
+                "resource_ids",
+                "resource_id_markers",
+                "focus_markers",
+                "window_markers",
+                "text_markers",
+                "texts",
+                "content_descs",
+                "p95_text_markers",
+            )
+        ):
             normalized = _normalize_stage_entry(entry)
             normalized["text_markers"] = (
                 _coerce_text_list(entry.get("p95_text_markers"))
@@ -147,7 +159,9 @@ def _extract_app_stage_patterns(config: object) -> dict[str, dict[str, list[str]
     return patterns
 
 
-def _resolve_login_stage_patterns(params: Params, context: ExecutionContext) -> tuple[dict[str, dict[str, list[str]]], tuple[str, ...]]:
+def _resolve_login_stage_patterns(
+    params: Params, context: ExecutionContext
+) -> tuple[dict[str, dict[str, list[str]]], tuple[str, ...]]:
     raw_patterns = params.get("stage_patterns") or context.get_session_default("stage_patterns")
     patterns: dict[str, dict[str, list[str]]] = {}
 
@@ -163,7 +177,9 @@ def _resolve_login_stage_patterns(params: Params, context: ExecutionContext) -> 
         defaults_doc = sdk_config_support.load_login_stage_patterns_document()
     except Exception:
         defaults_doc = {}
-    default_patterns_raw = defaults_doc.get("stage_patterns") if isinstance(defaults_doc, dict) else None
+    default_patterns_raw = (
+        defaults_doc.get("stage_patterns") if isinstance(defaults_doc, dict) else None
+    )
     default_patterns = default_patterns_raw if isinstance(default_patterns_raw, dict) else {}
     default_order_raw = defaults_doc.get("stage_order") if isinstance(defaults_doc, dict) else None
     default_order = tuple(_coerce_text_list(default_order_raw)) or DEFAULT_LOGIN_STAGE_ORDER
@@ -183,7 +199,9 @@ def _resolve_login_stage_patterns(params: Params, context: ExecutionContext) -> 
     order_raw = params.get("stage_order") or context.get_session_default("stage_order")
     order = _coerce_text_list(order_raw) if order_raw is not None else []
     if not order:
-        order = [stage for stage in default_order if stage in patterns] + [stage for stage in patterns.keys() if stage not in default_order]
+        order = [stage for stage in default_order if stage in patterns] + [
+            stage for stage in patterns if stage not in default_order
+        ]
     return patterns, tuple(order)
 
 
@@ -221,7 +239,9 @@ def _detect_login_stage_with_rpc(rpc: MytRpc, params: Params, context: Execution
             focus_text = str(focus or "").lower()
             if ok and focus_text:
                 for stage in order:
-                    markers = [m.lower() for m in patterns.get(stage, {}).get("focus_markers", []) if m]
+                    markers = [
+                        m.lower() for m in patterns.get(stage, {}).get("focus_markers", []) if m
+                    ]
                     if markers and any(marker in focus_text for marker in markers):
                         return stage
     except Exception:
@@ -255,7 +275,9 @@ def _extract_last_outbound_dm_message_from_xml(
     min_left: int = 540,
     separator_tokens: list[str] | None = None,
 ) -> Candidate | None:
-    return _support.extract_last_outbound_dm_message_from_xml(xml_text, package, min_left, separator_tokens)
+    return _support.extract_last_outbound_dm_message_from_xml(
+        xml_text, package, min_left, separator_tokens
+    )
 
 
 def _extract_follow_targets_from_xml(
@@ -276,7 +298,9 @@ def _extract_unread_dm_targets_from_xml(
     return _support.extract_unread_dm_targets_from_xml(xml_text, package, min_top, markers)
 
 
-def _extract_candidates_action(params: Params, context: ExecutionContext, row_id_contains: str) -> ActionResult:
+def _extract_candidates_action(
+    params: Params, context: ExecutionContext, row_id_contains: str
+) -> ActionResult:
     return _support.extract_candidates_action(
         params,
         context,
@@ -314,7 +338,9 @@ def wait_login_stage(params: Params, context: ExecutionContext) -> ActionResult:
             stage_items = cast(list[object], stages_raw)
             target_stages = {str(item).strip() for item in stage_items if str(item).strip()}
         if not target_stages:
-            return ActionResult(ok=False, code="invalid_params", message="target_stages is required")
+            return ActionResult(
+                ok=False, code="invalid_params", message="target_stages is required"
+            )
 
         started = time.monotonic()
         attempt = 0
@@ -331,7 +357,12 @@ def wait_login_stage(params: Params, context: ExecutionContext) -> ActionResult:
                 return ActionResult(
                     ok=True,
                     code="ok",
-                    data={"stage": last_stage, "attempt": attempt, "elapsed_ms": elapsed, "target_stages": sorted(target_stages)},
+                    data={
+                        "stage": last_stage,
+                        "attempt": attempt,
+                        "elapsed_ms": elapsed,
+                        "target_stages": sorted(target_stages),
+                    },
                 )
             context.check_cancelled()
             time.sleep(max(0.05, interval_ms / 1000.0))
@@ -342,7 +373,12 @@ def wait_login_stage(params: Params, context: ExecutionContext) -> ActionResult:
             ok=False,
             code="stage_timeout",
             message=f"wait stage timeout, last stage: {last_stage}",
-            data={"stage": last_stage, "attempt": attempt, "elapsed_ms": elapsed, "target_stages": sorted(target_stages)},
+            data={
+                "stage": last_stage,
+                "attempt": attempt,
+                "elapsed_ms": elapsed,
+                "target_stages": sorted(target_stages),
+            },
         )
     finally:
         _close_rpc(rpc)
@@ -350,18 +386,14 @@ def wait_login_stage(params: Params, context: ExecutionContext) -> ActionResult:
 
 def extract_timeline_candidates(params: Params, context: ExecutionContext) -> ActionResult:
     row_id_contains = str(
-        params.get("row_id_contains")
-        or context.get_session_default("row_id_contains")
-        or ":id/"
+        params.get("row_id_contains") or context.get_session_default("row_id_contains") or ":id/"
     ).strip()
     return _extract_candidates_action(params, context, row_id_contains=row_id_contains)
 
 
 def extract_search_candidates(params: Params, context: ExecutionContext) -> ActionResult:
     row_id_contains = str(
-        params.get("row_id_contains")
-        or context.get_session_default("row_id_contains")
-        or ":id/row"
+        params.get("row_id_contains") or context.get_session_default("row_id_contains") or ":id/row"
     ).strip()
     return _extract_candidates_action(params, context, row_id_contains=row_id_contains)
 
@@ -388,10 +420,20 @@ def open_candidate(params: Params, context: ExecutionContext) -> ActionResult:
         x, y = _resolve_center(cast(Mapping[str, object], candidate))
         touch_click = getattr(rpc, "touchClick", None)
         if not callable(touch_click):
-            return ActionResult(ok=False, code="open_candidate_failed", message="touchClick not available", data={"candidate": candidate})
+            return ActionResult(
+                ok=False,
+                code="open_candidate_failed",
+                message="touchClick not available",
+                data={"candidate": candidate},
+            )
         ok = touch_click(0, x, y)
         if not ok:
-            return ActionResult(ok=False, code="open_candidate_failed", message="touchClick failed", data={"candidate": candidate, "x": x, "y": y})
+            return ActionResult(
+                ok=False,
+                code="open_candidate_failed",
+                message="touchClick failed",
+                data={"candidate": candidate, "x": x, "y": y},
+            )
         return ActionResult(ok=True, code="ok", data={"candidate": candidate, "x": x, "y": y})
     finally:
         _close_rpc(rpc)
@@ -411,7 +453,9 @@ def extract_dm_last_message(params: Params, context: ExecutionContext) -> Action
             or [": ", "："]
         )
         if not separator_tokens:
-            return ActionResult(ok=False, code="invalid_params", message="separator_tokens is required")
+            return ActionResult(
+                ok=False, code="invalid_params", message="separator_tokens is required"
+            )
         package = _resolve_package(params, context)
         message = _extract_last_dm_message_from_xml(
             xml_text=xml_text,
@@ -420,7 +464,9 @@ def extract_dm_last_message(params: Params, context: ExecutionContext) -> Action
             separator_tokens=separator_tokens,
         )
         if message is None:
-            return ActionResult(ok=False, code="dm_message_missing", message="no dm message extracted")
+            return ActionResult(
+                ok=False, code="dm_message_missing", message="no dm message extracted"
+            )
         return ActionResult(ok=True, code="ok", data=message)
     finally:
         _close_rpc(rpc)
@@ -450,7 +496,9 @@ def extract_dm_last_outbound_message(params: Params, context: ExecutionContext) 
             or default_separator_tokens
         )
         if not separator_tokens:
-            return ActionResult(ok=False, code="invalid_params", message="separator_tokens is required")
+            return ActionResult(
+                ok=False, code="invalid_params", message="separator_tokens is required"
+            )
         package = _resolve_package(params, context)
         message = _extract_last_outbound_dm_message_from_xml(
             xml_text=xml_text,
@@ -459,7 +507,11 @@ def extract_dm_last_outbound_message(params: Params, context: ExecutionContext) 
             separator_tokens=separator_tokens,
         )
         if message is None:
-            return ActionResult(ok=False, code="dm_outbound_message_missing", message="no outbound dm message extracted")
+            return ActionResult(
+                ok=False,
+                code="dm_outbound_message_missing",
+                message="no outbound dm message extracted",
+            )
         return ActionResult(ok=True, code="ok", data=message)
     finally:
         _close_rpc(rpc)
@@ -477,7 +529,11 @@ def extract_follow_targets(params: Params, context: ExecutionContext) -> ActionR
             defaults_doc = sdk_config_support.load_state_action_defaults_document()
         except Exception:
             defaults_doc = {}
-        default_follow_texts = _coerce_text_list(defaults_doc.get("follow_texts")) if isinstance(defaults_doc, dict) else []
+        default_follow_texts = (
+            _coerce_text_list(defaults_doc.get("follow_texts"))
+            if isinstance(defaults_doc, dict)
+            else []
+        )
         button_texts = _coerce_text_list(
             params.get("follow_texts")
             or params.get("button_texts")
@@ -494,7 +550,12 @@ def extract_follow_targets(params: Params, context: ExecutionContext) -> ActionR
             button_texts=button_texts,
         )
         if not targets:
-            return ActionResult(ok=False, code="follow_targets_missing", message="no follow targets extracted", data={"targets": [], "count": 0})
+            return ActionResult(
+                ok=False,
+                code="follow_targets_missing",
+                message="no follow targets extracted",
+                data={"targets": [], "count": 0},
+            )
         return ActionResult(ok=True, code="ok", data={"targets": targets, "count": len(targets)})
     finally:
         _close_rpc(rpc)
@@ -512,7 +573,11 @@ def follow_visible_targets(params: Params, context: ExecutionContext) -> ActionR
             defaults_doc = sdk_config_support.load_state_action_defaults_document()
         except Exception:
             defaults_doc = {}
-        default_follow_texts = _coerce_text_list(defaults_doc.get("follow_texts")) if isinstance(defaults_doc, dict) else []
+        default_follow_texts = (
+            _coerce_text_list(defaults_doc.get("follow_texts"))
+            if isinstance(defaults_doc, dict)
+            else []
+        )
         button_texts = _coerce_text_list(
             params.get("follow_texts")
             or params.get("button_texts")
@@ -541,8 +606,22 @@ def follow_visible_targets(params: Params, context: ExecutionContext) -> ActionR
                 time.sleep(delay_ms / 1000.0)
 
         if not clicked_targets:
-            return ActionResult(ok=False, code="follow_click_failed", message="no visible follow targets clicked", data={"targets": targets, "count": len(targets), "clicked_count": 0})
-        return ActionResult(ok=True, code="ok", data={"targets": targets, "count": len(targets), "clicked_targets": clicked_targets, "clicked_count": len(clicked_targets)})
+            return ActionResult(
+                ok=False,
+                code="follow_click_failed",
+                message="no visible follow targets clicked",
+                data={"targets": targets, "count": len(targets), "clicked_count": 0},
+            )
+        return ActionResult(
+            ok=True,
+            code="ok",
+            data={
+                "targets": targets,
+                "count": len(targets),
+                "clicked_targets": clicked_targets,
+                "clicked_count": len(clicked_targets),
+            },
+        )
     finally:
         _close_rpc(rpc)
 
@@ -559,7 +638,11 @@ def extract_unread_dm_targets(params: Params, context: ExecutionContext) -> Acti
             defaults_doc = sdk_config_support.load_state_action_defaults_document()
         except Exception:
             defaults_doc = {}
-        default_unread_markers = _coerce_text_list(defaults_doc.get("unread_markers")) if isinstance(defaults_doc, dict) else []
+        default_unread_markers = (
+            _coerce_text_list(defaults_doc.get("unread_markers"))
+            if isinstance(defaults_doc, dict)
+            else []
+        )
         markers = _coerce_text_list(
             params.get("unread_markers")
             or params.get("markers")
@@ -567,7 +650,9 @@ def extract_unread_dm_targets(params: Params, context: ExecutionContext) -> Acti
             or default_unread_markers
         )
         if not markers:
-            return ActionResult(ok=False, code="invalid_params", message="unread_markers is required")
+            return ActionResult(
+                ok=False, code="invalid_params", message="unread_markers is required"
+            )
         package = _resolve_package(params, context)
         targets = _extract_unread_dm_targets_from_xml(
             xml_text=xml_text,
@@ -576,7 +661,12 @@ def extract_unread_dm_targets(params: Params, context: ExecutionContext) -> Acti
             markers=markers,
         )
         if not targets:
-            return ActionResult(ok=False, code="unread_dm_missing", message="no unread dm targets extracted", data={"targets": [], "count": 0})
+            return ActionResult(
+                ok=False,
+                code="unread_dm_missing",
+                message="no unread dm targets extracted",
+                data={"targets": [], "count": 0},
+            )
         return ActionResult(ok=True, code="ok", data={"targets": targets, "count": len(targets)})
     finally:
         _close_rpc(rpc)
@@ -594,7 +684,11 @@ def open_first_unread_dm(params: Params, context: ExecutionContext) -> ActionRes
             defaults_doc = sdk_config_support.load_state_action_defaults_document()
         except Exception:
             defaults_doc = {}
-        default_unread_markers = _coerce_text_list(defaults_doc.get("unread_markers")) if isinstance(defaults_doc, dict) else []
+        default_unread_markers = (
+            _coerce_text_list(defaults_doc.get("unread_markers"))
+            if isinstance(defaults_doc, dict)
+            else []
+        )
         markers = _coerce_text_list(
             params.get("unread_markers")
             or params.get("markers")
@@ -602,7 +696,9 @@ def open_first_unread_dm(params: Params, context: ExecutionContext) -> ActionRes
             or default_unread_markers
         )
         if not markers:
-            return ActionResult(ok=False, code="invalid_params", message="unread_markers is required")
+            return ActionResult(
+                ok=False, code="invalid_params", message="unread_markers is required"
+            )
         package = _resolve_package(params, context)
         targets = _extract_unread_dm_targets_from_xml(
             xml_text=xml_text,
@@ -611,17 +707,34 @@ def open_first_unread_dm(params: Params, context: ExecutionContext) -> ActionRes
             markers=markers,
         )
         if not targets:
-            return ActionResult(ok=False, code="unread_dm_missing", message="no unread dm targets extracted", data={"targets": [], "count": 0})
+            return ActionResult(
+                ok=False,
+                code="unread_dm_missing",
+                message="no unread dm targets extracted",
+                data={"targets": [], "count": 0},
+            )
         first = cast(Mapping[str, object], targets[0])
         x, y = _resolve_center(first)
         touch_click = getattr(rpc, "touchClick", None)
         if touch_click is None:
-            return ActionResult(ok=False, code="open_unread_dm_failed", message="touchClick not available", data={"target": first})
+            return ActionResult(
+                ok=False,
+                code="open_unread_dm_failed",
+                message="touchClick not available",
+                data={"target": first},
+            )
         if not touch_click(0, x, y):
-            return ActionResult(ok=False, code="open_unread_dm_failed", message="failed to open unread dm", data={"target": first})
+            return ActionResult(
+                ok=False,
+                code="open_unread_dm_failed",
+                message="failed to open unread dm",
+                data={"target": first},
+            )
         return ActionResult(ok=True, code="ok", data={"target": first, "count": len(targets)})
     finally:
         _close_rpc(rpc)
+
+
 def detect_app_stage(params: Params, context: ExecutionContext) -> ActionResult:
     rpc, err = _connect_rpc(params, context)
     if err:
@@ -629,18 +742,26 @@ def detect_app_stage(params: Params, context: ExecutionContext) -> ActionResult:
     assert rpc is not None
     try:
         package = _resolve_package(params, context)
-        app_name = params.get("app") or sdk_config_support.app_from_package(package) or sdk_config_support.DEFAULT_APP_NAME
-        
+        app_name = (
+            params.get("app")
+            or sdk_config_support.app_from_package(package)
+            or sdk_config_support.DEFAULT_APP_NAME
+        )
+
         try:
             config = sdk_config_support.load_app_config_document(str(app_name))
             stage_patterns = _extract_app_stage_patterns(config)
         except Exception:
             stage_patterns = {}
-        
+
         if not stage_patterns:
             return ActionResult(ok=True, code="ok", data={"stage": "unknown"})
 
-        stage = _detect_login_stage_with_rpc(rpc, {"stage_patterns": stage_patterns, "stage_order": list(stage_patterns.keys())}, context)
+        stage = _detect_login_stage_with_rpc(
+            rpc,
+            {"stage_patterns": stage_patterns, "stage_order": list(stage_patterns.keys())},
+            context,
+        )
         return ActionResult(ok=True, code="ok", data={"stage": stage})
     finally:
         _close_rpc(rpc)
@@ -655,7 +776,9 @@ def wait_app_stage(params: Params, context: ExecutionContext) -> ActionResult:
         timeout_ms = _int_from_param(params.get("timeout_ms"), 10000)
         target_stages = set(_coerce_text_list(params.get("target_stages")))
         if not target_stages:
-            return ActionResult(ok=False, code="invalid_params", message="target_stages is required")
+            return ActionResult(
+                ok=False, code="invalid_params", message="target_stages is required"
+            )
 
         started = time.monotonic()
         while (time.monotonic() - started) * 1000 <= timeout_ms:
@@ -664,7 +787,7 @@ def wait_app_stage(params: Params, context: ExecutionContext) -> ActionResult:
             if res.ok and res.data.get("stage") in target_stages:
                 return res
             time.sleep(0.5)
-        
+
         return ActionResult(ok=False, code="stage_timeout", message="wait app_stage timeout")
     finally:
         _close_rpc(rpc)

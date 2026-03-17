@@ -4,18 +4,19 @@ import json
 import sqlite3
 import threading
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from ai_services.llm_client import LLMResponse
 from api.server import app
+from core.model_trace_store import ModelTraceStore
 from core.task_control import (
     TaskController,
     override_task_controller_for_tests,
     reset_task_controller_for_tests,
 )
-from core.model_trace_store import ModelTraceStore
 from core.task_events import TaskEventStore
 from core.task_queue import InMemoryTaskQueue
 from core.task_store import TaskStore
@@ -23,7 +24,6 @@ from engine.action_registry import ActionRegistry
 from engine.agent_executor import AgentExecutorRuntime
 from engine.models.runtime import ActionResult
 from engine.runner import Runner
-from ai_services.llm_client import LLMResponse
 
 
 def _wait_status(client: TestClient, task_id: str, wanted: str, timeout_s: float = 6.0) -> bool:
@@ -48,7 +48,9 @@ def _stream_task_events(client: TestClient, task_id: str) -> str:
 
 
 def _sse_event_names(text: str) -> list[str]:
-    return [line.removeprefix("event: ") for line in text.splitlines() if line.startswith("event: ")]
+    return [
+        line.removeprefix("event: ") for line in text.splitlines() if line.startswith("event: ")
+    ]
 
 
 class OrderRunner:
@@ -83,8 +85,8 @@ def _build_trace_runner(*, trace_store, observations=None):
     observed = list(
         observations
         or [
-        {"status": "matched", "state": {"state_id": "login_prompt"}},
-        {"status": "matched", "state": {"state_id": "logged_in"}},
+            {"status": "matched", "state": {"state_id": "login_prompt"}},
+            {"status": "matched", "state": {"state_id": "logged_in"}},
         ]
     )
     fallback_observation = dict(observed[-1])
@@ -116,14 +118,16 @@ def _build_trace_runner(*, trace_store, observations=None):
             ),
         ]
     )
-    runtime = AgentExecutorRuntime(registry=registry, llm_client_factory=lambda: llm_client, trace_store=trace_store)
+    runtime = AgentExecutorRuntime(
+        registry=registry, llm_client_factory=lambda: llm_client, trace_store=trace_store
+    )
     return Runner(agent_executor_runtime=runtime)
 
 
 def test_run_at_delays_execution():
     reset_task_controller_for_tests()
     with TestClient(app) as client:
-        run_at = (datetime.now(timezone.utc) + timedelta(seconds=1.5)).isoformat()
+        run_at = (datetime.now(UTC) + timedelta(seconds=1.5)).isoformat()
         create = client.post(
             "/api/tasks/",
             json={
@@ -168,7 +172,7 @@ def test_priority_prefers_higher_first_when_same_run_at(tmp_path: Path, monkeypa
 
     try:
         with TestClient(app) as client:
-            run_at = (datetime.now(timezone.utc) + timedelta(seconds=1.2)).isoformat()
+            run_at = (datetime.now(UTC) + timedelta(seconds=1.2)).isoformat()
             low = client.post(
                 "/api/tasks/",
                 json={
@@ -248,7 +252,9 @@ def test_task_events_sse_stream_contains_lifecycle_events(tmp_path: Path):
             assert ": close" in text
 
             with sqlite3.connect(db_path) as conn:
-                assert conn.execute("SELECT status FROM tasks WHERE task_id = ?", (task_id,)).fetchone() == ("completed",)
+                assert conn.execute(
+                    "SELECT status FROM tasks WHERE task_id = ?", (task_id,)
+                ).fetchone() == ("completed",)
                 assert conn.execute(
                     "SELECT event_type FROM task_events WHERE task_id = ? ORDER BY event_id ASC",
                     (task_id,),
@@ -327,7 +333,7 @@ def test_task_events_sse_stream_contains_retry_and_failed_terminal_events(tmp_pa
 def test_pending_task_cancel_emits_cancel_requested_and_cancelled_without_starting():
     reset_task_controller_for_tests()
     with TestClient(app) as client:
-        run_at = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+        run_at = (datetime.now(UTC) + timedelta(hours=1)).isoformat()
         create = client.post(
             "/api/tasks/",
             json={
@@ -399,12 +405,19 @@ def test_trace_managed_gpt_execution_persists_jsonl_without_raw_trace_events(tmp
             assert "task.dispatching" in event_types_list
             assert "task.dispatch_result" in event_types_list
             assert "task.completed" in event_types_list
-            assert all("trace" not in json.dumps(event.payload, ensure_ascii=False).lower() for event in events)
+            assert all(
+                "trace" not in json.dumps(event.payload, ensure_ascii=False).lower()
+                for event in events
+            )
 
             trace_root = tmp_path / "config" / "data" / "traces" / task_id / f"{task_id}-run-1"
             files = list(trace_root.glob("*.jsonl"))
             assert len(files) == 1
-            records = [json.loads(line) for line in files[0].read_text(encoding="utf-8").splitlines() if line.strip()]
+            records = [
+                json.loads(line)
+                for line in files[0].read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
             assert [record["sequence"] for record in records] == [1, 2]
             assert records[0]["record_type"] == "step"
             assert records[0]["observation"]["modality"] == "structured_state"
@@ -489,13 +502,19 @@ def test_trace_managed_gpt_execution_uses_browser_observation_modality(tmp_path:
                     "platform": "browser",
                     "status": "matched",
                     "state": {"state_id": "html:login_prompt"},
-                    "raw_details": {"observations": [{"kind": "html", "target": "login_prompt", "matched": True}]},
+                    "raw_details": {
+                        "observations": [
+                            {"kind": "html", "target": "login_prompt", "matched": True}
+                        ]
+                    },
                 },
                 {
                     "platform": "browser",
                     "status": "matched",
                     "state": {"state_id": "url:home"},
-                    "raw_details": {"observations": [{"kind": "url", "target": "home", "matched": True}]},
+                    "raw_details": {
+                        "observations": [{"kind": "url", "target": "home", "matched": True}]
+                    },
                 },
             ],
         ),
@@ -526,10 +545,16 @@ def test_trace_managed_gpt_execution_uses_browser_observation_modality(tmp_path:
             trace_root = tmp_path / "config" / "data" / "traces" / task_id / f"{task_id}-run-1"
             files = list(trace_root.glob("*.jsonl"))
             assert len(files) == 1
-            records = [json.loads(line) for line in files[0].read_text(encoding="utf-8").splitlines() if line.strip()]
+            records = [
+                json.loads(line)
+                for line in files[0].read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
             assert records[0]["record_type"] == "step"
             assert records[0]["observation"]["modality"] == "browser_html"
-            assert records[0]["post_action_transition"]["next_observation_modality"] == "browser_url"
+            assert (
+                records[0]["post_action_transition"]["next_observation_modality"] == "browser_url"
+            )
     finally:
         reset_task_controller_for_tests()
         if db_path.exists():

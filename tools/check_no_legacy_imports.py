@@ -1,7 +1,6 @@
 import importlib.util
-from pathlib import Path
 import re
-
+from pathlib import Path
 
 if __package__:
     from tools._bootstrap import bootstrap_project_root

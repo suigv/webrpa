@@ -65,8 +65,9 @@ class ExceptionAfterCancelRunner:
         return {"ok": True, "status": "completed", "message": "done"}
 
 
-
-def _wait_until_status(client: TestClient, task_id: str, wanted: str, timeout_s: float = 4.0) -> bool:
+def _wait_until_status(
+    client: TestClient, task_id: str, wanted: str, timeout_s: float = 4.0
+) -> bool:
     deadline = time.time() + timeout_s
     while time.time() < deadline:
         resp = client.get(f"/api/tasks/{task_id}")
@@ -173,10 +174,14 @@ def test_cancel_requested_with_runner_exception_marks_cancelled_not_failed(tmp_p
 def test_account_feedback_service_does_not_mutate_on_cancellation_adjacent_path():
     writes = []
     service = AccountFeedbackService(
-        read_account_lines=lambda data_type: [json.dumps({"account": "alice@example.com", "status": "active"})],
+        read_account_lines=lambda data_type: [
+            json.dumps({"account": "alice@example.com", "status": "active"})
+        ],
         write_account_lines=lambda data_type, lines: writes.append((data_type, lines)),
     )
 
-    service.handle_terminal_failure({"credentials_ref": json.dumps({"account": "alice@example.com"})}, "task cancelled by user")
+    service.handle_terminal_failure(
+        {"credentials_ref": json.dumps({"account": "alice@example.com"})}, "task cancelled by user"
+    )
 
     assert writes == []

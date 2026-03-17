@@ -53,7 +53,9 @@ def test_rpc_bootstrap_prefers_runtime_target_over_raw_payload_when_resolving_co
             "device_index": 8,
             "cloud_machines_per_device": 10,
         },
-        runtime={"target": {"device_id": 2, "cloud_id": 3, "device_ip": "10.0.0.5", "rpa_port": 30902}},
+        runtime={
+            "target": {"device_id": 2, "cloud_id": 3, "device_ip": "10.0.0.5", "rpa_port": 30902}
+        },
     )
 
     device_ip, rpa_port = _rpc_bootstrap.resolve_connection_params({}, ctx)
@@ -79,7 +81,9 @@ def test_rpc_bootstrap_uses_session_defaults_before_runtime_target() -> None:
                 "cloud_machines_per_device": 4,
             }
         },
-        runtime={"target": {"device_id": 9, "cloud_id": 8, "device_ip": "10.0.0.5", "rpa_port": 30902}},
+        runtime={
+            "target": {"device_id": 9, "cloud_id": 8, "device_ip": "10.0.0.5", "rpa_port": 30902}
+        },
     )
 
     device_ip, rpa_port = _rpc_bootstrap.resolve_connection_params({}, ctx)
@@ -92,8 +96,17 @@ def test_rpc_bootstrap_explicit_params_override_session_defaults() -> None:
     ExecutionContext = _load_execution_context()
     ctx = ExecutionContext(
         payload={"device_ip": "192.168.1.214", "cloud_index": 7, "device_index": 8},
-        session={"defaults": {"device_ip": "192.168.1.215", "rpa_port": 30202, "cloud_index": 3, "device_index": 2}},
-        runtime={"target": {"device_id": 9, "cloud_id": 8, "device_ip": "10.0.0.5", "rpa_port": 30902}},
+        session={
+            "defaults": {
+                "device_ip": "192.168.1.215",
+                "rpa_port": 30202,
+                "cloud_index": 3,
+                "device_index": 2,
+            }
+        },
+        runtime={
+            "target": {"device_id": 9, "cloud_id": 8, "device_ip": "10.0.0.5", "rpa_port": 30902}
+        },
     )
 
     device_ip, rpa_port = _rpc_bootstrap.resolve_connection_params(
@@ -123,11 +136,15 @@ def test_rpc_bootstrap_runtime_target_prevents_payload_target_port_mixing() -> N
     assert rpa_port == 30202
 
 
-def test_ui_and_state_bootstrap_wrappers_share_connect_timeout_contract(monkeypatch: MonkeyPatch) -> None:
+def test_ui_and_state_bootstrap_wrappers_share_connect_timeout_contract(
+    monkeypatch: MonkeyPatch,
+) -> None:
     ui_actions = _load_ui_actions_module()
     state_actions = _load_state_actions_module()
     ExecutionContext = _load_execution_context()
-    ctx = ExecutionContext(payload={"device_ip": "192.168.1.214", "cloud_index": 1, "cloud_machines_per_device": 2})
+    ctx = ExecutionContext(
+        payload={"device_ip": "192.168.1.214", "cloud_index": 1, "cloud_machines_per_device": 2}
+    )
 
     ui_rpc = _RecordingRpc()
     state_rpc = _RecordingRpc()
@@ -173,7 +190,9 @@ def test_bootstrap_rpc_surfaces_shared_connect_failure_contract() -> None:
     assert error.message == "connect failed: 192.168.1.214:30002"
 
 
-def test_health_endpoint_reports_same_rpc_flag_semantics_as_bootstrap(monkeypatch: MonkeyPatch) -> None:
+def test_health_endpoint_reports_same_rpc_flag_semantics_as_bootstrap(
+    monkeypatch: MonkeyPatch,
+) -> None:
     monkeypatch.setenv("MYT_ENABLE_RPC", "0")
     assert _rpc_bootstrap.is_rpc_enabled() is False
 

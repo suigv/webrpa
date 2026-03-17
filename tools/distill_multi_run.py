@@ -9,14 +9,14 @@
     python tools/distill_multi_run.py --plugin device_reboot
     python tools/distill_multi_run.py --plugin mytos_device_setup --min-runs 2 --output-dir plugins/mytos_device_setup_draft
 """
+
 from __future__ import annotations
 
-import importlib.util
 import argparse
+import importlib.util
 import json
 from collections import Counter, defaultdict
 from pathlib import Path
-from typing import Any
 
 if __package__:
     from tools._bootstrap import bootstrap_project_root
@@ -31,8 +31,9 @@ else:
 
 bootstrap_project_root()
 
-from core.paths import plugins_dir, traces_dir
 import yaml
+
+from core.paths import plugins_dir, traces_dir
 
 TRACES_DIR = traces_dir()
 PLUGINS_DIR = plugins_dir()
@@ -77,15 +78,19 @@ def find_successful_traces(plugin_name: str) -> list[dict]:
                 if task != plugin_name:
                     continue
                 # 找终态记录
-                terminal = next((r for r in reversed(records) if r.get("record_type") == "terminal"), None)
+                terminal = next(
+                    (r for r in reversed(records) if r.get("record_type") == "terminal"), None
+                )
                 if terminal and terminal.get("status") == "completed":
-                    results.append({
-                        "task_id": task_dir.name,
-                        "run_id": run_dir.name,
-                        "jsonl_path": jsonl_file,
-                        "records": records,
-                        "step_count": terminal.get("step_index", 0),
-                    })
+                    results.append(
+                        {
+                            "task_id": task_dir.name,
+                            "run_id": run_dir.name,
+                            "jsonl_path": jsonl_file,
+                            "records": records,
+                            "step_count": terminal.get("step_index", 0),
+                        }
+                    )
     return results
 
 
@@ -104,7 +109,7 @@ def extract_steps(records: list[dict]) -> list[dict]:
         # 坐标归一化处理 (1080p -> 720p 兼容性核心)
         sw = observation.get("screen_width") or observation.get("width")
         sh = observation.get("screen_height") or observation.get("height")
-        
+
         if sw and sh:
             # 处理点击坐标
             if "x" in params and "y" in params:
@@ -117,13 +122,15 @@ def extract_steps(records: list[dict]) -> list[dict]:
                     params[f"nx{i}"] = int(float(params[kx]) / sw * 1000)
                     params[f"ny{i}"] = int(float(params[ky]) / sh * 1000)
 
-        steps.append({
-            "step_index": r.get("step_index", 0),
-            "action": action,
-            "params": params,
-            "observation": observation,
-            "action_result_ok": bool((r.get("action_result") or {}).get("ok")),
-        })
+        steps.append(
+            {
+                "step_index": r.get("step_index", 0),
+                "action": action,
+                "params": params,
+                "observation": observation,
+                "action_result_ok": bool((r.get("action_result") or {}).get("ok")),
+            }
+        )
     return steps
 
 
@@ -146,14 +153,16 @@ def aggregate_steps(all_steps: list[list[dict]]) -> list[dict]:
     for idx in sorted(step_actions.keys()):
         best_action = step_actions[idx].most_common(1)[0][0]
         # 选取该动作最常用的参数（去掉动态值如坐标）
-        params_list = [p for p in step_params[idx]]
+        params_list = list(step_params[idx])
         best_params = _merge_params(params_list)
-        aggregated.append({
-            "step_index": idx,
-            "action": best_action,
-            "params": best_params,
-            "confidence": step_actions[idx][best_action] / len(all_steps),
-        })
+        aggregated.append(
+            {
+                "step_index": idx,
+                "action": best_action,
+                "params": best_params,
+                "confidence": step_actions[idx][best_action] / len(all_steps),
+            }
+        )
 
     return aggregated
 
@@ -171,20 +180,20 @@ def _merge_params(params_list: list[dict]) -> dict:
         all_keys.update(p.keys())
 
     # 稳定性阈值：至少在 80% 的成功 Run 中保持一致
-    STABILITY_THRESHOLD = 0.8
+    stability_threshold = 0.8
 
     for key in all_keys:
         values = [p.get(key) for p in params_list if key in p]
         if not values:
             continue
-        
+
         # 统计值分布
         counter = Counter(json.dumps(v, sort_keys=True) for v in values)
         most_common_json, count = counter.most_common(1)[0]
         stability = count / len(params_list)
 
         # 1. 处理归一化坐标 (nx, ny)
-        if key.startswith('n') and (key[1:] in ['x', 'y', 'x0', 'y0', 'x1', 'y1']):
+        if key.startswith("n") and (key[1:] in ["x", "y", "x0", "y0", "x1", "y1"]):
             # 允许 1% 的归一化误差 (1000 个单位中的 10 个单位)
             numeric_values = [v for v in values if isinstance(v, (int, float))]
             if numeric_values:
@@ -208,42 +217,50 @@ def _merge_params(params_list: list[dict]) -> dict:
                 for p in params_list:
                     if isinstance(p.get("selector"), dict):
                         selector_keys.update(p["selector"].keys())
-                
+
                 for sk in selector_keys:
-                    sk_values = [p["selector"].get(sk) for p in params_list if isinstance(p.get("selector"), dict) and sk in p["selector"]]
+                    sk_values = [
+                        p["selector"].get(sk)
+                        for p in params_list
+                        if isinstance(p.get("selector"), dict) and sk in p["selector"]
+                    ]
                     sk_counter = Counter(json.dumps(sv, sort_keys=True) for sv in sk_values)
                     _, sk_count = sk_counter.most_common(1)[0]
                     sk_stability = sk_count / len(params_list)
-                    
-                    if sk_stability >= STABILITY_THRESHOLD:
+
+                    if sk_stability >= stability_threshold:
                         stable_selector[sk] = json.loads(sk_counter.most_common(1)[0][0])
-                
+
                 # 特色逻辑：如果 ID 稳定且存在，但 Text 不稳定，则主动剔除 Text
                 if "resource_id" in stable_selector or "id" in stable_selector:
-                    text_values = [p["selector"].get("text") for p in params_list if isinstance(p.get("selector"), dict)]
+                    text_values = [
+                        p["selector"].get("text")
+                        for p in params_list
+                        if isinstance(p.get("selector"), dict)
+                    ]
                     if len(set(text_values)) > 1:
                         stable_selector.pop("text", None)
                         stable_selector.pop("label", None)
-                
+
                 merged["selector"] = stable_selector
                 continue
 
-        if stability >= STABILITY_THRESHOLD:
+        if stability >= stability_threshold:
             # 如果 selector 已经处理过，不要覆盖
             if key == "selector" and "selector" in merged:
                 continue
             merged[key] = json.loads(most_common_json)
         else:
             # 不稳定参数：坐标直接丢弃，文本转为变量或删除
-            if key in ['x', 'y', 'x0', 'y0', 'x1', 'y1']:
-                continue 
-            if key in ['text', 'label']:
+            if key in ["x", "y", "x0", "y0", "x1", "y1"]:
+                continue
+            if key in ["text", "label"]:
                 # 多语言环境下文本通常不稳定，如果 ID 稳定则应抛弃 text
                 continue
             merged[key] = f"${{vars.{key}:-dynamic_val}}"
 
     # 清理冗余：如果有了 nx/ny，确保 x/y 不被带入 YAML
-    for k in ['x', 'y', 'x0', 'y0', 'x1', 'y1']:
+    for k in ["x", "y", "x0", "y0", "x1", "y1"]:
         if f"n{k}" in merged:
             merged.pop(k, None)
 
@@ -291,7 +308,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="多轮 trace 聚合蒸馏工具")
     parser.add_argument("--plugin", required=True, help="插件名称（如 device_reboot）")
     parser.add_argument("--min-runs", type=int, default=0, help="最少成功次数（0=使用蒸馏门槛）")
-    parser.add_argument("--output-dir", type=Path, default=None, help="输出目录（默认 plugins/<plugin>_distilled）")
+    parser.add_argument(
+        "--output-dir", type=Path, default=None, help="输出目录（默认 plugins/<plugin>_distilled）"
+    )
     parser.add_argument("--force", action="store_true", help="忽略门槛强制蒸馏")
     args = parser.parse_args()
 
@@ -339,9 +358,11 @@ def main() -> int:
     manifest_path = output_dir / "manifest.yaml"
 
     script_path.write_text(yaml.dump(script, allow_unicode=True, sort_keys=False), encoding="utf-8")
-    manifest_path.write_text(yaml.dump(manifest, allow_unicode=True, sort_keys=False), encoding="utf-8")
+    manifest_path.write_text(
+        yaml.dump(manifest, allow_unicode=True, sort_keys=False), encoding="utf-8"
+    )
 
-    print(f"\n蒸馏完成:")
+    print("\n蒸馏完成:")
     print(f"  manifest: {manifest_path}")
     print(f"  script:   {script_path}")
     print(f"  runs:     {len(traces)}")
@@ -350,7 +371,7 @@ def main() -> int:
     # 输出摘要
     print("\n步骤摘要:")
     for s in aggregated:
-        conf = s.get('confidence', 1.0)
+        conf = s.get("confidence", 1.0)
         conf_str = f" [{conf:.0%}]" if conf < 1.0 else ""
         print(f"  step {s['step_index']:2d}: {s['action']}{conf_str}")
 

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+import os
+import urllib.parse
 from collections.abc import Callable
 from datetime import datetime
-import os
 from typing import Any
-import urllib.parse
 
 import pyotp
 
@@ -19,10 +19,13 @@ def _resolve_app(params: dict[str, Any], payload: dict[str, Any]) -> str:
     package = str(payload.get("package") or "").strip()
     if package:
         from engine.actions.sdk_config_support import app_from_package
+
         mapped = app_from_package(package)
         if mapped:
             return mapped
-    default_app = str(os.getenv("MYT_DEFAULT_APP", "default") or "default").strip().lower() or "default"
+    default_app = (
+        str(os.getenv("MYT_DEFAULT_APP", "default") or "default").strip().lower() or "default"
+    )
     return default_app
 
 
@@ -200,7 +203,13 @@ def check_daily_limit_action(
     return ActionResult(
         ok=True,
         code="ok",
-        data={"key": key, "count": current, "limit": limit, "remaining": max(limit - current, 0), "date": today},
+        data={
+            "key": key,
+            "count": current,
+            "limit": limit,
+            "remaining": max(limit - current, 0),
+            "date": today,
+        },
     )
 
 
@@ -229,7 +238,9 @@ def increment_daily_counter_action(
     store["date"] = today
     store["counts"] = counts
     write_daily_counters(store)
-    return ActionResult(ok=True, code="ok", data={"key": key, "count": current, "amount": amount, "date": today})
+    return ActionResult(
+        ok=True, code="ok", data={"key": key, "count": current, "amount": amount, "date": today}
+    )
 
 
 def load_ui_value_action(
@@ -243,7 +254,11 @@ def load_ui_value_action(
     key = str(params.get("key") or "").strip()
     if not key:
         return ActionResult(ok=False, code="invalid_params", message="key is required")
-    payload = context.payload if context is not None and isinstance(getattr(context, "payload", None), dict) else {}
+    payload = (
+        context.payload
+        if context is not None and isinstance(getattr(context, "payload", None), dict)
+        else {}
+    )
     app = _resolve_app(params, payload)
     try:
         document = load_app_config_document(app)
@@ -253,7 +268,11 @@ def load_ui_value_action(
     value = resolve_ui_key(document, key)
     if value is None:
         if "default" in params:
-            return ActionResult(ok=True, code="ok", data={"key": key, "value": params.get("default"), "exists": False})
+            return ActionResult(
+                ok=True,
+                code="ok",
+                data={"key": key, "value": params.get("default"), "exists": False},
+            )
         return ActionResult(ok=False, code="ui_value_missing", message=f"ui value not found: {key}")
     return ActionResult(ok=True, code="ok", data={"key": key, "value": value, "exists": True})
 
@@ -281,13 +300,17 @@ def load_ui_selector_action(
     selectors = document.get("selectors", {})
     entry = resolve_localized_entry(resolve_ui_key(selectors, key), locale)
     if not isinstance(entry, dict):
-        return ActionResult(ok=False, code="ui_selector_missing", message=f"ui selector not found: {key}")
+        return ActionResult(
+            ok=False, code="ui_selector_missing", message=f"ui selector not found: {key}"
+        )
 
     selector_type = str(entry.get("type") or "").strip().lower()
     mode = str(entry.get("mode") or "equal").strip().lower()
     value = entry.get("value")
     if not selector_type or value in (None, ""):
-        return ActionResult(ok=False, code="ui_selector_invalid", message=f"ui selector invalid: {key}")
+        return ActionResult(
+            ok=False, code="ui_selector_invalid", message=f"ui selector invalid: {key}"
+        )
     return ActionResult(
         ok=True,
         code="ok",
@@ -312,7 +335,9 @@ def load_ui_selectors_action(
 ) -> ActionResult:
     selector_defs = params.get("selectors")
     if not isinstance(selector_defs, list) or not selector_defs:
-        return ActionResult(ok=False, code="invalid_params", message="selectors must be a non-empty list")
+        return ActionResult(
+            ok=False, code="invalid_params", message="selectors must be a non-empty list"
+        )
     payload = context.payload if context is not None and isinstance(context.payload, dict) else {}
     locale = str(params.get("locale") or payload.get("locale") or "default").strip().lower()
     app = _resolve_app(params, payload)
@@ -343,7 +368,9 @@ def load_ui_selectors_action(
         if not alias:
             alias = key
         if alias in resolved:
-            return ActionResult(ok=False, code="invalid_params", message=f"duplicate selector alias: {alias}")
+            return ActionResult(
+                ok=False, code="invalid_params", message=f"duplicate selector alias: {alias}"
+            )
 
         selector_entry = resolve_localized_entry(resolve_ui_key(selectors, key), locale)
         if not isinstance(selector_entry, dict):
@@ -399,18 +426,24 @@ def load_ui_scheme_action(
     schemes = document.get("schemes", {})
     entry = resolve_ui_key(schemes, key)
     if entry is None:
-        return ActionResult(ok=False, code="ui_scheme_missing", message=f"ui scheme not found: {app}.{key}")
+        return ActionResult(
+            ok=False, code="ui_scheme_missing", message=f"ui scheme not found: {app}.{key}"
+        )
 
     template = entry.get("template") if isinstance(entry, dict) else entry
     if not isinstance(template, str) or not template.strip():
-        return ActionResult(ok=False, code="ui_scheme_invalid", message=f"ui scheme invalid: {app}.{key}")
+        return ActionResult(
+            ok=False, code="ui_scheme_invalid", message=f"ui scheme invalid: {app}.{key}"
+        )
 
     args = params.get("args")
     kwargs = params.get("kwargs")
     url = template
     try:
         if isinstance(kwargs, dict) and kwargs:
-            safe_kwargs = {name: urllib.parse.quote(str(value), safe="") for name, value in kwargs.items()}
+            safe_kwargs = {
+                name: urllib.parse.quote(str(value), safe="") for name, value in kwargs.items()
+            }
             url = template.format(**safe_kwargs)
         elif isinstance(args, list) and args:
             safe_args = [urllib.parse.quote(str(value), safe="") for value in args]
@@ -423,7 +456,9 @@ def load_ui_scheme_action(
         try:
             _output, ok = rpc.exec_cmd(cmd)
             if not ok:
-                return ActionResult(ok=False, code="scheme_launch_failed", message=f"exec_cmd failed: {_output}")
+                return ActionResult(
+                    ok=False, code="scheme_launch_failed", message=f"exec_cmd failed: {_output}"
+                )
         except Exception as exc:
             return ActionResult(ok=False, code="scheme_launch_failed", message=str(exc))
 

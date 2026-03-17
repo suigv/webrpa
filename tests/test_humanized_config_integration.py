@@ -1,11 +1,12 @@
 # pyright: reportMissingImports=false
-from fastapi.testclient import TestClient
 from typing import Any, ClassVar
 
+from fastapi.testclient import TestClient
+
+import core.config_loader as config_loader
 from api.server import app
 from hardware_adapters.browser_client import BrowserClient
 from models.humanized import HumanizedWrapperConfig
-import core.config_loader as config_loader
 
 
 class _FakeRect:

@@ -1,12 +1,14 @@
 from __future__ import annotations
+
+import re
 import time
-from typing import Any, Dict
+from typing import Any
+
+from core.device_manager import get_device_manager
+from engine.action_registry import ActionMetadata
 from engine.actions import _rpc_bootstrap
 from engine.models.runtime import ActionResult, ErrorType, ExecutionContext
 from hardware_adapters.mytRpc import MytRpc
-from engine.action_registry import ActionMetadata
-from core.device_manager import get_device_manager
-import re
 
 CLICK_METADATA = ActionMetadata(
     description="点击屏幕坐标 (x, y)",
@@ -17,10 +19,10 @@ CLICK_METADATA = ActionMetadata(
             "y": {"type": "integer", "description": "Y 坐标"},
             "nx": {"type": "integer", "description": "归一化 X 坐标 (0-1000)"},
             "ny": {"type": "integer", "description": "归一化 Y 坐标 (0-1000)"},
-            "finger_id": {"type": "integer", "default": 0, "description": "触控手指索引"}
-        }
+            "finger_id": {"type": "integer", "default": 0, "description": "触控手指索引"},
+        },
     },
-    tags=["skill"]
+    tags=["skill"],
 )
 
 SWIPE_METADATA = ActionMetadata(
@@ -37,10 +39,10 @@ SWIPE_METADATA = ActionMetadata(
             "nx1": {"type": "integer", "description": "归一化结束 X 坐标"},
             "ny1": {"type": "integer", "description": "归一化结束 Y 坐标"},
             "duration": {"type": "integer", "default": 300, "description": "滑动持续时间 (ms)"},
-            "finger_id": {"type": "integer", "default": 0}
-        }
+            "finger_id": {"type": "integer", "default": 0},
+        },
     },
-    tags=["skill"]
+    tags=["skill"],
 )
 
 LONG_CLICK_METADATA = ActionMetadata(
@@ -53,24 +55,33 @@ LONG_CLICK_METADATA = ActionMetadata(
             "nx": {"type": "integer", "description": "归一化 X 坐标"},
             "ny": {"type": "integer", "description": "归一化 Y 坐标"},
             "duration": {"type": "number", "default": 0.5, "description": "长按持续时间 (秒)"},
-            "finger_id": {"type": "integer", "default": 0}
-        }
-    }
+            "finger_id": {"type": "integer", "default": 0},
+        },
+    },
 )
 
-def _get_rpc(params: Dict[str, Any], context: ExecutionContext) -> tuple[MytRpc | None, ActionResult | None]:
+
+def _get_rpc(
+    params: dict[str, Any], context: ExecutionContext
+) -> tuple[MytRpc | None, ActionResult | None]:
     return _rpc_bootstrap.bootstrap_rpc(
         params,
         context,
-        is_enabled=lambda: _rpc_bootstrap.is_rpc_enabled() if callable(_rpc_bootstrap.is_rpc_enabled) else _rpc_bootstrap.is_rpc_enabled,
+        is_enabled=lambda: (
+            _rpc_bootstrap.is_rpc_enabled()
+            if callable(_rpc_bootstrap.is_rpc_enabled)
+            else _rpc_bootstrap.is_rpc_enabled
+        ),
         resolve_params=_rpc_bootstrap.resolve_connection_params,
         result_factory=ActionResult,
         error_type_env=ErrorType.ENV_ERROR,
         error_type_business=ErrorType.BUSINESS_ERROR,
     )
 
+
 def _close_rpc(rpc: MytRpc | None) -> None:
     _rpc_bootstrap.close_rpc(rpc)
+
 
 def _to_int(value: Any, default: int = 0) -> int:
     try:
@@ -79,29 +90,31 @@ def _to_int(value: Any, default: int = 0) -> int:
         return default
 
 
-def _resolve_coords(params: Dict[str, Any], context: ExecutionContext, keys: list[str], rpc: MytRpc | None = None) -> Dict[str, int]:
+def _resolve_coords(
+    params: dict[str, Any], context: ExecutionContext, keys: list[str], rpc: MytRpc | None = None
+) -> dict[str, int]:
     resolved = {}
     pw = context.physical_width
     ph = context.physical_height
-    
-    if (pw is None or ph is None):
+
+    if pw is None or ph is None:
         device_id = context.device_id
         if device_id > 0:
             if rpc:
                 pw, ph = _discover_physical_resolution(rpc, device_id)
-            if (pw is None or ph is None):
+            if pw is None or ph is None:
                 res = get_device_manager().get_device_resolution(device_id)
                 if res:
                     pw, ph = res
             if pw and ph:
                 context.physical_width = pw
                 context.physical_height = ph
-    
+
     for k in keys:
         nk = f"n{k}"
         if nk in params and pw and ph:
             val = float(params[nk])
-            if k.startswith('x'):
+            if k.startswith("x"):
                 resolved[k] = int(val * float(pw) / 1000.0)
             else:
                 resolved[k] = int(val * float(ph) / 1000.0)
@@ -109,7 +122,10 @@ def _resolve_coords(params: Dict[str, Any], context: ExecutionContext, keys: lis
             resolved[k] = int(params.get(k, 0))
     return resolved
 
-def _discover_physical_resolution(rpc: MytRpc, device_id: int) -> tuple[int, int] | tuple[None, None]:
+
+def _discover_physical_resolution(
+    rpc: MytRpc, device_id: int
+) -> tuple[int, int] | tuple[None, None]:
     try:
         output, ok = rpc.exec_cmd("wm size")
         if not ok or not output:
@@ -129,7 +145,7 @@ def _discover_physical_resolution(rpc: MytRpc, device_id: int) -> tuple[int, int
         return None, None
 
 
-def _normalized_swipe_params(params: Dict[str, Any]) -> Dict[str, Any]:
+def _normalized_swipe_params(params: dict[str, Any]) -> dict[str, Any]:
     normalized = dict(params)
     alias_map = {
         "start_x": "x0",
@@ -161,9 +177,13 @@ def _normalized_swipe_params(params: Dict[str, Any]) -> Dict[str, Any]:
 
     return normalized
 
-def click(params: Dict[str, Any], context: ExecutionContext, *, close_rpc: Any = _close_rpc) -> ActionResult:
+
+def click(
+    params: dict[str, Any], context: ExecutionContext, *, close_rpc: Any = _close_rpc
+) -> ActionResult:
     rpc, err = _get_rpc(params, context)
-    if err: return err
+    if err:
+        return err
     try:
         coords = _resolve_coords(params, context, ["x", "y"], rpc=rpc)
         x, y = coords["x"], coords["y"]
@@ -176,7 +196,9 @@ def click(params: Dict[str, Any], context: ExecutionContext, *, close_rpc: Any =
             context.check_cancelled()
         hold_time = helper.get_click_hold_time() if helper is not None else 0.01
         if context.emit_event:
-            context.emit_event("humanized.click", {"actual": (x, y), "hold_ms": int(hold_time * 1000)})
+            context.emit_event(
+                "humanized.click", {"actual": (x, y), "hold_ms": int(hold_time * 1000)}
+            )
         ok_down = rpc.touchDown(finger_id, x, y) if rpc is not None else False
         if ok_down and hold_time > 0:
             time.sleep(hold_time)
@@ -186,49 +208,81 @@ def click(params: Dict[str, Any], context: ExecutionContext, *, close_rpc: Any =
             helper.sleep_after_click()
             context.check_cancelled()
         ok = bool(ok_down and ok_up)
-        return ActionResult(ok=ok, code="ok" if ok else "click_failed", data={"x": x, "y": y, "finger_id": finger_id})
+        return ActionResult(
+            ok=ok,
+            code="ok" if ok else "click_failed",
+            data={"x": x, "y": y, "finger_id": finger_id},
+        )
     finally:
         close_rpc(rpc)
 
-def touch_down(params: Dict[str, Any], context: ExecutionContext, *, close_rpc: Any = _close_rpc) -> ActionResult:
+
+def touch_down(
+    params: dict[str, Any], context: ExecutionContext, *, close_rpc: Any = _close_rpc
+) -> ActionResult:
     rpc, err = _get_rpc(params, context)
-    if err: return err
+    if err:
+        return err
     try:
         coords = _resolve_coords(params, context, ["x", "y"], rpc=rpc)
         x, y = coords["x"], coords["y"]
         finger_id = int(params.get("finger_id", 0))
         ok = rpc.touchDown(finger_id, x, y) if rpc is not None else False
-        return ActionResult(ok=ok, code="ok" if ok else "touch_down_failed", data={"x": x, "y": y, "finger_id": finger_id})
+        return ActionResult(
+            ok=ok,
+            code="ok" if ok else "touch_down_failed",
+            data={"x": x, "y": y, "finger_id": finger_id},
+        )
     finally:
         close_rpc(rpc)
 
-def touch_up(params: Dict[str, Any], context: ExecutionContext, *, close_rpc: Any = _close_rpc) -> ActionResult:
+
+def touch_up(
+    params: dict[str, Any], context: ExecutionContext, *, close_rpc: Any = _close_rpc
+) -> ActionResult:
     rpc, err = _get_rpc(params, context)
-    if err: return err
+    if err:
+        return err
     try:
         coords = _resolve_coords(params, context, ["x", "y"], rpc=rpc)
         x, y = coords["x"], coords["y"]
         finger_id = int(params.get("finger_id", 0))
         ok = rpc.touchUp(finger_id, x, y) if rpc is not None else False
-        return ActionResult(ok=ok, code="ok" if ok else "touch_up_failed", data={"x": x, "y": y, "finger_id": finger_id})
+        return ActionResult(
+            ok=ok,
+            code="ok" if ok else "touch_up_failed",
+            data={"x": x, "y": y, "finger_id": finger_id},
+        )
     finally:
         close_rpc(rpc)
 
-def touch_move(params: Dict[str, Any], context: ExecutionContext, *, close_rpc: Any = _close_rpc) -> ActionResult:
+
+def touch_move(
+    params: dict[str, Any], context: ExecutionContext, *, close_rpc: Any = _close_rpc
+) -> ActionResult:
     rpc, err = _get_rpc(params, context)
-    if err: return err
+    if err:
+        return err
     try:
         coords = _resolve_coords(params, context, ["x", "y"], rpc=rpc)
         x, y = coords["x"], coords["y"]
         finger_id = int(params.get("finger_id", 0))
         ok = rpc.touchMove(finger_id, x, y) if rpc is not None else False
-        return ActionResult(ok=ok, code="ok" if ok else "touch_move_failed", data={"x": x, "y": y, "finger_id": finger_id})
+        return ActionResult(
+            ok=ok,
+            code="ok" if ok else "touch_move_failed",
+            data={"x": x, "y": y, "finger_id": finger_id},
+        )
     finally:
         close_rpc(rpc)
 
-def swipe(params: Dict[str, Any], context: ExecutionContext, *, close_rpc: Any = _close_rpc) -> ActionResult:
+
+def swipe(
+    params: dict[str, Any], context: ExecutionContext, *, close_rpc: Any = _close_rpc
+) -> ActionResult:
     rpc, err = _get_rpc(params, context)
-    if err: return err
+    if err:
+        return err
     try:
         normalized = _normalized_swipe_params(params)
         finger_id = int(params.get("finger_id", 0))
@@ -246,14 +300,20 @@ def swipe(params: Dict[str, Any], context: ExecutionContext, *, close_rpc: Any =
             "raw_result": raw_result,
             "effect_uncertain": not ok,
         }
-        message = "" if ok else "swipe transport did not acknowledge action; verify the next observation"
+        message = (
+            "" if ok else "swipe transport did not acknowledge action; verify the next observation"
+        )
         return ActionResult(ok=ok, code="ok" if ok else "swipe_failed", message=message, data=data)
     finally:
         close_rpc(rpc)
 
-def long_click(params: Dict[str, Any], context: ExecutionContext, *, close_rpc: Any = _close_rpc) -> ActionResult:
+
+def long_click(
+    params: dict[str, Any], context: ExecutionContext, *, close_rpc: Any = _close_rpc
+) -> ActionResult:
     rpc, err = _get_rpc(params, context)
-    if err: return err
+    if err:
+        return err
     try:
         coords = _resolve_coords(params, context, ["x", "y"], rpc=rpc)
         x, y = coords["x"], coords["y"]

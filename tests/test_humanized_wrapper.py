@@ -138,7 +138,7 @@ class _MalformedRectPage(_FakePage):
 def test_humanized_config_validation_probability_bounds():
     try:
         HumanizedWrapperConfig(typo_probability=1.2)
-        assert False, "expected ValueError"
+        raise AssertionError("expected ValueError")
     except ValueError:
         assert True
 
@@ -156,13 +156,13 @@ def test_humanized_config_defaults_are_stable():
 def test_humanized_config_validation_rejects_invalid_strategy_and_policy():
     try:
         HumanizedWrapperConfig(target_strategy="outside")
-        assert False, "expected ValueError"
+        raise AssertionError("expected ValueError")
     except ValueError:
         assert True
 
     try:
         HumanizedWrapperConfig(fallback_policy="unsupported")
-        assert False, "expected ValueError"
+        raise AssertionError("expected ValueError")
     except ValueError:
         assert True
 
@@ -170,13 +170,13 @@ def test_humanized_config_validation_rejects_invalid_strategy_and_policy():
 def test_humanized_config_validation_rejects_invalid_step_bounds():
     try:
         HumanizedWrapperConfig(move_steps_min=0)
-        assert False, "expected ValueError"
+        raise AssertionError("expected ValueError")
     except ValueError:
         assert True
 
     try:
         HumanizedWrapperConfig(move_steps_min=3, move_steps_max=2)
-        assert False, "expected ValueError"
+        raise AssertionError("expected ValueError")
     except ValueError:
         assert True
 
@@ -313,7 +313,7 @@ def test_humanized_click_fallback_policy_raise_propagates_failure():
 
     try:
         wrapper.ele("#x").click()
-        assert False, "expected RuntimeError"
+        raise AssertionError("expected RuntimeError")
     except RuntimeError:
         assert True
 
@@ -324,7 +324,7 @@ def test_humanized_input_fallback_policy_raise_propagates_failure():
 
     try:
         wrapper.ele("#x").input("hello")
-        assert False, "expected RuntimeError"
+        raise AssertionError("expected RuntimeError")
     except RuntimeError:
         assert True
 

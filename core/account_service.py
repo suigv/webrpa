@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
 import threading
 from typing import Any
 
-from core.account_parser import parse_accounts_advanced, parse_accounts_lines, parse_accounts_text
-from core.data_store import read_lines, read_text, write_lines
+from core.account_parser import parse_accounts_advanced, parse_accounts_text
 from core.account_store import AccountStore
+from core.data_store import read_lines
 
 _accounts_lock = threading.Lock()
 _account_store: AccountStore | None = None
@@ -17,13 +16,15 @@ def _get_store() -> AccountStore:
     global _account_store
     if _account_store is not None:
         return _account_store
-        
+
     with _accounts_lock:
         if _account_store is None:
             store = AccountStore()
             # 自动迁移检查
-            from core.paths import data_dir
             import os
+
+            from core.paths import data_dir
+
             json_path = data_dir() / "accounts.json"
             if json_path.exists() and store.count_accounts() == 0:
                 try:
@@ -42,6 +43,7 @@ def _get_store() -> AccountStore:
                         os.rename(json_path, target_bak)
                 except Exception as e:
                     import logging
+
                     logging.getLogger(__name__).error(f"Failed to migrate accounts from JSON: {e}")
             _account_store = store
         return _account_store
@@ -71,7 +73,9 @@ def import_accounts_content(
     if delimiter is None and not clean_mapping:
         parsed: dict[str, Any] = parse_accounts_text(content)
     else:
-        parsed = parse_accounts_advanced(content, delimiter=delimiter or "", mapping=clean_mapping or None)
+        parsed = parse_accounts_advanced(
+            content, delimiter=delimiter or "", mapping=clean_mapping or None
+        )
 
     accounts = parsed.get("accounts", [])
     if not isinstance(accounts, list):
@@ -79,7 +83,7 @@ def import_accounts_content(
 
     errors = parsed.get("errors", [])
     valid = len(accounts)
-    
+
     invalid_raw = parsed.get("invalid", 0)
     invalid = int(invalid_raw) if isinstance(invalid_raw, (int, float, str)) else 0
 
@@ -94,7 +98,7 @@ def import_accounts_content(
             store.upsert_account(acc_data)
 
     total_stored = store.count_accounts()
-    
+
     return {
         "status": "ok",
         "stored": total_stored,
@@ -123,6 +127,5 @@ def list_accounts() -> list[dict[str, Any]]:
 
 def reset_accounts() -> int:
     return _get_store().reset_all_status(
-        from_statuses=["in_progress", "bad_auth", "banned", "2fa_issue"],
-        to_status="ready"
+        from_statuses=["in_progress", "bad_auth", "banned", "2fa_issue"], to_status="ready"
     )

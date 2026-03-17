@@ -23,8 +23,12 @@ def test_tools_root_inference_is_centralized() -> None:
         if script.name == "_bootstrap.py":
             assert pattern in text
             continue
-        assert pattern not in text, f"{script} should use tools._bootstrap instead of inline root inference"
-        assert sys_path_insert not in text, f"{script} should rely on tools._bootstrap for sys.path setup"
+        assert pattern not in text, (
+            f"{script} should use tools._bootstrap instead of inline root inference"
+        )
+        assert sys_path_insert not in text, (
+            f"{script} should rely on tools._bootstrap for sys.path setup"
+        )
 
 
 def test_distill_binding_generates_concrete_detector() -> None:
@@ -53,7 +57,7 @@ def test_distill_binding_generates_concrete_detector() -> None:
     assert "state_actions.detect_login_stage" in code
     assert "_EXAMPLE_AUTO_STAGE_PATTERNS" in code
     assert 'merged_params.setdefault("package", "com.example.app")' in code
-    assert '# _EXAMPLE_AUTO_BINDING.binding_id: _EXAMPLE_AUTO_BINDING,' in code
+    assert "# _EXAMPLE_AUTO_BINDING.binding_id: _EXAMPLE_AUTO_BINDING," in code
     assert namespace["_EXAMPLE_AUTO_STATE_IDS"] == ("home", "login", "unknown")
     assert namespace["_EXAMPLE_AUTO_STAGE_ORDER"] == ("home", "login")
     binding = cast(NativeStateBinding, namespace["_EXAMPLE_AUTO_BINDING"])

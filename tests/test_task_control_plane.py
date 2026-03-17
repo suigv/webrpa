@@ -1,34 +1,37 @@
 # pyright: reportMissingImports=false
 import json
-import multiprocessing
 import os
-import pytest
 import queue
-import sqlite3
 import socket
+import sqlite3
 import subprocess
 import sys
 import threading
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from urllib import request as urllib_request
 
+import pytest
 from fastapi.testclient import TestClient
 
+from ai_services.llm_client import LLMResponse
 from api.server import app
 from core.config_loader import ConfigLoader
 from core.device_manager import DeviceManager
-from core.task_control import TaskController, override_task_controller_for_tests, reset_task_controller_for_tests
+from core.task_control import (
+    TaskController,
+    override_task_controller_for_tests,
+    reset_task_controller_for_tests,
+)
 from core.task_events import TaskEventStore
 from core.task_execution import SubprocessCancellationState
 from core.task_queue import InMemoryTaskQueue
-from core.task_store import ManagedTaskStateClearBlocked, TaskStore
+from core.task_store import ManagedTaskStateClearBlockedError, TaskStore
 from engine.action_registry import ActionRegistry
 from engine.agent_executor import AgentExecutorRuntime
 from engine.models.runtime import ActionResult
 from engine.runner import Runner
-from ai_services.llm_client import LLMResponse
 
 
 def _wait_status(client: TestClient, task_id: str, timeout_s: float = 3.0) -> str:
@@ -43,7 +46,9 @@ def _wait_status(client: TestClient, task_id: str, timeout_s: float = 3.0) -> st
     return "timeout"
 
 
-def _wait_event(controller: TaskController, task_id: str, event_type: str, timeout_s: float = 3.0) -> bool:
+def _wait_event(
+    controller: TaskController, task_id: str, event_type: str, timeout_s: float = 3.0
+) -> bool:
     deadline = time.time() + timeout_s
     while time.time() < deadline:
         if any(event.event_type == event_type for event in controller.list_events(task_id)):
@@ -76,7 +81,9 @@ class _SequencedLLMClient:
         )
 
 
-def _build_agent_executor_runner(*, llm_client: _SequencedLLMClient, stagnant_state_id: str = "account") -> Runner:
+def _build_agent_executor_runner(
+    *, llm_client: _SequencedLLMClient, stagnant_state_id: str = "account"
+) -> Runner:
     registry = ActionRegistry()
 
     def _ui_match_state(params, context):
@@ -125,16 +132,17 @@ def test_task_control_plane_success_flow():
         if status != "completed":
             detail = client.get(f"/api/tasks/{task_id}")
             print(f"\nTASK FAILED: {detail.json()}")
-            events = client.get(f"/api/tasks/{task_id}/events") # This is SSE, might be tricky
+            _events = client.get(f"/api/tasks/{task_id}/events")  # This is SSE, might be tricky
             # Let's try to get them from controller instead if possible, but TestClient SSE is different.
             # Actually, the TestClient allows iterating over segments.
             # But simpler: just use detail.json() which has some info, or add a route for events list.
             # Wait, TaskController has list_events.
             from core.task_control import get_task_controller
+
             ctrl = get_task_controller()
             evs = [f"{e.event_type}: {e.payload}" for e in ctrl.list_events(task_id)]
             print(f"EVENTS: {evs}")
-            
+
         assert status == "completed"
 
         detail = client.get(f"/api/tasks/{task_id}")
@@ -157,7 +165,9 @@ def test_task_control_plane_agent_executor_managed_lifecycle_and_cancel_support(
                 request_id="req-1",
                 provider="openai",
                 model="gpt-5.4",
-                output_text=json.dumps({"done": False, "action": "ui.click", "params": {"selector": "#continue"}}),
+                output_text=json.dumps(
+                    {"done": False, "action": "ui.click", "params": {"selector": "#continue"}}
+                ),
             ),
             LLMResponse(
                 ok=True,
@@ -246,7 +256,9 @@ def test_task_control_plane_agent_executor_managed_lifecycle_and_cancel_support(
             assert cancelled_detail.status_code == 200
             assert cancelled_detail.json()["status"] == "cancelled"
 
-            cancel_event_types = [event.event_type for event in controller.list_events(cancel_task_id)]
+            cancel_event_types = [
+                event.event_type for event in controller.list_events(cancel_task_id)
+            ]
             assert cancel_event_types == ["task.created", "task.cancel_requested", "task.cancelled"]
     finally:
         reset_task_controller_for_tests()
@@ -346,7 +358,9 @@ def test_agent_executor_live_uvicorn_tasks_path_uses_default_runner_wiring() -> 
         else:
             proc.terminate()
             stdout, stderr = proc.communicate(timeout=5)
-            raise AssertionError(f"uvicorn did not become healthy\nstdout:\n{stdout}\nstderr:\n{stderr}")
+            raise AssertionError(
+                f"uvicorn did not become healthy\nstdout:\n{stdout}\nstderr:\n{stderr}"
+            )
 
         create_request = urllib_request.Request(
             f"http://127.0.0.1:{port}/api/tasks/",
@@ -376,7 +390,9 @@ def test_agent_executor_live_uvicorn_tasks_path_uses_default_runner_wiring() -> 
         detail_payload: dict[str, object] = {}
         deadline = time.time() + 5.0
         while time.time() < deadline:
-            detail_response = urllib_request.urlopen(f"http://127.0.0.1:{port}/api/tasks/{task_id}", timeout=10)
+            detail_response = urllib_request.urlopen(
+                f"http://127.0.0.1:{port}/api/tasks/{task_id}", timeout=10
+            )
             try:
                 detail_payload = json.loads(detail_response.read().decode("utf-8"))
             finally:
@@ -392,7 +408,9 @@ def test_agent_executor_live_uvicorn_tasks_path_uses_default_runner_wiring() -> 
         result_payload = detail_payload["result"]
         assert isinstance(result_payload, dict)
         assert result_payload["status"] == "failed_config_error"
-        assert "unsupported task: agent_executor" not in json.dumps(detail_payload, ensure_ascii=False)
+        assert "unsupported task: agent_executor" not in json.dumps(
+            detail_payload, ensure_ascii=False
+        )
     finally:
         reset_task_controller_for_tests()
         if proc.poll() is None:
@@ -550,7 +568,9 @@ def test_task_controller_routes_terminal_failure_through_account_feedback_hook(t
 
             assert _wait_status(client, task_id, timeout_s=3.0) == "failed"
             assert len(account_feedback.calls) == 1
-            assert account_feedback.calls[0]["payload"]["credentials_ref"] == json.dumps({"account": "alice@example.com"})
+            assert account_feedback.calls[0]["payload"]["credentials_ref"] == json.dumps(
+                {"account": "alice@example.com"}
+            )
             assert account_feedback.calls[0]["error"] == "wrong password provided"
     finally:
         reset_task_controller_for_tests()
@@ -629,8 +649,6 @@ def test_task_control_plane_list_contains_created_task():
         assert task_id in ids
 
 
-
-
 def test_task_control_plane_rejects_managed_submit_without_targets_or_devices():
     os.environ["MYT_TASK_QUEUE_BACKEND"] = "memory"
     reset_task_controller_for_tests()
@@ -646,7 +664,10 @@ def test_task_control_plane_rejects_managed_submit_without_targets_or_devices():
 
         assert response.status_code == 422
         detail = response.json()["detail"]
-        assert any("either targets or devices must be provided" in str(item.get("msg", "")) for item in detail)
+        assert any(
+            "either targets or devices must be provided" in str(item.get("msg", ""))
+            for item in detail
+        )
 
 
 def test_task_control_plane_devices_input_is_normalized_to_explicit_targets():
@@ -784,7 +805,10 @@ def test_task_control_plane_clear_route_clears_managed_tasks_and_events(tmp_path
             with sqlite3.connect(db_path) as conn:
                 assert conn.execute("SELECT COUNT(*) FROM tasks").fetchone() == (1,)
                 assert conn.execute("SELECT COUNT(*) FROM task_events").fetchone() == (1,)
-                assert conn.execute("SELECT task_id, event_type FROM task_events").fetchone() == (task_id, "task.created")
+                assert conn.execute("SELECT task_id, event_type FROM task_events").fetchone() == (
+                    task_id,
+                    "task.created",
+                )
 
             cleared = client.delete("/api/tasks/")
             assert cleared.status_code == 200
@@ -829,7 +853,7 @@ def test_task_controller_clear_all_blocks_when_running_tasks_exist(tmp_path: Pat
         try:
             controller.clear_all()
             raise AssertionError("clear_all should block while tasks are running")
-        except ManagedTaskStateClearBlocked as exc:
+        except ManagedTaskStateClearBlockedError as exc:
             assert str(exc) == "cannot clear managed task state while tasks are running"
 
         assert controller.get(created.task_id) is not None
@@ -837,7 +861,9 @@ def test_task_controller_clear_all_blocks_when_running_tasks_exist(tmp_path: Pat
         with sqlite3.connect(db_path) as conn:
             assert conn.execute("SELECT COUNT(*) FROM tasks").fetchone() == (1,)
             assert conn.execute("SELECT COUNT(*) FROM task_events").fetchone() == (1,)
-            assert conn.execute("SELECT status FROM tasks WHERE task_id = ?", (created.task_id,)).fetchone() == ("running",)
+            assert conn.execute(
+                "SELECT status FROM tasks WHERE task_id = ?", (created.task_id,)
+            ).fetchone() == ("running",)
     finally:
         reset_task_controller_for_tests()
         if db_path.exists():
@@ -874,13 +900,19 @@ def test_task_control_plane_clear_route_rejects_when_running_tasks_exist(tmp_pat
             response = client.delete("/api/tasks/")
 
         assert response.status_code == 409
-        assert response.json()["detail"] == "cannot clear managed task state while tasks are running"
+        assert (
+            response.json()["detail"] == "cannot clear managed task state while tasks are running"
+        )
         assert controller.get(created.task_id) is not None
-        assert [event.event_type for event in controller.list_events(created.task_id)] == ["task.created"]
+        assert [event.event_type for event in controller.list_events(created.task_id)] == [
+            "task.created"
+        ]
         with sqlite3.connect(db_path) as conn:
             assert conn.execute("SELECT COUNT(*) FROM tasks").fetchone() == (1,)
             assert conn.execute("SELECT COUNT(*) FROM task_events").fetchone() == (1,)
-            assert conn.execute("SELECT status FROM tasks WHERE task_id = ?", (created.task_id,)).fetchone() == ("running",)
+            assert conn.execute(
+                "SELECT status FROM tasks WHERE task_id = ?", (created.task_id,)
+            ).fetchone() == ("running",)
     finally:
         reset_task_controller_for_tests()
         if db_path.exists():
@@ -973,7 +1005,10 @@ def test_task_control_plane_create_list_detail_share_task_mapping():
 
         assert created["task_name"] == "named-task"
         assert created["devices"] == [3]
-        assert created["targets"] == [{"device_id": 3, "cloud_id": 2}, {"device_id": 3, "cloud_id": 4}]
+        assert created["targets"] == [
+            {"device_id": 3, "cloud_id": 2},
+            {"device_id": 3, "cloud_id": 4},
+        ]
         assert created["status"] == "pending"
         assert created["max_retries"] == 2
         assert created["retry_backoff_seconds"] == 5
@@ -1167,7 +1202,9 @@ def test_idempotency_key_dedupes_retry_scheduled_task_across_controller_restart(
             idempotency_key="restart-retry-key-1",
         )
 
-        retry_record = first_store.schedule_retry(created.task_id, error="forced retry for idempotency test")
+        retry_record = first_store.schedule_retry(
+            created.task_id, error="forced retry for idempotency test"
+        )
         assert retry_record is not None
         assert retry_record.status == "pending"
         assert retry_record.next_retry_at is not None
@@ -1280,7 +1317,11 @@ class _WaitForCancelRunner:
                 self.cancelled.set()
                 return {"ok": False, "status": "cancelled", "message": "task cancelled by user"}
             time.sleep(0.02)
-        return {"ok": True, "status": "completed", "message": "unexpectedly finished without cancel"}
+        return {
+            "ok": True,
+            "status": "completed",
+            "message": "unexpectedly finished without cancel",
+        }
 
 
 def _reset_device_manager_state(manager: DeviceManager) -> None:
@@ -1363,7 +1404,9 @@ def test_running_task_fails_fast_when_active_target_probe_turns_unavailable(tmp_
     runner = _WaitForCancelRunner()
 
     class _FakeProbeService:
-        def query_cloud_model_map(self, device_ip: str, refresh_if_missing: bool = False) -> dict[int, dict[str, object]]:
+        def query_cloud_model_map(
+            self, device_ip: str, refresh_if_missing: bool = False
+        ) -> dict[int, dict[str, object]]:
             _ = (device_ip, refresh_if_missing)
             return {}
 
@@ -1391,8 +1434,13 @@ def test_running_task_fails_fast_when_active_target_probe_turns_unavailable(tmp_
         with TestClient(app) as client:
             from unittest import mock
 
-            with mock.patch("core.cloud_probe_service.get_cloud_probe_service", return_value=_FakeProbeService()), \
-                 mock.patch("core.system_settings_loader.get_rpc_enabled", return_value=True):
+            with (
+                mock.patch(
+                    "core.cloud_probe_service.get_cloud_probe_service",
+                    return_value=_FakeProbeService(),
+                ),
+                mock.patch("core.system_settings_loader.get_rpc_enabled", return_value=True),
+            ):
                 create = client.post(
                     "/api/tasks/",
                     json={
@@ -1445,8 +1493,12 @@ def test_idempotency_key_can_be_supplied_via_header():
             "max_retries": 0,
             "retry_backoff_seconds": 0,
         }
-        first = client.post("/api/tasks/", json=request, headers={"X-Idempotency-Key": "header-key-1"})
-        second = client.post("/api/tasks/", json=request, headers={"X-Idempotency-Key": "header-key-1"})
+        first = client.post(
+            "/api/tasks/", json=request, headers={"X-Idempotency-Key": "header-key-1"}
+        )
+        second = client.post(
+            "/api/tasks/", json=request, headers={"X-Idempotency-Key": "header-key-1"}
+        )
 
         assert first.status_code == 200
         assert second.status_code == 200
@@ -1487,7 +1539,9 @@ def test_conflicting_body_and_header_idempotency_key_rejected():
             "ai_type": "volc",
             "idempotency_key": "body-key",
         }
-        response = client.post("/api/tasks/", json=request, headers={"X-Idempotency-Key": "header-key"})
+        response = client.post(
+            "/api/tasks/", json=request, headers={"X-Idempotency-Key": "header-key"}
+        )
 
         assert response.status_code == 400
         assert "idempotency key mismatch" in response.json().get("detail", "")
@@ -1534,7 +1588,7 @@ def test_task_metrics_aggregates_status_and_event_counts(tmp_path: Path):
                     "script": {"task": "anonymous", "steps": []},
                     "devices": [1],
                     "ai_type": "volc",
-                    "run_at": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(),
+                    "run_at": (datetime.now(UTC) + timedelta(hours=1)).isoformat(),
                     "max_retries": 0,
                     "retry_backoff_seconds": 0,
                 },
@@ -1585,8 +1639,8 @@ def test_task_metrics_aggregates_status_and_event_counts(tmp_path: Path):
             assert prometheus_metrics.status_code == 200
             body = prometheus_metrics.text
             assert "# TYPE new_task_status_count gauge" in body
-            assert "new_task_status_count{status=\"completed\"}" in body
-            assert "new_task_terminal_outcome_total{outcome=\"failed\"}" in body
+            assert 'new_task_status_count{status="completed"}' in body
+            assert 'new_task_terminal_outcome_total{outcome="failed"}' in body
             assert "new_task_failure_rate " in body
             assert "new_task_alert_triggered 1" in body
     finally:

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict
+from typing import Any
 
 from engine.models.runtime import ActionResult, ExecutionContext
 
@@ -119,12 +119,6 @@ class MytSelector:
     def addQuery_BoundsInside(self, left: int, top: int, right: int, bottom: int) -> bool:
         return bool(self._call("addQuery_BoundsInside", left, top, right, bottom))
 
-    def execQueryOne(self) -> Any:
-        return self._call("execQueryOne")
-
-    def execQueryAll(self) -> Any:
-        return self._call("execQueryAll")
-
     def addQuery_Enable(self, enabled: bool) -> bool:
         return self._call("addQuery_Enable", int(enabled))
 
@@ -158,17 +152,25 @@ class MytSelector:
     def execQueryOne(self) -> ActionResult:
         method = getattr(self.rpc, "execQueryOne", None)
         if method is None:
-            return ActionResult(ok=False, code="not_supported", message="execQueryOne not available")
+            return ActionResult(
+                ok=False, code="not_supported", message="execQueryOne not available"
+            )
         try:
             node = method(self.selector)
         except TypeError:
             node = method()
-        return ActionResult(ok=node is not None, code="ok" if node is not None else "query_empty", data={"node": node})
+        return ActionResult(
+            ok=node is not None,
+            code="ok" if node is not None else "query_empty",
+            data={"node": node},
+        )
 
     def execQueryAll(self) -> ActionResult:
         method = getattr(self.rpc, "execQueryAll", None)
         if method is None:
-            return ActionResult(ok=False, code="not_supported", message="execQueryAll not available")
+            return ActionResult(
+                ok=False, code="not_supported", message="execQueryAll not available"
+            )
         try:
             nodes = method(self.selector)
         except TypeError:
@@ -235,7 +237,7 @@ class RpcNode:
             return str(value or "")
         return str(self._method("get_node_desc", self._method("desc", "")))
 
-    def get_node_bound(self) -> Dict[str, int]:
+    def get_node_bound(self) -> dict[str, int]:
         if self._is_handle() and self.rpc is not None:
             bound = self.rpc.get_node_bound(int(self.node))
             if isinstance(bound, dict):
@@ -245,12 +247,17 @@ class RpcNode:
                     "right": int(bound.get("right", 0)),
                     "bottom": int(bound.get("bottom", 0)),
                 }
-        bound = self._method("get_node_bound", self._method("bound", {"left": 0, "top": 0, "right": 0, "bottom": 0}))
+        bound = self._method(
+            "get_node_bound", self._method("bound", {"left": 0, "top": 0, "right": 0, "bottom": 0})
+        )
         return dict(bound)
 
-    def get_node_bound_center(self) -> Dict[str, int]:
+    def get_node_bound_center(self) -> dict[str, int]:
         bound = self.get_node_bound()
-        return {"x": int((bound.get("left", 0) + bound.get("right", 0)) / 2), "y": int((bound.get("top", 0) + bound.get("bottom", 0)) / 2)}
+        return {
+            "x": int((bound.get("left", 0) + bound.get("right", 0)) / 2),
+            "y": int((bound.get("top", 0) + bound.get("bottom", 0)) / 2),
+        }
 
     def get_node_parent(self) -> Any:
         if self._is_handle() and self.rpc is not None:
@@ -334,7 +341,7 @@ def _resolve_handle_value(raw: Any) -> int | None:
     return value if value > 0 else None
 
 
-def _resolve_nodes_handle(params: Dict[str, Any], context: ExecutionContext) -> int | None:
+def _resolve_nodes_handle(params: dict[str, Any], context: ExecutionContext) -> int | None:
     direct = _resolve_handle_value(params.get("nodes_handle"))
     if direct is not None:
         return direct
@@ -344,7 +351,7 @@ def _resolve_nodes_handle(params: Dict[str, Any], context: ExecutionContext) -> 
     return _resolve_handle_value(context.vars.get(var_name))
 
 
-def _resolve_node_handle(params: Dict[str, Any], context: ExecutionContext) -> int | None:
+def _resolve_node_handle(params: dict[str, Any], context: ExecutionContext) -> int | None:
     direct = _resolve_handle_value(params.get("node_handle"))
     if direct is not None:
         return direct
@@ -407,7 +414,7 @@ def _release_tracked_node_handles(context: ExecutionContext, selector: MytSelect
     return released_any
 
 
-def _serialize_node(node: Any, rpc: Any = None) -> Dict[str, Any]:
+def _serialize_node(node: Any, rpc: Any = None) -> dict[str, Any]:
     wrapped = RpcNode(node, rpc=rpc)
     return {
         "text": wrapped.get_node_text(),
@@ -420,7 +427,7 @@ def _serialize_node(node: Any, rpc: Any = None) -> Dict[str, Any]:
 
 
 def create_selector(
-    params: Dict[str, Any],
+    params: dict[str, Any],
     context: ExecutionContext,
     *,
     get_rpc: Any,
@@ -449,17 +456,24 @@ def create_selector(
     try:
         method = getattr(rpc, "create_selector", None)
         if method is None:
-            return ActionResult(ok=False, code="not_supported", message="create_selector not available")
+            return ActionResult(
+                ok=False, code="not_supported", message="create_selector not available"
+            )
         selector_handle = method()
         selector = selector_cls(rpc=rpc, selector=selector_handle)
         context.vars["selector"] = selector
-        return ActionResult(ok=selector.selector is not None, code="ok" if selector.selector is not None else "selector_failed")
+        return ActionResult(
+            ok=selector.selector is not None,
+            code="ok" if selector.selector is not None else "selector_failed",
+        )
     except Exception as exc:
         close_rpc(rpc)
         return ActionResult(ok=False, code="selector_failed", message=str(exc))
 
 
-def _apply_selector_query(selector: MytSelector, params: Dict[str, Any]) -> tuple[bool, str | None, str | None]:
+def _apply_selector_query(
+    selector: MytSelector, params: dict[str, Any]
+) -> tuple[bool, str | None, str | None]:
     query_type = str(params.get("type") or "").strip().lower()
     mode = str(params.get("mode") or "equal").strip().lower()
     value = str(params.get("value") or "")
@@ -574,14 +588,14 @@ def _apply_selector_query(selector: MytSelector, params: Dict[str, Any]) -> tupl
 
 
 def selector_add_query(
-    params: Dict[str, Any],
+    params: dict[str, Any],
     context: ExecutionContext,
     selector_cls: type[MytSelector] | None = None,
 ) -> ActionResult:
     # Resolve selector_cls at runtime
     if selector_cls is None:
         selector_cls = MytSelector
-        
+
     selector = _selector_from_context(context)
     if selector is None:
         return ActionResult(ok=False, code="selector_missing", message="selector not initialized")
@@ -596,13 +610,13 @@ def selector_add_query(
 
 
 def selector_exec_one(
-    params: Dict[str, Any],
+    params: dict[str, Any],
     context: ExecutionContext,
     selector_cls: type[MytSelector] | None = None,
 ) -> ActionResult:
     if selector_cls is None:
         selector_cls = MytSelector
-        
+
     _ = params
     selector = _selector_from_context(context)
     if selector is None:
@@ -615,7 +629,7 @@ def selector_exec_one(
 
 
 def selector_click_one(
-    params: Dict[str, Any],
+    params: dict[str, Any],
     context: ExecutionContext,
     *,
     get_rpc: Any,
@@ -640,7 +654,9 @@ def selector_click_one(
         result = selector.execQueryOne()
         node = result.data.get("node") if isinstance(result.data, dict) else None
         if node is None:
-            return ActionResult(ok=False, code="not_found", message="selector query returned no node")
+            return ActionResult(
+                ok=False, code="not_found", message="selector query returned no node"
+            )
 
         clicked = RpcNode(node, rpc=rpc).click_events()
         if not clicked:
@@ -655,7 +671,7 @@ def selector_click_one(
         close_rpc(rpc)
 
 
-def selector_exec_all(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
+def selector_exec_all(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
     _ = params
     selector = _selector_from_context(context)
     if selector is None:
@@ -669,13 +685,13 @@ def selector_exec_all(params: Dict[str, Any], context: ExecutionContext) -> Acti
 
 
 def selector_find_nodes(
-    params: Dict[str, Any],
+    params: dict[str, Any],
     context: ExecutionContext,
     selector_cls: type[MytSelector] | None = None,
 ) -> ActionResult:
     if selector_cls is None:
         selector_cls = MytSelector
-        
+
     selector = _selector_from_context(context)
     if selector is None:
         return ActionResult(ok=False, code="selector_missing", message="selector not initialized")
@@ -683,50 +699,64 @@ def selector_find_nodes(
     timeout_ms = _to_int(params.get("timeout_ms", 2000), 2000)
     handle = selector.rpc.find_nodes(selector.selector, max_count, timeout_ms)
     if handle is None:
-        return ActionResult(ok=False, code="find_nodes_failed", message="find_nodes returned no handle")
+        return ActionResult(
+            ok=False, code="find_nodes_failed", message="find_nodes returned no handle"
+        )
 
     save_as = str(params.get("save_as") or "nodes_handle").strip()
     if save_as:
         context.vars[save_as] = int(handle)
         _track_nodes_var(context, save_as)
     count = int(selector.rpc.get_nodes_size(int(handle)))
-    return ActionResult(ok=True, code="ok", data={"nodes_handle": int(handle), "count": count, "saved_as": save_as or None})
+    return ActionResult(
+        ok=True,
+        code="ok",
+        data={"nodes_handle": int(handle), "count": count, "saved_as": save_as or None},
+    )
 
 
-def selector_free_nodes(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
+def selector_free_nodes(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
     selector = _selector_from_context(context)
     if selector is None:
         return ActionResult(ok=False, code="selector_missing", message="selector not initialized")
     handle = _resolve_nodes_handle(params, context)
     if handle is None:
-        return ActionResult(ok=False, code="invalid_params", message="nodes_handle or nodes_var is required")
+        return ActionResult(
+            ok=False, code="invalid_params", message="nodes_handle or nodes_var is required"
+        )
     ok = selector.rpc.free_nodes(handle)
     nodes_var = str(params.get("nodes_var") or "nodes_handle").strip()
     if ok:
         _untrack_nodes_var(context, nodes_var)
         if nodes_var and _resolve_handle_value(context.vars.get(nodes_var)) == handle:
             context.vars.pop(nodes_var, None)
-    return ActionResult(ok=ok, code="ok" if ok else "free_nodes_failed", data={"nodes_handle": handle})
+    return ActionResult(
+        ok=ok, code="ok" if ok else "free_nodes_failed", data={"nodes_handle": handle}
+    )
 
 
-def selector_get_nodes_size(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
+def selector_get_nodes_size(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
     selector = _selector_from_context(context)
     if selector is None:
         return ActionResult(ok=False, code="selector_missing", message="selector not initialized")
     handle = _resolve_nodes_handle(params, context)
     if handle is None:
-        return ActionResult(ok=False, code="invalid_params", message="nodes_handle or nodes_var is required")
+        return ActionResult(
+            ok=False, code="invalid_params", message="nodes_handle or nodes_var is required"
+        )
     count = int(selector.rpc.get_nodes_size(handle))
     return ActionResult(ok=True, code="ok", data={"nodes_handle": handle, "count": count})
 
 
-def selector_get_node_by_index(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
+def selector_get_node_by_index(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
     selector = _selector_from_context(context)
     if selector is None:
         return ActionResult(ok=False, code="selector_missing", message="selector not initialized")
     handle = _resolve_nodes_handle(params, context)
     if handle is None:
-        return ActionResult(ok=False, code="invalid_params", message="nodes_handle or nodes_var is required")
+        return ActionResult(
+            ok=False, code="invalid_params", message="nodes_handle or nodes_var is required"
+        )
     index = _to_int(params.get("index"), -1)
     if index < 0:
         return ActionResult(ok=False, code="invalid_params", message="index must be >= 0")
@@ -752,13 +782,15 @@ def selector_get_node_by_index(params: Dict[str, Any], context: ExecutionContext
     )
 
 
-def node_get_parent(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
+def node_get_parent(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
     selector = _selector_from_context(context)
     if selector is None:
         return ActionResult(ok=False, code="selector_missing", message="selector not initialized")
     node_handle = _resolve_node_handle(params, context)
     if node_handle is None:
-        return ActionResult(ok=False, code="invalid_params", message="node_handle or node_var is required")
+        return ActionResult(
+            ok=False, code="invalid_params", message="node_handle or node_var is required"
+        )
     parent = selector.rpc.get_node_parent(node_handle)
     parent_handle = _resolve_handle_value(parent)
     if parent_handle is None:
@@ -766,27 +798,40 @@ def node_get_parent(params: Dict[str, Any], context: ExecutionContext) -> Action
     save_as = str(params.get("save_as") or "node_parent_handle").strip()
     if save_as:
         context.vars[save_as] = parent_handle
-    return ActionResult(ok=True, code="ok", data={"node_handle": node_handle, "parent_handle": parent_handle, "saved_as": save_as or None, "node": _serialize_node(parent_handle, selector.rpc)})
+    return ActionResult(
+        ok=True,
+        code="ok",
+        data={
+            "node_handle": node_handle,
+            "parent_handle": parent_handle,
+            "saved_as": save_as or None,
+            "node": _serialize_node(parent_handle, selector.rpc),
+        },
+    )
 
 
-def node_get_child_count(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
+def node_get_child_count(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
     selector = _selector_from_context(context)
     if selector is None:
         return ActionResult(ok=False, code="selector_missing", message="selector not initialized")
     node_handle = _resolve_node_handle(params, context)
     if node_handle is None:
-        return ActionResult(ok=False, code="invalid_params", message="node_handle or node_var is required")
+        return ActionResult(
+            ok=False, code="invalid_params", message="node_handle or node_var is required"
+        )
     count = int(selector.rpc.get_node_child_count(node_handle))
     return ActionResult(ok=True, code="ok", data={"node_handle": node_handle, "count": count})
 
 
-def node_get_child(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
+def node_get_child(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
     selector = _selector_from_context(context)
     if selector is None:
         return ActionResult(ok=False, code="selector_missing", message="selector not initialized")
     node_handle = _resolve_node_handle(params, context)
     if node_handle is None:
-        return ActionResult(ok=False, code="invalid_params", message="node_handle or node_var is required")
+        return ActionResult(
+            ok=False, code="invalid_params", message="node_handle or node_var is required"
+        )
     index = _to_int(params.get("index"), -1)
     if index < 0:
         return ActionResult(ok=False, code="invalid_params", message="index must be >= 0")
@@ -797,72 +842,98 @@ def node_get_child(params: Dict[str, Any], context: ExecutionContext) -> ActionR
     save_as = str(params.get("save_as") or "node_child_handle").strip()
     if save_as:
         context.vars[save_as] = child_handle
-    return ActionResult(ok=True, code="ok", data={"node_handle": node_handle, "index": index, "child_handle": child_handle, "saved_as": save_as or None, "node": _serialize_node(child_handle, selector.rpc)})
+    return ActionResult(
+        ok=True,
+        code="ok",
+        data={
+            "node_handle": node_handle,
+            "index": index,
+            "child_handle": child_handle,
+            "saved_as": save_as or None,
+            "node": _serialize_node(child_handle, selector.rpc),
+        },
+    )
 
 
-def _node_value_action(params: Dict[str, Any], context: ExecutionContext, *, method_name: str, key: str) -> ActionResult:
+def _node_value_action(
+    params: dict[str, Any], context: ExecutionContext, *, method_name: str, key: str
+) -> ActionResult:
     selector = _selector_from_context(context)
     if selector is None:
         return ActionResult(ok=False, code="selector_missing", message="selector not initialized")
     node_handle = _resolve_node_handle(params, context)
     if node_handle is None:
-        return ActionResult(ok=False, code="invalid_params", message="node_handle or node_var is required")
+        return ActionResult(
+            ok=False, code="invalid_params", message="node_handle or node_var is required"
+        )
     value = getattr(selector.rpc, method_name)(node_handle)
-    return ActionResult(ok=value is not None, code="ok" if value is not None else "node_query_failed", data={"node_handle": node_handle, key: value or ({} if key in {"bound", "center"} else "")})
+    return ActionResult(
+        ok=value is not None,
+        code="ok" if value is not None else "node_query_failed",
+        data={"node_handle": node_handle, key: value or ({} if key in {"bound", "center"} else "")},
+    )
 
 
-def node_get_json(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
+def node_get_json(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
     return _node_value_action(params, context, method_name="get_node_json", key="json")
 
 
-def node_get_text(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
+def node_get_text(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
     return _node_value_action(params, context, method_name="get_node_text", key="text")
 
 
-def node_get_desc(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
+def node_get_desc(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
     return _node_value_action(params, context, method_name="get_node_desc", key="desc")
 
 
-def node_get_package(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
+def node_get_package(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
     return _node_value_action(params, context, method_name="get_node_package", key="package")
 
 
-def node_get_class(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
+def node_get_class(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
     return _node_value_action(params, context, method_name="get_node_class", key="class_name")
 
 
-def node_get_id(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
+def node_get_id(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
     return _node_value_action(params, context, method_name="get_node_id", key="id")
 
 
-def node_get_bound(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
+def node_get_bound(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
     return _node_value_action(params, context, method_name="get_node_bound", key="bound")
 
 
-def node_get_bound_center(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
+def node_get_bound_center(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
     return _node_value_action(params, context, method_name="get_node_bound_center", key="center")
 
 
-def node_click(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
+def node_click(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
     selector = _selector_from_context(context)
     if selector is None:
         return ActionResult(ok=False, code="selector_missing", message="selector not initialized")
     node_handle = _resolve_node_handle(params, context)
     if node_handle is None:
-        return ActionResult(ok=False, code="invalid_params", message="node_handle or node_var is required")
+        return ActionResult(
+            ok=False, code="invalid_params", message="node_handle or node_var is required"
+        )
     ok = bool(selector.rpc.click_node(node_handle))
-    return ActionResult(ok=ok, code="ok" if ok else "click_failed", data={"node_handle": node_handle})
+    return ActionResult(
+        ok=ok, code="ok" if ok else "click_failed", data={"node_handle": node_handle}
+    )
 
 
-def node_long_click(params: Dict[str, Any], context: ExecutionContext) -> ActionResult:
+def node_long_click(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
     selector = _selector_from_context(context)
     if selector is None:
         return ActionResult(ok=False, code="selector_missing", message="selector not initialized")
     node_handle = _resolve_node_handle(params, context)
     if node_handle is None:
-        return ActionResult(ok=False, code="invalid_params", message="node_handle or node_var is required")
+        return ActionResult(
+            ok=False, code="invalid_params", message="node_handle or node_var is required"
+        )
     ok = bool(selector.rpc.long_click_node(node_handle))
-    return ActionResult(ok=ok, code="ok" if ok else "long_click_failed", data={"node_handle": node_handle})
+    return ActionResult(
+        ok=ok, code="ok" if ok else "long_click_failed", data={"node_handle": node_handle}
+    )
 
 
 def release_selector_context(context: ExecutionContext, *, close_rpc: Any) -> bool:
@@ -877,10 +948,12 @@ def release_selector_context(context: ExecutionContext, *, close_rpc: Any) -> bo
     except Exception:
         return released_nodes
     close_rpc(selector.rpc)
-    return True or released_nodes
+    return True
 
 
-def selector_free(params: Dict[str, Any], context: ExecutionContext, *, close_rpc: Any) -> ActionResult:
+def selector_free(
+    params: dict[str, Any], context: ExecutionContext, *, close_rpc: Any
+) -> ActionResult:
     _ = params
     selector = _selector_from_context(context)
     if selector is None:
@@ -891,7 +964,9 @@ def selector_free(params: Dict[str, Any], context: ExecutionContext, *, close_rp
     return ActionResult(ok=ok, code="ok" if ok else "selector_free_failed")
 
 
-def selector_clear(params: Dict[str, Any], context: ExecutionContext, *, close_rpc: Any) -> ActionResult:
+def selector_clear(
+    params: dict[str, Any], context: ExecutionContext, *, close_rpc: Any
+) -> ActionResult:
     _ = params
     selector = _selector_from_context(context)
     if selector is None:

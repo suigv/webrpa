@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
 import re
 import xml.etree.ElementTree as ET
+from collections.abc import Iterable
 from typing import Any
 
 from engine.models.runtime import ActionResult, ExecutionContext
@@ -143,7 +143,10 @@ def node_has_media(node: ET.Element) -> bool:
         desc = str(child.attrib.get("content-desc") or "").lower()
         if "ImageView" in class_name or "media" in resource_id.lower():
             return True
-        if any(token in desc for token in ("image", "photo", "video", "gif", "照片", "图片", "画像", "動画")):
+        if any(
+            token in desc
+            for token in ("image", "photo", "video", "gif", "照片", "图片", "画像", "動画")
+        ):
             return True
     return False
 
@@ -197,9 +200,7 @@ def extract_candidates_from_xml(
     except Exception:
         return []
 
-    fallback_resource_id_set = {
-        item for item in _coerce_text_list(fallback_resource_ids) if item
-    }
+    fallback_resource_id_set = {item for item in _coerce_text_list(fallback_resource_ids) if item}
     fallback_desc_marker_set = [
         item.lower() for item in _coerce_text_list(fallback_desc_markers) if item
     ]
@@ -212,9 +213,7 @@ def extract_candidates_from_xml(
             return False
         if top < min_top or bottom > max_bottom:
             return False
-        if len(str(candidate.get("text") or candidate.get("desc") or "").strip()) < 4:
-            return False
-        return True
+        return len(str(candidate.get("text") or candidate.get("desc") or "").strip()) >= 4
 
     candidates: list[dict[str, Any]] = []
     seen: set[tuple[str, int, int]] = set()
@@ -224,13 +223,21 @@ def extract_candidates_from_xml(
         class_name = str(node.attrib.get("class") or "")
         content_desc = str(node.attrib.get("content-desc") or "")
 
-        fallback_resource_match = bool(fallback_resource_id_set) and resource_id in fallback_resource_id_set
+        fallback_resource_match = (
+            bool(fallback_resource_id_set) and resource_id in fallback_resource_id_set
+        )
         fallback_desc_match = False
         if fallback_desc_marker_set and "RecyclerView" in class_name:
             content_lower = content_desc.lower()
-            fallback_desc_match = any(marker in content_lower for marker in fallback_desc_marker_set)
+            fallback_desc_match = any(
+                marker in content_lower for marker in fallback_desc_marker_set
+            )
 
-        is_match = (row_id_contains and row_id_contains in resource_id) or fallback_resource_match or fallback_desc_match
+        is_match = (
+            (row_id_contains and row_id_contains in resource_id)
+            or fallback_resource_match
+            or fallback_desc_match
+        )
 
         if not is_match:
             continue
@@ -239,7 +246,11 @@ def extract_candidates_from_xml(
         if candidate is None or not accept(candidate):
             continue
         bound = candidate["bound"]
-        key = (str(candidate.get("text") or candidate.get("desc") or ""), int(bound.get("top", 0)), int(bound.get("bottom", 0)))
+        key = (
+            str(candidate.get("text") or candidate.get("desc") or ""),
+            int(bound.get("top", 0)),
+            int(bound.get("bottom", 0)),
+        )
         if key in seen:
             continue
         seen.add(key)
@@ -255,7 +266,11 @@ def extract_candidates_from_xml(
         if candidate is None or not accept(candidate):
             continue
         bound = candidate["bound"]
-        key = (str(candidate.get("text") or candidate.get("desc") or ""), int(bound.get("top", 0)), int(bound.get("bottom", 0)))
+        key = (
+            str(candidate.get("text") or candidate.get("desc") or ""),
+            int(bound.get("top", 0)),
+            int(bound.get("bottom", 0)),
+        )
         if key in seen:
             continue
         seen.add(key)
@@ -269,17 +284,17 @@ def dump_xml_for_candidates(rpc: Any, timeout_ms: int = 2500) -> str:
     """获取 XML，增加完整性校验。如果 Ex 模式被截断，则尝试通过标准模式补救。"""
     # 1. 优先尝试带超时参数的 Ex 版本，防止挂起
     xml_text = rpc.dump_node_xml_ex(False, timeout_ms)
-    
+
     # 2. 完整性检查：如果 XML 不为空但未闭合（不包含 </hierarchy>），说明被截断了
     if xml_text and "</hierarchy>" not in xml_text:
         # 尝试使用标准模式补齐（虽然没有超时保护，但在 Ex 已预热的情况下通常能很快返回）
         full_xml = rpc.dump_node_xml(False)
         if full_xml and "</hierarchy>" in full_xml:
             return full_xml
-            
+
     if xml_text:
         return xml_text
-        
+
     fallback = rpc.dump_node_xml(False)
     return str(fallback or "")
 
@@ -465,7 +480,9 @@ def extract_unread_dm_targets_from_xml(
         if key in seen:
             continue
         seen.add(key)
-        targets.append({"text": text, "desc": desc, "bound": bound, "center": {"x": center_x, "y": center_y}})
+        targets.append(
+            {"text": text, "desc": desc, "bound": bound, "center": {"x": center_x, "y": center_y}}
+        )
 
     targets.sort(key=lambda item: int(item["bound"].get("top", 0)))
     return targets
@@ -486,7 +503,9 @@ def extract_candidates_action(
         xml_text = dump_xml_for_candidates(rpc, int(params.get("timeout_ms", 2500)))
         candidates = extract_candidates_from_xml(
             xml_text=xml_text,
-            package=str(params.get("package") or context.get_session_default("package") or "").strip(),
+            package=str(
+                params.get("package") or context.get_session_default("package") or ""
+            ).strip(),
             row_id_contains=str(params.get("row_id_contains") or row_id_contains).strip(),
             min_top=int(params.get("min_top", 220) or 220),
             max_bottom=int(params.get("max_bottom", 2200) or 2200),
@@ -495,8 +514,15 @@ def extract_candidates_action(
             fallback_desc_markers=params.get("fallback_desc_markers"),
         )
         if not candidates:
-            return ActionResult(ok=False, code="no_candidates", message="no candidates extracted", data={"candidates": [], "count": 0})
-        return ActionResult(ok=True, code="ok", data={"candidates": candidates, "count": len(candidates)})
+            return ActionResult(
+                ok=False,
+                code="no_candidates",
+                message="no candidates extracted",
+                data={"candidates": [], "count": 0},
+            )
+        return ActionResult(
+            ok=True, code="ok", data={"candidates": candidates, "count": len(candidates)}
+        )
     finally:
         close_rpc(rpc)
 
@@ -543,11 +569,11 @@ def collect_blogger_candidates(
                 if not (_sw and _sh_top and _sw2 and _sh_bot):
                     _m = re.search(r'bounds="\[0,0\]\[(\d+),(\d+)\]"', xml_text)
                     if _m:
-                        _W, _H = int(_m.group(1)), int(_m.group(2))
-                        swipe_x0 = _sw or _W // 2
-                        swipe_y0 = _sh_top or int(_H * 0.85)
-                        swipe_x1 = _sw2 or _W // 2
-                        swipe_y1 = _sh_bot or int(_H * 0.30)
+                        _w, _h = int(_m.group(1)), int(_m.group(2))
+                        swipe_x0 = _sw or _w // 2
+                        swipe_y0 = _sh_top or int(_h * 0.85)
+                        swipe_x1 = _sw2 or _w // 2
+                        swipe_y1 = _sh_bot or int(_h * 0.30)
                     else:
                         swipe_x0 = _sw or 540
                         swipe_y0 = _sh_top or 1750
@@ -579,7 +605,14 @@ def collect_blogger_candidates(
                 if len(collected) >= max_candidates:
                     break
 
-            rounds.append({"round": round_index + 1, "extracted_count": len(extracted), "new_count": new_items, "total_count": len(collected)})
+            rounds.append(
+                {
+                    "round": round_index + 1,
+                    "extracted_count": len(extracted),
+                    "new_count": new_items,
+                    "total_count": len(collected),
+                }
+            )
 
             if len(collected) >= max_candidates:
                 break
@@ -598,8 +631,22 @@ def collect_blogger_candidates(
                 time_module.sleep(settle_ms / 1000.0)
 
         if not collected:
-            return ActionResult(ok=False, code="no_candidates", message="no blogger candidates collected", data={"candidates": [], "count": 0, "rounds": rounds, "swipe_count": swipe_count})
-        return ActionResult(ok=True, code="ok", data={"candidates": collected, "count": len(collected), "rounds": rounds, "swipe_count": swipe_count})
+            return ActionResult(
+                ok=False,
+                code="no_candidates",
+                message="no blogger candidates collected",
+                data={"candidates": [], "count": 0, "rounds": rounds, "swipe_count": swipe_count},
+            )
+        return ActionResult(
+            ok=True,
+            code="ok",
+            data={
+                "candidates": collected,
+                "count": len(collected),
+                "rounds": rounds,
+                "swipe_count": swipe_count,
+            },
+        )
     finally:
         close_rpc(rpc)
 
@@ -619,18 +666,23 @@ def preprocess_xml(xml: str, max_text_len: int = 0, max_desc_len: int = 0) -> st
     app_pkg = pkg_m.group(1) if pkg_m else ""
 
     lines: list[str] = []
-    for m in re.finditer(r'<node((?:[^>]|/>)*?)(?:/>|>)', xml):
+    for m in re.finditer(r"<node((?:[^>]|/>)*?)(?:/>|>)", xml):
         attrs_str = m.group(1)
 
-        def get(attr: str) -> str:
-            vm = re.search(rf'{attr}="([^"]*)"', attrs_str)
+        def get(attr: str, attrs: str = attrs_str) -> str:
+            vm = re.search(rf'{attr}="([^"]*)"', attrs)
             return vm.group(1).strip() if vm else ""
 
         if app_pkg and get("package") and get("package") != app_pkg:
             continue
         if get("bounds") == "[0,0][0,0]":
             continue
-        if get("enabled") == "false" and not get("text") and not get("resource-id") and not get("content-desc"):
+        if (
+            get("enabled") == "false"
+            and not get("text")
+            and not get("resource-id")
+            and not get("content-desc")
+        ):
             continue
 
         text = get("text")
@@ -650,12 +702,12 @@ def preprocess_xml(xml: str, max_text_len: int = 0, max_desc_len: int = 0) -> st
 
         parts: list[str] = [cls] if cls else []
         if text:
-            parts.append(f'text={text}')
+            parts.append(f"text={text}")
         if rid:
             rid_short = rid.split(":id/")[-1] if ":id/" in rid else rid
-            parts.append(f'id={rid_short}')
+            parts.append(f"id={rid_short}")
         if desc and desc != text:
-            parts.append(f'desc={desc}')
+            parts.append(f"desc={desc}")
         if clickable:
             parts.append("clickable")
 

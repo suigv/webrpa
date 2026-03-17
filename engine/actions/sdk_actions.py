@@ -1,17 +1,16 @@
 from __future__ import annotations
 
+import threading
+import time
 from collections.abc import Callable
 from importlib import import_module
 from pathlib import Path
-import threading
-import time
 from typing import Any
 
-from engine.models.runtime import ActionResult, ExecutionContext
-from hardware_adapters.myt_client import MytSdkClient
 from core.data_store import write_json_atomic
 from engine.action_registry import ActionMetadata
-
+from engine.models.runtime import ActionResult, ExecutionContext
+from hardware_adapters.myt_client import MytSdkClient
 
 SAVE_SHARED_METADATA = ActionMetadata(
     description="Save a value to the persistent shared store",
@@ -19,29 +18,22 @@ SAVE_SHARED_METADATA = ActionMetadata(
         "type": "object",
         "properties": {
             "key": {"type": "string", "description": "Key to store the value under"},
-            "value": {"type": "any", "description": "Value to store"}
+            "value": {"type": "any", "description": "Value to store"},
         },
-        "required": ["key", "value"]
+        "required": ["key", "value"],
     },
-    tags=["skill"]
+    tags=["skill"],
 )
 
 LOAD_SHARED_REQUIRED_METADATA = ActionMetadata(
     description="Load a required value from the shared store. Fails if not found.",
     params_schema={
         "type": "object",
-        "properties": {
-            "key": {"type": "string", "description": "Key to retrieve"}
-        },
-        "required": ["key"]
+        "properties": {"key": {"type": "string", "description": "Key to retrieve"}},
+        "required": ["key"],
     },
-    returns_schema={
-        "type": "object",
-        "properties": {
-            "value": {"type": "any"}
-        }
-    },
-    tags=["skill"]
+    returns_schema={"type": "object", "properties": {"value": {"type": "any"}}},
+    tags=["skill"],
 )
 
 
@@ -68,7 +60,9 @@ def _sdk_business_support_module():
     return import_module("engine.actions.sdk_business_support")
 
 
-def _from_payload_or_params(params: dict[str, Any], context: ExecutionContext, key: str, default: Any = None) -> Any:
+def _from_payload_or_params(
+    params: dict[str, Any], context: ExecutionContext, key: str, default: Any = None
+) -> Any:
     payload = context.payload if isinstance(context.payload, dict) else {}
     if key in params:
         return params[key]
@@ -84,17 +78,27 @@ def _sdk_client(params: dict[str, Any], context: ExecutionContext) -> MytSdkClie
     sdk_port = int(_from_payload_or_params(params, context, "sdk_port", 8000))
     timeout_seconds = float(_from_payload_or_params(params, context, "timeout_seconds", 30.0))
     retries = int(_from_payload_or_params(params, context, "retries", 3))
-    return MytSdkClient(device_ip=str(device_ip), sdk_port=sdk_port, timeout_seconds=timeout_seconds, retries=retries)
+    return MytSdkClient(
+        device_ip=str(device_ip),
+        sdk_port=sdk_port,
+        timeout_seconds=timeout_seconds,
+        retries=retries,
+    )
 
 
-def _invoke(method_name: str, arg_builder: Callable[[dict[str, Any]], tuple[list[Any], dict[str, Any]]] | None = None):
+def _invoke(
+    method_name: str,
+    arg_builder: Callable[[dict[str, Any]], tuple[list[Any], dict[str, Any]]] | None = None,
+):
     def _handler(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
         client = _sdk_client(params, context)
         if client is None:
             return ActionResult(ok=False, code="invalid_params", message="device_ip is required")
         method = getattr(client, method_name, None)
         if method is None:
-            return ActionResult(ok=False, code="not_supported", message=f"method not found: {method_name}")
+            return ActionResult(
+                ok=False, code="not_supported", message=f"method not found: {method_name}"
+            )
         args: list[Any] = []
         kwargs: dict[str, Any] = {}
         if arg_builder is not None:
@@ -102,7 +106,9 @@ def _invoke(method_name: str, arg_builder: Callable[[dict[str, Any]], tuple[list
         try:
             result = method(*args, **kwargs)
         except Exception as exc:
-            return ActionResult(ok=False, code="sdk_call_failed", message=str(exc), data={"method": method_name})
+            return ActionResult(
+                ok=False, code="sdk_call_failed", message=str(exc), data={"method": method_name}
+            )
         if isinstance(result, dict):
             return ActionResult(
                 ok=bool(result.get("ok", False)),
@@ -168,7 +174,11 @@ def _args_path_file(params: dict[str, Any]) -> tuple[list[Any], dict[str, Any]]:
 
 
 def _args_start_android(params: dict[str, Any]) -> tuple[list[Any], dict[str, Any]]:
-    kwargs = {k: v for k, v in params.items() if k not in {"device_ip", "sdk_port", "timeout_seconds", "retries", "name"}}
+    kwargs = {
+        k: v
+        for k, v in params.items()
+        if k not in {"device_ip", "sdk_port", "timeout_seconds", "retries", "name"}
+    }
     return [str(params.get("name", ""))], kwargs
 
 
@@ -181,13 +191,21 @@ def _args_exec_android(params: dict[str, Any]) -> tuple[list[Any], dict[str, Any
 
 
 def _args_switch_image(params: dict[str, Any]) -> tuple[list[Any], dict[str, Any]]:
-    kwargs = {k: v for k, v in params.items() if k not in {"device_ip", "sdk_port", "timeout_seconds", "retries", "name", "image_url"}}
+    kwargs = {
+        k: v
+        for k, v in params.items()
+        if k not in {"device_ip", "sdk_port", "timeout_seconds", "retries", "name", "image_url"}
+    }
     image_url = str(params.get("image_url") or params.get("imageUrl") or "").strip()
     return [str(params.get("name", "")), image_url], kwargs
 
 
 def _args_switch_model(params: dict[str, Any]) -> tuple[list[Any], dict[str, Any]]:
-    kwargs = {k: v for k, v in params.items() if k not in {"device_ip", "sdk_port", "timeout_seconds", "retries", "name", "model_id"}}
+    kwargs = {
+        k: v
+        for k, v in params.items()
+        if k not in {"device_ip", "sdk_port", "timeout_seconds", "retries", "name", "model_id"}
+    }
     return [str(params.get("name", "")), str(params.get("model_id", ""))], kwargs
 
 
@@ -197,7 +215,9 @@ def _args_pull_image(params: dict[str, Any]) -> tuple[list[Any], dict[str, Any]]
 
 
 def _args_change_image_batch(params: dict[str, Any]) -> tuple[list[Any], dict[str, Any]]:
-    container_names = params.get("container_names") or params.get("containerNames") or params.get("names") or []
+    container_names = (
+        params.get("container_names") or params.get("containerNames") or params.get("names") or []
+    )
     if isinstance(container_names, str):
         containers = [name.strip() for name in container_names.split(",") if name.strip()]
     else:
@@ -288,7 +308,11 @@ def _args_set_clipboard(params: dict[str, Any]) -> tuple[list[Any], dict[str, An
 
 
 def _args_receive_sms(params: dict[str, Any]) -> tuple[list[Any], dict[str, Any]]:
-    return [str(params.get("address", "")), str(params.get("mbody", "")), str(params.get("scaddress", ""))], {}
+    return [
+        str(params.get("address", "")),
+        str(params.get("mbody", "")),
+        str(params.get("scaddress", "")),
+    ], {}
 
 
 def _args_download_file(params: dict[str, Any]) -> tuple[list[Any], dict[str, Any]]:
@@ -296,7 +320,11 @@ def _args_download_file(params: dict[str, Any]) -> tuple[list[Any], dict[str, An
 
 
 def _args_upload_file(params: dict[str, Any]) -> tuple[list[Any], dict[str, Any]]:
-    return [str(params.get("local_path", "")), str(params.get("remote_path", "")), str(params.get("file_url", ""))], {}
+    return [
+        str(params.get("local_path", "")),
+        str(params.get("remote_path", "")),
+        str(params.get("file_url", "")),
+    ], {}
 
 
 def _args_export_app_info(params: dict[str, Any]) -> tuple[list[Any], dict[str, Any]]:
@@ -323,7 +351,11 @@ def _args_batch_install_apps(params: dict[str, Any]) -> tuple[list[Any], dict[st
 
 
 def _args_mytos_screenshot(params: dict[str, Any]) -> tuple[list[Any], dict[str, Any]]:
-    return [int(params.get("image_type", 0)), int(params.get("quality", 80)), params.get("save_path")], {}
+    return [
+        int(params.get("image_type", 0)),
+        int(params.get("quality", 80)),
+        params.get("save_path"),
+    ], {}
 
 
 def _args_switch_adb_permission(params: dict[str, Any]) -> tuple[list[Any], dict[str, Any]]:
@@ -400,7 +432,10 @@ def _args_background_keepalive(params: dict[str, Any]) -> tuple[list[Any], dict[
 
 
 def _args_set_key_block(params: dict[str, Any]) -> tuple[list[Any], dict[str, Any]]:
-    return [str(params.get("key_code", "")), bool(params.get("blocked", params.get("enabled", True)))], {}
+    return [
+        str(params.get("key_code", "")),
+        bool(params.get("blocked", params.get("enabled", True))),
+    ], {}
 
 
 def _args_add_contact(params: dict[str, Any]) -> tuple[list[Any], dict[str, Any]]:
@@ -474,7 +509,9 @@ def _args_get_webrtc_url(params: dict[str, Any]) -> tuple[list[Any], dict[str, A
     return [int(params.get("index", 1)), str(params.get("token", ""))], {}
 
 
-ACTION_BUILDERS: dict[str, tuple[str, Callable[[dict[str, Any]], tuple[list[Any], dict[str, Any]]] | None]] = {
+ACTION_BUILDERS: dict[
+    str, tuple[str, Callable[[dict[str, Any]], tuple[list[Any], dict[str, Any]]] | None]
+] = {
     "sdk.get_device_info": ("get_device_info", None),
     "sdk.get_api_version": ("get_api_version", None),
     "sdk.list_androids": ("list_androids", _args_get_call_records),
@@ -553,9 +590,15 @@ ACTION_BUILDERS: dict[str, tuple[str, Callable[[dict[str, Any]], tuple[list[Any]
     "sdk.add_vpc_socks": ("add_vpc_socks", _args_payload),
     "sdk.set_vpc_whitelist_dns": ("set_vpc_whitelist_dns", _args_enabled),
     "sdk.test_vpc_latency": ("test_vpc_latency", _args_get_call_records),
-    "sdk.get_container_domain_filter": ("get_container_domain_filter", _args_container_domain_filter),
+    "sdk.get_container_domain_filter": (
+        "get_container_domain_filter",
+        _args_container_domain_filter,
+    ),
     "sdk.set_container_domain_filter": ("set_container_domain_filter", _args_container_domains),
-    "sdk.clear_container_domain_filter": ("clear_container_domain_filter", _args_container_domain_filter),
+    "sdk.clear_container_domain_filter": (
+        "clear_container_domain_filter",
+        _args_container_domain_filter,
+    ),
     "sdk.get_global_domain_filter": ("get_global_domain_filter", None),
     "sdk.set_global_domain_filter": ("set_global_domain_filter", _args_domains),
     "sdk.clear_global_domain_filter": ("clear_global_domain_filter", None),
@@ -624,7 +667,10 @@ ACTION_BUILDERS: dict[str, tuple[str, Callable[[dict[str, Any]], tuple[list[Any]
     "mytos.install_magisk": ("install_magisk", None),
     "mytos.get_root_allowed_apps": ("get_root_allowed_apps", None),
     "mytos.set_root_allowed_app": ("set_root_allowed_app", _args_set_root_allowed_app),
-    "mytos.set_virtual_camera_source": ("set_virtual_camera_source", _args_set_virtual_camera_source),
+    "mytos.set_virtual_camera_source": (
+        "set_virtual_camera_source",
+        _args_set_virtual_camera_source,
+    ),
     "mytos.get_app_bootstart_list": ("get_app_bootstart_list", None),
     "mytos.set_app_bootstart": ("set_app_bootstart", _args_set_app_bootstart),
     "mytos.set_language_country": ("set_language_country", _args_set_language_country),
@@ -632,26 +678,52 @@ ACTION_BUILDERS: dict[str, tuple[str, Callable[[dict[str, Any]], tuple[list[Any]
 }
 
 
-def get_sdk_action_bindings() -> dict[str, Callable[[dict[str, Any], ExecutionContext], ActionResult]]:
+def get_sdk_action_bindings() -> dict[
+    str, Callable[[dict[str, Any], ExecutionContext], ActionResult]
+]:
     from engine.actions.android_api_actions import (
-        android_query_proxy, android_set_proxy, android_stop_proxy, android_set_proxy_filter,
-        android_get_clipboard, android_set_clipboard,
-        android_upload_google_cert, android_download_file, android_upload_file,
-        android_backup_app, android_restore_app, android_batch_install_apps,
-        android_screenshot, android_autoclick,
-        android_camera_hot_start, android_set_background_keepalive,
-        android_query_background_keepalive, android_add_background_keepalive,
-        android_remove_background_keepalive, android_update_background_keepalive,
-        android_set_key_block, android_add_contact,
-        android_get_container_info, android_get_version, android_receive_sms, android_get_call_records,
-        android_refresh_location, android_ip_geolocation,
-        android_query_adb, android_switch_adb,
-        android_set_google_id, android_get_google_id, android_install_magisk,
-        android_get_root_allowed_apps, android_set_root_allowed_app,
-        android_set_language, android_get_google_adid,
-        android_export_app_info, android_import_app_info,
-        android_set_virtual_camera_source, android_get_app_bootstart_list, android_set_app_bootstart,
+        android_add_background_keepalive,
+        android_add_contact,
+        android_autoclick,
+        android_backup_app,
+        android_batch_install_apps,
+        android_camera_hot_start,
+        android_download_file,
+        android_export_app_info,
+        android_get_app_bootstart_list,
+        android_get_call_records,
+        android_get_clipboard,
+        android_get_container_info,
+        android_get_google_id,
+        android_get_root_allowed_apps,
+        android_get_version,
         android_get_webrtc_player_url,
+        android_import_app_info,
+        android_install_magisk,
+        android_ip_geolocation,
+        android_query_adb,
+        android_query_background_keepalive,
+        android_query_proxy,
+        android_receive_sms,
+        android_refresh_location,
+        android_remove_background_keepalive,
+        android_restore_app,
+        android_screenshot,
+        android_set_app_bootstart,
+        android_set_background_keepalive,
+        android_set_clipboard,
+        android_set_google_id,
+        android_set_key_block,
+        android_set_language,
+        android_set_proxy,
+        android_set_proxy_filter,
+        android_set_root_allowed_app,
+        android_set_virtual_camera_source,
+        android_stop_proxy,
+        android_switch_adb,
+        android_update_background_keepalive,
+        android_upload_file,
+        android_upload_google_cert,
     )
 
     # sdk.* 和部分其他动作走 8000（物理机级 SDK）
@@ -1026,7 +1098,8 @@ def load_ui_selectors(params: dict[str, Any], context: ExecutionContext) -> Acti
 
 
 def load_ui_scheme(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
-    from engine.actions.ui_actions import _get_rpc, _close_rpc
+    from engine.actions.ui_actions import _close_rpc, _get_rpc
+
     rpc, err = _get_rpc(params, context)
     if err is not None:
         # RPC 不可用时仍尝试返回 URL（不执行）

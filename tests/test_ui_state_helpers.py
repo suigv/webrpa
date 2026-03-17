@@ -1,7 +1,13 @@
 from __future__ import annotations
 
 from engine.models.ui_state import UIStateObservationResult, UIStateTiming
-from engine.ui_state_helpers import build_error_result, build_timing, build_transition, copy_result, poll_until_result
+from engine.ui_state_helpers import (
+    build_error_result,
+    build_timing,
+    build_transition,
+    copy_result,
+    poll_until_result,
+)
 
 
 def test_ui_state_helpers_build_error_result_keeps_shared_shape() -> None:
@@ -41,7 +47,9 @@ def test_ui_state_helpers_copy_result_overrides_operation_and_transition() -> No
         result,
         operation="observe_transition",
         timing=timing,
-        transition=build_transition(from_state={"state_id": "account"}, to_state=result.state, changed=True),
+        transition=build_transition(
+            from_state={"state_id": "account"}, to_state=result.state, changed=True
+        ),
     )
 
     assert copied.operation == "observe_transition"

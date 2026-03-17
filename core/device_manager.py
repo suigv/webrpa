@@ -5,7 +5,9 @@ import time
 from collections.abc import Callable
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, Literal, Optional, cast
+from typing import Any, Literal, cast
+
+from models.device import DeviceStatus
 
 from .config_loader import (
     get_allocation_version,
@@ -17,7 +19,6 @@ from .config_loader import (
     get_total_devices,
 )
 from .port_calc import calculate_ports
-from models.device import DeviceStatus
 
 logger = logging.getLogger(__name__)
 
@@ -29,11 +30,11 @@ class Device:
         self.device_id = device_id
         self.ai_type = ai_type
         self.status = DeviceStatus.IDLE
-        self.current_task: Optional[str] = None
-        self.message: Optional[str] = None
+        self.current_task: str | None = None
+        self.message: str | None = None
         self.updated_at = datetime.now()
-        self.physical_width: Optional[int] = None
-        self.physical_height: Optional[int] = None
+        self.physical_width: int | None = None
+        self.physical_height: int | None = None
 
 
 class DeviceManager:
@@ -49,7 +50,7 @@ class DeviceManager:
 
     def __init__(self):
         if not hasattr(self, "_initialized"):
-            self._devices: Dict[int, Device] = {}
+            self._devices: dict[int, Device] = {}
             self._devices_lock = threading.Lock()
             self._probe_lock = threading.Lock()
             self._probe_cache: dict[tuple[int, int], dict[str, object]] = {}
@@ -64,7 +65,7 @@ class DeviceManager:
             self._device_snapshot_cache: dict[str, list[dict[str, Any]]] = {}
             self._device_snapshot_at: dict[str, float] = {}
             self._device_snapshot_ttl_seconds = self._load_snapshot_ttl_seconds()
-            self._resolution_cache: Dict[int, tuple[int, int]] = {}
+            self._resolution_cache: dict[int, tuple[int, int]] = {}
             self._initialized = True
 
     @staticmethod
@@ -105,7 +106,7 @@ class DeviceManager:
         device_id: int,
         cloud_id: int,
         ok: bool,
-        latency_ms: Optional[int],
+        latency_ms: int | None,
         reason: str,
     ) -> None:
         now = time.time()
@@ -135,13 +136,17 @@ class DeviceManager:
             if ok:
                 success_streak += 1
                 failure_streak = 0
-                if state != "available" and (success_streak >= self._probe_success_threshold or state == "unknown"):
+                if state != "available" and (
+                    success_streak >= self._probe_success_threshold or state == "unknown"
+                ):
                     state = "available"
                     state_changed_at = now
             else:
                 failure_streak += 1
                 success_streak = 0
-                if state != "unavailable" and (failure_streak >= self._probe_failure_threshold or state == "unknown"):
+                if state != "unavailable" and (
+                    failure_streak >= self._probe_failure_threshold or state == "unknown"
+                ):
                     state = "unavailable"
                     state_changed_at = now
 
@@ -176,7 +181,7 @@ class DeviceManager:
         device_id: int,
         cloud_id: int,
         ok: bool,
-        latency_ms: Optional[int],
+        latency_ms: int | None,
         reason: str,
     ) -> None:
         self._update_probe_cache(device_id, cloud_id, ok, latency_ms, reason)
@@ -270,7 +275,7 @@ class DeviceManager:
         endpoints = self._resolve_device_endpoints()
         with self._devices_lock:
             existing = self._devices
-            next_devices: Dict[int, Device] = {}
+            next_devices: dict[int, Device] = {}
             for device_id, _ip in endpoints:
                 next_devices[device_id] = existing.get(device_id, Device(device_id))
             self._devices = next_devices
@@ -284,12 +289,14 @@ class DeviceManager:
             device.ai_type = ai_type
             return device
 
-    def get_all_devices(self) -> Dict[int, Device]:
+    def get_all_devices(self) -> dict[int, Device]:
         self._sync_devices_with_config()
         with self._devices_lock:
             return dict(self._devices)
 
-    def _build_devices_snapshot(self, availability: Literal["all", "available_only"]) -> list[dict[str, Any]]:
+    def _build_devices_snapshot(
+        self, availability: Literal["all", "available_only"]
+    ) -> list[dict[str, Any]]:
         result: list[dict[str, Any]] = []
         for device_id in sorted(self.get_all_devices().keys()):
             try:
@@ -309,7 +316,9 @@ class DeviceManager:
             self._device_snapshot_at["all"] = now
             self._device_snapshot_at["available_only"] = now
 
-    def get_devices_snapshot(self, availability: Literal["all", "available_only"] = "all") -> list[dict[str, Any]]:
+    def get_devices_snapshot(
+        self, availability: Literal["all", "available_only"] = "all"
+    ) -> list[dict[str, Any]]:
         ttl = self._device_snapshot_ttl_seconds
         with self._device_snapshot_lock:
             cached = list(self._device_snapshot_cache.get(availability, []))
@@ -341,7 +350,9 @@ class DeviceManager:
                     return (device.physical_width, device.physical_height)
             return None
 
-    def get_device_info(self, device_id: int, availability: Literal["all", "available_only"] = "all") -> dict[str, Any]:
+    def get_device_info(
+        self, device_id: int, availability: Literal["all", "available_only"] = "all"
+    ) -> dict[str, Any]:
         from .cloud_probe_service import get_cloud_probe_service
 
         device = self.get_device(device_id)
@@ -429,8 +440,8 @@ class DeviceManager:
         self,
         device_id: int,
         status: DeviceStatus,
-        task: Optional[str] = None,
-        message: Optional[str] = None,
+        task: str | None = None,
+        message: str | None = None,
     ) -> None:
         with self._devices_lock:
             device = self._devices.get(device_id)
@@ -476,8 +487,7 @@ def parse_device_range(device_str: str) -> list[int]:
     return sorted(devices)
 
 
-
-def check_stop_condition(stop_hour: Optional[int] = None) -> bool:
+def check_stop_condition(stop_hour: int | None = None) -> bool:
     hour = get_stop_hour() if stop_hour is None else stop_hour
     if hour is None:
         return False

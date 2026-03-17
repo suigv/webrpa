@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import Any, Dict, List, Optional
+from enum import StrEnum
+from typing import Any
 
 
-class StepDecision(str, Enum):
+class StepDecision(StrEnum):
     SUCCESS = "success"
     FAIL = "fail"
     RETRY = "retry"
@@ -20,7 +20,7 @@ class StepJudgeResult:
     reason: str
     duration_ms: int
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "step": self.step,
             "decision": self.decision.value,
@@ -39,11 +39,11 @@ class TaskJudgeSummary:
     step_count: int
     success_steps: int
     retry_steps: int
-    failed_step: Optional[str]
+    failed_step: str | None
     total_duration_ms: int
-    steps: List[StepJudgeResult] = field(default_factory=list)
+    steps: list[StepJudgeResult] = field(default_factory=list)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "task_type": self.task_type,
             "device_index": self.device_index,

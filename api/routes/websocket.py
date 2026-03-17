@@ -1,8 +1,9 @@
+import asyncio
 import json
 import logging
-import asyncio
 import threading
-from typing import Dict, Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
@@ -12,6 +13,7 @@ from core.task_events import TaskEventStore
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
 
 # --- 任务事件桥接逻辑 ---
 def get_event_broadcaster(loop: asyncio.AbstractEventLoop) -> Callable[[Any], None]:
@@ -27,21 +29,24 @@ def get_event_broadcaster(loop: asyncio.AbstractEventLoop) -> Callable[[Any], No
             "timestamp": event.created_at,
             "data": event.payload,
             "target": event.payload.get("target", "SYS"),
-            "level": "info"
+            "level": "info",
         }
         json_str = json.dumps(payload, ensure_ascii=False)
-        
+
         # 由于事件可能在后台线程产生，需要安全地调度到主循环
         if loop.is_running():
             asyncio.run_coroutine_threadsafe(_broadcast(json_str), loop)
 
     return _on_event
+
+
 # --- 桥接逻辑结束 ---
 
 _db_poll_started = False
 _db_poll_lock = threading.Lock()
 _db_poll_stop_event = threading.Event()
 _db_poll_thread: threading.Thread | None = None
+
 
 def start_db_event_poller(loop: asyncio.AbstractEventLoop) -> None:
     """启动后台线程，轮询 SQLite 新事件并广播到 WebSocket（用于 process 模式下的子进程事件）"""
@@ -97,9 +102,10 @@ def stop_db_event_poller() -> None:
     if thread is not None and thread.is_alive():
         thread.join(timeout=2)
 
+
 # Track active WebSocket clients and their optional filters
 # _clients[websocket] = {"filter_target": "Unit #1-1", "filter_task": "..."}
-_clients: Dict[WebSocket, Dict[str, Any]] = {}
+_clients: dict[WebSocket, dict[str, Any]] = {}
 _logger_bridge_ready = False
 
 
@@ -108,7 +114,7 @@ async def _broadcast(log_json: str):
     Broadcast a log message to all connected clients, respecting their filters.
     """
     _cleanup_clients()
-    
+
     try:
         log_data = json.loads(log_json)
     except Exception:
@@ -120,7 +126,7 @@ async def _broadcast(log_json: str):
             filter_target = context.get("filter_target")
             if filter_target and log_data.get("target") != filter_target:
                 continue
-            
+
             filter_task = context.get("filter_task")
             if filter_task and log_data.get("task_id") != filter_task:
                 continue
@@ -149,7 +155,7 @@ def _ensure_logger_bridge():
 async def websocket_logs(websocket: WebSocket):
     _ensure_logger_bridge()
     await websocket.accept()
-    
+
     # Initialize client context with no filters
     _clients[websocket] = {}
 
@@ -159,23 +165,23 @@ async def websocket_logs(websocket: WebSocket):
             try:
                 msg = json.loads(data)
                 m_type = msg.get("type")
-                
+
                 if m_type == "ping":
                     await websocket.send_text(json.dumps({"type": "pong"}))
-                
+
                 elif m_type == "subscribe":
                     # Update filters for this client
                     # Expected: {"type": "subscribe", "target": "Unit #1-1", "task_id": "..."}
                     _clients[websocket]["filter_target"] = msg.get("target")
                     _clients[websocket]["filter_task"] = msg.get("task_id")
-                    
+
                 elif m_type == "unsubscribe":
                     _clients[websocket]["filter_target"] = None
                     _clients[websocket]["filter_task"] = None
-                    
+
             except Exception as e:
                 logger.debug(f"WS message error: {e}")
-                
+
     except WebSocketDisconnect:
         pass
     finally:

@@ -60,7 +60,9 @@ class AppConfigWriter:
     def __init__(self, *, threshold: int = _DEFAULT_THRESHOLD) -> None:
         self._threshold = max(1, int(threshold))
 
-    def merge_stage_resource_ids(self, app_id: str, learned: Mapping[str, list[str]]) -> dict[str, object]:
+    def merge_stage_resource_ids(
+        self, app_id: str, learned: Mapping[str, list[str]]
+    ) -> dict[str, object]:
         app_key = str(app_id or "").strip().lower()
         if not app_key:
             return {"updated": False, "added": {}, "threshold": self._threshold}
@@ -104,7 +106,9 @@ class AppConfigWriter:
             if not unique_ids:
                 continue
 
-            stage_entry = stage_patterns.setdefault(state_key, {"resource_ids": [], "focus_markers": [], "text_markers": []})
+            stage_entry = stage_patterns.setdefault(
+                state_key, {"resource_ids": [], "focus_markers": [], "text_markers": []}
+            )
             stage_counts_raw = app_counts_raw.get(state_key)
             if not isinstance(stage_counts_raw, dict):
                 stage_counts_raw = {}

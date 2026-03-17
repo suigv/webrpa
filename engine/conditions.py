@@ -24,10 +24,14 @@ def _eval_browser_condition_with_service(condition: Condition, context: Executio
     if state_id is None or context.browser is None:
         return False
     try:
-        return BrowserUIStateService().match_state(
-            context,
-            expected_state_ids=[state_id],
-        ).ok
+        return (
+            BrowserUIStateService()
+            .match_state(
+                context,
+                expected_state_ids=[state_id],
+            )
+            .ok
+        )
     except Exception:
         logger.debug("failed to evaluate browser condition via ui state service", exc_info=True)
         return False
@@ -44,25 +48,19 @@ def _eval_single(condition: Condition, context: ExecutionContext) -> bool:
         if condition.var is None:
             return False
         # Handle nested var access like "creds.token"
-        var_path = condition.var.split('.')
+        var_path = condition.var.split(".")
         actual = context.vars
         for p in var_path:
-            if isinstance(actual, dict):
-                actual = actual.get(p)
-            else:
-                actual = getattr(actual, p, None)
+            actual = actual.get(p) if isinstance(actual, dict) else getattr(actual, p, None)
         return actual == condition.equals
 
     if ct == ConditionType.var_truthy:
         if condition.var is None:
             return False
-        var_path = condition.var.split('.')
+        var_path = condition.var.split(".")
         actual = context.vars
         for p in var_path:
-            if isinstance(actual, dict):
-                actual = actual.get(p)
-            else:
-                actual = getattr(actual, p, None)
+            actual = actual.get(p) if isinstance(actual, dict) else getattr(actual, p, None)
         return bool(actual)
 
     if ct == ConditionType.exists:

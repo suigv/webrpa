@@ -17,7 +17,9 @@ class FakeLLMClient:
         self.response: LLMResponse = response
         self.calls: list[CallRecord] = []
 
-    def evaluate(self, request: LLMRequest, *, runtime_config: dict[str, object] | None = None) -> LLMResponse:
+    def evaluate(
+        self, request: LLMRequest, *, runtime_config: dict[str, object] | None = None
+    ) -> LLMResponse:
         self.calls.append({"request": request, "runtime_config": runtime_config})
         return self.response
 
@@ -44,14 +46,19 @@ def test_llm_evaluate_uses_boundary_and_runtime_overrides(monkeypatch):
             "response_format": {"type": "json_schema"},
             "fallback_modalities": ["vision"],
         },
-        ExecutionContext(payload={}, runtime={"llm": {"provider": "runtime-provider", "model": "runtime-model"}}),
+        ExecutionContext(
+            payload={}, runtime={"llm": {"provider": "runtime-provider", "model": "runtime-model"}}
+        ),
     )
 
     assert result.ok is True
     assert result.code == "ok"
     assert result.data["request_id"] == "req-ai"
     assert result.data["structured_state"] == {"step": "tap"}
-    assert fake_client.calls[0]["runtime_config"] == {"provider": "runtime-provider", "model": "runtime-model"}
+    assert fake_client.calls[0]["runtime_config"] == {
+        "provider": "runtime-provider",
+        "model": "runtime-model",
+    }
     captured_request = fake_client.calls[0]["request"]
     assert captured_request.fallback_modalities == ["vision"]
 

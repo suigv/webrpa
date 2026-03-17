@@ -1,19 +1,21 @@
 from __future__ import annotations
 
-import enum
-from typing import Any, Callable, Dict, Optional, List
+from collections.abc import Callable
+from enum import StrEnum
+from typing import Any
 
 from pydantic import BaseModel, Field  # pyright: ignore[reportMissingImports]
 
 
-class ErrorType(str, enum.Enum):
+class ErrorType(StrEnum):
     """标准化错误码类别。"""
+
     OK = "ok"
-    ENV_ERROR = "env_error"           # 环境故障（RPC断连、驱动缺失）
-    BUSINESS_ERROR = "business_error" # 业务逻辑错误（找不到元素、流程逻辑失败）
-    AUTH_ERROR = "auth_error"         # 认证/权限错误（登录失败、账号封禁）
-    TIMEOUT = "timeout"               # 执行超时
-    UNKNOWN = "unknown"               # 未知错误
+    ENV_ERROR = "env_error"  # 环境故障（RPC断连、驱动缺失）
+    BUSINESS_ERROR = "business_error"  # 业务逻辑错误（找不到元素、流程逻辑失败）
+    AUTH_ERROR = "auth_error"  # 认证/权限错误（登录失败、账号封禁）
+    TIMEOUT = "timeout"  # 执行超时
+    UNKNOWN = "unknown"  # 未知错误
 
 
 class ActionResult(BaseModel):
@@ -21,12 +23,15 @@ class ActionResult(BaseModel):
     code: str = "ok"
     error_type: ErrorType = ErrorType.OK
     message: str = ""
-    data: Dict[str, Any] = Field(default_factory=dict)
-    evidence: Optional[Any] = None
+    data: dict[str, Any] = Field(default_factory=dict)
+    evidence: Any | None = None
 
 
-class ExecutionCancelled(Exception):
+class ExecutionCancelledError(Exception):
     pass
+
+
+ExecutionCancelled = ExecutionCancelledError
 
 
 class ExecutionContext:
@@ -35,31 +40,33 @@ class ExecutionContext:
 
     def __init__(
         self,
-        payload: Dict[str, Any],
-        session: Optional[Dict[str, Any]] = None,
-        runtime: Optional[Dict[str, Any]] = None,
+        payload: dict[str, Any],
+        session: dict[str, Any] | None = None,
+        runtime: dict[str, Any] | None = None,
     ) -> None:
         self.payload = payload
-        self.session: Dict[str, Any] = session if isinstance(session, dict) else {}
-        self.runtime: Dict[str, Any] = runtime if isinstance(runtime, dict) else {}
-        self.vars: Dict[str, Any] = {}
-        self.last_result: Optional[ActionResult] = None
+        self.session: dict[str, Any] = session if isinstance(session, dict) else {}
+        self.runtime: dict[str, Any] = runtime if isinstance(runtime, dict) else {}
+        self.vars: dict[str, Any] = {}
+        self.last_result: ActionResult | None = None
         self.browser: Any = None  # BrowserClient instance, lazily assigned
         self.pc: int = 0
         self.transitions: int = 0
         self.jumped: bool = False
-        self.should_cancel: Optional[Callable[[], bool]] = None
-        self.emit_event: Optional[Callable[[str, Dict[str, Any]], None]] = None
-        self._humanized: Optional[Any] = None  # HumanizedHelper instance
-        self._wait_signal: Optional[Any] = None  # WaitSignal (lazy)
+        self.should_cancel: Callable[[], bool] | None = None
+        self.emit_event: Callable[[str, dict[str, Any]], None] | None = None
+        self._humanized: Any | None = None  # HumanizedHelper instance
+        self._wait_signal: Any | None = None  # WaitSignal (lazy)
 
     @property
     def humanized(self) -> Any:
         """极简访问拟人化助手。优先使用 payload/runtime 中的 humanized 覆盖配置。"""
         if self._humanized is None:
+            import dataclasses
+
             from core.config_loader import get_humanized_wrapper_config
             from engine.humanized_helper import HumanizedHelper
-            import dataclasses
+
             config = get_humanized_wrapper_config()
             override = self.payload.get("humanized") or self.runtime.get("humanized")
             if override and isinstance(override, dict):
@@ -71,7 +78,7 @@ class ExecutionContext:
         return self._humanized
 
     @property
-    def session_defaults(self) -> Dict[str, Any]:
+    def session_defaults(self) -> dict[str, Any]:
         defaults = self.session.get("defaults")
         return defaults if isinstance(defaults, dict) else {}
 
@@ -100,7 +107,7 @@ class ExecutionContext:
     def check_cancelled(self) -> None:
         """检查任务是否已被请求取消。如果已取消，则抛出异常以终止当前动作。"""
         if self.should_cancel and self.should_cancel():
-            raise ExecutionCancelled("Task execution cancelled by user request")
+            raise ExecutionCancelledError("Task execution cancelled by user request")
 
     @property
     def wait_signal(self) -> Any:

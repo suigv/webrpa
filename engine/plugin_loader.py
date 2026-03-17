@@ -3,16 +3,15 @@ from __future__ import annotations
 import logging
 import threading
 from pathlib import Path
-from typing import Dict, Optional
 
+from core.paths import plugins_dir
 from engine.models.manifest import PluginManifest
 from engine.parser import parse_manifest
-from core.paths import plugins_dir
 
 logger = logging.getLogger(__name__)
 
 _shared_loader_lock = threading.Lock()
-_shared_loaders: dict[Path, "PluginLoader"] = {}
+_shared_loaders: dict[Path, PluginLoader] = {}
 
 
 class PluginEntry:
@@ -30,15 +29,15 @@ class PluginEntry:
 class PluginLoader:
     """Scans plugins/ directory for YAML plugin manifests."""
 
-    def __init__(self, plugins_root: Optional[Path] = None) -> None:
+    def __init__(self, plugins_root: Path | None = None) -> None:
         if plugins_root is None:
             plugins_root = plugins_dir()
         self._root = plugins_root
-        self._plugins: Dict[str, PluginEntry] = {}
+        self._plugins: dict[str, PluginEntry] = {}
 
     def scan(self) -> None:
         """Scan plugins directory and load all valid manifests."""
-        scanned_plugins: Dict[str, PluginEntry] = {}
+        scanned_plugins: dict[str, PluginEntry] = {}
         if not self._root.is_dir():
             logger.warning("plugins directory not found: %s", self._root)
             self._plugins = scanned_plugins
@@ -66,7 +65,7 @@ class PluginLoader:
                 logger.warning("failed to load plugin from %s: %s", child, exc)
         self._plugins = scanned_plugins
 
-    def get(self, name: str) -> Optional[PluginEntry]:
+    def get(self, name: str) -> PluginEntry | None:
         return self._plugins.get(name)
 
     def has(self, name: str) -> bool:
@@ -81,7 +80,7 @@ def _default_plugins_root() -> Path:
     return plugins_dir()
 
 
-def _resolved_plugins_root(plugins_root: Optional[Path] = None) -> Path:
+def _resolved_plugins_root(plugins_root: Path | None = None) -> Path:
     return (plugins_root or _default_plugins_root()).resolve()
 
 
@@ -90,7 +89,9 @@ def clear_shared_plugin_loader_cache() -> None:
         _shared_loaders.clear()
 
 
-def get_shared_plugin_loader(plugins_root: Optional[Path] = None, *, refresh: bool = False) -> PluginLoader:
+def get_shared_plugin_loader(
+    plugins_root: Path | None = None, *, refresh: bool = False
+) -> PluginLoader:
     root = _resolved_plugins_root(plugins_root)
     with _shared_loader_lock:
         loader = _shared_loaders.get(root)
