@@ -82,7 +82,7 @@
 ### 7.2 任务目录与模板
 - `GET /api/tasks/catalog`：插件/任务目录（用于前端下拉与校验）。
 - `GET /api/tasks/catalog/apps`：已发现的 app 配置列表（来自 `config/apps/*.yaml`）。
-- `GET /api/tasks/prompt_templates`：场景提示词模板列表（来自 `engine/prompt_templates.py`）。
+- `GET /api/tasks/prompt_templates`：默认提示词列表（当前收敛为单一默认模板，来自 `engine/prompt_templates.py`）。
 
 ### 7.3 指标
 - `GET /api/tasks/metrics`：JSON 指标。
@@ -103,4 +103,3 @@
 ## 9) 浏览器诊断
 
 - `GET /api/diagnostics/browser`：浏览器能力/依赖诊断（DrissionPage/CDP 可用性等）。
-

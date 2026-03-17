@@ -16,7 +16,7 @@
     - **观测日志去混淆**：`observed_state_ids` 不再混入 `expected_state_ids`，任务日志只展示真实观察结果，避免把目标状态误写成已观测状态。
     - **动作闭环增强**：`ai.locate_point` 成功后会向 Planner 注入后续点击提示；`ui.swipe` 失败时新增 `effect_uncertain` 语义，提醒执行器先观察页面变化而不是盲目假设动作未生效。
     - **登录阶段回退推断**：当结构化观察仍为 `unknown` 时，执行器会从 fallback XML 中通用推断 `login_entry/account/password/two_factor/home` 提示，恢复账号/密码/2FA 输入后的通用推进与自动提交能力，无需 app-specific `stage_patterns`。
-    - **前端模板纠偏**：`config/strategies/prompt_templates.yaml` 的通用/X 模板已移除“unknown 先盲目上滑”指令，改为优先使用 fallback 证据和 `ai.locate_point` 确认关键可交互元素。
+- **默认提示词收敛**：`config/strategies/prompt_templates.yaml` 已收敛为单一默认模板，保留通用状态门禁和原子动作约束，移除按场景拆分的具体执行策略。
     - **动作参数兼容性**：`ai.locate_point` 现兼容 `description` 作为 `prompt` 别名，避免 Planner 返回自然语言描述字段时白白损失一步预算。
     - **前端硬编码清理**：
       - `web/js/features/devices.js`：移除对 `social_x` 模板的 `com.twitter.android` 硬编码注入。
@@ -143,10 +143,10 @@
     - **旁路蒸馏增强 (防波堤 2)**：在 `core/golden_run_distillation.py` 中新增 `LLMDraftRefiner`。在启发式参数化完成后，通过可选的 LLM 旁路分析 YAML 寻找额外的硬编码业务参数并抽取为 `${payload.xxx}`。完全静默失败回退机制保证了核心蒸馏流程的绝对稳定性（新增 `--use-llm-refiner` CLI 支持）。
 
 - 最近重点 (本会话)：
-  - **场景提示词模板服务化**：
-    - 新建 `engine/prompt_templates.py`，集中定义 4 个模板常量（通用自动化、账号登录/切换、社交媒体 X/Twitter、内容采集/数据爬取），作为项目唯一数据源。
-    - 新增 `GET /api/tasks/prompt_templates` 路由，动态返回模板列表（key/name/content）。
-    - 前端 AI 对话框「场景提示词模板」select 改为动态拉取（`loadPromptTemplates()`），移除硬编码静态对象和静态 `<option>`，打开对话框时自动刷新。
+- **默认提示词服务化**：
+- `engine/prompt_templates.py` 继续作为项目唯一提示词数据源，但当前仅暴露一个默认模板。
+- `GET /api/tasks/prompt_templates` 仍返回模板列表（key/name/content），供前端拉取默认提示词内容。
+- 前端 AI 对话框已移除场景模板选择，仅在打开时自动填充默认提示词，用户仍可手动微调。
 
 - 最近重点 (本会话)：
   - **ai_type 去硬编码重构**：
