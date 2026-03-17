@@ -5,10 +5,7 @@ export async function fetchJson(url, opts = {}) {
     try {
         const res = await fetch(url, fetchOptions);
         const txt = await res.text();
-        let data = txt;
-        try {
-            data = txt ? JSON.parse(txt) : {};
-        } catch (_) {}
+        const data = txt ? tryParseJson(txt) : {};
 
         if (!res.ok) {
             console.error(`API Error: ${url}`, res.status, data);
@@ -24,6 +21,14 @@ export async function fetchJson(url, opts = {}) {
             toast.error(`Network Error: ${e.message}`);
         }
         return { ok: false, status: 0, data: null };
+    }
+}
+
+function tryParseJson(txt) {
+    try {
+        return JSON.parse(txt);
+    } catch {
+        return txt;
     }
 }
 

@@ -108,7 +108,8 @@ async function updateAccountStatus(account, newStatus) {
             toast.error("更新失败");
         }
     } catch (e) {
-        toast.error("网络请求失败");
+        console.error("Unexpected error while updating account status:", e);
+        toast.error("操作失败，请重试");
     }
 }
 
@@ -144,7 +145,8 @@ async function saveAccount() {
             toast.error("更新失败: " + (r.data?.message || r.status));
         }
     } catch (e) {
-        toast.error("网络请求失败");
+        console.error("Unexpected error while saving account:", e);
+        toast.error("保存失败，请重试");
     }
 }
 
@@ -206,7 +208,8 @@ async function resetAccountStatus() {
             toast.error("恢复操作失败");
         }
     } catch (e) {
-        toast.error("网络请求失败");
+        console.error("Unexpected error while resetting account status:", e);
+        toast.error("恢复操作异常，请重试");
     }
 }
 
@@ -270,7 +273,7 @@ function renderInventory(accounts) {
         const quickCell = document.createElement('td');
         quickCell.style.cssText = 'padding: 10px; display: flex; gap: 4px;';
         
-        const createQuickBtn = (targetStatus, title) => {
+        const createQuickBtn = (targetStatus) => {
             const btn = document.createElement('button');
             btn.className = 'btn btn-text p-1 text-xs';
             btn.innerHTML = STATUS_META[targetStatus].icon;
@@ -290,10 +293,10 @@ function renderInventory(accounts) {
         };
 
         quickCell.append(
-            createQuickBtn('ready', '就绪'),
-            createQuickBtn('bad_auth', '密错'),
-            createQuickBtn('banned', '封号'),
-            createQuickBtn('2fa_issue', '2FA异常')
+            createQuickBtn('ready'),
+            createQuickBtn('bad_auth'),
+            createQuickBtn('banned'),
+            createQuickBtn('2fa_issue')
         );
 
         // 4. 异常详情列
@@ -439,7 +442,8 @@ async function importAccounts(overwrite) {
             toast.error(`导入失败: ${r.data.detail || r.status}`);
         }
     } catch (e) {
-        toast.error("网络请求异常");
+        console.error("Unexpected error while importing accounts:", e);
+        toast.error("导入过程异常，请重试");
     } finally {
         importOverwriteBtn.disabled = false;
         importOverwriteBtn.textContent = originalText;
