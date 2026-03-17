@@ -7,8 +7,8 @@
 stage_order:
   - captcha
   - two_factor
-  - password
   - account
+  - password
   - login_entry
   - home
 
@@ -21,6 +21,8 @@ stage_patterns:
       - 人机验证
       - 验证你是人类
       - 请完成验证
+      - ロボットではありません
+      - 認証
   two_factor:
     text_markers:
       - verification code
@@ -29,12 +31,13 @@ stage_patterns:
       - two-factor
       - 验证码
       - 动态口令
+      - 認証コード
+      - 2要素認証
   password:
     text_markers:
       - password
-      - forgot password
-      - 忘记密码
       - 密码
+      - パスワード
   account:
     text_markers:
       - email
@@ -44,6 +47,9 @@ stage_patterns:
       - 用户名
       - 邮箱
       - 手机号
+      - 電話番号
+      - メールアドレス
+      - ユーザー名
   login_entry:
     text_markers:
       - log in
@@ -52,6 +58,9 @@ stage_patterns:
       - 登录
       - 登入
       - 注册
+      - ログイン
+      - アカウントを作成
+      - ログインする
   home:
     text_markers:
       - home
@@ -61,3 +70,6 @@ stage_patterns:
       - 首页
       - 关注
       - feed
+      - ホーム
+      - おすすめ
+      - フォロー中

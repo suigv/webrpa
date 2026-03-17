@@ -41,6 +41,76 @@ def query_any_text_contains(rpc: Any, texts: Iterable[str], timeout_ms: int = 90
     return False
 
 
+def build_xml_match_index(xml_text: str) -> dict[str, tuple[str, ...]] | None:
+    raw = str(xml_text or "").strip()
+    if not raw:
+        return None
+
+    visible_values: list[str] = []
+    resource_ids: list[str] = []
+    seen_visible: set[str] = set()
+    seen_resource_ids: set[str] = set()
+
+    def _collect(resource_id: str = "", visible_value: str = "") -> None:
+        resource_id_norm = resource_id.strip().lower()
+        if resource_id_norm and resource_id_norm not in seen_resource_ids:
+            seen_resource_ids.add(resource_id_norm)
+            resource_ids.append(resource_id_norm)
+
+        visible_norm = visible_value.strip().lower()
+        if visible_norm and visible_norm not in seen_visible:
+            seen_visible.add(visible_norm)
+            visible_values.append(visible_norm)
+
+    try:
+        root = ET.fromstring(raw)
+    except Exception:
+        attr_pattern = re.compile(r'(resource-id|text|content-desc)="([^"]*)"')
+        current_resource_id = ""
+        for attr_name, attr_value in attr_pattern.findall(raw):
+            if attr_name == "resource-id":
+                current_resource_id = attr_value
+                _collect(resource_id=attr_value)
+            else:
+                _collect(resource_id=current_resource_id, visible_value=attr_value)
+        if not resource_ids and not visible_values:
+            return None
+        return {
+            "resource_ids": tuple(resource_ids),
+            "visible_values": tuple(visible_values),
+        }
+
+    for node in root.iter("node"):
+        resource_id = str(node.attrib.get("resource-id") or "")
+        _collect(resource_id=resource_id)
+
+        for attr in ("text", "content-desc"):
+            _collect(resource_id=resource_id, visible_value=str(node.attrib.get(attr) or ""))
+
+    return {
+        "resource_ids": tuple(resource_ids),
+        "visible_values": tuple(visible_values),
+    }
+
+
+def xml_index_contains_resource_id(index: dict[str, tuple[str, ...]] | None, marker: str) -> bool:
+    if not index:
+        return False
+    needle = str(marker or "").strip().lower()
+    if not needle:
+        return False
+    return any(needle in resource_id for resource_id in index.get("resource_ids", ()))
+
+
+def xml_index_contains_visible_text(index: dict[str, tuple[str, ...]] | None, marker: str) -> bool:
+    if not index:
+        return False
+    needle = str(marker or "").strip().lower()
+    if not needle:
+        return False
+    return any(needle in value for value in index.get("visible_values", ()))
+
+
 def parse_bounds(raw: str) -> dict[str, int]:
     try:
         first, second = str(raw or "").split("][", 1)

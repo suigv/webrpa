@@ -95,7 +95,7 @@ def _resolve_package(params: Params, context: ExecutionContext) -> str:
         or ""
     ).strip()
 
-DEFAULT_LOGIN_STAGE_ORDER = ("captcha", "two_factor", "password", "account", "login_entry", "home")
+DEFAULT_LOGIN_STAGE_ORDER = ("captcha", "two_factor", "account", "password", "login_entry", "home")
 
 
 def _normalize_stage_entry(raw: object) -> dict[str, list[str]]:
@@ -154,18 +154,31 @@ def _resolve_login_stage_patterns(params: Params, context: ExecutionContext) -> 
 def _detect_login_stage_with_rpc(rpc: MytRpc, params: Params, context: ExecutionContext) -> str:
     patterns, order = _resolve_login_stage_patterns(params, context)
 
+    # 1. Capture XML once and use it for both resource_ids and text_markers
+    xml_str = ""
+    xml_index: dict[str, tuple[str, ...]] | None = None
     try:
-        if any(patterns.get(stage, {}).get("resource_ids") for stage in order):
-            xml_result, xml_ok = rpc.exec_cmd("uiautomator dump /dev/stdout")
-            xml_str = str(xml_result or "")
-            if xml_ok and xml_str:
-                for stage in order:
-                    for marker in patterns.get(stage, {}).get("resource_ids", []):
-                        if marker and marker in xml_str:
-                            return stage
+        # Use common helper to get XML (handles fallbacks)
+        xml_str = _dump_xml_for_candidates(rpc)
+        xml_index = _support.build_xml_match_index(xml_str)
     except Exception:
         pass
 
+    if xml_index:
+        # Check resource IDs
+        for stage in order:
+            for marker in patterns.get(stage, {}).get("resource_ids", []):
+                if _support.xml_index_contains_resource_id(xml_index, marker):
+                    return stage
+        for stage in order:
+            markers = patterns.get(stage, {}).get("text_markers", [])
+            if not markers:
+                continue
+            for m in markers:
+                if _support.xml_index_contains_visible_text(xml_index, m):
+                    return stage
+
+    # 2. Check focus markers (requires separate dumpsys call)
     try:
         if any(patterns.get(stage, {}).get("focus_markers") for stage in order):
             focus, ok = rpc.exec_cmd("dumpsys window | grep mCurrentFocus")
@@ -178,10 +191,11 @@ def _detect_login_stage_with_rpc(rpc: MytRpc, params: Params, context: Execution
     except Exception:
         pass
 
-    for stage in order:
-        markers = patterns.get(stage, {}).get("text_markers", [])
-        if markers and _support.query_any_text_contains(rpc, markers):
-            return stage
+    if not xml_index:
+        for stage in order:
+            markers = patterns.get(stage, {}).get("text_markers", [])
+            if markers and _support.query_any_text_contains(rpc, markers):
+                return stage
 
     return "unknown"
 
