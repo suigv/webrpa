@@ -153,11 +153,17 @@ class VLMClient:
     def __init__(
         self,
         provider: Optional[str] = None,
+        base_url: Optional[str] = None,
+        model: Optional[str] = None,
+        api_key: Optional[str] = None,
         system_prompt: Optional[str] = None,
         timeout: float = 60.0,
         http_client: httpx.Client | None = None,
     ) -> None:
         self.provider_name = provider or get_vlm_provider()
+        self.base_url = (base_url or "").strip()
+        self.model = (model or "").strip()
+        self.api_key = (api_key or "").strip()
         self.system_prompt = system_prompt or self.DEFAULT_SYSTEM_PROMPT
         self.timeout = timeout
         self._http = http_client or _get_shared_http_client(timeout=timeout)
@@ -167,9 +173,18 @@ class VLMClient:
         if name not in self._providers:
             config = get_vlm_provider_config(name)
             p_type = getattr(config, "provider_type", "standard")
-            self._providers[name] = create_vlm_provider_by_type(
-                p_type, name, self._http, self.system_prompt
-            )
+            if self.base_url or self.model or self.api_key:
+                self._providers[name] = StandardVLMProvider(
+                    base_url=self.base_url or str(config.base_url),
+                    model=self.model or str(config.model),
+                    api_key=self.api_key or get_vlm_api_key(name),
+                    system_prompt=self.system_prompt,
+                    http_client=self._http,
+                )
+            else:
+                self._providers[name] = create_vlm_provider_by_type(
+                    p_type, name, self._http, self.system_prompt
+                )
         return self._providers[name]
 
     def close(self) -> None:

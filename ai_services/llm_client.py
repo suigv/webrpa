@@ -106,6 +106,22 @@ def _as_structured_state(value: object) -> StructuredState:
     return None
 
 
+def _extract_text_content(value: object) -> str:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        parts: list[str] = []
+        for item in value:
+            item_dict = _as_dict(item)
+            text = item_dict.get("text")
+            if isinstance(text, str) and text:
+                parts.append(text)
+        return "\n".join(parts)
+    item_dict = _as_dict(value)
+    text = item_dict.get("text")
+    return text if isinstance(text, str) else ""
+
+
 @dataclass(slots=True)
 class LLMError:
     code: str
@@ -427,7 +443,7 @@ class OpenAIChatProvider:
         if isinstance(choices, list) and choices:
             first = _as_dict(choices[0])
             msg = _as_dict(first.get("message"))
-            output_text = str(msg.get("content") or "")
+            output_text = _extract_text_content(msg.get("content"))
             finish_reason = str(first.get("finish_reason") or "")
 
         usage_raw = _as_dict(raw.get("usage"))
@@ -518,6 +534,27 @@ class LLMClient:
         while True:
             try:
                 result = provider.invoke(resolved)
+                output_text = str(result.get("output_text") or "")
+                structured_state = _as_structured_state(result.get("structured_state"))
+                if not output_text.strip() and structured_state is None:
+                    if attempt < self._max_retries - 1:
+                        backoff = retry_backoff_seconds(attempt)
+                        self._sleep(backoff)
+                        attempt += 1
+                        continue
+                    latency_ms = self._elapsed_ms(started_at)
+                    return self._error_response(
+                        resolved,
+                        latency_ms=latency_ms,
+                        error=LLMError(
+                            code="empty_model_output",
+                            message="Provider returned empty output",
+                            details={
+                                "provider_request_id": str(result.get("provider_request_id") or ""),
+                                "finish_reason": str(result.get("finish_reason") or ""),
+                            },
+                        ),
+                    )
                 latency_ms = self._elapsed_ms(started_at)
                 return LLMResponse(
                     ok=True,
@@ -525,8 +562,8 @@ class LLMClient:
                     provider=resolved.provider,
                     model=str(result.get("model") or resolved.model),
                     latency_ms=latency_ms,
-                    output_text=str(result.get("output_text") or ""),
-                    structured_state=_as_structured_state(result.get("structured_state")),
+                    output_text=output_text,
+                    structured_state=structured_state,
                     modality=str(result.get("modality") or resolved.modality or "text"),
                     fallback_modalities=_coerce_modalities(result.get("fallback_modalities") or resolved.fallback_modalities),
                     usage=_as_usage(result.get("usage")),
