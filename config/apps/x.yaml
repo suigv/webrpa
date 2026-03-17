@@ -41,15 +41,13 @@ states:
 schemes:
   user_profile: "twitter://user?screen_name={username}"
 
-selectors:
+stage_patterns:
   home:
     resource_ids:
       - com.twitter.android:id/drawer_layout
       - com.twitter.android:id/root_coordinator_layout
       - com.twitter.android:id/toolbar
-    texts:
-      - "升级"
-      - "为你推荐"
-    content_descs:
-      - "显示导航栏"
+    focus_markers: []
+    text_markers: []
 
+selectors: {}

@@ -12,6 +12,12 @@ schemes:
     template: "myapp://profile/{user_id}"
   open_web:
     template: "https://example.com/{path}"
+stage_patterns:
+  home:
+    resource_ids:
+      - "com.example.app:id/home_tab"
+    focus_markers: []
+    text_markers: []
 selectors:
   login_button:
     default:

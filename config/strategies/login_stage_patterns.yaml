@@ -1,9 +1,13 @@
 # Default login-stage detection patterns.
 #
 # Notes:
-# - Framework code must not hardcode app/locale-specific UI keywords.
-# - These patterns are configuration data and can be overridden per request via
-#   action params: `stage_patterns` / `stage_order`.
+# - Framework code MUST NOT contain app-specific or locale-specific UI keywords.
+# - text_markers are intentionally empty here. The detection system relies on
+#   resource_ids as the stable, language-agnostic anchors.
+# - When UI patterns are unknown, the system falls back to AI (VLM/LLM) visual
+#   inference. This is the correct Architecture 2.0 behavior.
+# - Per-app text_markers may be injected via action params: `stage_patterns`,
+#   or will be auto-learned by the perception memory system when implemented.
 stage_order:
   - captcha
   - two_factor
@@ -14,62 +18,20 @@ stage_order:
 
 stage_patterns:
   captcha:
-    text_markers:
-      - captcha
-      - verify you are human
-      - human verification
-      - 人机验证
-      - 验证你是人类
-      - 请完成验证
-      - ロボットではありません
-      - 認証
+    resource_ids: []
+    text_markers: []
   two_factor:
-    text_markers:
-      - verification code
-      - security code
-      - 2fa
-      - two-factor
-      - 验证码
-      - 动态口令
-      - 認証コード
-      - 2要素認証
+    resource_ids: []
+    text_markers: []
   password:
-    text_markers:
-      - password
-      - 密码
-      - パスワード
+    resource_ids: []
+    text_markers: []
   account:
-    text_markers:
-      - email
-      - phone
-      - username
-      - 账号
-      - 用户名
-      - 邮箱
-      - 手机号
-      - 電話番号
-      - メールアドレス
-      - ユーザー名
+    resource_ids: []
+    text_markers: []
   login_entry:
-    text_markers:
-      - log in
-      - sign in
-      - create account
-      - 登录
-      - 登入
-      - 注册
-      - ログイン
-      - アカウントを作成
-      - ログインする
+    resource_ids: []
+    text_markers: []
   home:
-    text_markers:
-      - home
-      - for you
-      - following
-      - 主页
-      - 首页
-      - 关注
-      - feed
-      - ホーム
-      - おすすめ
-      - フォロー中
+    resource_ids: []
+    text_markers: []

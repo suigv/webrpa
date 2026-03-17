@@ -29,6 +29,15 @@ states:
 schemes:
   user_profile: "twitter://user?screen_name={username}"
 
+# 阶段记忆（供 core.detect_app_stage 使用，可选）
+stage_patterns:
+  home:
+    resource_ids:
+      - com.twitter.android:id/drawer_layout
+      - com.twitter.android:id/root_coordinator_layout
+    focus_markers: []
+    text_markers: []
+
 # UI 选择器（供 core.load_ui_selector action 使用，可选）
 selectors:
   follow_button:

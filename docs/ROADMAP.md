@@ -15,29 +15,20 @@ Status: Verified.
 Definition of done: Required validation gates pass (`check_no_legacy_imports`, `pytest -q`, RPC-disabled startup, `/health` OK).
 Evidence: `.sisyphus/evidence/m0-gate-pytest-full.txt` (2026-03-11). All four gates passed: check_no_legacy_imports OK, 264/264 tests passed, server startup clean, /health 200 OK with 12 plugins loaded.
 
-### M1: Vision-Model Script Execution MVP
-Status: Partial.
-Definition of done: Vision-capable executor can complete representative ops workflows with bounded retries, loop detection, and stable action contracts.
-Current state (unverified): GPT executor and VLM path are implemented. A representative vision workflow confirmed successful on real device (2026-03-10). Screen metadata (screen_width/height) now parsed from XML bounds and injected into trace. Binding-free AI runs confirmed working.
+### M1: AI 自主探索与引导 (AI Bootstrapping)
+Status: Verified.
+Definition of done: AI 具备“视觉破冰”能力，在无预设 YAML 规则下，通过 VLM 意图推理完成 0-1 的业务通路。
+Current state: ✅ **已完成**。通过 `stagnant_limit` 扩展与 `vlm` 强制兜底，彻底打通了 `unknown` 状态下的 AI 自主寻路能力。
 
-### M2: Evidence Capture and Diagnostics
-Status: Partial.
-Definition of done: Every run captures structured traces, screenshots with real screen metadata, and action results sufficient for failure diagnosis and distillation.
-Current state (unverified): Evidence collection significantly improved (2026-03-12):
-- XML dump now collected unconditionally every step (not only on observation failure).
-- XML saved as full file under `traces/<task>/<run>/xml/<target>/`, no longer truncated to 4000 chars.
-- screen_width/height parsed from XML root bounds and injected into screen_capture.metadata.
-- task.observation and task.planning events now emitted per step for real-time log visibility.
-- DB event poller added to broadcast subprocess task events to WebSocket clients.
+### M2: 感知记忆与数据驱动化 (Data-Driven Intermediary)
+Status: Verified.
+Definition of done: 实现感知回填机制（App Config Backfilling）；支持从 AI 成功轨迹中自动提取 UI 特征，并无缝注入 1.0 原生模式执行。
+Current state: ✅ **已完成**。落地了 `TraceLearner` 与 `AppConfigWriter` 闭环。成功 Trace 的 Resource ID 现已具备自动回写 `config/apps/*.yaml` 的能力。
 
-### M3: 技能化演进与蒸馏 (Skills-ing & Distillation)
-Status: Partial.
-Definition of done: 建立自描述动作注册表；支持变量隔离与异常回退；多轮证据可自动蒸馏为具备“业务专家”语义的稳定 YAML Skills。
-Current state (Verified): 
-- XML 截断问题已通过底层自愈 (Self-Healing) 机制解决。
-- 实现了通用的 `app_stage` 探测机制与自动 Selector Merge。
-- 确立了 [SKILLS_EVOLUTION.md](SKILLS_EVOLUTION.md) 架构路线图。
-- 下一步：实现 `ActionRegistry` 的 Schema-fication，支持 AI 元数据导出。
+### M3: 终极 YAML 插件蒸馏 (Master YAML Distillation)
+Status: In Progress.
+Definition of done: 当 1.0 模式成功率与稳定性达标时，系统自动“编译”出脱离 AI 依赖、全量结构化、极速执行的商业级 YAML 插件。
+Current state: `GoldenRunDistiller` 基座已就绪，当前正在进行多路径收敛与自动化蒸馏质量优化。
 
 ### M4: External User Readiness
 Status: Planned.

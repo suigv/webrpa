@@ -48,6 +48,8 @@ def resolve_app_payload(app_id: str, current_payload: dict[str, Any]) -> dict[st
         resolved["package"] = config["package_name"]
     if config.get("states"):
         resolved["_app_states"] = config["states"]
+    if config.get("stage_patterns"):
+        resolved["_app_stage_patterns"] = config["stage_patterns"]
     if config.get("selectors"):
         resolved["_app_selectors"] = config["selectors"]
     return resolved
@@ -63,6 +65,20 @@ class AppConfigManager:
     @classmethod
     def load_app_config(cls, app_id: str) -> dict[str, Any]:
         return get_app_config(app_id)
+
+    @staticmethod
+    def app_config_path(app_id: str) -> Path:
+        return _app_config_path(app_id)
+
+    @classmethod
+    def write_app_config(cls, app_id: str, document: dict[str, Any]) -> Path:
+        path = cls.app_config_path(app_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            yaml.safe_dump(document, allow_unicode=True, sort_keys=False),
+            encoding="utf-8",
+        )
+        return path
 
     @classmethod
     def get_package_to_app_map(cls) -> dict[str, str]:
@@ -100,9 +116,11 @@ class AppConfigManager:
             return path
 
         skeleton = {
+            "version": "v1",
             "package_name": package,
             "xml_filter": {"max_text_len": 60, "max_desc_len": 100},
-            "states": {},
+            "states": [],
+            "stage_patterns": {},
             "schemes": {},
             "selectors": {},
         }

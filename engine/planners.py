@@ -27,11 +27,51 @@ import json
 import logging
 import os
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from collections.abc import Mapping
 from typing import Any, Protocol
 
 from ai_services.llm_client import LLMRequest
 
 logger = logging.getLogger(__name__)
+
+
+def _timestamp() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _json_dict(value: object) -> dict[str, object]:
+    if isinstance(value, Mapping):
+        return {str(key): item for key, item in value.items()}
+    return {}
+
+
+def _llm_response_trace(response: object) -> dict[str, object]:
+    return {
+        "ok": bool(getattr(response, "ok", False)),
+        "request_id": str(getattr(response, "request_id", "") or ""),
+        "provider": str(getattr(response, "provider", "") or ""),
+        "model": str(getattr(response, "model", "") or ""),
+        "latency_ms": getattr(response, "latency_ms", None),
+        "output_text": str(getattr(response, "output_text", "") or ""),
+        "structured_state": getattr(response, "structured_state", None),
+        "modality": str(getattr(response, "modality", "") or ""),
+        "fallback_modalities": list(getattr(response, "fallback_modalities", []) or []),
+    }
+
+
+@dataclass(frozen=True, slots=True)
+class _StructuredPlannerConfig:
+    goal: str
+    expected_state_ids: list[str]
+    allowed_actions: list[str]
+    max_steps: int
+    stagnant_limit: int
+    system_prompt: str
+    llm_runtime: dict[str, object]
+    planner_inputs: dict[str, object]
+    fallback_modalities: list[str]
+    observation_params: dict[str, object]
 
 
 # ---------------------------------------------------------------------------
@@ -147,10 +187,8 @@ class StructuredPlanner:
         self._runtime = runtime
 
     def plan(self, inp: PlannerInput) -> PlannerOutput:
-        from engine.agent_executor import AgentExecutorConfig
-
         # Reconstruct config that the existing helpers expect.
-        config = AgentExecutorConfig(
+        config = _StructuredPlannerConfig(
             goal=inp.goal,
             expected_state_ids=[],  # not used inside _plan_next_step
             allowed_actions=inp.allowed_actions,
@@ -240,8 +278,6 @@ class OmniVisionPlanner:
         self._runtime = runtime
 
     def plan(self, inp: PlannerInput) -> PlannerOutput:
-        from engine.agent_executor import _timestamp, _json_dict
-
         planned_at = _timestamp()
         llm_client = self._runtime._llm_client_factory()
 
@@ -300,8 +336,7 @@ class OmniVisionPlanner:
             "system_prompt": request.system_prompt,
             "has_image_attachment": bool(attachments),
         }
-        from engine.agent_executor import AgentExecutorRuntime
-        response_trace = AgentExecutorRuntime._llm_response_trace(response)
+        response_trace = _llm_response_trace(response)
 
         if not bool(response.ok):
             error = getattr(response, "error", None)

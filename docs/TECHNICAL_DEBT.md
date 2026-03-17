@@ -35,5 +35,10 @@
 - [x] **ConfigLoader 类型冗余**：已修复。`ConfigLoader.load()` 现在直接返回 `ConfigStore` 强类型对象，访问器全部改为直接读取属性，`_to_int`/`_to_bool` 防御性转换已从访问器层移除。
 
 ---
-
-**治理结论**：WebRPA 现已具备支撑工业级业务负载的底座能力。
+ 
+ ## 🟠 架构演进债 (Architecture 2.0 Transition)
+ - [ ] **解除前置感知枷锁**：1.0 模式下的 `detect_login_stage` 过于死板，需重构为非阻塞式探测，支持在 `unknown` 状态下自动触发 AI 视觉探索。
+ - [ ] **感知记忆持久化抽象**：需建立统一的 `PerceptionMemory` 存储层，替换散落在 `config/apps/*.yaml` 中的半自动固化数据。
+ - [ ] **自动化蒸馏评价体系**：目前缺乏对生成 YAML 质量的自动评分机制。
+ 
+ **治理结论**：WebRPA 现已具备支撑工业级业务负载的底座能力，目前正处于从“辅助式 AI”向“自主演进 AI”转型的关键期。

@@ -27,7 +27,7 @@ services:
     providers:
       openai:
         provider_type: "openai"
-        base_url: "https://api.openai.com/v1"
+        base_url: "http://38.47.125.57:8317/v1"
         model: "gpt-5.4"
       
       deepseek:

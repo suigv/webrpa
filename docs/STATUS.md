@@ -12,11 +12,10 @@ This document provides a concise "done vs not-done" view tied to the goal and ro
 
 | Milestone | Status | Evidence Notes |
 |---|---|---|
-| M0 Baseline Compliance and Runtime Stability | Verified | Full gate evidence captured: check_no_legacy_imports OK, pytest 264/264 passed, server startup OK, /health 200 OK. See .sisyphus/evidence/m0-gate-pytest-full.txt |
-| M1 Vision-Model Script Execution MVP | Partial | Vision 路径已在真实设备验证（2026-03-10），screen_width/height 从 XML 根节点 bounds 解析并注入 trace。Binding-free vision path confirmed working. |
-| M2 Evidence Capture and Diagnostics | Partial | XML collected unconditionally per step, saved as full file under traces/xml/ (not truncated). screen_width/height injected into screen_capture.metadata. task.observation and task.planning events emitted per step. DB event poller broadcasts subprocess events to WebSocket. |
-| M3 技能蒸馏与 Skills 化演进 | Partial | 自动化蒸馏工具 `distill_multi_run.py` 可用；`SKILLS_EVOLUTION.md` 确定了阻力点与演进方案。动作注册表正向 Metadata 化改造。 |
-| M4 平台化与外部就绪 | Planned | 账号系统与权限控制尚未开始。 |
+| M0 Baseline Compliance | Verified | Full gate: imports, pytest, /health OK. |
+| M1 AI Bootstrapping (探索) | Partial | VLM 视觉推理调通，坐标补偿验证成功。 |
+| M2 Data-Driven Mode (演进) | Partial | XML 全量捕获实现，`GoldenRun` 提取器可用。 |
+| M3 YAML Mastery (蒸馏) | Planned | 架构方案已定型，等待自愈式特征回流实现。 |
 
 - **文本化文档对齐 (2026-03-13)**：完成全量 `docs/` 内容审计，确立了多云机动态端口公式，修复了 SDK/API 文档的陈旧代码引用。
 - **Skills 演进战略确立**：发布了 `docs/SKILLS_EVOLUTION.md`，识别出 ActionRegistry、Variable Scoping、Error Hooks 等核心架构优化点。

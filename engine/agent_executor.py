@@ -11,19 +11,23 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from collections.abc import Mapping
-from typing import Any, Callable, Protocol
+from typing import TYPE_CHECKING, Any, Callable, Protocol
 
 logger = logging.getLogger(__name__)
 
 from ai_services.llm_client import LLMClient, LLMRequest
 from ai_services.vlm_client import VLMClient
+from core.app_config_writer import AppConfigWriter
 from core.app_config import AppConfigManager
 from core.model_trace_store import ModelTraceContext, ModelTraceStore
 from core.paths import traces_dir
+from core.trace_learner import TraceLearner
 from engine.action_registry import ActionRegistry, get_registry
 from engine.action_dispatcher import dispatch_action
 from engine.models.runtime import ExecutionContext
-from engine.planners import BasePlanner, PlannerInput, PlannerOutput, resolve_planner
+
+if TYPE_CHECKING:
+    from engine.planners import BasePlanner
 
 
 class LLMClientLike(Protocol):
@@ -202,7 +206,9 @@ def _planner_inputs(payload: Mapping[str, object]) -> dict[str, object]:
 
 
 def _needs_form_submit(last_action: Mapping[str, object] | None, observation_state: Mapping[str, object] | None) -> bool:
-    state_id = str(_json_dict(observation_state).get("state", {}).get("state_id") or "").strip()
+    observation_dict = _json_dict(observation_state)
+    state_dict = _json_dict(observation_dict.get("state"))
+    state_id = str(state_dict.get("state_id") or "").strip()
     if state_id not in {"account", "password", "two_factor"}:
         return False
     action = str(_json_dict(last_action).get("action") or "").strip()
@@ -257,7 +263,12 @@ class AgentExecutorRuntime:
         self._registry = registry or get_registry()
         self._llm_client_factory = llm_client_factory or LLMClient
         self._trace_store = trace_store or ModelTraceStore()
-        self._planner: BasePlanner = planner or resolve_planner(self)
+        if planner is None:
+            from engine.planners import resolve_planner
+
+            self._planner = resolve_planner(self)
+        else:
+            self._planner = planner
 
     def run(
         self,
@@ -442,6 +453,8 @@ class AgentExecutorRuntime:
                     "planner_structured_state": None,
                 }
             else:
+                from engine.planners import PlannerInput
+
                 planner_input = PlannerInput(
                     goal=config.goal,
                     step_index=step_index,
@@ -520,6 +533,9 @@ class AgentExecutorRuntime:
                         planner=plan,
                     ),
                 )
+                learned_package = self._resolve_learning_package(target_package, observation_state)
+                if learned_package:
+                    self._trigger_learning_hook(trace_context, learned_package)
                 return self._result(
                     ok=True,
                     status="completed",
@@ -693,10 +709,16 @@ class AgentExecutorRuntime:
     def _normalize_xml_filter(raw: object) -> dict[str, int] | None:
         if not isinstance(raw, Mapping) or not raw:
             return None
+        max_text_len = raw.get("max_text_len", 60)
+        max_desc_len = raw.get("max_desc_len", 100)
+        if not isinstance(max_text_len, (int, float, str)):
+            return None
+        if not isinstance(max_desc_len, (int, float, str)):
+            return None
         try:
             return {
-                "max_text_len": int(raw.get("max_text_len", 60)),
-                "max_desc_len": int(raw.get("max_desc_len", 100)),
+                "max_text_len": int(max_text_len),
+                "max_desc_len": int(max_desc_len),
             }
         except Exception:
             return None
@@ -717,7 +739,15 @@ class AgentExecutorRuntime:
             # 将列表形式的 filter 转换为 dict
             return self._normalize_xml_filter(xml_filter)
         elif isinstance(xml_filter, Mapping):
-            return {str(k): int(v) for k, v in xml_filter.items() if str(k) in {"max_text_len", "max_desc_len"}}
+            normalized: dict[str, int] = {}
+            for key, value in xml_filter.items():
+                key_str = str(key)
+                if key_str not in {"max_text_len", "max_desc_len"}:
+                    continue
+                if not isinstance(value, (int, float, str)):
+                    continue
+                normalized[key_str] = int(value)
+            return normalized or None
         return None
 
     def _interruptible_sleep(self, seconds: float, should_cancel: Callable[[], bool] | None) -> bool:
@@ -781,11 +811,11 @@ class AgentExecutorRuntime:
             expected_state_ids=expected_state_ids,
             allowed_actions=allowed_actions,
             max_steps=_int_in_range(payload.get("max_steps"), default=8, minimum=1, maximum=100),
-            stagnant_limit=_int_in_range(payload.get("stagnant_limit"), default=2, minimum=1, maximum=20),
+            stagnant_limit=_int_in_range(payload.get("stagnant_limit"), default=5, minimum=1, maximum=20),
             system_prompt=str(payload.get("system_prompt") or "").strip(),
             llm_runtime=llm_runtime,
             planner_inputs=_planner_inputs(payload),
-            fallback_modalities=_string_list(payload.get("fallback_modalities")),
+            fallback_modalities=_string_list(payload.get("fallback_modalities") or ["vlm"]),
             observation_params=observation_params,
         )
 
@@ -1187,6 +1217,31 @@ class AgentExecutorRuntime:
 
     def _append_trace(self, context: ModelTraceContext, record: dict[str, object]) -> None:
         _ = self._trace_store.append_record(context, record)
+
+    @staticmethod
+    def _resolve_learning_package(target_package: str, observation: object) -> str:
+        if str(target_package or "").strip():
+            return str(target_package).strip()
+        observation_dict = _json_dict(observation)
+        return str(observation_dict.get("package") or "").strip()
+
+    def _trigger_learning_hook(self, trace_context: ModelTraceContext, package_name: str) -> None:
+        package = str(package_name or "").strip()
+        if not package:
+            return
+        try:
+            app_id = AppConfigManager.find_app_by_package(package)
+            if not app_id:
+                AppConfigManager.bootstrap_app_config(package)
+                app_id = AppConfigManager.find_app_by_package(package)
+            if not app_id:
+                return
+            learned = TraceLearner(trace_store=self._trace_store).learn_from_context(trace_context)
+            if not learned:
+                return
+            AppConfigWriter().merge_stage_resource_ids(app_id, learned)
+        except Exception as exc:
+            logger.warning("Learning hook failed for %s: %s", package, exc)
 
     def _flush_pending_trace(self, context: ModelTraceContext, record: dict[str, object] | None) -> None:
         if record is None:

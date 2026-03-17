@@ -56,7 +56,9 @@ def test_native_adapter_login_stage_match_returns_structured_evidence(monkeypatc
 
     monkeypatch.setattr(state_actions, "MytRpc", FakeRpc)
 
-    service = NativeUIStateAdapter()
+    # Architecture 2.0: pass stage_patterns explicitly via action_params.
+    # The global YAML no longer contains locale text — patterns are app/task-specific.
+    service = NativeUIStateAdapter(action_params={"stage_patterns": {"account": {"text_markers": ["账号"]}}, "stage_order": ["account"]})
     ctx = ExecutionContext(payload={"device_ip": "192.168.1.214", "_target": {"device_id": 1, "cloud_id": 3}})
     result = service.match_state(ctx, expected_state_ids=["home", "account"])
 
@@ -120,7 +122,7 @@ def test_native_adapter_login_stage_no_match_preserves_evidence(monkeypatch: Mon
 
     monkeypatch.setattr(state_actions, "MytRpc", FakeRpc)
 
-    service = NativeUIStateAdapter()
+    service = NativeUIStateAdapter(action_params={"stage_patterns": {"password": {"text_markers": ["password"]}}, "stage_order": ["password"]})
     ctx = ExecutionContext(payload={"device_ip": "192.168.1.214", "_target": {"device_id": 1, "cloud_id": 3}})
     result = service.match_state(ctx, expected_state_ids=["home"])
 
@@ -195,7 +197,7 @@ def test_native_adapter_wait_until_timeout_returns_structured_timeout(monkeypatc
     monkeypatch.setattr("engine.actions.state_actions.time.sleep", clock.sleep)
     monkeypatch.setattr("engine.ui_state_native_adapter.time.monotonic", clock.monotonic)
 
-    service = NativeUIStateAdapter()
+    service = NativeUIStateAdapter(action_params={"stage_patterns": {"password": {"text_markers": ["password"]}}, "stage_order": ["password"]})
     ctx = ExecutionContext(payload={"device_ip": "192.168.1.214", "_target": {"device_id": 1, "cloud_id": 3}})
     result = service.wait_until(ctx, expected_state_ids=["home"], timeout_ms=30, interval_ms=1)
 

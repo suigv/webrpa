@@ -258,6 +258,62 @@ def test_agent_executor_includes_login_payload_inputs_in_planner_prompt():
     }
 
 
+def test_agent_executor_triggers_learning_hook_after_completed_trace(monkeypatch, tmp_path: Path):
+    trace_store = ModelTraceStore(root_dir=tmp_path / "traces")
+    llm_client = _SequencedLLMClient(
+        responses=[
+            LLMResponse(ok=True, request_id="req-1", provider="openai", model="gpt-5.4", output_text=json.dumps({"done": True, "message": "ready"})),
+        ]
+    )
+
+    def _app_ensure_running(params, context):
+        _ = (params, context)
+        return ActionResult(ok=True, code="ok")
+
+    runtime = _build_runtime(
+        llm_client=llm_client,
+        observations=[{"platform": "native", "state": {"state_id": "home"}, "status": "matched", "ok": True, "package": "com.twitter.android"}],
+        trace_store=trace_store,
+        extra_actions={"app.ensure_running": _app_ensure_running},
+    )
+
+    hook_calls: list[dict[str, object]] = []
+
+    def _fake_hook(trace_context, package_name):
+        records = trace_store.read_records(trace_context)
+        hook_calls.append(
+            {
+                "package": package_name,
+                "terminal_status": records[-1]["status"],
+                "record_types": [record["record_type"] for record in records],
+            }
+        )
+
+    monkeypatch.setattr(runtime, "_trigger_learning_hook", _fake_hook)
+
+    result = runtime.run(
+        {
+            "goal": "finish task",
+            "package": "com.twitter.android",
+            "expected_state_ids": ["home"],
+            "allowed_actions": ["ui.click"],
+            "max_steps": 1,
+            "stagnant_limit": 1,
+        },
+        runtime=_trace_runtime_args(),
+    )
+
+    assert result["ok"] is True
+    assert result["status"] == "completed"
+    assert hook_calls == [
+        {
+            "package": "com.twitter.android",
+            "terminal_status": "completed",
+            "record_types": ["terminal"],
+        }
+    ]
+
+
 def test_agent_executor_auto_submits_login_field_after_input():
     llm_client = _SequencedLLMClient(
         responses=[

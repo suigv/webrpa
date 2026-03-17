@@ -111,6 +111,42 @@ def _normalize_stage_entry(raw: object) -> dict[str, list[str]]:
     return {"resource_ids": [], "focus_markers": [], "text_markers": _coerce_text_list(raw)}
 
 
+def _extract_app_stage_patterns(config: object) -> dict[str, dict[str, list[str]]]:
+    if not isinstance(config, dict):
+        return {}
+
+    raw_patterns = config.get("stage_patterns")
+    if isinstance(raw_patterns, dict):
+        return {
+            str(stage_id).strip(): _normalize_stage_entry(entry)
+            for stage_id, entry in raw_patterns.items()
+            if str(stage_id).strip()
+        }
+
+    selectors = config.get("selectors")
+    if not isinstance(selectors, dict):
+        return {}
+
+    patterns: dict[str, dict[str, list[str]]] = {}
+    for stage_id, entry in selectors.items():
+        stage_key = str(stage_id or "").strip()
+        if not stage_key or not isinstance(entry, dict):
+            continue
+        if any(key in entry for key in ("resource_ids", "resource_id_markers", "focus_markers", "window_markers", "text_markers", "texts", "content_descs", "p95_text_markers")):
+            normalized = _normalize_stage_entry(entry)
+            normalized["text_markers"] = (
+                _coerce_text_list(entry.get("p95_text_markers"))
+                + normalized["text_markers"]
+                + _coerce_text_list(entry.get("content_descs"))
+            )
+            patterns[stage_key] = {
+                "resource_ids": normalized["resource_ids"],
+                "focus_markers": normalized["focus_markers"],
+                "text_markers": list(dict.fromkeys(normalized["text_markers"])),
+            }
+    return patterns
+
+
 def _resolve_login_stage_patterns(params: Params, context: ExecutionContext) -> tuple[dict[str, dict[str, list[str]]], tuple[str, ...]]:
     raw_patterns = params.get("stage_patterns") or context.get_session_default("stage_patterns")
     patterns: dict[str, dict[str, list[str]]] = {}
@@ -597,19 +633,9 @@ def detect_app_stage(params: Params, context: ExecutionContext) -> ActionResult:
         
         try:
             config = sdk_config_support.load_app_config_document(str(app_name))
-            selectors = config.get("selectors", {})
+            stage_patterns = _extract_app_stage_patterns(config)
         except Exception:
-            selectors = {}
-
-        stage_patterns = {}
-        for stage_id, sel in selectors.items():
-            if not isinstance(sel, dict):
-                continue
-            stage_patterns[stage_id] = {
-                "resource_ids": _coerce_text_list(sel.get("resource_ids")),
-                "focus_markers": _coerce_text_list(sel.get("focus_markers")),
-                "text_markers": _coerce_text_list(sel.get("p95_text_markers") or sel.get("texts")) + _coerce_text_list(sel.get("content_descs")),
-            }
+            stage_patterns = {}
         
         if not stage_patterns:
             return ActionResult(ok=True, code="ok", data={"stage": "unknown"})

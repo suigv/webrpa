@@ -215,8 +215,10 @@ def test_detect_login_stage_prefers_account_over_forgot_password_link(monkeypatc
     ctx = ExecutionContext(payload={"device_ip": "192.168.1.214", "_target": {"device_id": 1, "cloud_id": 3}})
     result = mod.detect_login_stage({}, ctx)
 
+    # Architecture 2.0: no global text_markers — without explicit patterns,
+    # the system must return 'unknown' and defer to AI visual inference.
     assert result.ok is True
-    assert result.data["stage"] == "account"
+    assert result.data["stage"] == "unknown"
 
 
 def test_wait_login_stage_until_home(monkeypatch):
@@ -651,7 +653,13 @@ def test_ui_state_action_wrappers_preserve_legacy_native_contracts(monkeypatch):
     ctx = ExecutionContext(payload={"device_ip": "192.168.1.214", "_target": {"device_id": 1, "cloud_id": 3}})
 
     service_result = resolve_action("ui.match_state")(
-        {"platform": "native", "binding_id": "login_stage", "expected_state_ids": ["account", "home"]},
+        {
+            "platform": "native",
+            "binding_id": "login_stage",
+            "expected_state_ids": ["account", "home"],
+            "stage_patterns": {"account": {"text_markers": ["账号"]}},
+            "stage_order": ["account"],
+        },
         ctx,
     )
     legacy_result = resolve_action("core.detect_login_stage")(
@@ -667,6 +675,102 @@ def test_ui_state_action_wrappers_preserve_legacy_native_contracts(monkeypatch):
     assert service_result.data["raw_details"]["stage"] == "account"
     assert legacy_result.ok is True
     assert legacy_result.data == {"stage": "account"}
+
+
+def test_detect_app_stage_prefers_stage_patterns_from_app_config(monkeypatch):
+    mod = _load_state_actions_module()
+    ExecutionContext = _load_execution_context()
+
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(mod, "_connect_rpc", lambda params, context: (object(), None))
+    monkeypatch.setattr(mod, "_close_rpc", lambda rpc: None)
+
+    def _fake_detect(rpc, params, context):
+        _ = (rpc, context)
+        captured["params"] = params
+        return "home"
+
+    monkeypatch.setattr(mod, "_detect_login_stage_with_rpc", _fake_detect)
+    monkeypatch.setattr(mod.sdk_config_support, "app_from_package", lambda package: "x")
+    monkeypatch.setattr(
+        mod.sdk_config_support,
+        "load_app_config_document",
+        lambda app: {
+            "stage_patterns": {
+                "home": {
+                    "resource_ids": ["com.twitter.android:id/home_timeline"],
+                    "text_markers": ["For you"],
+                }
+            },
+            "selectors": {
+                "follow_button": {"type": "text", "mode": "equal", "value": "Follow"}
+            },
+        },
+    )
+
+    ctx = ExecutionContext(payload={"device_ip": "192.168.1.214", "_target": {"device_id": 1, "cloud_id": 3}})
+    result = mod.detect_app_stage({"package": "com.twitter.android"}, ctx)
+
+    assert result.ok is True
+    assert result.data == {"stage": "home"}
+    assert captured["params"] == {
+        "stage_patterns": {
+            "home": {
+                "resource_ids": ["com.twitter.android:id/home_timeline"],
+                "focus_markers": [],
+                "text_markers": ["For you"],
+            }
+        },
+        "stage_order": ["home"],
+    }
+
+
+def test_detect_app_stage_falls_back_to_legacy_stage_like_selectors(monkeypatch):
+    mod = _load_state_actions_module()
+    ExecutionContext = _load_execution_context()
+
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(mod, "_connect_rpc", lambda params, context: (object(), None))
+    monkeypatch.setattr(mod, "_close_rpc", lambda rpc: None)
+
+    def _fake_detect(rpc, params, context):
+        _ = (rpc, context)
+        captured["params"] = params
+        return "home"
+
+    monkeypatch.setattr(mod, "_detect_login_stage_with_rpc", _fake_detect)
+    monkeypatch.setattr(mod.sdk_config_support, "app_from_package", lambda package: "x")
+    monkeypatch.setattr(
+        mod.sdk_config_support,
+        "load_app_config_document",
+        lambda app: {
+            "selectors": {
+                "home": {
+                    "resource_ids": ["com.twitter.android:id/home_timeline"],
+                    "content_descs": ["Timeline"],
+                },
+                "follow_button": {"type": "text", "mode": "equal", "value": "Follow"},
+            }
+        },
+    )
+
+    ctx = ExecutionContext(payload={"device_ip": "192.168.1.214", "_target": {"device_id": 1, "cloud_id": 3}})
+    result = mod.detect_app_stage({"package": "com.twitter.android"}, ctx)
+
+    assert result.ok is True
+    assert result.data == {"stage": "home"}
+    assert captured["params"] == {
+        "stage_patterns": {
+            "home": {
+                "resource_ids": ["com.twitter.android:id/home_timeline"],
+                "focus_markers": [],
+                "text_markers": ["Timeline"],
+            }
+        },
+        "stage_order": ["home"],
+    }
 
 
 def test_ui_state_action_wrappers_expose_browser_contract_and_aliases():

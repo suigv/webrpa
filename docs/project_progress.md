@@ -7,6 +7,15 @@
 
 - 阶段：**Web Console Productization & Navigation Engine Hardening**
 - 核心状态：API、任务系统、插件执行、账号池全面可用；Web 控制台完成产品化改造；导航引擎具备自愈与锚点机制；AI 执行引擎接入托管链路。
+- 最近重点 (2026-03-17):
+  - **Learning Hook 闭环落地 (Architecture 2.0 Phase 1)**：
+    - **在线学习回写**：新增 `core/trace_learner.py` 与 `core/app_config_writer.py`，成功 trace 会在完成后提取稳定 `resource_id` 并按阈值回写到 `config/apps/<app>.yaml`。
+    - **配置边界收敛**：`config/apps/<app>.yaml` 新增 `stage_patterns` 作为应用级感知记忆库；`selectors` 重新收口为通用 UI selector；`config/strategies/login_stage_patterns.yaml` 保持 framework 级默认规则，不参与在线自动写入。
+    - **运行时兼容迁移**：`core.detect_app_stage` 现优先读取 `stage_patterns`，同时兼容旧的 stage-like selector 结构，避免存量 app 配置立即失效。
+  - **从“辅助 AI”转向“解放 AI”的架构共识 (Architecture 2.0 Strategic Alignment)**：
+    - **打破辅助悖论**：明确了 1.0 中“严格感知”对 AI 自主能力的束缚。2.0 将 AI 从规则的“被动工具”转变为“主动大脑”。
+    - **演进生命周期**：确立了从“自主探索 (AI Bootstrapping)”到“原生数据执行 (Native Mode)”再到“终极 YAML 插件 (Master YAML)”的漏斗模型。
+    - **文档体系同步**：更新了 `PROJECT_GOALS.md` 与 `architecture_2_0.md`，将“YAML 插件交付”确立为项目最终的工程化北极星目标。
 - 最近重点 (2026-03-16):
   - **AgentExecutor 自反思能力增强 (Phase 4 - Self-Reflection Hardening)**：
     - **执行轨迹摘要 (History Digest)**：实现了基于滑动窗口（默认最近 5 步）的执行历史压缩注入，为 Planner 提供了必要的短期记忆，有效防止了在错误路径上的盲目循环。

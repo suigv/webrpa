@@ -8,14 +8,17 @@ This document defines the north-star goals, scope boundaries, and success criter
 - Future: External customers who need a self-serve automation platform.
 
 ## North Star
-实现从“AI 驱动”到“技能驱动”的闭环演进。通过视觉模型自主执行复杂任务并收集证据，蒸馏出稳定、确定的 YAML 插件（Skills），最终形成可被 AI 或 引擎直接调用的“业务专家技能库”，摆脱对大模型实时推理的依赖。
+实现从“AI 自主探索”到“Master YAML 插件”的闭环演化。其核心逻辑在于解决“辅助的悖论”：
+- **2.0 模式 (AI 自主探索)**：在零辅助数据下，解放 AI 进行视觉开辟与数据生产。它是“寻路者”。
+- **1.0 模式 (高性能生产)**：利用 2.0 沉淀的感知记忆（Resource ID 等）实现极速、稳定的执行。它是“主力军”。
+- **Master YAML (零 AI 交付)**：将稳定的 1.0 路径编译为脱离 AI 推理的工业级插件。它是“终极产物”。
 
 ## Core Goals
-- G1: **AI 自主执行**：愿景模型能可靠执行业务指令，并实现 self-healing 观察。
-- G2: **证据闭环采集**：多轮运行日志记录完整轨迹，支撑诊断与蒸馏。
-- G3: **技能自动化蒸馏 (Skills Discovery)**：从成功轨迹中自动提取原子动作序列、选择器和业务状态，生成可复用的 Skills。
-- G4: **架构合理化 (Action-to-Skill)**：建立具备自描述能力动作注册表，支持变量隔离、异常闭环，使 Skills 成为一等公民。
-- G5: **平台化能力**：具备完善的账号系统、监控指标与运维看板。
+- G1: **AI 极速冷启动 (Autonomous Bootstrapping)**：利用 VLM/LLM 实现在无预设规则环境下的 0-1 自主任务执行。
+- G2: **动态感知回填 (App Config Backfilling)**：运行过程中自动捕获并固化 UI 特征（如 Resource ID），消除对人工语言硬编码的依赖。
+- G3: **1.0 模式平滑切入 (Auto-Native Transition)**：当 AI 成功率达标时，自动将感知权由昂贵的 AI 推理转向高效的原生规则匹配（动作决策仍由 AI 完成）。
+- G4: **YAML 插件终极蒸馏 (Plugin Distillation)**：基于高成功率的运行轨迹，全自动编译生成确定的 YAML 插件，实现任务的**零 AI 化（去 Token）**交付。
+- G5: **工业级底座 (Robust Platform)**：具备完善的账号隔离、并发调度、指标监控与可视化审计能力。
 
 ## Workflow Scope (Ops)
 - All operational workflows target supported application script tasks.
@@ -62,6 +65,12 @@ The following evidence is required per run to qualify for distillation:
 - Fallback evidence when used: UI XML or browser HTML snapshot.
 - Screenshot capture with `save_path`, `byte_length`, and screen metadata (width/height). Real device screen dimensions are required for VLM coordinate compensation.
 - Runtime context: task id, run id, target label, and runtime profile identifiers.
+
+## Engineering Guardrails (Architecture 2.0)
+- **Privacy-First**：感知回填严禁存储 PII（个人身份信息）。密码类节点（类型含 `Password`/`Secure`）永不记录，TraceLearner 必须具备自动脱敏能力。
+- **Version Resilience**：感知记忆不应是死板的点对点匹配，而应具备语意容错性。优先识别稳定的 Resource ID，辅以文本哈希。
+- **Safety Control**：为 AI 探索设置“试错预算（Step/Token Budget）”。超出阈值未见进展时立即熔断并人工干预。
+- **Self-Healing Failover**：运行时具备自愈能力。当 1.0 数据匹配失败时，自动退避（Failover）至 2.0 AI 探索模式重新测绘。
 
 ## Constraints and Invariants
 - Baseline startup must succeed with `MYT_ENABLE_RPC=0`.

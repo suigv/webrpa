@@ -7,10 +7,10 @@
 ## 🟢 第一级：必读上下文 (Essential Context)
 **用途**：理解“我们在做什么”以及“现在做到了哪里”。
 
+- **[架构演进 2.0 (Architecture 2.0)](architecture_2_0.md)**  
+  *项目的灵魂与进化论。* 描述了从“受限 AI”转向“解放 AI”的成熟度漏斗模型，以及自主演进、感知记忆和终极 YAML 蒸馏的逻辑。
 - **[项目进度看板 (Project Progress)](project_progress.md)**  
   *实时更新的变更日志。* 重点看“最近变动”和“当前状态统计”，避免 AI 建议已废弃的模块。
-- **[Skills化演进报告 (Skills Evolution)](SKILLS_EVOLUTION.md)**  
-  *项目的核心战略。* 描述了从 AI 驱动转向 Skills 驱动的架构蓝图、当前阻力点及演进阶段。
 - **[项目核心目标 (Project Goals)](PROJECT_GOALS.md)**  
   *决策锚点。* 定义了 North Star 指标和 Core Goals（如：AI 自主执行、技能蒸馏）。
 

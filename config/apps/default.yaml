@@ -32,6 +32,22 @@ package_name: ""
 #   - id: unknown
 #     description: 无法识别的状态
 
+# 运行时阶段记忆（可选）
+# 供 core.detect_app_stage / core.wait_app_stage 使用。
+# 这是应用级感知记忆库：在线学习写入这里，而不是写全局默认策略文件。
+# key 为 state_id 或 stage_id，value 为结构化匹配特征。
+# stage_patterns:
+#   home:
+#     resource_ids:
+#       - com.example.app:id/home_tab
+#     focus_markers: []
+#     text_markers: []
+#   password:
+#     resource_ids:
+#       - com.example.app:id/password_input
+#     focus_markers: []
+#     text_markers: []
+
 # Deep link / URL scheme（可选）
 # 供 core.load_ui_scheme + navigate.to action 使用。
 # key 为逻辑名，value 为 scheme 模板（{} 内为参数占位符）。
@@ -56,4 +72,5 @@ package_name: ""
 #     value: com.example.app:id/username_field
 
 schemes: {}
+stage_patterns: {}
 selectors: {}

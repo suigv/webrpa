@@ -1,5 +1,13 @@
 # WebRPA 文档中心
 
+# WebRPA 是一个基于 **“行为编译器 (Behavior Compiler)”** 理念构建的下一代 RPA 自动化平台。它不依赖于僵化的硬编码规则，而是利用 AI (VLM/LLM) 的原生视觉直觉进行自主探索，并自动将探索出的行为路径转化为高性能、零 AI 依赖的工业级 YAML 插件。
+
+### 核心演进逻辑：成熟度漏斗 (Maturity Funnel)
+系统通过以下三个阶段实现任务的闭环演进：
+1.  **AI 自主探索 (Bootstrapping)**：打破规则枷锁，实现 0-1 的视觉寻路。
+2.  **数据驱动执行 (Native Mode)**：自动沉淀感知记忆，将经验转化为确定性数据，平滑提效。
+3.  **终极插件蒸馏 (YAML Mastery)**：编译生成高可确定、脱离大模型依赖的生产级插件脚本。
+
 欢迎使用 WebRPA 开发文档。本文档库旨在提供项目现状、开发规范及架构设计的单一事实来源。
 
 ---
@@ -12,8 +20,12 @@
 - 相关背景与实现记录见 `docs/TECHNICAL_DEBT.md`、`docs/project_progress.md`；运行参数见 `docs/CONFIGURATION.md`。
 
 ## 文档索引 (Index)
-- **[项目进度看板 (Project Progress)](project_progress.md)**  
-  当前可用能力、最近变更、各模块完成状态及下一步计划。
+- **[架构演进 2.0 (Architecture 2.0)](architecture_2_0.md)**：项目灵魂，描述了从寻找路径到自动固化再到生成 YAML 的进化漏斗。
+- **[项目进度看板 (Project Progress)](project_progress.md)**：实时变动日志。
+- **[北极星目标 (Project Goals)](PROJECT_GOALS.md)**：双阶段演进与 YAML 大师战略。
+- **[AI Onboarding 必读](AI_ONBOARDING.md)**：新会话启动指南。
+- **[AI 工作流设计清单 (AI Workflow Checklist)](ai_workflow_design_checklist.md)**  
+  设计基于 LLM/VLM 的自主智能体流程时的关键考量点。
 
 ---
 
@@ -42,6 +54,8 @@
   深度架构解析、依赖拓扑及核心组件（Runner, Interpreter, Controller）的运行机制。
 - **[Skills化演进与架构评估 (Skills Evolution)](SKILLS_EVOLUTION.md)**  
   评估项目“技能化”进度，分析架构阻力并指明 AI 自动合成技能的演进方向。
+- **[自主学习与感知记忆系统 (Architecture 2.0)](architecture_2_0.md)**  
+  设计目标：解决冷启动悖论，通过感知记忆消除硬编码，实现 AI 自主进化。
 
 ---
 

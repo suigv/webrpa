@@ -3,6 +3,9 @@
 ## 1. 目标与结构
 定义稳定的 **YAML 声明式插件契约**，实现业务流与执行引擎的解耦。
 
+> [!IMPORTANT]
+> **终极演进目标**：在 Architecture 2.0 的“成熟度漏斗”中，YAML 插件是系统的终极产物（Master YAML）。它代表了经过 AI 探索和数据固化后，能够脱离 LLM/VLM 依赖的极致性能与确定性脚本。
+
 ### 目录结构
 ```text
 plugins/<plugin_name>/

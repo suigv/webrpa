@@ -48,9 +48,10 @@
 - **变量栈抽象**：将 `context.vars` 内部改造为支持层级作用域，支持局部变量定义。
 - **脚本级生命周期钩子**：在 `WorkflowScript` 模型中增加 `finally:` 或 `on_error:` 块。
 
-### 阶段三：自动化闭环 (Long-term)
-- **无人值守蒸馏**：当 AI 成功完成高价值任务后，系统自动触发 `distill` 生成插件草稿。
-- **语义化搜索**：通过 Embedding 对 `/api/tasks/catalog` 进行语义化扩展，帮助 AI 精准选词。
+### 阶段三：成熟度漏斗与终极蒸馏 (Current Focus)
+- **自主探索 (AI Bootstrapping)**：打破硬编码规则枷锁，允许 AI 在 `unknown` 状态下利用 VLM 视觉直觉进行测绘。
+- **数据驱动演进 (Data-Driven Intermediary)**：自动从 Trace 中提取 Resource ID 等稳态特征，将任务从昂贵的推理模式平滑转入低成本的原生匹配模式。
+- **YAML 插件大师模式 (Master YAML Distillation)**：当数据足够稳定后，系统自动“编译”出脱离 AI 依赖、全量结构化、极速执行的终极 YAML 插件脚本。
 
 ---
 

@@ -6,9 +6,10 @@
 
 ## 1. 整体架构 (High-Level Architecture)
 
-WebRPA 采用三层架构模型：
+WebRPA 采用三层架构模型，其核心愿景是作为一个 **“行为编译器 (Behavior Compiler)”**，通过“成熟度漏斗 (Maturity Funnel)”将 AI 的探索轨迹编译为确定性的 YAML 插件。
+
 1.  **控制面 (Control Plane)**：基于 FastAPI 提供的 REST 接口，负责任务持久化、状态机管理和指标统计。
-2.  **执行引擎 (Execution Engine)**：负责解释并运行 YAML 插件工作流，支持 deterministic（确定性）和 autonomous（自主）两种执行模式。
+2.  **执行引擎 (Execution Engine)**：负责解释并运行工作流。支持从“自主探索 (AI Bootstrapping)”到“原生数据执行 (Native/Data Mode)”再到“终极插件蒸馏 (Master YAML)”的演进。
 3.  **驱动/硬件层 (Driver/Hardware Layer)**：通过三端口协议操作云机：
     - `sdk_port`: 8000（物理机级 SDK，负责容器/镜像/备份）。
     - `api_port`: 30000 + (cloud-1)*100 + 1（Android API，负责系统/剪贴板/文件）。
