@@ -18,6 +18,7 @@ This document provides a concise "done vs not-done" view tied to the goal and ro
 | M3 YAML Mastery (蒸馏) | Partial | `GoldenRunDistiller` 基座与相关工具已存在，仍缺多轮蒸馏证据闭环。 |
 
 - **文本化文档对齐 (2026-03-13)**：完成全量 `docs/` 内容审计，确立了多云机动态端口公式，修复了 SDK/API 文档的陈旧代码引用。
+- **执行器热点拆分完成 (2026-03-18)**：`agent_executor` 已拆为 runtime/planning/trace/support/types 多文件结构，`sdk_actions` 已拆为 façade + action catalog，当前热点文件继续演进时的变更面明显缩小。
 - **Skills 演进战略确立**：发布了 `docs/SKILLS_EVOLUTION.md`，识别出 ActionRegistry、Variable Scoping、Error Hooks 等核心架构优化点。
 - **AI 观察自愈能力**：针对 X App 复杂界面的 XML 4KB 截断问题实现了自愈式捕获。
 - **App 配置归一化与感知**：移除了硬编码绑定，统一收敛至 `config/apps/*.yaml`；实现了 **Runner 级应用感知注入**，支持根据 `app_id` 自动填充包名和选择器。

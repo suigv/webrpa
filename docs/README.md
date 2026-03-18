@@ -16,6 +16,7 @@
 - **[AI 会话必读指南 (AI Onboarding Guide)](AI_ONBOARDING.md)**: 开启新会话或新 AI 介入时，请优先引导其阅读此文档以同步项目上下文。
 
 ## 最新变更
+- `agent_executor` 已进一步拆成 runtime/planning/trace/support/types 多文件结构；`sdk_actions` 也已拆为 façade + catalog，降低两个热点文件继续膨胀的风险。
 - 设备/云机可用性现在支持提前熔断：活跃 target 连续 probe 失败达到 unavailable 阈值后，任务会直接以 `failed_circuit_breaker` / `target_unavailable` 终止，而不是等后续 RPC 超时。
 - 相关背景与实现记录见 `docs/TECHNICAL_DEBT.md`、`docs/project_progress.md`；运行参数见 `docs/CONFIGURATION.md`。
 

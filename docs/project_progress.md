@@ -9,6 +9,11 @@
 - 阶段：**Web Console Productization & Navigation Engine Hardening**
 - 核心状态：API、任务系统、插件执行、账号池全面可用；Web 控制台完成产品化改造；导航引擎具备自愈与锚点机制；AI 执行引擎接入托管链路。
 - 最近重点 (2026-03-17):
+  - **执行器热点继续拆分 (2026-03-18)**：
+    - **`agent_executor` 主循环瘦身**：将类型定义、通用辅助、规划链路、trace/证据链分别下沉到 `engine/agent_executor_types.py`、`engine/agent_executor_support.py`、`engine/agent_executor_planning.py`、`engine/agent_executor_trace.py`，`engine/agent_executor.py` 收口为更薄的运行时编排层。
+    - **兼容面显式保留**：保留 `engine.agent_executor.time` monkeypatch 入口以及 `_build_history_digest` 等现有导出路径，确保现有测试与外部调用不因内部拆分而断裂。
+    - **`sdk_actions` 目录化拆分**：`engine/actions/sdk_action_catalog.py` 接管 SDK/MYTOS 动作绑定目录与参数构造，`engine/actions/sdk_actions.py` 保留 registry 对外入口、运行时包装器与共享存储/配置/业务 façade，降低继续堆积为单文件热点的风险。
+    - **进度快照统计纠偏**：`tools/update_project_progress.py` 已同步改为统计 `sdk_actions.py + sdk_action_catalog.py`，避免文档快照因目录拆分而误报动作绑定数量。
   - **Agent Executor 登录推进稳态化 (2026-03-18)**：
     - **提交后过渡观察收紧**：`agent_executor` 在 `ui.key_press(key="enter")` 成功后，优先使用 `ui.observe_transition` 观察“离开当前页”的状态迁移，而不是接受包含当前页在内的宽松等待结果。
     - **弱证据输入门槛**：在 `account/password/two_factor` 这类文本输入阶段，弱证据状态下不再允许跨页面直接 `ui.input_text`；必须先在同一状态里完成输入框点击或其他就绪动作。
@@ -243,12 +248,12 @@
 
 | Metric | Value |
 |---|---:|
-| API route decorators (`api/routes`) | 41 |
+| API route decorators (`api/routes`) | 40 |
 | App-level route decorators (`api/server.py`) | 5 |
 | Plugin count (`plugins/*/manifest.yaml`) | 4 |
-| SDK action bindings (`engine/actions/sdk_actions.py`) | 154 |
-| Test files (`tests/test_*.py`) | 55 |
-| Test functions (`def test_*`) | 270 |
+| SDK action bindings (`engine/actions/sdk_actions.py` + `engine/actions/sdk_action_catalog.py`) | 154 |
+| Test files (`tests/test_*.py`) | 60 |
+| Test functions (`def test_*`) | 329 |
 <!-- AUTO_PROGRESS_SNAPSHOT:END -->
 
 ## 4. 维护说明

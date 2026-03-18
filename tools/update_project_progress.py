@@ -56,9 +56,14 @@ def _count_tests(root: Path) -> tuple[int, int]:
 
 
 def _count_sdk_actions(root: Path) -> int:
-    sdk_actions = root / "engine" / "actions" / "sdk_actions.py"
-    text = sdk_actions.read_text(encoding="utf-8")
-    return len(re.findall(r'"[a-z0-9_.]+"\s*:\s*\(', text))
+    action_dir = root / "engine" / "actions"
+    total = 0
+    for path in (action_dir / "sdk_actions.py", action_dir / "sdk_action_catalog.py"):
+        if not path.exists():
+            continue
+        text = path.read_text(encoding="utf-8")
+        total += len(re.findall(r'"[a-z0-9_.]+"\s*:\s*\(', text))
+    return total
 
 
 def _render_snapshot(root: Path) -> str:
@@ -76,7 +81,11 @@ def _render_snapshot(root: Path) -> str:
         f"| API route decorators (`api/routes`) | {router_count} |",
         f"| App-level route decorators (`api/server.py`) | {app_count} |",
         f"| Plugin count (`plugins/*/manifest.yaml`) | {plugin_count} |",
-        f"| SDK action bindings (`engine/actions/sdk_actions.py`) | {sdk_action_count} |",
+        (
+            "| SDK action bindings "
+            "(`engine/actions/sdk_actions.py` + `engine/actions/sdk_action_catalog.py`) "
+            f"| {sdk_action_count} |"
+        ),
         f"| Test files (`tests/test_*.py`) | {test_file_count} |",
         f"| Test functions (`def test_*`) | {test_fn_count} |",
         SNAPSHOT_END,
