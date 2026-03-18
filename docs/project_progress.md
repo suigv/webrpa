@@ -8,6 +8,11 @@
 - 阶段：**Web Console Productization & Navigation Engine Hardening**
 - 核心状态：API、任务系统、插件执行、账号池全面可用；Web 控制台完成产品化改造；导航引擎具备自愈与锚点机制；AI 执行引擎接入托管链路。
 - 最近重点 (2026-03-17):
+  - **Agent Executor 登录推进稳态化 (2026-03-18)**：
+    - **提交后过渡观察收紧**：`agent_executor` 在 `ui.key_press(key="enter")` 成功后，优先使用 `ui.observe_transition` 观察“离开当前页”的状态迁移，而不是接受包含当前页在内的宽松等待结果。
+    - **弱证据输入门槛**：在 `account/password/two_factor` 这类文本输入阶段，弱证据状态下不再允许跨页面直接 `ui.input_text`；必须先在同一状态里完成输入框点击或其他就绪动作。
+    - **回退状态抗抖动**：当密码/2FA 提交后的弱回退证据错误回跳到 `account/login_entry` 时，执行器会稳定保持较晚阶段，避免因 UI XML 误判把流程错误拉回前页。
+    - **前端日志可读性增强**：`task.observation` 事件新增 `state_certainty/state_source`，Web 控制台可直接区分 authoritative 观察与 fallback 推断。
   - **Ruff 规范基线收敛（排除 vendor）**：
     - `pyproject.toml` 统一 Ruff 配置（迁移至 `[tool.ruff.lint]`），并通过 `exclude=["vendor"]` 明确不对 vendored 第三方源码做 lint/format。
     - 核心目录（`api/ core/ engine/ ...`）`ruff format` 与 `ruff check` 全通过；同时补齐若干 legacy re-export（`ui_actions` metadata/close hooks）以保持 action registry 与测试兼容。
@@ -202,6 +207,10 @@
     - **新增 binding 蒸馏链路**：支持从 trace jsonl 自动提取 UI 特征并归纳界面状态。
     - **前端 AI 对话修复**：`binding_id` 服务化、allowed_actions 注册名对齐、SSE 事件流稳定性修复。
     - **LLM 调用链路修复**：新增 `OpenAIChatProvider` 并通过 `.env` 注入 key，由于采用了标准 OpenAI 封装协议，系统现在能更稳健地连接到各类代理服务。
+    - **统一入口 `.env` 加载**：`api.server` 现在会在 `MYT_LOAD_DOTENV!=0` 时主动加载项目根目录 `.env`，避免直接 `uvicorn api.server:app` 与 `run_webrpa.sh` 的环境行为不一致。
+    - **登录执行器约束增强**：`agent_executor` 不再把 `ui.observe_transition` 暴露给 planner 直接决策；当 `account/password/two_factor` 处于弱匹配且尚未确认输入框聚焦时，会强制 `ai.locate_point` 优先寻找输入框而非提交按钮。
+    - **加载态预算修复**：`agent_executor` 现在会在成功交互后检测通用 loading/progress 过渡层，并先内部等待状态稳定再重新规划，避免把“正在载入…”这类瞬态页面白白消耗成一个独立步骤。
+    - **尾部动态续步**：`agent_executor` 在用尽 `max_steps` 时不再一律硬失败；若最近观察仍显示明显推进、且未接近停滞/重复死循环，会自动一次性追加少量尾部预算，用于完成首页判定或收口动作。
 
 ## 2. 已实现功能清单
 

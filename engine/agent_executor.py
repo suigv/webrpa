@@ -65,6 +65,50 @@ def _json_safe(value: object, *, string_limit: int = 4000) -> object:
 
 _SAFE_PART_RE = re.compile(r"[^a-zA-Z0-9._-]+")
 _XML_PACKAGE_RE = re.compile(r'package="([^"]+)"')
+_TEXT_ENTRY_STATE_IDS = frozenset({"account", "password", "two_factor"})
+_TRANSITION_WAIT_TIMEOUT_MS = 2500
+_TRANSITION_WAIT_INTERVAL_MS = 300
+_LOADING_WAIT_TIMEOUT_MS = 5000
+_LOADING_WAIT_INTERVAL_MS = 400
+_DYNAMIC_STEP_EXTENSION_MIN = 2
+_DYNAMIC_STEP_EXTENSION_CAP = 5
+_DYNAMIC_STEP_EXTENSION_MAX_ROUNDS = 1
+_DYNAMIC_STEP_PROGRESS_WINDOW = 4
+_PLANNER_DISALLOWED_ACTIONS = frozenset({"ui.observe_transition"})
+_LOGIN_STAGE_ORDER = {
+    "login_entry": 0,
+    "account": 1,
+    "password": 2,
+    "two_factor": 3,
+    "home": 4,
+}
+_TEXT_ENTRY_FOCUS_QUERIES = {
+    "account": (
+        "账户输入页面中的用户名/手机号/邮箱输入框，或可直接输入账号的文本框区域。"
+        "优先返回输入框中心点，不要返回下一步按钮。"
+    ),
+    "password": (
+        "密码输入页面中的密码输入框或密码文本框区域。优先返回输入框中心点，不要返回登录/继续按钮。"
+    ),
+    "two_factor": (
+        "2FA 或验证码输入页面中的验证码输入框、单个数字输入格，或可输入验证码的文本框区域。"
+        "优先返回输入框中心点，不要返回确认/继续按钮。"
+    ),
+}
+_TEXT_ENTRY_SUBMIT_QUERIES = {
+    "account": (
+        "当前页面中用于提交已填写标识字段并推进流程的主操作控件。"
+        "优先返回页面主按钮、键盘动作键或明显的前进控件中心点，不要返回输入框。"
+    ),
+    "password": (
+        "当前页面中用于提交已填写密文字段并推进流程的主操作控件。"
+        "优先返回页面主按钮、键盘动作键或明显的前进控件中心点，不要返回输入框。"
+    ),
+    "two_factor": (
+        "当前页面中用于提交已填写验证码并推进流程的主操作控件。"
+        "优先返回页面主按钮、键盘动作键或明显的确认控件中心点，不要返回输入框。"
+    ),
+}
 
 
 def _safe_path_part(value: object, *, default: str) -> str:
@@ -247,12 +291,17 @@ def _planner_allowed_actions(
     *,
     allowed_actions: list[str],
     last_action: Mapping[str, object] | None,
+    observation_payload: Mapping[str, object] | None,
+    previous_state_id: str,
     observation_requires_fallback: bool,
 ) -> list[str]:
-    actions = [action for action in allowed_actions if action]
+    actions = [
+        action for action in allowed_actions if action and action not in _PLANNER_DISALLOWED_ACTIONS
+    ]
     action = str(_json_dict(last_action).get("action") or "").strip()
     result = _json_dict(_json_dict(last_action).get("result"))
     result_data = _json_dict(result.get("data"))
+    current_state_id = _observation_state_id(observation_payload)
 
     if observation_requires_fallback and "ai.locate_point" in actions:
         actions = _prioritize_action(actions, "ai.locate_point")
@@ -279,7 +328,27 @@ def _planner_allowed_actions(
         ]
         actions = _prioritize_action(actions, "ui.click")
 
+    if (
+        observation_requires_fallback
+        and current_state_id in _TEXT_ENTRY_STATE_IDS
+        and not _text_entry_ready_under_fallback(
+            last_action=last_action,
+            current_state_id=current_state_id,
+            previous_state_id=previous_state_id,
+        )
+    ):
+        actions = [item for item in actions if item != "ui.input_text"] or actions
+        actions = [item for item in actions if item != "ui.key_press"] or actions
+        if "ai.locate_point" in actions:
+            actions = _prioritize_action(actions, "ai.locate_point")
+        elif "ui.click" in actions:
+            actions = _prioritize_action(actions, "ui.click")
+
     return actions
+
+
+def _login_stage_rank(state_id: str) -> int:
+    return _LOGIN_STAGE_ORDER.get(str(state_id or "").strip(), -1)
 
 
 def _fallback_xml_text(fallback_evidence: Mapping[str, object]) -> str:
@@ -317,6 +386,12 @@ def _infer_login_stage_from_fallback_xml(fallback_evidence: Mapping[str, object]
     if not xml_text:
         return ""
 
+    verification_text_tokens = len(
+        re.findall(
+            r"(verification code|verification|authenticator|one[- ]time code|otp|2fa|two[- ]factor|验证码|校验码|动态码)",
+            xml_text,
+        )
+    )
     password_fields = len(re.findall(r'password="true"', xml_text))
     password_tokens = len(re.findall(r'resource-id="[^"]*password[^"]*"', xml_text))
     verification_tokens = len(
@@ -329,7 +404,7 @@ def _infer_login_stage_from_fallback_xml(fallback_evidence: Mapping[str, object]
 
     if password_fields >= 1 or password_tokens >= 1:
         return "password"
-    if edit_fields >= 4 or verification_tokens >= 1:
+    if edit_fields >= 4 or verification_tokens >= 1 or verification_text_tokens >= 1:
         return "two_factor"
     if edit_fields >= 1:
         return "account"
@@ -372,6 +447,78 @@ def _apply_fallback_state_hint(
     raw_details["fallback_state_hint"] = inferred_state
     raw_details["fallback_state_source"] = "ui_xml"
     observation["raw_details"] = raw_details
+    return observation
+
+
+def _fallback_indicates_loading(fallback_evidence: Mapping[str, object]) -> bool:
+    xml_text = _fallback_xml_text(fallback_evidence).lower()
+    if not xml_text:
+        return False
+
+    loading_copy = len(
+        re.findall(
+            r"(loading|please wait|processing|signing in|正在载入|正在加载|加载中|载入中|请稍候|請稍候|处理中|處理中)",
+            xml_text,
+        )
+    )
+    loading_widgets = len(
+        re.findall(
+            r'(android:id/progress|class="android\.widget\.progressbar"|resource-id="[^"]*(progress|loading|spinner)[^"]*")',
+            xml_text,
+        )
+    )
+    return loading_widgets >= 1 or (loading_copy >= 1 and "progressbar" in xml_text)
+
+
+def _stabilize_fallback_state_hint(
+    observation_payload: object,
+    *,
+    previous_state_id: str,
+    last_action: Mapping[str, object] | None,
+) -> dict[str, object]:
+    observation = _json_dict(observation_payload)
+    if not observation:
+        return {}
+    raw_details = _json_dict(observation.get("raw_details"))
+    fallback_source = str(raw_details.get("fallback_state_source") or "").strip()
+    if not fallback_source:
+        return observation
+
+    current_state_id = _observation_state_id(observation)
+    previous_state_id = str(previous_state_id or "").strip()
+    if not current_state_id or not previous_state_id or current_state_id == previous_state_id:
+        return observation
+
+    action = str(_json_dict(last_action).get("action") or "").strip()
+    result = _json_dict(_json_dict(last_action).get("result"))
+    if not bool(result.get("ok")) or action not in {"ui.key_press", "ui.click"}:
+        return observation
+
+    if (
+        previous_state_id in {"password", "two_factor"}
+        and current_state_id in {"account", "login_entry"}
+        and _login_stage_rank(current_state_id) < _login_stage_rank(previous_state_id)
+    ):
+        state = _json_dict(observation.get("state"))
+        state["state_id"] = previous_state_id
+        observation["state"] = state
+
+        evidence = _json_dict(observation.get("evidence"))
+        evidence["text"] = previous_state_id
+        evidence["summary"] = (
+            f"stabilized fallback stage '{previous_state_id}' after submit-style action; "
+            f"ignored regressive hint '{current_state_id}'"
+        )
+        confidence = evidence.get("confidence")
+        if not isinstance(confidence, (int, float)) or float(confidence) < 0.4:
+            evidence["confidence"] = 0.4
+        observation["evidence"] = evidence
+
+        raw_details["fallback_state_hint"] = previous_state_id
+        raw_details["fallback_state_original_hint"] = current_state_id
+        raw_details["fallback_state_source"] = "stabilized_after_submit"
+        observation["raw_details"] = raw_details
+
     return observation
 
 
@@ -438,19 +585,225 @@ def _rewrite_two_factor_input_params(
     return next_params
 
 
+def _normalize_locate_point_params(
+    action_name: str,
+    action_params: Mapping[str, object],
+) -> dict[str, object]:
+    next_params = {str(key): value for key, value in action_params.items()}
+    if action_name != "ai.locate_point":
+        return next_params
+    if any(
+        next_params.get(key) for key in ("prompt", "query", "instruction", "text", "description")
+    ):
+        return next_params
+    goal = str(next_params.get("goal") or "").strip()
+    if goal:
+        next_params["query"] = goal
+    return next_params
+
+
+def _rewrite_text_entry_locate_params(
+    action_name: str,
+    action_params: Mapping[str, object],
+    observation_state: Mapping[str, object] | None,
+    *,
+    last_action: Mapping[str, object] | None,
+    previous_state_id: str,
+    observation_requires_fallback: bool,
+) -> dict[str, object]:
+    next_params = {str(key): value for key, value in action_params.items()}
+    if action_name != "ai.locate_point" or not observation_requires_fallback:
+        return next_params
+
+    state_id = _observation_state_id(observation_state)
+    if state_id not in _TEXT_ENTRY_STATE_IDS:
+        return next_params
+    if _is_submit_keypress(last_action) and previous_state_id == state_id:
+        submit_query = _TEXT_ENTRY_SUBMIT_QUERIES.get(state_id)
+        if submit_query:
+            for key in ("prompt", "query", "instruction", "text", "description"):
+                if key in next_params:
+                    next_params[key] = submit_query
+                    break
+            else:
+                next_params["query"] = submit_query
+        return next_params
+    if _text_entry_ready_under_fallback(
+        last_action=last_action,
+        current_state_id=state_id,
+        previous_state_id=previous_state_id,
+    ):
+        return next_params
+
+    focus_query = _TEXT_ENTRY_FOCUS_QUERIES.get(state_id)
+    if not focus_query:
+        return next_params
+
+    for key in ("prompt", "query", "instruction", "text", "description"):
+        if key in next_params:
+            next_params[key] = focus_query
+            break
+    else:
+        next_params["query"] = focus_query
+    return next_params
+
+
+def _text_entry_ready_under_fallback(
+    *,
+    last_action: Mapping[str, object] | None,
+    current_state_id: str,
+    previous_state_id: str,
+) -> bool:
+    if current_state_id not in _TEXT_ENTRY_STATE_IDS:
+        return True
+    action = str(_json_dict(last_action).get("action") or "").strip()
+    result = _json_dict(_json_dict(last_action).get("result"))
+    if not bool(result.get("ok")):
+        return False
+    if action == "ui.input_text":
+        return previous_state_id == current_state_id
+    if action in {"ui.click", "selector_click_one", "node_click", "browser.click"}:
+        return previous_state_id == current_state_id
+    return False
+
+
+def _is_submit_keypress(last_action: Mapping[str, object] | None) -> bool:
+    action = str(_json_dict(last_action).get("action") or "").strip()
+    if action != "ui.key_press":
+        return False
+    result = _json_dict(_json_dict(last_action).get("result"))
+    if not bool(result.get("ok")):
+        return False
+    params = _json_dict(_json_dict(last_action).get("params"))
+    return str(params.get("key") or "").strip().lower() == "enter"
+
+
+def _observation_certainty(observation_payload: object, *, observation_ok: bool) -> str:
+    if observation_ok:
+        return "authoritative"
+    observation = _json_dict(observation_payload)
+    raw_details = _json_dict(observation.get("raw_details"))
+    if str(raw_details.get("fallback_state_source") or "").strip():
+        return "fallback_inferred"
+    return "unknown"
+
+
+def _observation_source(observation_payload: object, *, operation: str) -> str:
+    observation = _json_dict(observation_payload)
+    raw_details = _json_dict(observation.get("raw_details"))
+    fallback_source = str(raw_details.get("fallback_state_source") or "").strip()
+    if fallback_source:
+        return fallback_source
+    return operation or "match_state"
+
+
+def _should_wait_through_loading_overlay(
+    *,
+    last_action: Mapping[str, object] | None,
+    fallback_evidence: Mapping[str, object],
+) -> bool:
+    if not _fallback_indicates_loading(fallback_evidence):
+        return False
+    action = str(_json_dict(last_action).get("action") or "").strip()
+    if action in {"", "ai.locate_point"}:
+        return False
+    result = _json_dict(_json_dict(last_action).get("result"))
+    return bool(result.get("ok"))
+
+
+def _dynamic_step_extension_size(base_max_steps: int) -> int:
+    return min(_DYNAMIC_STEP_EXTENSION_CAP, max(_DYNAMIC_STEP_EXTENSION_MIN, base_max_steps // 4))
+
+
+def _recent_observation_progress_score(
+    history: list[dict[str, object]],
+    *,
+    last_observation: Mapping[str, object],
+    window: int = _DYNAMIC_STEP_PROGRESS_WINDOW,
+) -> int:
+    recent = history[-window:] if len(history) > window else history
+    fingerprints = [
+        _stable_fingerprint(_json_dict(entry.get("observation")))
+        for entry in recent
+        if _json_dict(entry.get("observation"))
+    ]
+    last_observation_data = _json_dict(last_observation.get("data"))
+    if last_observation_data:
+        fingerprints.append(_stable_fingerprint(last_observation_data))
+    return len(set(fingerprints))
+
+
+def _dynamic_step_extension_reason(
+    *,
+    config: AgentExecutorConfig,
+    history: list[dict[str, object]],
+    last_observation: Mapping[str, object],
+    last_action: Mapping[str, object] | None,
+    stagnant_observation_count: int,
+    repeated_action_count: int,
+) -> str:
+    if not history or last_action is None:
+        return ""
+
+    result = _json_dict(_json_dict(last_action).get("result"))
+    if not bool(result.get("ok")):
+        return ""
+
+    if stagnant_observation_count >= max(1, config.stagnant_limit - 1):
+        return ""
+
+    if repeated_action_count >= 3:
+        return ""
+
+    fallback_evidence = _json_dict(last_observation.get("fallback_evidence"))
+    if _fallback_indicates_loading(fallback_evidence):
+        return "loading_overlay"
+
+    if _is_submit_keypress(last_action):
+        current_state_id = _observation_state_id(_json_dict(last_observation.get("data")))
+        if current_state_id in {"unknown", "home"}:
+            return "submit_transition_pending"
+
+    if (
+        repeated_action_count <= 1
+        and _recent_observation_progress_score(history, last_observation=last_observation) >= 2
+    ):
+        return "recent_progress"
+
+    return ""
+
+
 def _needs_form_submit(
-    last_action: Mapping[str, object] | None, observation_state: Mapping[str, object] | None
+    last_action: Mapping[str, object] | None,
+    observation_state: Mapping[str, object] | None,
+    *,
+    previous_state_id: str,
 ) -> bool:
     observation_dict = _json_dict(observation_state)
     state_dict = _json_dict(observation_dict.get("state"))
     state_id = str(state_dict.get("state_id") or "").strip()
-    if state_id not in {"account", "password", "two_factor"}:
+    if state_id not in _TEXT_ENTRY_STATE_IDS:
         return False
     action = str(_json_dict(last_action).get("action") or "").strip()
     if action != "ui.input_text":
         return False
     result = _json_dict(_json_dict(last_action).get("result"))
-    return bool(result.get("ok"))
+    return bool(result.get("ok")) and previous_state_id == state_id
+
+
+def _submit_compensation_query(
+    last_action: Mapping[str, object] | None,
+    observation_state: Mapping[str, object] | None,
+    *,
+    previous_state_id: str,
+) -> str:
+    if not _is_submit_keypress(last_action):
+        return ""
+    observation_dict = _json_dict(observation_state)
+    state_id = _observation_state_id(observation_dict)
+    if state_id not in _TEXT_ENTRY_STATE_IDS or previous_state_id != state_id:
+        return ""
+    return _TEXT_ENTRY_SUBMIT_QUERIES.get(state_id, "")
 
 
 def _vlm_allowed_action_types(allowed_actions: list[str]) -> set[str]:
@@ -523,6 +876,14 @@ class AgentExecutorRuntime:
         context.should_cancel = should_cancel
         context.emit_event = (runtime or {}).get("emit_event")
         ui_match_state = self._registry.resolve("ui.match_state")
+        ui_observe_transition = (
+            self._registry.resolve("ui.observe_transition")
+            if self._registry.has("ui.observe_transition")
+            else None
+        )
+        ui_wait_until = (
+            self._registry.resolve("ui.wait_until") if self._registry.has("ui.wait_until") else None
+        )
         target_package = str(payload.get("package") or "").strip()
 
         if target_package:
@@ -550,6 +911,9 @@ class AgentExecutorRuntime:
         pending_trace_record: dict[str, object] | None = None
         repeated_action_count = 0
         previous_action_fingerprint = ""
+        effective_max_steps = config.max_steps
+        step_budget_extensions_used = 0
+        extended_steps_total = 0
         last_observation: dict[str, object] = {
             "data": {},
             "ok": False,
@@ -560,7 +924,40 @@ class AgentExecutorRuntime:
             "step_index": 0,
         }
 
-        for step_index in range(1, config.max_steps + 1):
+        step_index = 1
+        while True:
+            if step_index > effective_max_steps:
+                extension_reason = ""
+                if step_budget_extensions_used < _DYNAMIC_STEP_EXTENSION_MAX_ROUNDS:
+                    extension_reason = _dynamic_step_extension_reason(
+                        config=config,
+                        history=history,
+                        last_observation=last_observation,
+                        last_action=last_action,
+                        stagnant_observation_count=stagnant_observation_count,
+                        repeated_action_count=repeated_action_count,
+                    )
+                if extension_reason:
+                    extension_steps = _dynamic_step_extension_size(config.max_steps)
+                    previous_max_steps = effective_max_steps
+                    effective_max_steps += extension_steps
+                    step_budget_extensions_used += 1
+                    extended_steps_total += extension_steps
+                    if context.emit_event:
+                        context.emit_event(
+                            "task.step_budget_extended",
+                            {
+                                "step": step_index - 1,
+                                "previous_max_steps": previous_max_steps,
+                                "effective_max_steps": effective_max_steps,
+                                "extension_steps": extension_steps,
+                                "reason": extension_reason,
+                            },
+                        )
+                    continue
+                break
+
+            previous_state_id = _observation_state_id(last_observation.get("data"))
             if should_cancel is not None and should_cancel():
                 self._flush_pending_trace(trace_context, pending_trace_record)
                 self._append_trace(
@@ -590,13 +987,46 @@ class AgentExecutorRuntime:
                 )
                 return self._cancelled(step_index=step_index - 1, history=history)
 
-            observation = ui_match_state(
-                {
-                    **config.observation_params,
-                    "expected_state_ids": list(config.expected_state_ids),
-                },
-                context,
-            )
+            observation_params = {
+                **config.observation_params,
+                "expected_state_ids": list(config.expected_state_ids),
+            }
+            observation_operation = "match_state"
+            transition_target_state_ids = [
+                state_id for state_id in config.expected_state_ids if state_id != previous_state_id
+            ]
+            if (
+                _is_submit_keypress(last_action)
+                and previous_state_id
+                and previous_state_id != "unknown"
+                and transition_target_state_ids
+                and ui_observe_transition is not None
+            ):
+                observation_operation = "observe_transition"
+                observation = ui_observe_transition(
+                    {
+                        **observation_params,
+                        "from_state_ids": [previous_state_id],
+                        "to_state_ids": transition_target_state_ids,
+                        "timeout_ms": _TRANSITION_WAIT_TIMEOUT_MS,
+                        "interval_ms": _TRANSITION_WAIT_INTERVAL_MS,
+                    },
+                    context,
+                )
+            elif _is_submit_keypress(last_action) and ui_wait_until is not None:
+                observation_operation = "wait_until"
+                observation = ui_wait_until(
+                    {
+                        **observation_params,
+                        "expected_state_ids": transition_target_state_ids
+                        or list(config.expected_state_ids),
+                        "timeout_ms": _TRANSITION_WAIT_TIMEOUT_MS,
+                        "interval_ms": _TRANSITION_WAIT_INTERVAL_MS,
+                    },
+                    context,
+                )
+            else:
+                observation = ui_match_state(observation_params, context)
             observed_at = _timestamp()
             observation_payload = observation.model_dump(mode="python")
             observation_state = observation_payload.get("data", {})
@@ -611,11 +1041,59 @@ class AgentExecutorRuntime:
                 fallback_evidence,
                 last_action,
             )
+            observation_state = _stabilize_fallback_state_hint(
+                observation_state,
+                previous_state_id=previous_state_id,
+                last_action=last_action,
+            )
+            if _should_wait_through_loading_overlay(
+                last_action=last_action,
+                fallback_evidence=fallback_evidence,
+            ):
+                loading_wait_params = {
+                    **observation_params,
+                    "expected_state_ids": list(config.expected_state_ids),
+                    "timeout_ms": _LOADING_WAIT_TIMEOUT_MS,
+                    "interval_ms": _LOADING_WAIT_INTERVAL_MS,
+                }
+                if ui_wait_until is not None:
+                    observation_operation = "wait_until_loading"
+                    observation = ui_wait_until(loading_wait_params, context)
+                else:
+                    observation_operation = "match_state_loading"
+                    observation = ui_match_state(loading_wait_params, context)
+                observed_at = _timestamp()
+                observation_payload = observation.model_dump(mode="python")
+                observation_state = observation_payload.get("data", {})
+                fallback_evidence = self._collect_fallback_evidence(
+                    context,
+                    observation_state,
+                    trace_context=trace_context,
+                    step_index=step_index,
+                )
+                observation_state = _apply_fallback_state_hint(
+                    observation_state,
+                    fallback_evidence,
+                    last_action,
+                )
+                observation_state = _stabilize_fallback_state_hint(
+                    observation_state,
+                    previous_state_id=previous_state_id,
+                    last_action=last_action,
+                )
             observation_modality = self._observation_modality(observation_state)
             observed_state_ids = self._observed_state_ids(observation_state)
             observation_requires_fallback = _observation_requires_fallback(
                 observation_ok=bool(observation.ok),
                 observation_payload=observation_state,
+            )
+            observation_certainty = _observation_certainty(
+                observation_state,
+                observation_ok=bool(observation.ok),
+            )
+            observation_source = _observation_source(
+                observation_state,
+                operation=observation_operation,
             )
             fallback_reason = self._fallback_reason(
                 observation_ok=bool(observation.ok),
@@ -624,7 +1102,7 @@ class AgentExecutorRuntime:
             if not observation_requires_fallback:
                 observation_fingerprint = _stable_fingerprint(observation_state)
             else:
-                xml_content = _json_dict(fallback_evidence.get("ui_xml")).get("content", "")
+                xml_content = _fallback_xml_text(fallback_evidence)
                 observation_fingerprint = _stable_fingerprint(xml_content)
             if context.emit_event:
                 context.emit_event(
@@ -634,6 +1112,8 @@ class AgentExecutorRuntime:
                         "modality": observation_modality,
                         "observed_state_ids": observed_state_ids,
                         "ok": bool(observation.ok),
+                        "state_certainty": observation_certainty,
+                        "state_source": observation_source,
                     },
                 )
             last_observation = {
@@ -642,6 +1122,8 @@ class AgentExecutorRuntime:
                 "fallback_reason": fallback_reason,
                 "modality": observation_modality,
                 "observed_state_ids": observed_state_ids,
+                "state_certainty": observation_certainty,
+                "state_source": observation_source,
                 "fallback_evidence": fallback_evidence,
                 "observed_at": observed_at,
                 "step_index": step_index,
@@ -716,10 +1198,16 @@ class AgentExecutorRuntime:
             planner_allowed_actions = _planner_allowed_actions(
                 allowed_actions=config.allowed_actions,
                 last_action=last_action,
+                observation_payload=observation_state
+                if isinstance(observation_state, dict)
+                else None,
+                previous_state_id=previous_state_id,
                 observation_requires_fallback=observation_requires_fallback,
             )
             if _needs_form_submit(
-                last_action, observation_state if isinstance(observation_state, dict) else None
+                last_action,
+                observation_state if isinstance(observation_state, dict) else None,
+                previous_state_id=previous_state_id,
             ):
                 plan = {
                     "ok": True,
@@ -734,6 +1222,59 @@ class AgentExecutorRuntime:
                     "model": "",
                     "planner_structured_state": None,
                 }
+            elif (
+                observation_requires_fallback
+                and "ai.locate_point" in config.allowed_actions
+                and "ui.click" in config.allowed_actions
+            ):
+                compensation_plan = self._maybe_build_submit_compensation_plan(
+                    context=context,
+                    last_action=last_action,
+                    observation_state=observation_state
+                    if isinstance(observation_state, dict)
+                    else None,
+                    previous_state_id=previous_state_id,
+                    fallback_reason=fallback_reason,
+                    step_index=step_index,
+                )
+                if compensation_plan is not None:
+                    plan = compensation_plan
+                else:
+                    from engine.planners import PlannerInput
+
+                    planner_input = PlannerInput(
+                        goal=config.goal,
+                        step_index=step_index,
+                        allowed_actions=planner_allowed_actions,
+                        observation=observation_state
+                        if isinstance(observation_state, dict)
+                        else {},
+                        last_action=last_action,
+                        fallback_enabled=observation_requires_fallback,
+                        fallback_reason=fallback_reason,
+                        fallback_evidence=fallback_evidence,
+                        fallback_modalities=config.fallback_modalities,
+                        system_prompt=config.system_prompt,
+                        llm_runtime=config.llm_runtime,
+                        planner_inputs=config.planner_inputs,
+                        history_digest=history_digest,
+                        reflection=reflection,
+                    )
+                    for attempt in range(max_planner_retries):
+                        planner_output = self._planner.plan(planner_input)
+                        plan = planner_output.to_legacy_dict()
+                        if plan.get("ok") is not False:
+                            break
+
+                        if plan.get("retryable") and attempt < max_planner_retries - 1:
+                            backoff = 2 ** (attempt + 1)
+                            logger.warning(
+                                f"Planner failed (retryable), backing off {backoff}s: {plan.get('message')}"
+                            )
+                            if self._interruptible_sleep(backoff, should_cancel):
+                                break
+                            continue
+                        break
             else:
                 from engine.planners import PlannerInput
 
@@ -843,6 +1384,15 @@ class AgentExecutorRuntime:
                 _json_dict(plan.get("params")),
                 observation_state if isinstance(observation_state, dict) else None,
                 config.planner_inputs,
+            )
+            action_params = _normalize_locate_point_params(action_name, action_params)
+            action_params = _rewrite_text_entry_locate_params(
+                action_name,
+                action_params,
+                observation_state if isinstance(observation_state, dict) else None,
+                last_action=last_action,
+                previous_state_id=previous_state_id,
+                observation_requires_fallback=observation_requires_fallback,
             )
 
             if action_name not in config.allowed_actions:
@@ -978,14 +1528,17 @@ class AgentExecutorRuntime:
                 )
                 return self._cancelled(step_index=step_index, history=history)
 
-        terminal_sequence = config.max_steps + (1 if pending_trace_record is not None else 0)
+            step_index += 1
+
+        final_step_count = step_index - 1
+        terminal_sequence = final_step_count + (1 if pending_trace_record is not None else 0)
         self._flush_pending_trace(trace_context, pending_trace_record)
         self._append_trace(
             trace_context,
             self._terminal_trace_record(
                 status="failed_circuit_breaker",
                 sequence=terminal_sequence,
-                step_index=config.max_steps,
+                step_index=final_step_count,
                 observation=_json_dict(last_observation.get("data")),
                 observation_ok=bool(last_observation.get("ok")),
                 observation_modality=str(last_observation.get("modality") or "structured_state"),
@@ -1009,13 +1562,64 @@ class AgentExecutorRuntime:
             checkpoint="loop",
             code="step_budget_exhausted",
             message="gpt executor exhausted configured step budget",
-            step_count=config.max_steps,
+            step_count=final_step_count,
             history=history,
             circuit_breaker={
                 "code": "step_budget_exhausted",
                 "max_steps": config.max_steps,
+                "effective_max_steps": effective_max_steps,
+                "step_budget_extensions_used": step_budget_extensions_used,
+                "extended_steps_total": extended_steps_total,
             },
         )
+
+    def _maybe_build_submit_compensation_plan(
+        self,
+        *,
+        context: ExecutionContext,
+        last_action: Mapping[str, object] | None,
+        observation_state: Mapping[str, object] | None,
+        previous_state_id: str,
+        fallback_reason: str,
+        step_index: int,
+    ) -> dict[str, Any] | None:
+        query = _submit_compensation_query(
+            last_action,
+            observation_state,
+            previous_state_id=previous_state_id,
+        )
+        if not query or not self._registry.has("ai.locate_point"):
+            return None
+
+        locate_action = self._registry.resolve("ai.locate_point")
+        locate_result = locate_action({"query": query}, context)
+        if not locate_result.ok:
+            return None
+
+        locate_data = _json_dict(locate_result.data)
+        x = locate_data.get("x")
+        y = locate_data.get("y")
+        if not isinstance(x, (int, float)) or not isinstance(y, (int, float)):
+            return None
+
+        return {
+            "ok": True,
+            "done": False,
+            "action": "ui.click",
+            "params": {"x": int(x), "y": int(y)},
+            "message": "submit compensation click after enter did not advance the current text-entry stage",
+            "planned_at": _timestamp(),
+            "fallback_reason": fallback_reason,
+            "request_id": "",
+            "provider": "",
+            "model": "",
+            "planner_structured_state": None,
+            "compensation": {
+                "kind": "submit_fallback_locate_click",
+                "query": query,
+                "step": step_index,
+            },
+        }
 
     @staticmethod
     def _normalize_xml_filter(raw: object) -> dict[str, int] | None:

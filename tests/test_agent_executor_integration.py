@@ -28,22 +28,43 @@ def _build_runtime(
     *,
     llm_client: _SequencedLLMClient,
     observations: list[ActionResult | Mapping[str, object]],
+    wait_observations: list[ActionResult | Mapping[str, object]] | None = None,
     trace_store: ModelTraceStore | None = None,
     extra_actions: dict[str, Callable[..., ActionResult]] | None = None,
 ) -> AgentExecutorRuntime:
     registry = ActionRegistry()
     observed: list[ActionResult] = [_coerce_action_result(item) for item in observations]
     fallback_observation = observed[-1]
+    waited: list[ActionResult] | None = (
+        [_coerce_action_result(item) for item in wait_observations]
+        if wait_observations is not None
+        else None
+    )
+    fallback_wait_observation = waited[-1] if waited else fallback_observation
 
     def _ui_match_state(params, context):
         _ = (params, context)
         return observed.pop(0) if observed else fallback_observation
+
+    def _ui_wait_until(params, context):
+        _ = (params, context)
+        if waited is None:
+            return observed.pop(0) if observed else fallback_observation
+        return waited.pop(0) if waited else fallback_wait_observation
+
+    def _ui_observe_transition(params, context):
+        _ = (params, context)
+        if waited is None:
+            return observed.pop(0) if observed else fallback_observation
+        return waited.pop(0) if waited else fallback_wait_observation
 
     def _ui_click(params, context):
         _ = context
         return ActionResult(ok=True, code="ok", data={"clicked": params})
 
     registry.register("ui.match_state", _ui_match_state)
+    registry.register("ui.wait_until", _ui_wait_until)
+    registry.register("ui.observe_transition", _ui_observe_transition)
     registry.register("ui.click", _ui_click)
     for action_name, handler in (extra_actions or {}).items():
         registry.register(action_name, handler)
@@ -127,7 +148,11 @@ def test_agent_executor_circuit_breaker_step_budget_exhausted(tmp_path: Path):
     assert result["status"] == "failed_circuit_breaker"
     assert result["code"] == "step_budget_exhausted"
     assert result["step_count"] == 2
-    assert result["circuit_breaker"] == {"code": "step_budget_exhausted", "max_steps": 2}
+    assert result["circuit_breaker"]["code"] == "step_budget_exhausted"
+    assert result["circuit_breaker"]["max_steps"] == 2
+    assert result["circuit_breaker"]["effective_max_steps"] == 2
+    assert result["circuit_breaker"]["step_budget_extensions_used"] == 0
+    assert result["circuit_breaker"]["extended_steps_total"] == 0
     records = _read_trace_records(tmp_path / "traces")
     assert [record["record_type"] for record in records] == ["step", "step", "terminal"]
     assert records[-1]["code"] == "step_budget_exhausted"
@@ -480,6 +505,591 @@ def test_agent_executor_auto_submits_login_field_after_input():
     assert len(llm_client.calls) == 2
 
 
+def test_agent_executor_observes_transition_after_submit_keypress():
+    llm_client = _SequencedLLMClient(
+        responses=[
+            LLMResponse(
+                ok=True,
+                request_id="req-1",
+                provider="openai",
+                model="gpt-5.4",
+                output_text=json.dumps(
+                    {"action": "ui.input_text", "params": {"text": "demo_user"}}
+                ),
+            ),
+            LLMResponse(
+                ok=True,
+                request_id="req-2",
+                provider="openai",
+                model="gpt-5.4",
+                output_text=json.dumps({"done": True, "message": "moved to password"}),
+            ),
+        ]
+    )
+    transition_calls: list[dict[str, object]] = []
+
+    def _key_press(params, context):
+        _ = context
+        return ActionResult(ok=True, code="ok", data={"key": params.get("key")})
+
+    def _ui_observe_transition(params, context):
+        _ = context
+        transition_calls.append(dict(params))
+        return ActionResult(
+            ok=True,
+            code="ok",
+            data={
+                "platform": "native",
+                "state": {"state_id": "password"},
+                "status": "transition_observed",
+                "transition": {
+                    "from_state": {"state_id": "account"},
+                    "to_state": {"state_id": "password"},
+                    "changed": True,
+                },
+            },
+        )
+
+    runtime = _build_runtime(
+        llm_client=llm_client,
+        observations=[
+            {
+                "platform": "native",
+                "state": {"state_id": "account"},
+                "status": "matched",
+                "ok": True,
+            },
+            {
+                "platform": "native",
+                "state": {"state_id": "account"},
+                "status": "matched",
+                "ok": True,
+            },
+        ],
+        wait_observations=[
+            {
+                "platform": "native",
+                "state": {"state_id": "password"},
+                "status": "matched",
+                "ok": True,
+            }
+        ],
+        extra_actions={
+            "ui.key_press": _key_press,
+            "ui.input_text": lambda p, c: ActionResult(ok=True, code="ok"),
+            "ui.observe_transition": _ui_observe_transition,
+        },
+    )
+
+    result = runtime.run(
+        {
+            "goal": "login",
+            "expected_state_ids": ["account", "password"],
+            "allowed_actions": ["ui.input_text", "ui.key_press"],
+            "max_steps": 3,
+            "stagnant_limit": 2,
+        }
+    )
+
+    assert result["ok"] is True
+    assert transition_calls == [
+        {
+            "expected_state_ids": ["account", "password"],
+            "from_state_ids": ["account"],
+            "to_state_ids": ["password"],
+            "timeout_ms": 2500,
+            "interval_ms": 300,
+        }
+    ]
+    second_prompt = json.loads(cast(LLMRequest, llm_client.calls[1]["request"]).prompt)
+    assert second_prompt["observation"]["state"]["state_id"] == "password"
+
+
+def test_agent_executor_does_not_offer_ui_observe_transition_to_planner():
+    llm_client = _SequencedLLMClient(
+        responses=[
+            LLMResponse(
+                ok=True,
+                request_id="req-1",
+                provider="openai",
+                model="gpt-5.4",
+                output_text=json.dumps({"done": True, "message": "planner inspected actions"}),
+            )
+        ]
+    )
+
+    runtime = _build_runtime(
+        llm_client=llm_client,
+        observations=[
+            {
+                "platform": "native",
+                "state": {"state_id": "password"},
+                "status": "no_match",
+                "ok": False,
+            }
+        ],
+        extra_actions={
+            "ai.locate_point": lambda p, c: ActionResult(ok=True, code="ok", data={"x": 1, "y": 2})
+        },
+    )
+
+    result = runtime.run(
+        {
+            "goal": "login",
+            "expected_state_ids": ["account", "password", "two_factor"],
+            "allowed_actions": ["ai.locate_point", "ui.click", "ui.observe_transition"],
+            "max_steps": 1,
+            "stagnant_limit": 1,
+        }
+    )
+
+    assert result["ok"] is True
+    prompt = json.loads(cast(LLMRequest, llm_client.calls[0]["request"]).prompt)
+    assert prompt["allowed_actions"] == ["ai.locate_point", "ui.click"]
+
+
+def test_agent_executor_rewrites_fallback_password_locate_query_toward_input_field():
+    llm_client = _SequencedLLMClient(
+        responses=[
+            LLMResponse(
+                ok=True,
+                request_id="req-1",
+                provider="openai",
+                model="gpt-5.4",
+                output_text=json.dumps({"action": "ui.click", "params": {"x": 50, "y": 60}}),
+            ),
+            LLMResponse(
+                ok=True,
+                request_id="req-2",
+                provider="openai",
+                model="gpt-5.4",
+                output_text=json.dumps(
+                    {"action": "ai.locate_point", "params": {"query": "登录或继续按钮"}}
+                ),
+            ),
+            LLMResponse(
+                ok=True,
+                request_id="req-3",
+                provider="openai",
+                model="gpt-5.4",
+                output_text=json.dumps({"done": True, "message": "query corrected"}),
+            ),
+        ]
+    )
+    locate_calls: list[dict[str, object]] = []
+
+    def _locate_point(params, context):
+        _ = context
+        locate_calls.append(dict(params))
+        return ActionResult(ok=True, code="ok", data={"x": 200, "y": 740})
+
+    runtime = _build_runtime(
+        llm_client=llm_client,
+        observations=[
+            {
+                "platform": "native",
+                "state": {"state_id": "account"},
+                "status": "matched",
+                "ok": True,
+            },
+            {
+                "platform": "native",
+                "state": {"state_id": "password"},
+                "status": "no_match",
+                "ok": False,
+            },
+            {
+                "platform": "native",
+                "state": {"state_id": "password"},
+                "status": "no_match",
+                "ok": False,
+            },
+        ],
+        extra_actions={
+            "ai.locate_point": _locate_point,
+            "ui.input_text": lambda p, c: ActionResult(ok=True, code="ok"),
+        },
+    )
+
+    result = runtime.run(
+        {
+            "goal": "login",
+            "expected_state_ids": ["account", "password", "two_factor"],
+            "allowed_actions": ["ai.locate_point", "ui.click", "ui.input_text"],
+            "max_steps": 3,
+            "stagnant_limit": 3,
+        }
+    )
+
+    assert result["ok"] is True
+    assert locate_calls == [
+        {
+            "query": (
+                "密码输入页面中的密码输入框或密码文本框区域。"
+                "优先返回输入框中心点，不要返回登录/继续按钮。"
+            )
+        }
+    ]
+
+
+def test_agent_executor_preserves_submit_target_locate_query_after_enter_on_account_page():
+    llm_client = _SequencedLLMClient(
+        responses=[
+            LLMResponse(
+                ok=True,
+                request_id="req-1",
+                provider="openai",
+                model="gpt-5.4",
+                output_text=json.dumps(
+                    {"action": "ui.input_text", "params": {"text": "demo_user"}}
+                ),
+            ),
+            LLMResponse(
+                ok=True,
+                request_id="req-2",
+                provider="openai",
+                model="gpt-5.4",
+                output_text=json.dumps({"done": True, "message": "submit target preserved"}),
+            ),
+        ]
+    )
+    locate_calls: list[dict[str, object]] = []
+
+    def _locate_point(params, context):
+        _ = context
+        locate_calls.append(dict(params))
+        return ActionResult(ok=True, code="ok", data={"x": 930, "y": 1813})
+
+    runtime = _build_runtime(
+        llm_client=llm_client,
+        observations=[
+            {
+                "platform": "native",
+                "state": {"state_id": "account"},
+                "status": "matched",
+                "ok": True,
+            },
+            {
+                "platform": "native",
+                "state": {"state_id": "account"},
+                "status": "matched",
+                "ok": True,
+            },
+            {
+                "platform": "native",
+                "state": {"state_id": "account"},
+                "status": "no_match",
+                "ok": False,
+            },
+            {
+                "platform": "native",
+                "state": {"state_id": "password"},
+                "status": "matched",
+                "ok": True,
+            },
+        ],
+        wait_observations=[
+            {
+                "platform": "native",
+                "state": {"state_id": "account"},
+                "status": "transition_timeout",
+                "ok": False,
+            }
+        ],
+        extra_actions={
+            "ai.locate_point": _locate_point,
+            "ui.input_text": lambda p, c: ActionResult(ok=True, code="ok"),
+            "ui.key_press": lambda p, c: ActionResult(ok=True, code="ok", data={"key": "enter"}),
+        },
+    )
+
+    result = runtime.run(
+        {
+            "goal": "login",
+            "expected_state_ids": ["account", "password"],
+            "allowed_actions": ["ai.locate_point", "ui.click", "ui.input_text", "ui.key_press"],
+            "max_steps": 4,
+            "stagnant_limit": 4,
+        }
+    )
+
+    assert result["ok"] is True
+    assert len(llm_client.calls) == 2
+    assert locate_calls == [
+        {
+            "query": (
+                "当前页面中用于提交已填写标识字段并推进流程的主操作控件。"
+                "优先返回页面主按钮、键盘动作键或明显的前进控件中心点，不要返回输入框。"
+            )
+        }
+    ]
+    assert result["history"][2]["action"] == "ui.click"
+
+
+def test_agent_executor_normalizes_goal_param_for_locate_point():
+    llm_client = _SequencedLLMClient(
+        responses=[
+            LLMResponse(
+                ok=True,
+                request_id="req-1",
+                provider="openai",
+                model="gpt-5.4",
+                output_text=json.dumps(
+                    {"action": "ai.locate_point", "params": {"goal": "登录按钮"}}
+                ),
+            ),
+            LLMResponse(
+                ok=True,
+                request_id="req-2",
+                provider="openai",
+                model="gpt-5.4",
+                output_text=json.dumps({"done": True, "message": "goal normalized"}),
+            ),
+        ]
+    )
+    locate_calls: list[dict[str, object]] = []
+
+    def _locate_point(params, context):
+        _ = context
+        locate_calls.append(dict(params))
+        return ActionResult(ok=True, code="ok", data={"x": 100, "y": 200})
+
+    runtime = _build_runtime(
+        llm_client=llm_client,
+        observations=[
+            {
+                "platform": "native",
+                "state": {"state_id": "login_entry"},
+                "status": "no_match",
+                "ok": False,
+            },
+            {
+                "platform": "native",
+                "state": {"state_id": "login_entry"},
+                "status": "no_match",
+                "ok": False,
+            },
+        ],
+        extra_actions={"ai.locate_point": _locate_point},
+    )
+
+    result = runtime.run(
+        {
+            "goal": "login",
+            "expected_state_ids": ["login_entry", "account"],
+            "allowed_actions": ["ai.locate_point"],
+            "max_steps": 2,
+            "stagnant_limit": 2,
+        }
+    )
+
+    assert result["ok"] is True
+    assert locate_calls == [{"goal": "登录按钮", "query": "登录按钮"}]
+
+
+def test_agent_executor_uses_saved_fallback_xml_for_stagnation_fingerprint(tmp_path: Path):
+    trace_store = ModelTraceStore(root_dir=tmp_path / "traces")
+    xml_payloads = [
+        '<hierarchy bounds="[0,0][1080,1920]"><node class="android.widget.EditText" /></hierarchy>',
+        (
+            '<hierarchy bounds="[0,0][1080,1920]"><node class="android.widget.EditText" '
+            'password="true" resource-id="com.example:id/password" /></hierarchy>'
+        ),
+    ]
+
+    def _dump_node_xml_ex(params, context):
+        _ = (params, context)
+        xml = xml_payloads.pop(0)
+        return ActionResult(ok=True, code="ok", data={"xml": xml})
+
+    runtime = _build_runtime(
+        llm_client=_SequencedLLMClient(
+            responses=[
+                LLMResponse(
+                    ok=True,
+                    request_id="req-1",
+                    provider="openai",
+                    model="gpt-5.4",
+                    output_text=json.dumps({"action": "ui.click", "params": {"x": 1, "y": 2}}),
+                ),
+                LLMResponse(
+                    ok=True,
+                    request_id="req-2",
+                    provider="openai",
+                    model="gpt-5.4",
+                    output_text=json.dumps({"done": True, "message": "advanced"}),
+                ),
+            ]
+        ),
+        observations=[
+            {
+                "platform": "native",
+                "state": {"state_id": "unknown"},
+                "status": "no_match",
+                "ok": False,
+            },
+            {
+                "platform": "native",
+                "state": {"state_id": "unknown"},
+                "status": "no_match",
+                "ok": False,
+            },
+        ],
+        trace_store=trace_store,
+        extra_actions={"ui.dump_node_xml_ex": _dump_node_xml_ex},
+    )
+
+    result = runtime.run(
+        {
+            "goal": "login",
+            "expected_state_ids": ["account", "password"],
+            "allowed_actions": ["ui.click"],
+            "max_steps": 2,
+            "stagnant_limit": 1,
+        },
+        runtime=_trace_runtime_args(),
+    )
+
+    assert result["ok"] is True
+    assert len(result["history"]) == 1
+
+
+def test_agent_executor_blocks_direct_text_entry_on_cross_state_fallback():
+    llm_client = _SequencedLLMClient(
+        responses=[
+            LLMResponse(
+                ok=True,
+                request_id="req-1",
+                provider="openai",
+                model="gpt-5.4",
+                output_text=json.dumps({"action": "ui.click", "params": {"x": 100, "y": 200}}),
+            ),
+            LLMResponse(
+                ok=True,
+                request_id="req-2",
+                provider="openai",
+                model="gpt-5.4",
+                output_text=json.dumps({"done": True, "message": "inspect before typing"}),
+            ),
+        ]
+    )
+
+    runtime = _build_runtime(
+        llm_client=llm_client,
+        observations=[
+            {
+                "platform": "native",
+                "state": {"state_id": "account"},
+                "status": "matched",
+                "ok": True,
+            },
+            {
+                "platform": "native",
+                "state": {"state_id": "password"},
+                "status": "no_match",
+                "ok": False,
+            },
+        ],
+        extra_actions={
+            "ai.locate_point": lambda p, c: ActionResult(ok=True, code="ok", data={"x": 1, "y": 2}),
+            "ui.input_text": lambda p, c: ActionResult(ok=True, code="ok"),
+            "ui.key_press": lambda p, c: ActionResult(ok=True, code="ok"),
+        },
+    )
+
+    result = runtime.run(
+        {
+            "goal": "login",
+            "expected_state_ids": ["account", "password"],
+            "allowed_actions": ["ai.locate_point", "ui.click", "ui.input_text", "ui.key_press"],
+            "max_steps": 3,
+            "stagnant_limit": 3,
+        }
+    )
+
+    assert result["ok"] is True
+    second_prompt = json.loads(cast(LLMRequest, llm_client.calls[1]["request"]).prompt)
+    assert second_prompt["observation"]["state"]["state_id"] == "password"
+    assert second_prompt["allowed_actions"] == ["ai.locate_point", "ui.click"]
+
+
+def test_agent_executor_stabilizes_regressive_fallback_after_submit():
+    llm_client = _SequencedLLMClient(
+        responses=[
+            LLMResponse(
+                ok=True,
+                request_id="req-1",
+                provider="openai",
+                model="gpt-5.4",
+                output_text=json.dumps(
+                    {"action": "ui.input_text", "params": {"text": "demo_pass"}}
+                ),
+            ),
+            LLMResponse(
+                ok=True,
+                request_id="req-2",
+                provider="openai",
+                model="gpt-5.4",
+                output_text=json.dumps({"action": "ui.click", "params": {"x": 50, "y": 60}}),
+            ),
+            LLMResponse(
+                ok=True,
+                request_id="req-3",
+                provider="openai",
+                model="gpt-5.4",
+                output_text=json.dumps({"done": True, "message": "kept password stage stable"}),
+            ),
+        ]
+    )
+
+    runtime = _build_runtime(
+        llm_client=llm_client,
+        observations=[
+            {
+                "platform": "native",
+                "state": {"state_id": "password"},
+                "status": "matched",
+                "ok": True,
+            },
+            {
+                "platform": "native",
+                "state": {"state_id": "password"},
+                "status": "matched",
+                "ok": True,
+            },
+            {
+                "platform": "native",
+                "state": {"state_id": "account"},
+                "status": "no_match",
+                "ok": False,
+                "raw_details": {"fallback_state_source": "ui_xml"},
+                "evidence": {"summary": "fallback inferred login stage 'account' from ui_xml"},
+            },
+        ],
+        extra_actions={
+            "ui.input_text": lambda p, c: ActionResult(ok=True, code="ok"),
+            "ui.key_press": lambda p, c: ActionResult(ok=True, code="ok", data={"key": "enter"}),
+        },
+    )
+
+    result = runtime.run(
+        {
+            "goal": "login",
+            "expected_state_ids": ["account", "password", "two_factor"],
+            "allowed_actions": ["ui.click", "ui.input_text", "ui.key_press"],
+            "max_steps": 4,
+            "stagnant_limit": 4,
+        }
+    )
+
+    assert result["ok"] is True
+    third_prompt = json.loads(cast(LLMRequest, llm_client.calls[2]["request"]).prompt)
+    assert third_prompt["observation"]["state"]["state_id"] == "password"
+    assert third_prompt["observation"]["raw_details"]["fallback_state_source"] == (
+        "stabilized_after_submit"
+    )
+
+
 def test_agent_executor_collects_fallback_evidence_into_planner_and_trace(tmp_path: Path):
     trace_store = ModelTraceStore(root_dir=tmp_path / "traces")
 
@@ -704,6 +1314,135 @@ def test_agent_executor_infers_password_state_from_fallback_xml_for_planner():
     raw_details = cast(dict[str, object], observation["raw_details"])
     assert state["state_id"] == "password"
     assert raw_details["fallback_state_hint"] == "password"
+
+
+def test_agent_executor_infers_two_factor_state_from_verification_copy_in_fallback_xml():
+    llm_client = _SequencedLLMClient(
+        responses=[
+            LLMResponse(
+                ok=True,
+                request_id="req-two-factor-hint",
+                provider="openai",
+                model="gpt-5.4",
+                output_text=json.dumps({"done": True, "message": "two factor page inferred"}),
+            )
+        ]
+    )
+
+    def _dump_node_xml_ex(params, context):
+        _ = (params, context)
+        xml = (
+            '<hierarchy bounds="[0,0][1080,1920]">'
+            '<node text="输入你的验证码" class="android.widget.TextView" />'
+            '<node text="" class="android.widget.EditText" />'
+            "</hierarchy>"
+        )
+        return ActionResult(ok=True, code="ok", data={"xml": xml})
+
+    runtime = _build_runtime(
+        llm_client=llm_client,
+        observations=[
+            {
+                "platform": "native",
+                "state": {"state_id": "unknown"},
+                "status": "no_match",
+                "ok": False,
+            }
+        ],
+        extra_actions={"ui.dump_node_xml_ex": _dump_node_xml_ex},
+    )
+
+    result = runtime.run(
+        {
+            "goal": "infer two factor state",
+            "expected_state_ids": ["password", "two_factor"],
+            "allowed_actions": ["ui.click"],
+            "max_steps": 1,
+            "stagnant_limit": 1,
+        }
+    )
+
+    assert result["ok"] is True
+    prompt = json.loads(cast(LLMRequest, llm_client.calls[0]["request"]).prompt)
+    state = prompt["observation"]["state"]
+    raw_details = prompt["observation"]["raw_details"]
+    assert state["state_id"] == "two_factor"
+    assert raw_details["fallback_state_hint"] == "two_factor"
+
+
+def test_agent_executor_waits_through_loading_overlay_before_replanning():
+    llm_client = _SequencedLLMClient(
+        responses=[
+            LLMResponse(
+                ok=True,
+                request_id="req-loading-1",
+                provider="openai",
+                model="gpt-5.4",
+                output_text=json.dumps({"action": "ui.click", "params": {"x": 10, "y": 20}}),
+            ),
+            LLMResponse(
+                ok=True,
+                request_id="req-loading-2",
+                provider="openai",
+                model="gpt-5.4",
+                output_text=json.dumps({"done": True, "message": "loading cleared"}),
+            ),
+        ]
+    )
+
+    def _dump_node_xml_ex(params, context):
+        _ = (params, context)
+        return ActionResult(
+            ok=True,
+            code="ok",
+            data={
+                "xml": '<hierarchy><node class="android.widget.ProgressBar" resource-id="android:id/progress" />'
+                '<node text="正在载入…" resource-id="android:id/message" /></hierarchy>'
+            },
+        )
+
+    runtime = _build_runtime(
+        llm_client=llm_client,
+        observations=[
+            {
+                "platform": "native",
+                "state": {"state_id": "two_factor"},
+                "status": "matched",
+                "ok": True,
+            },
+            {
+                "platform": "native",
+                "state": {"state_id": "unknown"},
+                "status": "no_match",
+                "ok": False,
+            },
+        ],
+        wait_observations=[
+            {
+                "platform": "native",
+                "state": {"state_id": "home"},
+                "status": "matched",
+                "ok": True,
+            }
+        ],
+        extra_actions={"ui.dump_node_xml_ex": _dump_node_xml_ex},
+    )
+
+    result = runtime.run(
+        {
+            "goal": "wait through loading overlay",
+            "expected_state_ids": ["two_factor", "home"],
+            "allowed_actions": ["ui.click"],
+            "max_steps": 2,
+            "stagnant_limit": 2,
+        }
+    )
+
+    assert result["ok"] is True
+    assert len(llm_client.calls) == 2
+    prompt = json.loads(cast(LLMRequest, llm_client.calls[1]["request"]).prompt)
+    state = prompt["observation"]["state"]
+    assert state["state_id"] == "home"
 
 
 def test_agent_executor_auto_submits_after_input_on_fallback_inferred_account_state():
@@ -1060,6 +1799,58 @@ def test_agent_executor_repeated_actions_without_stagnation_only_hit_step_budget
     history = cast(list[dict[str, object]], result["history"])
     assert [entry["action"] for entry in history] == ["ui.click", "ui.click", "ui.click"]
     assert [entry["params"] for entry in history] == [{"x": 10, "y": 20}] * 3
+    assert result["circuit_breaker"]["step_budget_extensions_used"] == 0
+
+
+def test_agent_executor_extends_step_budget_once_when_recent_progress_exists():
+    llm_client = _SequencedLLMClient(
+        responses=[
+            LLMResponse(
+                ok=True,
+                request_id="req-extend-1",
+                provider="openai",
+                model="gpt-5.4",
+                output_text=json.dumps({"action": "ui.click", "params": {"x": 10, "y": 20}}),
+            ),
+            LLMResponse(
+                ok=True,
+                request_id="req-extend-2",
+                provider="openai",
+                model="gpt-5.4",
+                output_text=json.dumps({"action": "ui.click", "params": {"x": 30, "y": 40}}),
+            ),
+            LLMResponse(
+                ok=True,
+                request_id="req-extend-3",
+                provider="openai",
+                model="gpt-5.4",
+                output_text=json.dumps({"done": True, "message": "completed after extension"}),
+            ),
+        ]
+    )
+    runtime = _build_runtime(
+        llm_client=llm_client,
+        observations=[
+            {"platform": "native", "state": {"state_id": "login_entry"}, "status": "matched"},
+            {"platform": "native", "state": {"state_id": "account"}, "status": "matched"},
+            {"platform": "native", "state": {"state_id": "password"}, "status": "matched"},
+        ],
+    )
+
+    result = runtime.run(
+        {
+            "task": "agent_executor",
+            "goal": "allow one tail extension when progress is still happening",
+            "expected_state_ids": ["login_entry", "account", "password"],
+            "allowed_actions": ["ui.click"],
+            "max_steps": 2,
+            "stagnant_limit": 10,
+        }
+    )
+
+    assert result["ok"] is True
+    assert result["step_count"] == 2
+    assert len(llm_client.calls) == 3
 
 
 def test_agent_executor_cancellation_writes_terminal_trace_record(tmp_path: Path):

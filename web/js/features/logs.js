@@ -115,6 +115,8 @@ function appendDetailedLog(log) {
         if (unitLogBox && store.getState().currentUnitLogTarget) {
             const step = data.step || "?";
             const modality = data.modality || "unknown";
+            const certainty = data.state_certainty || "unknown";
+            const source = data.state_source || "unknown";
             const stateIds = Array.isArray(data.observed_state_ids) && data.observed_state_ids.length
                 ? data.observed_state_ids.join(", ")
                 : (data.ok ? "已识别" : "未识别");
@@ -122,6 +124,7 @@ function appendDetailedLog(log) {
                 { text: `${ts} `, color: 'var(--text-muted)' },
                 { text: `[步骤 ${step}] 观察: ${stateIds}`, color: 'var(--text-muted)' },
                 { text: ` (${modality})`, color: '#555' },
+                { text: ` [${certainty}/${source}]`, color: '#777' },
             ]);
         }
         return;

@@ -798,6 +798,12 @@ function openUnitAiDialog(unit) {
     const profileInput = $("unitAiProfile");
     if (profileInput) profileInput.value = "";
 
+    const maxStepsInput = $("unitAiMaxSteps");
+    if (maxStepsInput) maxStepsInput.value = "15";
+
+    const stagnantLimitInput = $("unitAiStagnantLimit");
+    if (stagnantLimitInput) stagnantLimitInput.value = "4";
+
     // 重置勾选框为默认值
     document.querySelectorAll('input[name="aiState"]').forEach(cb => {
         cb.checked = ['home','account','password','two_factor'].includes(cb.value);
@@ -837,6 +843,9 @@ async function submitUnitAiTask() {
     const useVlm = $("unitAiUseVlm")?.checked || false;
     const maxStepsValue = Number.parseInt(String($("unitAiMaxSteps")?.value || "").trim(), 10);
     const stagnantLimitValue = Number.parseInt(String($("unitAiStagnantLimit")?.value || "").trim(), 10);
+    const resolvedMaxSteps = Number.isFinite(maxStepsValue) && maxStepsValue > 0 ? maxStepsValue : 15;
+    const resolvedStagnantLimit =
+        Number.isFinite(stagnantLimitValue) && stagnantLimitValue > 0 ? stagnantLimitValue : 4;
 
     const payload = {
         device_ip: currentUnitDetail.parent_ip,
@@ -861,8 +870,8 @@ async function submitUnitAiTask() {
     if (systemPrompt) payload.system_prompt = systemPrompt;
     if (profileName) payload._runtime_profile = profileName;
     if (useVlm) payload.fallback_modalities = ["vlm"];
-    if (Number.isFinite(maxStepsValue) && maxStepsValue > 0) payload.max_steps = maxStepsValue;
-    if (Number.isFinite(stagnantLimitValue) && stagnantLimitValue > 0) payload.stagnant_limit = stagnantLimitValue;
+    payload.max_steps = resolvedMaxSteps;
+    payload.stagnant_limit = resolvedStagnantLimit;
     const taskData = buildTaskRequest({
         task: "agent_executor",
         payload,
