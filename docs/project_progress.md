@@ -70,6 +70,13 @@
   - **UI State 入口参数标准化**：`ui.match_state` / `ui.wait_until` / `ui.observe_transition` 在 native 模式下会先把 `state_profile_id` / `binding_id` 归一成一致的双字段后再创建 adapter，确保新旧入口在后续动作链里观察到的是同一份稳定参数。
   - **移除 Binding 工坊（历史链路下线）**：删除 Web 控制台中的 Binding Master 入口、`/api/binding/*` 路由、`engine/binding_distiller.py` 与 `tools/distill_binding.py`，正式收口到自动学习主链路（`agent_executor -> trace -> config/apps/*.yaml`），减少人工预热路径。该条记录描述的是旧 binding 工坊链路的下线，不代表当前仍存在独立 binding 子系统。
 
+- 最近重点 (2026-03-19)：
+  - **Workflow Draft 控制面落地**：新增 `workflow_drafts` 持久化层与 `WorkflowDraftService`，把客户中文任务名、成功样本门槛、最近成功快照、失败建议和蒸馏状态从单次任务中抽离为稳定草稿对象。
+  - **任务提交流程减负**：`POST /api/tasks/` 新增 `display_name` / `draft_id` / `success_threshold`，AI 任务首次成功后只提示“继续验证”，不再要求客户重复输入提示词。
+  - **失败建议结构化**：终态失败时自动生成 `latest_failure_advice`，包含失败摘要、缺失信息、建议补充项和推荐提示词；任务详情、草稿详情和 `workflow_draft.updated` SSE 事件都可直接消费。
+  - **自动续跑验证**：新增 `POST /api/tasks/drafts/{draft_id}/continue`，复用最近一次成功快照自动创建后续验证任务。
+  - **草稿级离线蒸馏**：新增 `POST /api/tasks/drafts/{draft_id}/distill`，达到门槛后从最近成功 golden run 离线生成 YAML 草稿，默认输出到 `plugins/.drafts/<plugin_name>_draft/`，避免未审核草稿被自动当作正式插件加载。
+
 - 最近重点 (2026-03-15)：
   - **设备可用性提前熔断**：`DeviceManager` 新增 probe 订阅接口；任务执行链路会把当前 target 的 probe 离线信号并入取消判断，线程模式直接订阅，子进程模式由父进程监控活跃 target 并回传熔断理由，最终统一以 `failed_circuit_breaker` / `target_unavailable` 终止，而不是等待 RPC 超时。
   - **工具链根路径收敛**：`tools/*.py` 的仓库根目录解析已统一收口到共享 bootstrap + `core.paths`。

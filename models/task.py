@@ -22,12 +22,51 @@ class TaskTarget(BaseModel):
     cloud_id: int = Field(default=1, ge=1)
 
 
+class WorkflowFailureAdvice(BaseModel):
+    summary: str
+    checkpoint: str | None = None
+    missing: list[str] = Field(default_factory=list)
+    suggestions: list[str] = Field(default_factory=list)
+    suggested_prompt: str | None = None
+    evidence: dict[str, Any] = Field(default_factory=dict)
+
+
+class WorkflowDraftSummary(BaseModel):
+    draft_id: str
+    display_name: str
+    task_name: str
+    status: str
+    plugin_name_candidate: str
+    success_count: int = 0
+    failure_count: int = 0
+    cancelled_count: int = 0
+    success_threshold: int = 3
+    remaining_successes: int = 0
+    can_continue: bool = False
+    can_distill: bool = False
+    latest_prompt_text: str | None = None
+    latest_failure_advice: WorkflowFailureAdvice | None = None
+    last_success_snapshot_available: bool = False
+    last_distilled_manifest_path: str | None = None
+    last_distilled_script_path: str | None = None
+    latest_terminal_task_id: str | None = None
+    latest_completed_task_id: str | None = None
+    successful_task_ids: list[str] = Field(default_factory=list)
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    message: str | None = None
+    next_action: str | None = None
+
+
 class TaskRequest(BaseModel):
     script: dict[str, Any] | None = None
     task: str | None = Field(default=None, min_length=1)
     payload: dict[str, Any] = Field(default_factory=dict)
     targets: list[TaskTarget] = Field(default_factory=list)
     devices: list[int] = Field(default_factory=list)
+    display_name: str | None = Field(default=None, min_length=1, max_length=120)
+    draft_id: str | None = Field(default=None, min_length=1, max_length=64)
+    success_threshold: int | None = Field(default=None, ge=1, le=20)
     ai_type: str = "volc"
     idempotency_key: str | None = Field(default=None, min_length=1, max_length=128)
     max_retries: int = Field(default=0, ge=0, le=20)
@@ -49,6 +88,7 @@ class TaskResponse(BaseModel):
     task_type: TaskType
     task_name: str = "anonymous"
     display_name: str | None = None
+    workflow_draft: WorkflowDraftSummary | None = None
     devices: list[int]
     targets: list[TaskTarget] = Field(default_factory=list)
     ai_type: str
@@ -77,3 +117,12 @@ class TaskMetricsResponse(BaseModel):
     terminal_outcomes: dict[str, int]
     rates: dict[str, float]
     alerts: dict[str, Any]
+
+
+class WorkflowDraftContinueRequest(BaseModel):
+    count: int = Field(default=1, ge=1, le=10)
+
+
+class WorkflowDraftDistillRequest(BaseModel):
+    plugin_name: str | None = Field(default=None, min_length=1, max_length=64)
+    force: bool = False

@@ -4,7 +4,14 @@ from datetime import UTC, datetime
 
 from core.task_store import TaskRecord
 from engine.plugin_loader import get_shared_plugin_loader
-from models.task import TaskDetailResponse, TaskResponse, TaskStatus, TaskTarget, TaskType
+from models.task import (
+    TaskDetailResponse,
+    TaskResponse,
+    TaskStatus,
+    TaskTarget,
+    TaskType,
+    WorkflowDraftSummary,
+)
 
 
 def parse_datetime(value: str | None) -> datetime | None:
@@ -38,9 +45,12 @@ def _base_task_fields(record: TaskRecord) -> dict[str, object]:
     if isinstance(record.payload, dict):
         task_name = str(record.payload.get("task") or "anonymous")
 
-    # 尝试匹配中文名
     display_name = None
-    if task_name != "anonymous":
+    if isinstance(record.payload, dict):
+        payload_display_name = str(record.payload.get("_workflow_display_name") or "").strip()
+        if payload_display_name:
+            display_name = payload_display_name
+    if display_name is None and task_name != "anonymous":
         loader = get_shared_plugin_loader()
         plugin = loader.get(task_name)
         if plugin:
@@ -66,9 +76,21 @@ def _base_task_fields(record: TaskRecord) -> dict[str, object]:
     }
 
 
-def to_task_response(record: TaskRecord) -> TaskResponse:
-    return TaskResponse(**_base_task_fields(record))
+def to_task_response(
+    record: TaskRecord,
+    workflow_draft: WorkflowDraftSummary | dict[str, object] | None = None,
+) -> TaskResponse:
+    fields = _base_task_fields(record)
+    if workflow_draft is not None:
+        fields["workflow_draft"] = workflow_draft
+    return TaskResponse(**fields)
 
 
-def to_task_detail_response(record: TaskRecord) -> TaskDetailResponse:
-    return TaskDetailResponse(**_base_task_fields(record), result=record.result, error=record.error)
+def to_task_detail_response(
+    record: TaskRecord,
+    workflow_draft: WorkflowDraftSummary | dict[str, object] | None = None,
+) -> TaskDetailResponse:
+    fields = _base_task_fields(record)
+    if workflow_draft is not None:
+        fields["workflow_draft"] = workflow_draft
+    return TaskDetailResponse(**fields, result=record.result, error=record.error)

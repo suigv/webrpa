@@ -75,6 +75,16 @@
 - `GET /api/tasks/{task_id}`：任务详情（含 result / error）。
 - `GET /api/tasks/{task_id}/events`：任务事件流（SSE）。
 
+`POST /api/tasks/` 额外支持：
+- `display_name`：客户可见中文任务名，例如 `X 登录`。
+- `draft_id`：把任务挂入已有 workflow draft。
+- `success_threshold`：达到多少次成功样本后允许蒸馏，默认 `3`。
+
+当任务附带 `display_name`，或属于自然语言驱动的 AI 执行任务（如 `agent_executor`）时，后端会自动创建 / 复用 workflow draft，并在任务响应与 `workflow_draft.updated` SSE 事件里附带：
+- 当前成功样本数与剩余验证次数
+- 失败建议与推荐提示词
+- 推荐下一步动作（`apply_suggestion` / `continue_validation` / `distill`）
+
 ### 7.1 任务取消与清理
 - `POST /api/tasks/{task_id}/cancel`：取消任务（等价于“更显式”的取消入口）。
 - `POST /api/tasks/cleanup_failed`：清理 failed/cancelled 任务及相关运行产物（兼容 `DELETE`）。
@@ -91,7 +101,18 @@
 - `GET /api/tasks/metrics/prometheus`：Prometheus 抓取格式。
 - `GET /api/tasks/metrics/plugins`：按插件聚合的成功次数与蒸馏进度。
 
-### 7.4 蒸馏
+### 7.4 Workflow Draft
+- `GET /api/tasks/drafts`：列出 workflow drafts（按更新时间倒序）。
+- `GET /api/tasks/drafts/{draft_id}`：获取草稿状态、样本计数、失败建议和蒸馏进度。
+- `POST /api/tasks/drafts/{draft_id}/continue`：复用最近一次成功快照继续自动验证。
+- `POST /api/tasks/drafts/{draft_id}/distill`：当成功样本达到门槛后离线蒸馏最近一次成功 golden run，生成 YAML 草稿。
+
+Workflow draft 蒸馏默认写入：
+- `plugins/.drafts/<plugin_name>_draft/`
+
+这样既满足“写入边界仍在 `plugins/` 下”，又不会被当前插件加载器误判为正式插件。
+
+### 7.5 既有插件蒸馏
 - `POST /api/tasks/distill/{plugin_name}`：触发插件蒸馏（受 `distill_threshold` 与目录边界约束）。
 
 ---

@@ -25,6 +25,9 @@ from models.task import (
     TaskRequest,
     TaskResponse,
     TaskStatus,
+    WorkflowDraftContinueRequest,
+    WorkflowDraftDistillRequest,
+    WorkflowDraftSummary,
 )
 
 router = APIRouter()
@@ -56,6 +59,16 @@ def _distill_threshold_for(task_name: str) -> int:
         return 3
 
 
+def _task_response_for(controller: Any, record: Any) -> TaskResponse:
+    workflow_draft = controller.workflow_draft_summary_for_task(record)
+    return to_task_response(record, workflow_draft=workflow_draft)
+
+
+def _task_detail_response_for(controller: Any, record: Any) -> TaskDetailResponse:
+    workflow_draft = controller.workflow_draft_summary_for_task(record)
+    return to_task_detail_response(record, workflow_draft=workflow_draft)
+
+
 @router.post("/", response_model=TaskResponse)
 async def create_task(
     request: TaskRequest,
@@ -81,27 +94,31 @@ async def create_task(
 
     try:
         record = await run_sync(
-            controller.submit_with_retry,
-            script_payload,
-            [int(device_id) for device_id in request.devices],
-            [target.model_dump() for target in request.targets] if request.targets else None,
-            request.ai_type,
-            request.max_retries,
-            request.retry_backoff_seconds,
-            request.priority,
-            request.run_at.isoformat() if request.run_at is not None else None,
-            idempotency_key,
+            lambda: controller.submit_with_retry(
+                script_payload,
+                [int(device_id) for device_id in request.devices],
+                [target.model_dump() for target in request.targets] if request.targets else None,
+                request.ai_type,
+                request.max_retries,
+                request.retry_backoff_seconds,
+                request.priority,
+                request.run_at.isoformat() if request.run_at is not None else None,
+                idempotency_key,
+                display_name=request.display_name,
+                draft_id=request.draft_id,
+                success_threshold=request.success_threshold,
+            )
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return to_task_response(record)
+    return _task_response_for(controller, record)
 
 
 @router.get("/", response_model=list[TaskResponse])
 async def list_tasks(limit: int = Query(default=100, ge=1, le=500)):
     controller = get_task_controller()
     records = await run_sync(controller.list, limit)
-    return [to_task_response(item) for item in records]
+    return [_task_response_for(controller, item) for item in records]
 
 
 async def _cleanup_failed_tasks_response() -> dict[str, object]:
@@ -226,6 +243,56 @@ async def plugin_success_metrics():
     return result
 
 
+@router.get("/drafts", response_model=list[WorkflowDraftSummary])
+async def list_workflow_drafts(limit: int = Query(default=100, ge=1, le=500)):
+    controller = get_task_controller()
+    return await run_sync(controller.list_workflow_drafts, limit)
+
+
+@router.get("/drafts/{draft_id}", response_model=WorkflowDraftSummary)
+async def get_workflow_draft(draft_id: str):
+    controller = get_task_controller()
+    summary = await run_sync(controller.workflow_draft_summary, draft_id)
+    if summary is None:
+        raise HTTPException(status_code=404, detail="workflow draft not found")
+    return summary
+
+
+@router.post("/drafts/{draft_id}/continue", response_model=list[TaskResponse])
+async def continue_workflow_draft(
+    draft_id: str,
+    request: WorkflowDraftContinueRequest | None = None,
+):
+    controller = get_task_controller()
+    try:
+        records = await run_sync(
+            controller.continue_workflow_draft,
+            draft_id,
+            request.count if request is not None else 1,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return [_task_response_for(controller, item) for item in records]
+
+
+@router.post("/drafts/{draft_id}/distill")
+async def distill_workflow_draft(
+    draft_id: str,
+    request: WorkflowDraftDistillRequest | None = None,
+):
+    controller = get_task_controller()
+    try:
+        return await run_sync(
+            lambda: controller.distill_workflow_draft(
+                draft_id,
+                plugin_name=request.plugin_name if request is not None else None,
+                force=request.force if request is not None else False,
+            )
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.post("/distill/{plugin_name}")
 async def distill_plugin(plugin_name: str, force: bool = False):
     """触发指定插件的多轮蒸馏，生成 YAML 插件草稿。"""
@@ -322,7 +389,7 @@ async def get_task(task_id: str):
     record = await run_sync(controller.get, task_id)
     if record is None:
         raise HTTPException(status_code=404, detail="task not found")
-    return to_task_detail_response(record)
+    return _task_detail_response_for(controller, record)
 
 
 @router.post("/{task_id}/cancel")

@@ -6,6 +6,7 @@ from typing import Any, Protocol
 from core.task_events import TaskEventStore
 from core.task_metrics import build_task_metrics_payload
 from core.task_store import TaskRecord, TaskStore
+from core.workflow_drafts import WorkflowDraftService
 
 
 class AccountFeedbackLike(Protocol):
@@ -24,10 +25,12 @@ class TaskAttemptFinalizer:
         store: TaskStore,
         event_store: TaskEventStore,
         account_feedback: AccountFeedbackLike | None = None,
+        workflow_drafts: WorkflowDraftService | None = None,
     ) -> None:
         self._store = store
         self._events = event_store
         self._account_feedback = account_feedback
+        self._workflow_drafts = workflow_drafts
 
     def finalize_exception_attempt(
         self, task_id: str, task_name: str, error: str
@@ -65,6 +68,19 @@ class TaskAttemptFinalizer:
                         build_task_metrics_payload(cancelled, {"reason": "user_exception_path"}),
                         conn=conn,
                     )
+                    if cancelled is not None and self._workflow_drafts is not None:
+                        workflow_payload = self._workflow_drafts.record_terminal(
+                            task_record=cancelled,
+                            result={"message": error, "checkpoint": "", "ok": False},
+                            conn=conn,
+                        )
+                        if workflow_payload:
+                            self._events.append_event(
+                                task_id,
+                                "workflow_draft.updated",
+                                workflow_payload,
+                                conn=conn,
+                            )
                 else:
                     self._store.mark_failed(task_id, error=error, conn=conn)
                     failed = self._store.get_task(task_id, conn=conn)
@@ -74,6 +90,19 @@ class TaskAttemptFinalizer:
                         build_task_metrics_payload(failed, {"error": error}),
                         conn=conn,
                     )
+                    if failed is not None and self._workflow_drafts is not None:
+                        workflow_payload = self._workflow_drafts.record_terminal(
+                            task_record=failed,
+                            result={"message": error, "checkpoint": "", "ok": False},
+                            conn=conn,
+                        )
+                        if workflow_payload:
+                            self._events.append_event(
+                                task_id,
+                                "workflow_draft.updated",
+                                workflow_payload,
+                                conn=conn,
+                            )
         return outcome
 
     def finalize_result_attempt(
@@ -100,6 +129,19 @@ class TaskAttemptFinalizer:
                     build_task_metrics_payload(cancelled, {"reason": "user"}),
                     conn=conn,
                 )
+                if cancelled is not None and self._workflow_drafts is not None:
+                    workflow_payload = self._workflow_drafts.record_terminal(
+                        task_record=cancelled,
+                        result=result,
+                        conn=conn,
+                    )
+                    if workflow_payload:
+                        self._events.append_event(
+                            task_id,
+                            "workflow_draft.updated",
+                            workflow_payload,
+                            conn=conn,
+                        )
             elif bool(result.get("ok")):
                 self._store.mark_completed(task_id, result=result, conn=conn)
                 completed = self._store.get_task(task_id, conn=conn)
@@ -109,6 +151,19 @@ class TaskAttemptFinalizer:
                     build_task_metrics_payload(completed, {"ok": True}),
                     conn=conn,
                 )
+                if completed is not None and self._workflow_drafts is not None:
+                    workflow_payload = self._workflow_drafts.record_terminal(
+                        task_record=completed,
+                        result=result,
+                        conn=conn,
+                    )
+                    if workflow_payload:
+                        self._events.append_event(
+                            task_id,
+                            "workflow_draft.updated",
+                            workflow_payload,
+                            conn=conn,
+                        )
             else:
                 error = str(result.get("message", "task failed"))
                 outcome.retry_record = self._store.schedule_retry(task_id, error=error, conn=conn)
@@ -141,6 +196,19 @@ class TaskAttemptFinalizer:
                             ),
                             conn=conn,
                         )
+                        if cancelled is not None and self._workflow_drafts is not None:
+                            workflow_payload = self._workflow_drafts.record_terminal(
+                                task_record=cancelled,
+                                result=result,
+                                conn=conn,
+                            )
+                            if workflow_payload:
+                                self._events.append_event(
+                                    task_id,
+                                    "workflow_draft.updated",
+                                    workflow_payload,
+                                    conn=conn,
+                                )
                     else:
                         self._store.mark_failed(task_id, error=error, result=result, conn=conn)
                         failed = self._store.get_task(task_id, conn=conn)
@@ -150,6 +218,19 @@ class TaskAttemptFinalizer:
                             build_task_metrics_payload(failed, {"error": error}),
                             conn=conn,
                         )
+                        if failed is not None and self._workflow_drafts is not None:
+                            workflow_payload = self._workflow_drafts.record_terminal(
+                                task_record=failed,
+                                result=result,
+                                conn=conn,
+                            )
+                            if workflow_payload:
+                                self._events.append_event(
+                                    task_id,
+                                    "workflow_draft.updated",
+                                    workflow_payload,
+                                    conn=conn,
+                                )
                         feedback_error = error
         if feedback_error is not None and self._account_feedback is not None:
             self._account_feedback.handle_terminal_failure(payload, feedback_error)

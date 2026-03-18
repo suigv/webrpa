@@ -120,6 +120,8 @@
 - 内置动作注册器（浏览器动作、凭据动作等）
 - 复用的 selector workflow 已收口到 composite actions（如 `core.load_ui_selectors`、`ui.selector_click_with_fallback`），避免脚本重复加载/点击逻辑
 - Golden Run 离线蒸馏工具 `tools/distill_golden_run.py` 会从一条成功轨迹生成可审阅的 `manifest.yaml` + `script.yaml` 草稿，要求保留参数化输入；草稿不会自动安装到 `plugins/`，只有通过 parse + replay smoke 后才算可用
+- 新增 workflow draft 闭环：客户可直接用中文任务名创建 AI 任务，系统会自动累积成功样本、保留最近一次成功快照、在失败时产出结构化修改建议，并在达到门槛后通过 `/api/tasks/drafts/{draft_id}/distill` 离线生成 YAML 草稿
+- workflow draft 蒸馏输出默认位于 `plugins/.drafts/<plugin_name>_draft/`，避免未审核草稿被立即当作正式插件加载
 - `wait_until` 已补齐 success-before-timeout、`on_timeout goto`、`on_fail`、取消态与动态重轮询语义
 - `ExecutionContext.session.defaults` 已作为最小任务级默认值接缝落地，保持显式 action 参数优先，其次 session defaults，最后回退到原始 payload
 - `ExecutionContext.runtime` 已承接任务运行时信封；target / task_id / cloud_target_label 等控制面信息不再通过 payload 私有字段注入
@@ -134,6 +136,14 @@
 - BrowserClient 集成几何感知目标点、节奏控制与降级回退
 - UI 状态观察覆盖已扩展到 `timeline_candidates`、`follow_targets` 与集合首项别名，不改变顶层结果形状
 - 有界 helper `ui.navigate_to` 与 `ui.fill_form` 可用于页面级导航和表单驱动，未上提为工作流级恢复系统
+
+### 5.1) Workflow Draft 闭环
+
+- 第一次提交：客户填写中文任务名（`display_name`）和自然语言目标，系统自动创建 workflow draft。
+- 失败时：系统返回失败摘要、缺失信息、建议补充项和推荐提示词，不要求客户从零重写。
+- 第一次成功后：系统自动保存成功快照，只提示“是否继续自动验证 N 次”，不再强制重复输入提示词。
+- 达到成功门槛后：后端离线蒸馏最近一次成功 golden run，生成 YAML 草稿。
+- 客户侧始终展示中文 `display_name`；内部插件名保持 ASCII，用于目录和运行时引用。
 
 ### 6) RPA/RPC 控制层（已完成 remediation）
 

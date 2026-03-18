@@ -20,6 +20,8 @@ from core.task_runtime import (
     normalize_dispatch_targets,
 )
 from core.task_store import TaskRecord, TaskStore
+from core.workflow_draft_store import WorkflowDraftStore
+from core.workflow_drafts import WorkflowDraftService
 from engine.plugin_loader import get_shared_plugin_loader
 from engine.runner import Runner
 
@@ -123,6 +125,9 @@ class TaskController:
             target_runtime_resolver=self._target_runtime_resolver,
             plugin_loader=self._plugin_loader,
         )
+        self._workflow_drafts = WorkflowDraftService(
+            store=WorkflowDraftStore(db_path=self._store._db_path)
+        )
 
         # 3. 延迟初始化子服务
         self._metrics_service: TaskMetricsService | None = None
@@ -139,6 +144,7 @@ class TaskController:
             store=self._store,
             event_store=self._events,
             account_feedback=self._account_feedback,
+            workflow_drafts=self._workflow_drafts,
         )
         self._execution_service = TaskExecutionService(
             store=self._store,
@@ -170,9 +176,15 @@ class TaskController:
         priority: int,
         run_at: str | None,
         idempotency_key: str | None = None,
+        *,
+        display_name: str | None = None,
+        draft_id: str | None = None,
+        success_threshold: int | None = None,
     ) -> TaskRecord:
         self._ensure_services()
         normalized_devices, normalized_targets = _normalize_targets_and_devices(devices, targets)
+        task_name = str(payload.get("task") or "anonymous")
+        is_named_plugin = self._plugin_loader.has(task_name)
 
         if idempotency_key:
             existing = self._store.find_active_by_idempotency_key(idempotency_key)
@@ -180,9 +192,23 @@ class TaskController:
                 return existing
 
         with self._store.transaction(immediate=True) as conn:
+            enriched_payload, workflow_summary = self._workflow_drafts.prepare_submission(
+                payload=payload,
+                devices=normalized_devices,
+                targets=normalized_targets,
+                ai_type=ai_type,
+                max_retries=max_retries,
+                retry_backoff_seconds=retry_backoff_seconds,
+                priority=priority,
+                display_name=display_name,
+                draft_id=draft_id,
+                success_threshold=success_threshold,
+                is_named_plugin=is_named_plugin,
+                conn=conn,
+            )
             record = self._store.create_task(
                 task_id=str(uuid.uuid4()),
-                payload=payload,
+                payload=enriched_payload,
                 devices=normalized_devices,
                 targets=normalized_targets,
                 ai_type=ai_type,
@@ -197,9 +223,10 @@ class TaskController:
                 record.task_id,
                 "task.created",
                 {
-                    "task": str(payload.get("task") or "anonymous"),
+                    "task": str(enriched_payload.get("task") or "anonymous"),
                     "priority": record.priority,
                     "run_at": record.run_at,
+                    "workflow_draft": workflow_summary,
                 },
                 conn=conn,
             )
@@ -300,6 +327,57 @@ class TaskController:
 
     def plugin_success_counts(self) -> list[dict[str, object]]:
         return self._store.plugin_success_counts()
+
+    def workflow_draft_summary(self, draft_id: str) -> dict[str, Any] | None:
+        return self._workflow_drafts.summary(draft_id)
+
+    def workflow_draft_summary_for_task(self, record: TaskRecord) -> dict[str, Any] | None:
+        return self._workflow_drafts.summary_for_payload(record.payload)
+
+    def list_workflow_drafts(self, limit: int = 100) -> list[dict[str, Any]]:
+        return self._workflow_drafts.list_summaries(limit=limit)
+
+    def continue_workflow_draft(self, draft_id: str, count: int = 1) -> list[TaskRecord]:
+        snapshot_bundle = self._workflow_drafts.continuation_snapshot(draft_id)
+        snapshot = dict(snapshot_bundle["snapshot"])
+        payload = dict(snapshot.get("payload") or {})
+        devices = [int(item) for item in snapshot.get("devices") or []]
+        targets = snapshot.get("targets")
+        ai_type = str(snapshot.get("ai_type") or "volc")
+        max_retries = int(snapshot.get("max_retries") or 0)
+        retry_backoff_seconds = int(snapshot.get("retry_backoff_seconds") or 2)
+        priority = int(snapshot.get("priority") or 50)
+        created: list[TaskRecord] = []
+        for _ in range(max(1, int(count))):
+            created.append(
+                self.submit_with_retry(
+                    payload=dict(payload),
+                    devices=devices,
+                    targets=targets if isinstance(targets, list) else None,
+                    ai_type=ai_type,
+                    max_retries=max_retries,
+                    retry_backoff_seconds=retry_backoff_seconds,
+                    priority=priority,
+                    run_at=None,
+                    display_name=str(snapshot_bundle["display_name"]),
+                    draft_id=str(snapshot_bundle["draft_id"]),
+                    success_threshold=int(snapshot_bundle["success_threshold"]),
+                )
+            )
+        return created
+
+    def distill_workflow_draft(
+        self,
+        draft_id: str,
+        *,
+        plugin_name: str | None = None,
+        force: bool = False,
+    ) -> dict[str, Any]:
+        return self._workflow_drafts.distill_draft(
+            draft_id,
+            plugin_name=plugin_name,
+            force=force,
+        )
 
     def subscribe_events(self, observer: Callable[[Any], None]) -> None:
         self._events.subscribe(observer)
