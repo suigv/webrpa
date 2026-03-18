@@ -266,6 +266,19 @@ class TaskController:
                     build_task_metrics_payload(cancelled, {"reason": "user"}),
                     conn=conn,
                 )
+                if cancelled is not None:
+                    workflow_payload = self._workflow_drafts.record_terminal(
+                        task_record=cancelled,
+                        result={"status": "cancelled", "ok": False, "message": "cancelled by user"},
+                        conn=conn,
+                    )
+                    if workflow_payload:
+                        self._events.append_event(
+                            task_id,
+                            "workflow_draft.updated",
+                            workflow_payload,
+                            conn=conn,
+                        )
             elif state == "cancelling":
                 self._events.append_event(
                     task_id,
@@ -277,8 +290,10 @@ class TaskController:
 
     def clear_all(self):
         # 强制级连清理
-        self._store.clear_all_tasks(require_no_running=True)
-        self._events.clear_all_events()
+        with self._store.transaction(immediate=True) as conn:
+            self._store.clear_all_tasks(conn=conn, require_no_running=True)
+            self._events.clear_all_events(conn=conn)
+            self._workflow_drafts.clear_all(conn=conn)
 
     def cleanup_failed_tasks(self) -> int:
         """清理所有已停止但未成功的任务 (failed, cancelled)，返回被清理的数量。"""
@@ -286,6 +301,7 @@ class TaskController:
         for tid in task_ids:
             _remove_task_traces(tid)
             self._events.clear_task_events(tid)
+        self._workflow_drafts.cleanup_task_references(task_ids)
         return len(task_ids)
 
     def list_running_task_ids_by_device(self, device_id: int) -> list[str]:

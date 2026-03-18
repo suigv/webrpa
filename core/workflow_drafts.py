@@ -84,30 +84,69 @@ def _resolve_status(record: WorkflowDraftRecord, *, latest_failed: bool = False)
     return "collecting"
 
 
-def _find_latest_trace_context(task_id: str) -> ModelTraceContext | None:
+def _list_trace_contexts(task_id: str) -> list[ModelTraceContext]:
     task_root = traces_dir() / task_id
     if not task_root.is_dir():
-        return None
-    latest_path: Path | None = None
-    latest_mtime = -1.0
+        return []
+    trace_paths: list[tuple[float, Path]] = []
     for path in task_root.glob("*/*.jsonl"):
         try:
             stat = path.stat()
         except OSError:
             continue
-        if stat.st_mtime >= latest_mtime:
-            latest_mtime = stat.st_mtime
-            latest_path = path
-    if latest_path is None:
+        trace_paths.append((stat.st_mtime, path))
+    contexts: list[ModelTraceContext] = []
+    for _, path in sorted(trace_paths, key=lambda item: item[0], reverse=True):
+        match = _TRACE_FILE_RE.match(path.name)
+        if match is None:
+            continue
+        contexts.append(
+            ModelTraceContext(
+                task_id=task_id,
+                run_id=path.parent.name,
+                target_label=match.group("target"),
+                attempt_number=int(match.group("attempt")),
+            )
+        )
+    return contexts
+
+
+def _find_latest_trace_context(task_id: str) -> ModelTraceContext | None:
+    contexts = _list_trace_contexts(task_id)
+    if not contexts:
         return None
-    match = _TRACE_FILE_RE.match(latest_path.name)
-    if match is None:
+    return contexts[0]
+
+
+def _trace_context_to_dict(context: ModelTraceContext) -> dict[str, object]:
+    return {
+        "task_id": context.task_id,
+        "run_id": context.run_id,
+        "target_label": context.target_label,
+        "attempt_number": context.attempt_number,
+    }
+
+
+def _trace_context_from_dict(value: object) -> ModelTraceContext | None:
+    if not isinstance(value, dict):
+        return None
+    task_id = str(value.get("task_id") or "").strip()
+    run_id = str(value.get("run_id") or "").strip()
+    target_label = str(value.get("target_label") or "").strip()
+    attempt_number = value.get("attempt_number")
+    if not task_id or not run_id or not target_label:
+        return None
+    try:
+        attempt = int(attempt_number)
+    except Exception:
+        return None
+    if attempt < 1:
         return None
     return ModelTraceContext(
         task_id=task_id,
-        run_id=latest_path.parent.name,
-        target_label=match.group("target"),
-        attempt_number=int(match.group("attempt")),
+        run_id=run_id,
+        target_label=target_label,
+        attempt_number=attempt,
     )
 
 
@@ -147,6 +186,12 @@ class WorkflowDraftService:
                 record = self._store.get_draft(draft_id, conn=tx_conn)
                 if record is None:
                     raise ValueError(f"workflow draft not found: {draft_id}")
+                self._validate_existing_draft(
+                    record=record,
+                    task_name=task_name,
+                    display_name=resolved_display_name,
+                    success_threshold=success_threshold,
+                )
             else:
                 if resolved_display_name is None:
                     return dict(payload), None
@@ -163,9 +208,9 @@ class WorkflowDraftService:
                 )
                 self._store.create_draft(record, conn=tx_conn)
 
-            if resolved_display_name:
+            if resolved_display_name and not draft_id:
                 record.display_name = resolved_display_name
-            if success_threshold is not None:
+            if success_threshold is not None and not draft_id:
                 record.success_threshold = max(1, int(success_threshold))
             prompt_text = _extract_prompt_text(payload)
             if prompt_text:
@@ -214,7 +259,10 @@ class WorkflowDraftService:
             "success_threshold": record.success_threshold,
             "remaining_successes": remaining,
             "can_continue": record.last_success_snapshot is not None,
-            "can_distill": record.success_count >= record.success_threshold,
+            "can_distill": (
+                record.success_count >= record.success_threshold
+                and not (record.last_distilled_manifest_path and record.last_distilled_script_path)
+            ),
             "latest_prompt_text": record.latest_prompt_text,
             "latest_failure_advice": record.last_failure_advice,
             "last_success_snapshot_available": record.last_success_snapshot is not None,
@@ -231,6 +279,9 @@ class WorkflowDraftService:
                 f"“{record.display_name}”本次执行未成功，已生成修改建议，可直接应用后重试。"
             )
             summary["next_action"] = "apply_suggestion"
+        elif record.status == "distilled":
+            summary["message"] = f"“{record.display_name}”的 YAML 草稿已生成，可继续测试或发布。"
+            summary["next_action"] = "review_distilled"
         elif remaining > 0:
             summary["message"] = (
                 f"当前稳定性样本 {record.success_count}/{record.success_threshold}。"
@@ -280,6 +331,8 @@ class WorkflowDraftService:
                 )
             task_status = str(getattr(task_record, "status", "") or "").lower()
             if task_status == "completed":
+                trace_contexts = _list_trace_contexts(str(task_record.task_id))
+                latest_trace_context = trace_contexts[0] if trace_contexts else None
                 record.success_count += 1
                 record.latest_completed_task_id = str(task_record.task_id)
                 record.successful_task_ids = _dedupe_keep_last(
@@ -296,6 +349,13 @@ class WorkflowDraftService:
                         getattr(task_record, "retry_backoff_seconds", 2) or 2
                     ),
                     "priority": int(getattr(task_record, "priority", 50) or 50),
+                    "trace_context": (
+                        _trace_context_to_dict(latest_trace_context)
+                        if latest_trace_context is not None
+                        else None
+                    ),
+                    "trace_context_count": len(trace_contexts),
+                    "trace_context_ambiguous": len(trace_contexts) > 1,
                 }
                 record.last_failure_advice = None
                 record.status = _resolve_status(record)
@@ -354,11 +414,7 @@ class WorkflowDraftService:
                     "success_threshold": record.success_threshold,
                 }
 
-            trace_context = None
-            for task_id in reversed(record.successful_task_ids):
-                trace_context = _find_latest_trace_context(task_id)
-                if trace_context is not None:
-                    break
+            trace_context = self._resolve_distill_trace_context(record)
             if trace_context is None:
                 raise ValueError("no successful golden run trace found for workflow draft")
 
@@ -390,6 +446,95 @@ class WorkflowDraftService:
                 "success_count": record.success_count,
                 "success_threshold": record.success_threshold,
             }
+
+    def cleanup_task_references(
+        self,
+        task_ids: list[str],
+        *,
+        clear_all: bool = False,
+        conn: sqlite3.Connection | None = None,
+    ) -> None:
+        with self._store._tx(conn) as tx_conn:
+            if clear_all:
+                self._store.clear_all_drafts(conn=tx_conn)
+                return
+            removed = {str(task_id).strip() for task_id in task_ids if str(task_id).strip()}
+            if not removed:
+                return
+            for record in self._store.list_drafts(limit=10000, conn=tx_conn):
+                changed = False
+                if record.latest_terminal_task_id in removed:
+                    record.latest_terminal_task_id = None
+                    if record.status == "needs_attention":
+                        record.last_failure_advice = None
+                    changed = True
+                if record.latest_completed_task_id in removed:
+                    record.latest_completed_task_id = None
+                    record.last_success_snapshot = None
+                    changed = True
+                filtered_successful_ids = [
+                    task_id for task_id in record.successful_task_ids if task_id not in removed
+                ]
+                if filtered_successful_ids != record.successful_task_ids:
+                    record.successful_task_ids = filtered_successful_ids
+                    changed = True
+                if not changed:
+                    continue
+                record.status = _resolve_status(record)
+                self._store.update_draft(record, conn=tx_conn)
+
+    def clear_all(self, conn: sqlite3.Connection | None = None) -> None:
+        with self._store._tx(conn) as tx_conn:
+            self._store.clear_all_drafts(conn=tx_conn)
+
+    def _validate_existing_draft(
+        self,
+        *,
+        record: WorkflowDraftRecord,
+        task_name: str,
+        display_name: str | None,
+        success_threshold: int | None,
+    ) -> None:
+        if task_name != record.task_name:
+            raise ValueError(
+                f"workflow draft task mismatch: expected {record.task_name}, got {task_name}"
+            )
+        if display_name is not None and display_name != record.display_name:
+            raise ValueError(
+                "workflow draft display_name mismatch: "
+                f"expected {record.display_name}, got {display_name}"
+            )
+        if success_threshold is not None and int(success_threshold) != int(
+            record.success_threshold
+        ):
+            raise ValueError(
+                "workflow draft success_threshold mismatch: "
+                f"expected {record.success_threshold}, got {success_threshold}"
+            )
+
+    def _resolve_distill_trace_context(
+        self, record: WorkflowDraftRecord
+    ) -> ModelTraceContext | None:
+        snapshot = record.last_success_snapshot
+        if isinstance(snapshot, dict):
+            trace_context = _trace_context_from_dict(snapshot.get("trace_context"))
+            if trace_context is not None:
+                if bool(snapshot.get("trace_context_ambiguous")):
+                    raise ValueError(
+                        "multiple golden run traces found for latest successful task; "
+                        "target-specific distillation is required"
+                    )
+                return trace_context
+        for task_id in reversed(record.successful_task_ids):
+            contexts = _list_trace_contexts(task_id)
+            if len(contexts) > 1:
+                raise ValueError(
+                    "multiple golden run traces found for a successful task; "
+                    "target-specific distillation is required"
+                )
+            if contexts:
+                return contexts[0]
+        return None
 
     def _build_failure_advice(
         self,
@@ -452,6 +597,10 @@ class WorkflowDraftService:
                 f"“{record.display_name}”本次执行未成功，已生成修改建议，可直接应用后重试。"
             )
             summary["next_action"] = "apply_suggestion"
+            return summary
+        if record.status == "distilled":
+            summary["message"] = f"“{record.display_name}”的 YAML 草稿已生成，可继续测试或发布。"
+            summary["next_action"] = "review_distilled"
             return summary
         remaining = max(0, record.success_threshold - record.success_count)
         if remaining > 0:

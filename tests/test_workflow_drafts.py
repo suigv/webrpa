@@ -223,6 +223,9 @@ def test_workflow_draft_continue_and_distill_flow(tmp_path: Path, monkeypatch):
             assert summary["success_count"] == 3
             assert summary["can_distill"] is True
             assert summary["next_action"] == "distill"
+            snapshot = controller._workflow_drafts.continuation_snapshot(draft_id)
+            trace_context = cast(dict[str, object], snapshot["snapshot"]["trace_context"])
+            assert trace_context["task_id"] == summary["latest_completed_task_id"]
 
             distill = client.post(f"/api/tasks/drafts/{draft_id}/distill", json={})
             assert distill.status_code == 200
@@ -231,5 +234,112 @@ def test_workflow_draft_continue_and_distill_flow(tmp_path: Path, monkeypatch):
             assert Path(payload["manifest_path"]).exists()
             assert Path(payload["script_path"]).exists()
             assert str(payload["output_dir"]).startswith(str(plugins_root))
+
+            distilled_detail = client.get(f"/api/tasks/drafts/{draft_id}")
+            assert distilled_detail.status_code == 200
+            distilled_summary = distilled_detail.json()
+            assert distilled_summary["status"] == "distilled"
+            assert distilled_summary["can_distill"] is False
+            assert distilled_summary["next_action"] == "review_distilled"
+    finally:
+        reset_task_controller_for_tests()
+
+
+def test_workflow_draft_rejects_identity_mismatch(tmp_path: Path):
+    reset_task_controller_for_tests()
+    db_path = tmp_path / "tasks-workflow-drafts-mismatch.db"
+    controller = TaskController(
+        store=TaskStore(db_path=db_path),
+        queue_backend=InMemoryTaskQueue(),
+        runner=Runner(),
+        event_store=TaskEventStore(db_path=db_path),
+    )
+    override_task_controller_for_tests(controller)
+
+    try:
+        with TestClient(app) as client:
+            create = client.post(
+                "/api/tasks/",
+                json={
+                    "task": "agent_executor",
+                    "display_name": "X 登录",
+                    "payload": {"goal": "用绑定账号登录 X"},
+                    "devices": [1],
+                    "ai_type": "volc",
+                },
+            )
+            assert create.status_code == 200
+            draft_id = str(create.json()["workflow_draft"]["draft_id"])
+
+            mismatch_name = client.post(
+                "/api/tasks/",
+                json={
+                    "task": "agent_executor",
+                    "display_name": "Y 登录",
+                    "draft_id": draft_id,
+                    "payload": {"goal": "用绑定账号登录 Y"},
+                    "devices": [1],
+                    "ai_type": "volc",
+                },
+            )
+            assert mismatch_name.status_code == 400
+            assert "display_name mismatch" in mismatch_name.json()["detail"]
+
+            mismatch_task = client.post(
+                "/api/tasks/",
+                json={
+                    "task": "missing-task",
+                    "display_name": "X 登录",
+                    "draft_id": draft_id,
+                    "payload": {"goal": "执行别的任务"},
+                    "devices": [1],
+                    "ai_type": "volc",
+                },
+            )
+            assert mismatch_task.status_code == 400
+            assert "task mismatch" in mismatch_task.json()["detail"]
+    finally:
+        reset_task_controller_for_tests()
+
+
+def test_workflow_draft_cancel_and_cleanup_keep_state_consistent(tmp_path: Path):
+    reset_task_controller_for_tests()
+    db_path = tmp_path / "tasks-workflow-drafts-cleanup.db"
+    controller = TaskController(
+        store=TaskStore(db_path=db_path),
+        queue_backend=InMemoryTaskQueue(),
+        runner=Runner(),
+        event_store=TaskEventStore(db_path=db_path),
+    )
+
+    try:
+        created = controller.submit_with_retry(
+            payload={"task": "agent_executor", "goal": "用绑定账号登录 X"},
+            devices=[1],
+            targets=None,
+            ai_type="volc",
+            max_retries=0,
+            retry_backoff_seconds=0,
+            priority=50,
+            run_at=None,
+            display_name="X 登录",
+        )
+        workflow = cast(dict[str, object], controller.workflow_draft_summary_for_task(created))
+        draft_id = str(workflow["draft_id"])
+
+        assert controller.cancel_state(created.task_id) == "cancelled"
+
+        cancelled_summary = cast(dict[str, object], controller.workflow_draft_summary(draft_id))
+        assert cancelled_summary["cancelled_count"] == 1
+        assert cancelled_summary["latest_terminal_task_id"] == created.task_id
+
+        assert controller.cleanup_failed_tasks() == 1
+
+        cleaned_summary = cast(dict[str, object], controller.workflow_draft_summary(draft_id))
+        assert cleaned_summary["latest_terminal_task_id"] is None
+        assert cleaned_summary["status"] == "collecting"
+
+        controller.clear_all()
+        assert controller.workflow_draft_summary(draft_id) is None
     finally:
         reset_task_controller_for_tests()

@@ -259,7 +259,12 @@ def test_task_control_plane_agent_executor_managed_lifecycle_and_cancel_support(
             cancel_event_types = [
                 event.event_type for event in controller.list_events(cancel_task_id)
             ]
-            assert cancel_event_types == ["task.created", "task.cancel_requested", "task.cancelled"]
+            assert cancel_event_types[:3] == [
+                "task.created",
+                "task.cancel_requested",
+                "task.cancelled",
+            ]
+            assert cancel_event_types[-1] == "workflow_draft.updated"
     finally:
         reset_task_controller_for_tests()
         if db_path.exists():

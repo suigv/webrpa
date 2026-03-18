@@ -76,6 +76,7 @@
   - **失败建议结构化**：终态失败时自动生成 `latest_failure_advice`，包含失败摘要、缺失信息、建议补充项和推荐提示词；任务详情、草稿详情和 `workflow_draft.updated` SSE 事件都可直接消费。
   - **自动续跑验证**：新增 `POST /api/tasks/drafts/{draft_id}/continue`，复用最近一次成功快照自动创建后续验证任务。
   - **草稿级离线蒸馏**：新增 `POST /api/tasks/drafts/{draft_id}/distill`，达到门槛后从最近成功 golden run 离线生成 YAML 草稿，默认输出到 `plugins/.drafts/<plugin_name>_draft/`，避免未审核草稿被自动当作正式插件加载。
+  - **Workflow Draft 身份/清理加固**：`draft_id` 现在会校验 `task_name` / `display_name` / `success_threshold` 一致性，防止跨任务串组；pending 取消、失败清理与 `clear_all` 会同步修正或删除草稿引用；已蒸馏草稿不再继续提示重复 distill；成功快照会固化最近一次成功 trace context，蒸馏优先使用这份上下文而不是临时目录扫描猜测。
 
 - 最近重点 (2026-03-15)：
   - **设备可用性提前熔断**：`DeviceManager` 新增 probe 订阅接口；任务执行链路会把当前 target 的 probe 离线信号并入取消判断，线程模式直接订阅，子进程模式由父进程监控活跃 target 并回传熔断理由，最终统一以 `failed_circuit_breaker` / `target_unavailable` 终止，而不是等待 RPC 超时。

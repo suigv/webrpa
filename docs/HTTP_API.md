@@ -112,6 +112,11 @@ Workflow draft 蒸馏默认写入：
 
 这样既满足“写入边界仍在 `plugins/` 下”，又不会被当前插件加载器误判为正式插件。
 
+Workflow draft 约束：
+- `draft_id` 一旦创建，会绑定首个任务的 `task_name`、`display_name` 与 `success_threshold`。
+- 后续续跑或重试必须沿用同一业务身份；若传入不一致的值，接口会返回 400，避免把不相关运行误并到同一个草稿。
+- `cleanup_failed` / `clear_all` 会同步清理 workflow draft 中已经失效的任务引用，避免草稿状态残留到已删除任务。
+
 ### 7.5 既有插件蒸馏
 - `POST /api/tasks/distill/{plugin_name}`：触发插件蒸馏（受 `distill_threshold` 与目录边界约束）。
 

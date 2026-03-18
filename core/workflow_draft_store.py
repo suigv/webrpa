@@ -226,6 +226,10 @@ class WorkflowDraftStore(BaseStore):
             )
         return record
 
+    def clear_all_drafts(self, conn: sqlite3.Connection | None = None) -> None:
+        with self._tx(conn) as tx_conn:
+            tx_conn.execute("DELETE FROM workflow_drafts")
+
     def _record_params(self, record: WorkflowDraftRecord) -> tuple[object, ...]:
         created_at = record.created_at or now_iso()
         updated_at = record.updated_at or created_at
