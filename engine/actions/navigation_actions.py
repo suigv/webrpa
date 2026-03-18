@@ -11,7 +11,7 @@ from engine.models.runtime import ActionResult, ExecutionContext
 class RouteDefinition:
     route_id: str
     display_name: str
-    binding_id: str
+    state_profile_id: str
     platform: str
     current_state_ids: tuple[str, ...]
     arrival_state_ids: tuple[str, ...]
@@ -55,6 +55,17 @@ def _common_params(params: dict[str, object], context: ExecutionContext) -> dict
     return {}
 
 
+def _resolve_route_state_profile_id(raw: dict[str, object]) -> str:
+    return str(raw.get("state_profile_id") or raw.get("binding_id") or "").strip()
+
+
+def _route_profile_identity(route: RouteDefinition) -> dict[str, str]:
+    return {
+        "state_profile_id": route.state_profile_id,
+        "binding_id": route.state_profile_id,
+    }
+
+
 def _build_routes(
     params: dict[str, object], context: ExecutionContext
 ) -> tuple[dict[str, RouteDefinition], ActionResult | None]:
@@ -70,12 +81,12 @@ def _build_routes(
             return {}, ActionResult(
                 ok=False, code="invalid_params", message=f"invalid route definition: {route_id}"
             )
-        binding_id = str(raw.get("binding_id") or "").strip()
-        if not binding_id:
+        state_profile_id = _resolve_route_state_profile_id(raw)
+        if not state_profile_id:
             return {}, ActionResult(
                 ok=False,
                 code="invalid_params",
-                message=f"binding_id is required for route: {route_id}",
+                message=f"state_profile_id is required for route: {route_id}",
             )
         display_name = str(raw.get("display_name") or route_id).strip() or str(route_id)
         platform = str(raw.get("platform") or "native").strip().lower() or "native"
@@ -88,7 +99,7 @@ def _build_routes(
         routes[str(route_id)] = RouteDefinition(
             route_id=str(route_id),
             display_name=display_name,
-            binding_id=binding_id,
+            state_profile_id=state_profile_id,
             platform=platform,
             current_state_ids=current_state_ids,
             arrival_state_ids=arrival_state_ids,
@@ -190,14 +201,14 @@ def _probe_route(
     probe_params = {
         **_common_params(params, context),
         "platform": route.platform,
-        "binding_id": route.binding_id,
+        **_route_profile_identity(route),
         "expected_state_ids": list(state_ids),
     }
     result = ui_state_actions.ui_match_state(probe_params, context)
     state = result.data.get("state") or {}
     state_id = str(getattr(state, "get", lambda *_: "unknown")("state_id") or "unknown")
     return {
-        "binding_id": route.binding_id,
+        **_route_profile_identity(route),
         "matched": bool(result.ok and state_id in state_ids),
         "code": result.code,
         "state_id": state_id,

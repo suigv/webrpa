@@ -660,7 +660,7 @@ def preprocess_xml(xml: str, max_text_len: int = 0, max_desc_len: int = 0) -> st
     """从原始 Android XML 中提取有效节点的关键属性，剥离噪音。
 
     max_text_len/max_desc_len 为 0 表示不截断，只做结构性过滤。
-    具体阈值应从 binding 文件的 xml_filter 字段读取，不同 App 按需配置。
+    具体阈值应从 app/state profile 配置中的 xml_filter 字段读取，不同 App 按需配置。
     """
     pkg_m = re.search(r'package="([^"]+)"', xml)
     app_pkg = pkg_m.group(1) if pkg_m else ""

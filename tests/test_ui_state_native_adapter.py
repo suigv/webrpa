@@ -8,7 +8,7 @@ from _pytest.monkeypatch import MonkeyPatch
 from engine.actions import state_actions
 from engine.models.runtime import ActionResult, ExecutionCancelled, ExecutionContext
 from engine.ui_state_native_adapter import NativeUIStateAdapter
-from engine.ui_state_native_bindings import NativeStateBinding
+from engine.ui_state_native_bindings import NativeStateProfile
 
 
 def test_native_adapter_login_stage_match_returns_structured_evidence(
@@ -80,6 +80,8 @@ def test_native_adapter_login_stage_match_returns_structured_evidence(
     assert result.evidence.matched == ["account"]
     assert result.evidence.missing == ["home"]
     assert result.raw_details["stage"] == "account"
+    assert result.raw_details["state_profile_id"] == "login_stage"
+    assert result.raw_details["state_profile_name"] == "login"
     assert result.raw_details["target_stages"] == ["account", "home"]
     assert result.raw_details["supported_state_ids"] == [
         "home",
@@ -337,8 +339,8 @@ def test_native_adapter_wait_until_cancellation_raises(monkeypatch: MonkeyPatch)
     def _state_id_from_action_result(result: ActionResult) -> str:
         return cast(str, result.data.get("stage", "unknown"))
 
-    binding = NativeStateBinding(
-        binding_id="cancel_wait",
+    profile = NativeStateProfile(
+        state_profile_id="cancel_wait",
         display_name="cancel wait",
         state_noun="stage",
         supported_state_ids=("home",),
@@ -348,15 +350,15 @@ def test_native_adapter_wait_until_cancellation_raises(monkeypatch: MonkeyPatch)
         wait_action=_wait_action,
     )
 
-    def _resolve_binding(binding_id: str) -> NativeStateBinding:
-        _ = binding_id
-        return binding
+    def _resolve_profile(state_profile_id: str) -> NativeStateProfile:
+        _ = state_profile_id
+        return profile
 
     monkeypatch.setattr(
-        "engine.ui_state_native_adapter.resolve_native_state_binding", _resolve_binding
+        "engine.ui_state_native_adapter.resolve_native_state_profile", _resolve_profile
     )
 
-    service = NativeUIStateAdapter(binding_id="cancel_wait")
+    service = NativeUIStateAdapter(state_profile_id="cancel_wait")
     ctx = ExecutionContext(payload={"device_ip": "192.168.1.214"})
     cancel_calls = 0
 
@@ -372,6 +374,38 @@ def test_native_adapter_wait_until_cancellation_raises(monkeypatch: MonkeyPatch)
 
     assert wait_calls
     assert cancel_calls == 3
+
+
+def test_native_adapter_prefers_state_profile_id_over_binding_id(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    resolved_ids: list[str] = []
+
+    def _match_action(params: dict[str, object], context: ExecutionContext) -> ActionResult:
+        _ = (params, context)
+        return ActionResult(ok=True, code="ok", data={"stage": "home"})
+
+    profile = NativeStateProfile(
+        state_profile_id="preferred_profile",
+        display_name="preferred profile",
+        state_noun="stage",
+        supported_state_ids=("home",),
+        normalize_state_id=lambda state_id: state_id,
+        state_id_from_action_result=lambda result: cast(str, result.data.get("stage", "unknown")),
+        match_action=_match_action,
+    )
+
+    def _resolve_profile(state_profile_id: str) -> NativeStateProfile:
+        resolved_ids.append(state_profile_id)
+        return profile
+
+    monkeypatch.setattr(
+        "engine.ui_state_native_adapter.resolve_native_state_profile", _resolve_profile
+    )
+
+    _ = NativeUIStateAdapter(state_profile_id="preferred_profile", binding_id="legacy_binding")
+
+    assert resolved_ids == ["preferred_profile"]
 
 
 def test_wait_login_stage_cancellation_interrupts_loop(monkeypatch: MonkeyPatch) -> None:
@@ -468,7 +502,7 @@ def test_native_adapter_wait_until_unavailable_returns_structured_error(
     assert FailingRpc.init_calls == 1
 
 
-def test_native_adapter_presence_binding_treats_missing_as_matched_state(
+def test_native_adapter_presence_binding_compatibility_treats_missing_as_matched_state(
     monkeypatch: MonkeyPatch,
 ) -> None:
     @final
@@ -500,6 +534,7 @@ def test_native_adapter_presence_binding_treats_missing_as_matched_state(
     assert result.state.state_id == "missing"
     assert result.message == "no dm message extracted"
     assert result.evidence.matched == ["missing"]
+    assert result.raw_details["binding_id"] == "dm_last_message"
     assert result.raw_details["legacy_code"] == "dm_message_missing"
 
 
@@ -531,7 +566,7 @@ def test_native_adapter_dm_unread_binding_exposes_first_target_alias(
 
     monkeypatch.setattr(state_actions, "MytRpc", FakeRpc)
 
-    service = NativeUIStateAdapter(binding_id="dm_unread")
+    service = NativeUIStateAdapter(state_profile_id="dm_unread")
     ctx = ExecutionContext(payload={"device_ip": "192.168.1.214", "package": "com.example.app"})
     result = service.match_state(ctx, expected_state_ids=["available", "missing"])
     targets = cast(list[object], result.raw_details["targets"])
@@ -571,7 +606,7 @@ def test_native_adapter_timeline_candidates_binding_exposes_first_candidate_alia
 
     monkeypatch.setattr(state_actions, "MytRpc", FakeRpc)
 
-    service = NativeUIStateAdapter(binding_id="timeline_candidates")
+    service = NativeUIStateAdapter(state_profile_id="timeline_candidates")
     ctx = ExecutionContext(payload={"device_ip": "192.168.1.214", "package": "com.example.app"})
     result = service.match_state(ctx, expected_state_ids=["available", "missing"])
     candidates = cast(list[object], result.raw_details["candidates"])
@@ -604,7 +639,7 @@ def test_native_adapter_follow_targets_binding_treats_missing_as_matched_state(
 
     monkeypatch.setattr(state_actions, "MytRpc", FakeRpc)
 
-    service = NativeUIStateAdapter(binding_id="follow_targets")
+    service = NativeUIStateAdapter(state_profile_id="follow_targets")
     ctx = ExecutionContext(payload={"device_ip": "192.168.1.214", "package": "com.example.app"})
     result = service.match_state(ctx, expected_state_ids=["available", "missing"])
 

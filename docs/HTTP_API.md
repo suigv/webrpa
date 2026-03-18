@@ -95,7 +95,8 @@
 
 ## 8) Engine 自描述（Action Schema）
 
-- `GET /api/engine/schema`：动作元数据（用于 AI/前端发现可用 action；默认返回带 `skill` 标签的动作集合）。
+- `GET /api/engine/schema`：动作元数据目录（默认返回完整 metadata，可用 `?tag=skill` 等参数过滤）。
+- `GET /api/engine/skills`：AI-facing 技能书，仅返回带 `skill` 标签的动作集合。
 
 ---
 

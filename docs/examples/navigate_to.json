@@ -3,14 +3,14 @@
   "routes": {
     "home": {
       "display_name": "Home",
-      "binding_id": "browser",
+      "state_profile_id": "browser",
       "platform": "browser",
       "current_state_ids": ["url:example.com/"],
       "arrival_state_ids": ["url:example.com/"]
     },
     "profile": {
       "display_name": "Profile",
-      "binding_id": "browser",
+      "state_profile_id": "browser",
       "platform": "browser",
       "current_state_ids": ["url:example.com/u/"],
       "arrival_state_ids": ["url:example.com/u/"]

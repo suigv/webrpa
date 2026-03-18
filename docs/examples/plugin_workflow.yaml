@@ -11,7 +11,7 @@ steps:
     kind: action
     action: ui.match_state
     params:
-      binding_id: "browser"
+      state_profile_id: "browser"
       expected_state_ids:
         - "url:example.com/"
 
@@ -22,14 +22,14 @@ steps:
       target: "profile"
       routes:
         home:
-          binding_id: "browser"
+          state_profile_id: "browser"
           platform: "browser"
           current_state_ids:
             - "url:example.com/"
           arrival_state_ids:
             - "url:example.com/"
         profile:
-          binding_id: "browser"
+          state_profile_id: "browser"
           platform: "browser"
           current_state_ids:
             - "url:example.com/u/"

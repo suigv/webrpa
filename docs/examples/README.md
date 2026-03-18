@@ -12,5 +12,5 @@
 - `docs/examples/agent_executor.json`：结构示例（AgentExecutor 最小请求）。
 
 日志分析提示：
-- AI 路径事件流里会出现 `task.observation`，其中 `modality` / `fallback_reason` / `fallback_evidence` 可判断是否处于 binding-free 或回退链路。
-- 如果没有匹配到 `app_package` 对应的 binding，系统会进入 binding-free 观察模式，但不会报错。
+- AI 路径事件流里会出现 `task.observation`，其中 `modality` / `fallback_reason` / `fallback_evidence` 可判断是否处于 state-profile-free 或回退链路。
+- 如果没有匹配到 `app_package` 对应的状态配置，系统会进入 state-profile-free 观察模式，但不会报错。

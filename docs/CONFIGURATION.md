@@ -109,10 +109,10 @@ WebRPA 的 UI 选择器与 Scheme 配置存放在 `config/apps/`，默认读取 
 |---|---|---|
 | `MYT_DEFAULT_APP` | `default` | 当无法从 `params.app / payload.app / payload.package` 推断 App 时使用的默认配置名。 |
 
-### 6.2 UI 状态绑定（可选）
-AI/GPT 路径会从 `config/apps/*.yaml` 动态加载 UI 状态绑定数据（按 `package_name` 字段匹配）。
+### 6.2 UI 状态配置（可选）
+AI/Agent 路径会从 `config/apps/*.yaml` 动态加载 UI 状态配置（按 `package_name` 字段匹配）。
 `xml_filter` 和 `states` 字段与选择器配置统一存放在同一文件中。
-缺少绑定不会报错，系统会进入 **binding-free** 观察模式。
+缺少状态配置不会报错，系统会进入 **state-profile-free** 观察模式。
 
 ---
 
@@ -195,7 +195,7 @@ WebRPA 支持在一个设备上切换操作不同的应用程序。通过 `confi
 |---|---|---|
 | 任务数据库 | `config/data/tasks.db` | 核心任务与事件流存储 (SQLite)。 |
 | 账号池数据库 | `config/data/accounts.json.db` | 账号池存储 (SQLite)，支持并发抽号。 |
-| 浏览器配置 | `config/browser_profiles/` | Chrome 用户配置文件缓存。 |
+| 浏览器配置 | `paths.browser_profiles_dir`（默认 `/tmp/webrpa_browser_profiles/`） | Chrome 用户配置文件缓存。 |
 | AI 过程轨迹 | `config/data/traces/` | Agent Executor 的中间决策过程记录。 |
 
 > 注意：`config/data/` 属于运行产物目录，默认不应纳入 git 版本控制（仓库会忽略该目录，保留 `.gitkeep` 占位）。

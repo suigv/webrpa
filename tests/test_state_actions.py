@@ -76,6 +76,93 @@ def test_detect_login_stage_account(monkeypatch):
     assert result.data["stage"] == "account"
 
 
+def test_ui_match_state_normalizes_native_state_profile_params(monkeypatch):
+    register_defaults()
+    mod = importlib.import_module("engine.actions.ui_state_actions")
+    ExecutionContext = _load_execution_context()
+
+    captured: dict[str, object] = {}
+
+    class FakeAdapter:
+        def __init__(self, state_profile_id, *, action_params=None, binding_id=None):
+            captured["state_profile_id"] = state_profile_id
+            captured["binding_id"] = binding_id
+            captured["action_params"] = dict(action_params or {})
+
+        def match_state(self, context, *, expected_state_ids, timeout_ms=None):
+            _ = (context, expected_state_ids, timeout_ms)
+
+            class _Result:
+                def to_action_result(self):
+                    return importlib.import_module("engine.models.runtime").ActionResult(
+                        ok=True, code="ok", data={"state": {"state_id": "available"}}
+                    )
+
+            return _Result()
+
+    monkeypatch.setattr(mod, "NativeUIStateAdapter", FakeAdapter)
+
+    ctx = ExecutionContext(payload={"device_ip": "192.168.1.214"})
+    result = resolve_action("ui.match_state")(
+        {
+            "platform": "native",
+            "state_profile_id": "feed_profile",
+            "binding_id": "legacy_profile",
+            "expected_state_ids": ["available"],
+        },
+        ctx,
+    )
+
+    assert result.ok is True
+    assert captured["state_profile_id"] == "feed_profile"
+    assert captured["binding_id"] is None
+    assert captured["action_params"]["state_profile_id"] == "feed_profile"
+    assert captured["action_params"]["binding_id"] == "feed_profile"
+
+
+def test_ui_match_state_keeps_binding_id_entrypoint_compatibility(monkeypatch):
+    register_defaults()
+    mod = importlib.import_module("engine.actions.ui_state_actions")
+    ExecutionContext = _load_execution_context()
+
+    captured: dict[str, object] = {}
+
+    class FakeAdapter:
+        def __init__(self, state_profile_id, *, action_params=None, binding_id=None):
+            captured["state_profile_id"] = state_profile_id
+            captured["binding_id"] = binding_id
+            captured["action_params"] = dict(action_params or {})
+
+        def match_state(self, context, *, expected_state_ids, timeout_ms=None):
+            _ = (context, expected_state_ids, timeout_ms)
+
+            class _Result:
+                def to_action_result(self):
+                    return importlib.import_module("engine.models.runtime").ActionResult(
+                        ok=True, code="ok", data={"state": {"state_id": "available"}}
+                    )
+
+            return _Result()
+
+    monkeypatch.setattr(mod, "NativeUIStateAdapter", FakeAdapter)
+
+    ctx = ExecutionContext(payload={"device_ip": "192.168.1.214"})
+    result = resolve_action("ui.match_state")(
+        {
+            "platform": "native",
+            "binding_id": "legacy_profile",
+            "expected_state_ids": ["available"],
+        },
+        ctx,
+    )
+
+    assert result.ok is True
+    assert captured["state_profile_id"] == "legacy_profile"
+    assert captured["binding_id"] is None
+    assert captured["action_params"]["state_profile_id"] == "legacy_profile"
+    assert captured["action_params"]["binding_id"] == "legacy_profile"
+
+
 def test_detect_login_stage_uses_visible_japanese_login_entry_text(monkeypatch):
     mod = _load_state_actions_module()
     ExecutionContext = _load_execution_context()
@@ -671,7 +758,7 @@ def test_ui_state_action_wrappers_preserve_legacy_native_contracts(monkeypatch):
     service_result = resolve_action("ui.match_state")(
         {
             "platform": "native",
-            "binding_id": "login_stage",
+            "state_profile_id": "login_stage",
             "expected_state_ids": ["account", "home"],
             "stage_patterns": {"account": {"text_markers": ["账号"]}},
             "stage_order": ["account"],

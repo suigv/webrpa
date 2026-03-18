@@ -31,7 +31,7 @@
 
 ## 🛠 开发指南 (Core Contracts)
 - **[插件开发与输入规范 (Plugin Contract)](PLUGIN_CONTRACT.md)**  
-  YAML 插件模式 (v2) 的核心语法、输入参数声明及变量插值规则。
+  当前运行时 YAML 插件契约（`manifest.api_version: v1` / `script.version: v1`）的核心语法、输入参数声明及变量插值规则。
 - **[AI 工作流设计清单 (AI Workflow Checklist)](ai_workflow_design_checklist.md)**  
   设计基于 LLM/VLM 的自主智能体流程时的关键考量点。
 

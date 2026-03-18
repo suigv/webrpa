@@ -12,10 +12,10 @@ This document provides a concise "done vs not-done" view tied to the goal and ro
 
 | Milestone | Status | Evidence Notes |
 |---|---|---|
-| M0 Baseline Compliance | Verified | Full gate: imports, pytest, /health OK. |
-| M1 AI Bootstrapping (探索) | Partial | VLM 视觉推理调通，坐标补偿验证成功。 |
-| M2 Data-Driven Mode (演进) | Partial | XML 全量捕获实现，`GoldenRun` 提取器可用。 |
-| M3 YAML Mastery (蒸馏) | Planned | 架构方案已定型，等待自愈式特征回流实现。 |
+| M0 Baseline Compliance | Verified | 2026-03-18 本地复核通过：imports、pytest、启动、/health OK。 |
+| M1 AI Bootstrapping (探索) | Implemented (Unverified) | VLM 自主寻路与 `unknown` 兜底链路已实现，但缺少统一近期证据锚点。 |
+| M2 Data-Driven Mode (演进) | Implemented (Unverified) | `TraceLearner` / `AppConfigWriter` 已落地，但缺少统一近期证据锚点。 |
+| M3 YAML Mastery (蒸馏) | Partial | `GoldenRunDistiller` 基座与相关工具已存在，仍缺多轮蒸馏证据闭环。 |
 
 - **文本化文档对齐 (2026-03-13)**：完成全量 `docs/` 内容审计，确立了多云机动态端口公式，修复了 SDK/API 文档的陈旧代码引用。
 - **Skills 演进战略确立**：发布了 `docs/SKILLS_EVOLUTION.md`，识别出 ActionRegistry、Variable Scoping、Error Hooks 等核心架构优化点。

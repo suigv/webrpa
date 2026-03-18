@@ -87,9 +87,10 @@ def _resolve_service(
         return BrowserUIStateService(), None
     if platform == "native":
         try:
+            state_profile_id, normalized_params = _normalize_native_state_profile_params(params)
             return NativeUIStateAdapter(
-                binding_id=_resolve_native_binding_id(params),
-                action_params=dict(params),
+                state_profile_id=state_profile_id,
+                action_params=normalized_params,
             ), None
         except ValueError as exc:
             return None, ActionResult(ok=False, code="invalid_params", message=str(exc))
@@ -117,9 +118,21 @@ def _coerce_state_ids(raw: object) -> tuple[str, ...]:
     return ()
 
 
-def _resolve_native_binding_id(params: dict[str, object]) -> str:
-    binding_id = str(params.get("binding_id") or "login_stage").strip()
-    return binding_id or "login_stage"
+def _resolve_native_state_profile_id(params: dict[str, object]) -> str:
+    state_profile_id = str(
+        params.get("state_profile_id") or params.get("binding_id") or "login_stage"
+    ).strip()
+    return state_profile_id or "login_stage"
+
+
+def _normalize_native_state_profile_params(
+    params: dict[str, object],
+) -> tuple[str, dict[str, object]]:
+    state_profile_id = _resolve_native_state_profile_id(params)
+    normalized_params = dict(params)
+    normalized_params["state_profile_id"] = state_profile_id
+    normalized_params["binding_id"] = state_profile_id
+    return state_profile_id, normalized_params
 
 
 def _looks_like_browser_state_id(state_id: str) -> bool:

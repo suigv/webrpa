@@ -16,20 +16,29 @@ from engine.models.ui_state import (
 )
 from engine.ui_state_helpers import build_error_result, build_timing, build_transition
 from engine.ui_state_native_bindings import (
-    NativeStateBinding,
-    is_presence_style_binding,
-    resolve_native_state_binding,
+    NativeStateProfile,
+    is_presence_style_profile,
+    resolve_native_state_profile,
 )
+
+
+def resolve_native_state_binding(binding_id: str) -> NativeStateProfile:
+    return resolve_native_state_profile(binding_id)
 
 
 class NativeUIStateAdapter:
     def __init__(
-        self, binding_id: str = "login_stage", *, action_params: dict[str, object] | None = None
+        self,
+        state_profile_id: str | None = None,
+        *,
+        binding_id: str | None = None,
+        action_params: dict[str, object] | None = None,
     ) -> None:
-        self._binding: NativeStateBinding
+        self._state_profile: NativeStateProfile
         self._action_params: dict[str, object]
         self._action_params = dict(action_params or {})
-        self._binding = resolve_native_state_binding(binding_id)
+        resolved_profile_id = str(state_profile_id or binding_id or "login_stage").strip()
+        self._state_profile = resolve_native_state_profile(resolved_profile_id or "login_stage")
 
     def match_state(
         self,
@@ -48,7 +57,7 @@ class NativeUIStateAdapter:
             )
 
         started_at = time.monotonic()
-        action_result = self._binding.match_action(
+        action_result = self._state_profile.match_action(
             self._match_action_params(timeout_ms=timeout_ms), context
         )
         finished_at = time.monotonic()
@@ -124,17 +133,20 @@ class NativeUIStateAdapter:
 
         started_at = time.monotonic()
         context.check_cancelled()
-        if self._binding.wait_action is None:
+        if self._state_profile.wait_action is None:
             return self._invalid_params_result(
                 operation="wait_until",
-                message=f"binding '{self._binding.binding_id}' does not support wait_until",
+                message=(
+                    f"state profile '{self._state_profile.state_profile_id}' "
+                    "does not support wait_until"
+                ),
                 expected_state_ids=normalized_expected,
                 timeout_ms=timeout_ms,
                 interval_ms=interval_ms,
             )
 
         context.check_cancelled()
-        action_result = self._binding.wait_action(
+        action_result = self._state_profile.wait_action(
             self._wait_action_params(
                 target_stages=list(normalized_expected),
                 timeout_ms=timeout_ms,
@@ -222,12 +234,12 @@ class NativeUIStateAdapter:
             attempt += 1
             match_result: UIStateObservationResult = self.match_state(
                 context,
-                expected_state_ids=self._binding.supported_state_ids,
+                expected_state_ids=self._state_profile.supported_state_ids,
                 timeout_ms=timeout_ms,
             )
             match_result_payload = cast(dict[str, object], match_result.model_dump(mode="python"))
             state_payload = cast(dict[str, object], match_result_payload.get("state", {}))
-            current_state = self._binding.normalize_state_id(
+            current_state = self._state_profile.normalize_state_id(
                 cast(str, state_payload.get("state_id", "unknown"))
             )
             if not match_result.ok and match_result.code not in {"no_match"}:
@@ -293,8 +305,7 @@ class NativeUIStateAdapter:
                         evidence=evidence,
                         timing=timing,
                         raw_details={
-                            "binding_id": self._binding.binding_id,
-                            "binding_name": self._binding.display_name,
+                            **self._profile_identity_details(),
                             "stage": current_state,
                             "attempt": attempt,
                             "elapsed_ms": timing.elapsed_ms,
@@ -333,8 +344,7 @@ class NativeUIStateAdapter:
             ),
             timing=timing,
             raw_details={
-                "binding_id": self._binding.binding_id,
-                "binding_name": self._binding.display_name,
+                **self._profile_identity_details(),
                 "stage": previous_state,
                 "attempt": attempt,
                 "elapsed_ms": timing.elapsed_ms,
@@ -346,14 +356,14 @@ class NativeUIStateAdapter:
 
     def _normalize_expected_state_ids(self, expected_state_ids: Sequence[str]) -> tuple[str, ...]:
         normalized = {
-            self._binding.normalize_state_id(state_id)
+            self._state_profile.normalize_state_id(state_id)
             for state_id in expected_state_ids
             if str(state_id).strip()
         }
         return tuple(sorted(normalized))
 
     def _state_id_from_action_result(self, action_result: ActionResult) -> str:
-        return self._binding.state_id_from_action_result(action_result)
+        return self._state_profile.state_id_from_action_result(action_result)
 
     def _build_evidence(
         self,
@@ -363,9 +373,15 @@ class NativeUIStateAdapter:
         matched: bool,
     ) -> UIStateEvidence:
         if matched:
-            summary = f"matched native {self._binding.display_name} {self._binding.state_noun} '{state_id}'"
+            summary = (
+                f"matched native {self._state_profile.display_name} "
+                f"{self._state_profile.state_noun} '{state_id}'"
+            )
         else:
-            summary = f"detected native {self._binding.display_name} {self._binding.state_noun} '{state_id}'"
+            summary = (
+                f"detected native {self._state_profile.display_name} "
+                f"{self._state_profile.state_noun} '{state_id}'"
+            )
         return UIStateEvidence(
             summary=summary,
             text=state_id,
@@ -383,9 +399,8 @@ class NativeUIStateAdapter:
         extra: dict[str, object] | None = None,
     ) -> dict[str, object]:
         raw_details: dict[str, object] = {
-            "binding_id": self._binding.binding_id,
-            "binding_name": self._binding.display_name,
-            "supported_state_ids": list(self._binding.supported_state_ids),
+            **self._profile_identity_details(),
+            "supported_state_ids": list(self._state_profile.supported_state_ids),
             "stage": state_id,
             "attempt": int(
                 action_result.data.get("attempt", 1 if action_result.code == "ok" else 0) or 0
@@ -411,9 +426,17 @@ class NativeUIStateAdapter:
                 raw_details[key] = value
         return raw_details
 
+    def _profile_identity_details(self) -> dict[str, str]:
+        return {
+            "state_profile_id": self._state_profile.state_profile_id,
+            "binding_id": self._state_profile.binding_id,
+            "state_profile_name": self._state_profile.display_name,
+            "binding_name": self._state_profile.display_name,
+        }
+
     def _is_observed_presence_state(self, state_id: str, expected_state_ids: Sequence[str]) -> bool:
         return (
-            is_presence_style_binding(self._binding)
+            is_presence_style_profile(self._state_profile)
             and state_id == "missing"
             and state_id in expected_state_ids
         )
@@ -479,9 +502,8 @@ class NativeUIStateAdapter:
             ),
             timing=timing,
             raw_details={
-                "binding_id": self._binding.binding_id,
-                "binding_name": self._binding.display_name,
-                "supported_state_ids": list(self._binding.supported_state_ids),
+                **self._profile_identity_details(),
+                "supported_state_ids": list(self._state_profile.supported_state_ids),
                 "stage": "unknown",
                 "attempt": 0,
                 "elapsed_ms": 0,

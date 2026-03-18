@@ -2,6 +2,7 @@
 
 > 本文档用于持续记录项目当前可用能力、完成状态和下一步计划。
 > 自动快照区由 `tools/update_project_progress.py` 生成，请勿手工修改该区块。
+> 说明：本文件同时包含“当前能力摘要”和“按日期追加的历史变更日志”。涉及当前契约、当前里程碑状态与当前接口语义时，以 `docs/README.md`、`docs/STATUS.md`、`docs/ROADMAP.md`、`docs/HTTP_API.md`、`docs/PLUGIN_CONTRACT.md` 为准；下方较早日期的条目应按历史记录理解，不应直接视为当前实现清单。
 
 ## 1. 当前阶段
 
@@ -54,7 +55,12 @@
   - **RPC 特性开关一致性**：统一了系统与测试中对 `MYT_ENABLE_RPC` 环境变量的优先级处理，确保 Feature Flag 在全链路上严格生效。
   - **架构硬化验证完成**：完成了 `BaseStore` (SQLite)、`ConfigLoader` (Pydantic) 以及 `CloudProbeService` (Probing) 的全量集成验证，通过了 280+ 项测试用例的回归校验。
 - 最近重点 (2026-03-17)：
-  - **移除 Binding 工坊**：删除 Web 控制台中的 Binding Master 入口、`/api/binding/*` 路由、`engine/binding_distiller.py` 与 `tools/distill_binding.py`，正式收口到自动学习主链路（`agent_executor -> trace -> config/apps/*.yaml`），减少人工预热路径。
+  - **安全清理工具落地**：新增 `tools/clean_workspace.py`，默认 dry-run，只清理本地缓存/构建产物；旧 trace 清理需要显式传入 retention 参数，避免误删当前运行数据。
+  - **UI 状态命名收敛**：新增 `state_profile_id` 作为 `ui.match_state` / `ui.navigate_to` 的推荐参数名，运行时继续兼容 legacy `binding_id`，逐步收口旧术语。
+  - **Native State Profile 内部继续收口**：`NativeUIStateAdapter` 主路径已改为优先解析 `state_profile_id`，`NativeStateProfile` 同时接受 `state_profile_id` / `binding_id` 构造入参，兼容字段统一由共享 helper 输出，减少后续重复维护成本。
+  - **导航动作兼容边界集中化**：`ui.navigate_to` 对 route profile 的解析与 probe 身份字段输出已抽到共享 helper，主路径统一围绕 `state_profile_id`，同时显式保留 `binding_id` 兼容透传，减少动作层重复拼装旧字段的风险。
+  - **UI State 入口参数标准化**：`ui.match_state` / `ui.wait_until` / `ui.observe_transition` 在 native 模式下会先把 `state_profile_id` / `binding_id` 归一成一致的双字段后再创建 adapter，确保新旧入口在后续动作链里观察到的是同一份稳定参数。
+  - **移除 Binding 工坊（历史链路下线）**：删除 Web 控制台中的 Binding Master 入口、`/api/binding/*` 路由、`engine/binding_distiller.py` 与 `tools/distill_binding.py`，正式收口到自动学习主链路（`agent_executor -> trace -> config/apps/*.yaml`），减少人工预热路径。该条记录描述的是旧 binding 工坊链路的下线，不代表当前仍存在独立 binding 子系统。
 
 - 最近重点 (2026-03-15)：
   - **设备可用性提前熔断**：`DeviceManager` 新增 probe 订阅接口；任务执行链路会把当前 target 的 probe 离线信号并入取消判断，线程模式直接订阅，子进程模式由父进程监控活跃 target 并回传熔断理由，最终统一以 `failed_circuit_breaker` / `target_unavailable` 终止，而不是等待 RPC 超时。
@@ -129,20 +135,20 @@
     - **自愈式捕获逻辑 (Self-Healing)**：在 `_state_detection_support.py` 中实现了自动完整性校验，若检测到 `Ex` 模式截断，则自动重试标准 `dump_node_xml`（无此缓冲区限制），确保 AI 能获取完整 UI 树。
     - **蒸馏链路 Regex Fallback**：为 trace 特征提取引入了正则回退机制，确保在极端截断情况下仍能提取包名和核心特征。
     - **App 探测去硬编码重构**：彻底移除了框架中针对 X App 的硬编码字符串，支持通过 `config/apps/*.yaml` 动态加载。
-    - **通用的 Native 状态观察**：`X_APP_STAGE_BINDING` 已重构为全局通用的 `app_stage` 绑定。
+    - **通用的 Native 状态观察**：旧常量名 `X_APP_STAGE_BINDING` 已收敛为全局通用的 `app_stage` 状态观察能力。
     - **X App 特征落地**：解析并集成 X App 首页特征。
     - **文档与系统一致性对齐**：全量审计并修复了 `docs/` 下的过期信息，包括多云机动态端口公式、任务控制面架构拆分描述、以及插件契约规范（补全 Pydantic 必填字段），并新增了 **[Skills化演进报告](SKILLS_EVOLUTION.md)**，确立了 AI 驱动技能化的架构演进方向。
   - **代码清理（本会话）**：删除 `common/env_loader.py`、`common/runtime_state.py`、`common/toolskit.py`（零引用旧产物）。
 
 - 最近重点 (本会话)：
-  - **App 配置统一架构**：删除 `config/bindings/` 目录，`xml_filter`/`states` 字段合并至 `config/apps/<app>.yaml`；GPT 执行器改为从 `config/apps/*.yaml` 按 `package_name` 加载 binding 参数；`sdk_config_support` 新增 `com.twitter.android → x` 映射。
+  - **App 配置统一架构**：删除 `config/bindings/` 目录，`xml_filter`/`states` 字段合并至 `config/apps/<app>.yaml`；这里的 “GPT 执行器” 是旧称，现统一对应 `agent_executor`，并从 `config/apps/*.yaml` 按 `package_name` 加载原 binding 语义所承载的配置；`sdk_config_support` 新增 `com.twitter.android → x` 映射。
   - **X app 配置**：新增 `config/apps/x.yaml`，含 `package_name`、`xml_filter`（max_text_len=60/max_desc_len=100，针对 X app 的合理截断），15 个 UI 状态描述，deep link scheme。
   - **蒸馏自动 selector merge**：`GoldenRunDistiller.distill()` 完成后自动扫描 script steps，提取 UI 定位 action（`ui.click` 等 8 种）的未参数化 `text`/`resource_id` 值，merge 写入对应 `config/apps/<app>.yaml` 的 `selectors` 字段；已有 selector 不覆盖。
 
 - 最近重点 (本会话)：
   - **Skills-Driven 架构演进 (Phase 1 & 2)**：
     - **Action Registry 元数据增强**：`ActionRegistry` 现在支持 `ActionMetadata`，通过 Pydantic 模型定义每个动作的描述、参数 Schema (JSON Schema) 和返回值 Schema。
-    - **自描述 API**：新增 `GET /api/engine/schema` 接口，全量暴露已注册动作的元数据，方便 AI 代理发现可用技能。
+    - **自描述 API**：`GET /api/engine/schema` 作为通用动作目录，全量暴露已注册动作的元数据并支持按 `tag` 过滤；`GET /api/engine/skills` 提供仅含 `skill` 标签动作的 AI 技能书。
     - **非破坏性元数据富化**：为 `ui.*`、`app.*`、`core.*` (save/load shared) 以及 `ai.*` (llm/vlm/locate) 等高频核心动作补全了描述和参数规范。
     - **文档自愈机制**：在 `AGENTS.md` 中确立了“代码变更伴随文档同步”的强制规则，确保架构演进与文档保持物理对齐。
     - **AI 引导升级**：新建 `docs/AI_ONBOARDING.md` 作为 AI 进入项目的第一站，明确了知识检索优先级与职责边界。
@@ -178,7 +184,7 @@
   - **VLM 架构通用化重构**：
     - 废弃 UI-TARS 专有逻辑，建立通用的 `VLMProvider` 协议，支持多厂商插件化接入。
   - **细节修正与系统稳固性 (本会话)**：
-    - 修复了 `binding.js` 中的 `json.stringify` 拼写错误。
+    - 修复了历史前端 binding 工具页面中 `binding.js` 的 `json.stringify` 拼写错误。
     - 修复了接管页面 `currentDeviceId` 丢失导致的采集参数缺失问题。
     - 修正了 `AccountStore.pop_ready_account` 在 SQLite 事务中的返回对象缺陷。
     - 修复了 `test_llm_client.py` 中因 `VLMClient` 构造函数变更引起的测试崩溃。
@@ -203,9 +209,9 @@
 - [x] 拆分 `DeviceManager`，将云机探测逻辑移至独立服务。
 - [x] 修复 AI 模块隐患：VLM 连接泄露处理及基于 `retryable` 标记的退避重试。
   - **AI 对话架构改进 (2026-03-11)**：
-    - **修复无 binding 场景下的 fingerprint 计算**：`agent_executor` 在 `observation.ok=False` 时改用 UI XML 内容计算停滞 fingerprint，防止在无 binding 场景下错误触发死循环熔断。
-    - **新增 binding 蒸馏链路**：支持从 trace jsonl 自动提取 UI 特征并归纳界面状态。
-    - **前端 AI 对话修复**：`binding_id` 服务化、allowed_actions 注册名对齐、SSE 事件流稳定性修复。
+    - **修复无旧 binding 配置场景下的 fingerprint 计算**：`agent_executor` 在 `observation.ok=False` 时改用 UI XML 内容计算停滞 fingerprint，防止在缺少旧 binding 预热配置时错误触发死循环熔断。
+    - **新增 binding 蒸馏链路（历史表述）**：支持从 trace jsonl 自动提取 UI 特征并归纳界面状态；该能力后续已收口到当前自动学习主链路。
+    - **前端 AI 对话修复**：历史字段 `binding_id` 完成服务化，随后相关 binding 工具链已逐步退场；同时对齐 `allowed_actions` 注册名并修复 SSE 事件流稳定性。
     - **LLM 调用链路修复**：新增 `OpenAIChatProvider` 并通过 `.env` 注入 key，由于采用了标准 OpenAI 封装协议，系统现在能更稳健地连接到各类代理服务。
     - **统一入口 `.env` 加载**：`api.server` 现在会在 `MYT_LOAD_DOTENV!=0` 时主动加载项目根目录 `.env`，避免直接 `uvicorn api.server:app` 与 `run_webrpa.sh` 的环境行为不一致。
     - **登录执行器约束增强**：`agent_executor` 不再把 `ui.observe_transition` 暴露给 planner 直接决策；当 `account/password/two_factor` 处于弱匹配且尚未确认输入框聚焦时，会强制 `ai.locate_point` 优先寻找输入框而非提交按钮。
@@ -221,7 +227,7 @@
 
 ### 2.2 引擎与插件
 - Runner + Interpreter 声明式工作流引擎。
-- 支持 YAML 插件模式（`v2` 契约）。
+- 支持 YAML 插件模式（当前运行时契约为 `v1`）。
 - 托管 `agent_executor` 自主智能体运行时。
 - 离线 Golden Run 蒸馏工具。
 

@@ -14,7 +14,7 @@
   "stagnant_limit": 2,
   "fallback_modalities": ["vision"],
   "observation": {
-    "binding_id": "browser",
+    "state_profile_id": "browser",
     "timeout_ms": 3000,
     "platform": "browser"
   },

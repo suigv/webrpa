@@ -50,3 +50,34 @@ def test_browser_diagnostics_endpoint():
     assert "drissionget_importable" in payload
     assert "drissionpage_importable" in payload
     assert "chromium_binary_found" in payload
+
+
+def test_engine_schema_endpoint_returns_metadata_catalog():
+    client = TestClient(app)
+    response = client.get("/api/engine/schema")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert "ui.click" in payload
+    assert "core.save_shared" in payload
+
+
+def test_engine_skills_endpoint_returns_skill_tagged_actions_only():
+    client = TestClient(app)
+    response = client.get("/api/engine/skills")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert "ui.click" in payload
+    assert "core.save_shared" in payload
+    assert all("skill" in item.get("tags", []) for item in payload.values())
+
+
+def test_engine_schema_endpoint_supports_tag_filtering():
+    client = TestClient(app)
+    response = client.get("/api/engine/schema", params={"tag": "skill"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert "ui.click" in payload
+    assert all("skill" in item.get("tags", []) for item in payload.values())

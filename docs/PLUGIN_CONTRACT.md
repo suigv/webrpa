@@ -1,7 +1,11 @@
-# 插件契约与输入规范 (v2)
+# 插件契约与输入规范 (运行时 v1)
 
 ## 1. 目标与结构
 定义稳定的 **YAML 声明式插件契约**，实现业务流与执行引擎的解耦。
+当前运行时代码要求 `manifest.yaml` 使用 `api_version: v1`，`script.yaml` 使用 `version: v1`。
+
+> [!NOTE]
+> 仓库里曾出现过“插件契约 (v2)”的文档命名，但它并没有对应到一个独立落地的运行时解析版本。就当前代码而言，插件运行时只有 `v1` 这一套实际生效的 schema；此前的 “v2” 更接近文档分代或设计语义，而不是 `api_version: v2` 这样的可执行协议版本。
 
 > [!IMPORTANT]
 > **终极演进目标**：在 Architecture 2.0 的“成熟度漏斗”中，YAML 插件是系统的终极产物（Master YAML）。它代表了经过 AI 探索和数据固化后，能够脱离 LLM/VLM 依赖的极致性能与确定性脚本。
@@ -67,7 +71,7 @@ plugins/<plugin_name>/
 4.  **goto** (`kind: goto`)：标签跳转。
 5.  **stop** (`kind: stop`)：显式终止并返回成功或失败。
 
-> **说明**：如需跨页面导航，请使用 `ui.navigate_to`，并在 `params` 或 session defaults 提供 `routes` 与 `hops`（路由定义 + 跳转动作）。该动作基于 `ui.match_state` 校验到达状态，避免隐式硬编码路径。
+> **说明**：如需跨页面导航，请使用 `ui.navigate_to`，并在 `params` 或 session defaults 提供 `routes` 与 `hops`（路由定义 + 跳转动作）。该动作基于 `ui.match_state` 校验到达状态，避免隐式硬编码路径。对 native/browser 状态观察，推荐使用 `state_profile_id`；运行时继续兼容旧参数名 `binding_id`。
 
 ---
 

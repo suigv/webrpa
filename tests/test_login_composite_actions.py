@@ -254,7 +254,10 @@ def test_fill_form_successfully_inputs_submits_and_waits(monkeypatch: pytest.Mon
     result = handler(
         {
             "device_ip": "192.168.1.2",
-            "allowed_state": {"binding_id": "login_stage", "expected_state_ids": ["account"]},
+            "allowed_state": {
+                "state_profile_id": "login_stage",
+                "expected_state_ids": ["account"],
+            },
             "fields": [
                 {
                     "field_id": "account",
@@ -273,7 +276,10 @@ def test_fill_form_successfully_inputs_submits_and_waits(monkeypatch: pytest.Mon
                 "fallback_x": 930,
                 "fallback_y": 1830,
             },
-            "wait_for_state": {"binding_id": "login_stage", "expected_state_ids": ["password"]},
+            "wait_for_state": {
+                "state_profile_id": "login_stage",
+                "expected_state_ids": ["password"],
+            },
         },
         ExecutionContext(payload={"device_ip": "192.168.1.2"}),
     )
@@ -442,13 +448,13 @@ def test_navigate_to_noops_when_already_at_target(monkeypatch: pytest.MonkeyPatc
     from engine.actions import ui_state_actions
 
     def ui_match_state(params: dict[str, object], _context: ExecutionContext) -> ActionResult:
-        if params.get("binding_id") == "feed_binding":
+        if params.get("state_profile_id") == "feed_profile":
             return ActionResult(ok=True, code="ok", data={"state": {"state_id": "available"}})
         return ActionResult(ok=False, code="no_match", data={"state": {"state_id": "unknown"}})
 
     monkeypatch.setattr(ui_state_actions, "ui_match_state", ui_match_state)
 
-    routes = {"feed": {"binding_id": "feed_binding", "display_name": "feed"}}
+    routes = {"feed": {"state_profile_id": "feed_profile", "display_name": "feed"}}
 
     handler = resolve_action("ui.navigate_to")
     result = handler(
@@ -468,13 +474,13 @@ def test_navigate_to_recognizes_missing_state_page_as_current_route(
     from engine.actions import ui_state_actions
 
     def ui_match_state(params: dict[str, object], _context: ExecutionContext) -> ActionResult:
-        if params.get("binding_id") == "feed_binding":
+        if params.get("state_profile_id") == "feed_profile":
             return ActionResult(ok=True, code="ok", data={"state": {"state_id": "missing"}})
         return ActionResult(ok=False, code="no_match", data={"state": {"state_id": "unknown"}})
 
     monkeypatch.setattr(ui_state_actions, "ui_match_state", ui_match_state)
 
-    routes = {"feed": {"binding_id": "feed_binding", "display_name": "feed"}}
+    routes = {"feed": {"state_profile_id": "feed_profile", "display_name": "feed"}}
 
     handler = resolve_action("ui.navigate_to")
     result = handler(
@@ -495,10 +501,10 @@ def test_navigate_to_runs_successful_bounded_route(monkeypatch: pytest.MonkeyPat
 
     def ui_match_state(params: dict[str, object], _context: ExecutionContext) -> ActionResult:
         nonlocal feed_calls
-        binding_id = params.get("binding_id")
-        if binding_id == "inbox_binding":
+        state_profile_id = params.get("state_profile_id")
+        if state_profile_id == "inbox_profile":
             return ActionResult(ok=True, code="ok", data={"state": {"state_id": "available"}})
-        if binding_id == "feed_binding":
+        if state_profile_id == "feed_profile":
             feed_calls += 1
             if feed_calls == 1:
                 return ActionResult(
@@ -518,8 +524,8 @@ def test_navigate_to_runs_successful_bounded_route(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr("engine.action_registry.resolve_action", fake_resolve_action)
 
     routes = {
-        "feed": {"binding_id": "feed_binding", "display_name": "feed"},
-        "inbox": {"binding_id": "inbox_binding", "display_name": "inbox"},
+        "feed": {"state_profile_id": "feed_profile", "display_name": "feed"},
+        "inbox": {"state_profile_id": "inbox_profile", "display_name": "inbox"},
     }
     hops = [
         {
@@ -541,7 +547,36 @@ def test_navigate_to_runs_successful_bounded_route(monkeypatch: pytest.MonkeyPat
     assert result.data["current_route"] == "feed"
 
 
-def test_navigate_to_returns_target_unreachable_when_no_path(monkeypatch: pytest.MonkeyPatch):
+def test_navigate_to_accepts_state_profile_id_alias(monkeypatch: pytest.MonkeyPatch):
+    register_defaults()
+    from engine.actions import ui_state_actions
+    observed_params: list[dict[str, object]] = []
+
+    def ui_match_state(params: dict[str, object], _context: ExecutionContext) -> ActionResult:
+        observed_params.append(dict(params))
+        if params.get("state_profile_id") == "feed_profile":
+            return ActionResult(ok=True, code="ok", data={"state": {"state_id": "available"}})
+        return ActionResult(ok=False, code="no_match", data={"state": {"state_id": "unknown"}})
+
+    monkeypatch.setattr(ui_state_actions, "ui_match_state", ui_match_state)
+
+    routes = {"feed": {"state_profile_id": "feed_profile", "display_name": "feed"}}
+
+    handler = resolve_action("ui.navigate_to")
+    result = handler(
+        {"target": "feed", "routes": routes, "hops": []},
+        ExecutionContext(payload={"device_ip": "192.168.1.2"}),
+    )
+
+    assert result.ok is True
+    assert result.data["noop"] is True
+    assert result.data["current_route"] == "feed"
+    assert observed_params
+    assert observed_params[0]["state_profile_id"] == "feed_profile"
+    assert observed_params[0]["binding_id"] == "feed_profile"
+
+
+def test_navigate_to_keeps_binding_id_route_compatibility(monkeypatch: pytest.MonkeyPatch):
     register_defaults()
     from engine.actions import ui_state_actions
 
@@ -552,9 +587,33 @@ def test_navigate_to_returns_target_unreachable_when_no_path(monkeypatch: pytest
 
     monkeypatch.setattr(ui_state_actions, "ui_match_state", ui_match_state)
 
+    routes = {"feed": {"binding_id": "feed_binding", "display_name": "feed"}}
+
+    handler = resolve_action("ui.navigate_to")
+    result = handler(
+        {"target": "feed", "routes": routes, "hops": []},
+        ExecutionContext(payload={"device_ip": "192.168.1.2"}),
+    )
+
+    assert result.ok is True
+    assert result.data["noop"] is True
+    assert result.data["current_route"] == "feed"
+
+
+def test_navigate_to_returns_target_unreachable_when_no_path(monkeypatch: pytest.MonkeyPatch):
+    register_defaults()
+    from engine.actions import ui_state_actions
+
+    def ui_match_state(params: dict[str, object], _context: ExecutionContext) -> ActionResult:
+        if params.get("state_profile_id") == "feed_profile":
+            return ActionResult(ok=True, code="ok", data={"state": {"state_id": "available"}})
+        return ActionResult(ok=False, code="no_match", data={"state": {"state_id": "unknown"}})
+
+    monkeypatch.setattr(ui_state_actions, "ui_match_state", ui_match_state)
+
     routes = {
-        "feed": {"binding_id": "feed_binding", "display_name": "feed"},
-        "inbox": {"binding_id": "inbox_binding", "display_name": "inbox"},
+        "feed": {"state_profile_id": "feed_profile", "display_name": "feed"},
+        "inbox": {"state_profile_id": "inbox_profile", "display_name": "inbox"},
     }
 
     handler = resolve_action("ui.navigate_to")
@@ -572,7 +631,7 @@ def test_navigate_to_returns_state_drift_detected(monkeypatch: pytest.MonkeyPatc
     from engine.actions import navigation_actions, ui_state_actions
 
     def ui_match_state(params: dict[str, object], _context: ExecutionContext) -> ActionResult:
-        if params.get("binding_id") == "inbox_binding":
+        if params.get("state_profile_id") == "inbox_profile":
             return ActionResult(ok=True, code="ok", data={"state": {"state_id": "available"}})
         return ActionResult(ok=False, code="no_match", data={"state": {"state_id": "unknown"}})
 
@@ -589,9 +648,9 @@ def test_navigate_to_returns_state_drift_detected(monkeypatch: pytest.MonkeyPatc
     )
 
     routes = {
-        "feed": {"binding_id": "feed_binding", "display_name": "feed"},
-        "inbox": {"binding_id": "inbox_binding", "display_name": "inbox"},
-        "search": {"binding_id": "search_binding", "display_name": "search"},
+        "feed": {"state_profile_id": "feed_profile", "display_name": "feed"},
+        "inbox": {"state_profile_id": "inbox_profile", "display_name": "inbox"},
+        "search": {"state_profile_id": "search_profile", "display_name": "search"},
     }
     hops = [
         {
