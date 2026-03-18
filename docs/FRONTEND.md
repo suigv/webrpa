@@ -47,6 +47,18 @@ npm run build
 
 Build output is written to `web/dist/` (not committed).
 
+## Planned: Device WebRTC takeover
+
+The device detail page currently uses backend-mediated screenshots for the "current screen" panel.
+A future goal is to add a WebRTC-based live takeover mode for real-time monitoring and control, while keeping screenshot preview as a fallback.
+
+Before that work is scheduled, keep these constraints in mind:
+
+- The current Vite production build does not emit `web/webplayer/play.html` or its JS assets into `web/dist/`; they must be published explicitly if WebRTC takeover is enabled.
+- The browser must be able to reach the device WebRTC endpoints directly; this is a different network model from the current screenshot API, which is proxied through the backend.
+- WebRTC takeover should consume backend-issued connection metadata or short-lived access material rather than hardcoded frontend port formulas.
+- Production rollout must account for HTTPS/WSS compatibility, auth propagation, and operation audit boundaries for direct interactive control.
+
 ## Nginx (single-host reverse proxy)
 
 Recommended layout:

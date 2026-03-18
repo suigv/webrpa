@@ -11,6 +11,8 @@ let selectedUnits = new Set();
 let currentCatalog = [];
 let currentUnitsById = new Map();
 let currentUnitDetail = null;
+let currentUnitScreenshotTimer = null;
+let unitControlInFlight = false;
 
 function clearElement(element) {
     if (element) {
@@ -584,6 +586,113 @@ async function loadUnitScreenshot(unit) {
     }
 }
 
+function unitControlButtons() {
+    return Array.from(document.querySelectorAll('[data-unit-control]'));
+}
+
+function setUnitControlBusy(busy) {
+    unitControlInFlight = busy;
+    unitControlButtons().forEach((button) => {
+        button.disabled = busy;
+    });
+    const img = $("unitScreenshotImg");
+    if (img) {
+        img.style.cursor = busy ? 'wait' : 'crosshair';
+    }
+}
+
+function controlErrorDetail(response) {
+    const detail = response?.data?.detail;
+    if (typeof detail === 'string' && detail.trim()) return detail.trim();
+    return `HTTP ${response?.status || 0}`;
+}
+
+async function postUnitControl(unit, action, payload, successMessage = '') {
+    if (!unit || unit.availability_state !== "available") {
+        toast.error("设备离线，无法控制");
+        return false;
+    }
+    if (unitControlInFlight) return false;
+    setUnitControlBusy(true);
+    try {
+        const response = await fetchJson(`/api/devices/${unit.parent_id}/${unit.cloud_id}/${action}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        if (!response.ok) {
+            toast.error(`控制失败: ${controlErrorDetail(response)}`);
+            return false;
+        }
+        if (successMessage) {
+            toast.success(successMessage);
+        }
+        await loadUnitScreenshot(unit);
+        return true;
+    } finally {
+        setUnitControlBusy(false);
+    }
+}
+
+async function handleScreenshotTap(event, unit) {
+    const img = $("unitScreenshotImg");
+    if (!img || !unit || !img.src || img.style.visibility === 'hidden') return;
+    const rect = img.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+    const rx = Math.min(Math.max(event.clientX - rect.left, 0), rect.width);
+    const ry = Math.min(Math.max(event.clientY - rect.top, 0), rect.height);
+    const nx = Math.round((rx / rect.width) * 1000);
+    const ny = Math.round((ry / rect.height) * 1000);
+    await postUnitControl(unit, 'tap', { nx, ny }, `已点击 (${nx}, ${ny})`);
+}
+
+function bindUnitControls(unit) {
+    const refreshBtn = $("refreshScreenshot");
+    if (refreshBtn) refreshBtn.onclick = () => loadUnitScreenshot(unit);
+
+    const img = $("unitScreenshotImg");
+    if (img) {
+        img.onclick = (event) => {
+            void handleScreenshotTap(event, unit);
+        };
+    }
+
+    const keyActions = {
+        unitKeyBack: { action: 'key', payload: { key: 'back' }, message: '已发送返回' },
+        unitKeyHome: { action: 'key', payload: { key: 'home' }, message: '已发送 Home' },
+        unitKeyEnter: { action: 'key', payload: { key: 'enter' }, message: '已发送 Enter' },
+        unitKeyRecent: { action: 'key', payload: { key: 'recent' }, message: '已发送任务键' },
+        unitSwipeUp: {
+            action: 'swipe',
+            payload: { nx0: 500, ny0: 820, nx1: 500, ny1: 220, duration: 350 },
+            message: '已上滑',
+        },
+        unitSwipeDown: {
+            action: 'swipe',
+            payload: { nx0: 500, ny0: 220, nx1: 500, ny1: 820, duration: 350 },
+            message: '已下滑',
+        },
+        unitSwipeLeft: {
+            action: 'swipe',
+            payload: { nx0: 820, ny0: 500, nx1: 220, ny1: 500, duration: 350 },
+            message: '已左滑',
+        },
+        unitSwipeRight: {
+            action: 'swipe',
+            payload: { nx0: 220, ny0: 500, nx1: 820, ny1: 500, duration: 350 },
+            message: '已右滑',
+        },
+    };
+
+    Object.entries(keyActions).forEach(([id, config]) => {
+        const button = $(id);
+        if (!button) return;
+        button.onclick = () => {
+            void postUnitControl(unit, config.action, config.payload, config.message);
+        };
+    });
+}
+
 function openUnitDetail(unit) {
     document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
     const view = $("unitDetailView");
@@ -600,12 +709,15 @@ function openUnitDetail(unit) {
     loadUnitAccounts();
     const btn = $("submitSingleTask");
     if(btn) btn.onclick = () => submitUnitTask(unit);
-    const refreshBtn = $("refreshScreenshot");
-    if(refreshBtn) refreshBtn.onclick = () => loadUnitScreenshot(unit);
+    bindUnitControls(unit);
     loadUnitScreenshot(unit);
-    const _screenshotTimer = setInterval(() => {
+    if (currentUnitScreenshotTimer) {
+        clearInterval(currentUnitScreenshotTimer);
+    }
+    currentUnitScreenshotTimer = setInterval(() => {
         if (currentUnitDetail !== unit) {
-            clearInterval(_screenshotTimer);
+            clearInterval(currentUnitScreenshotTimer);
+            currentUnitScreenshotTimer = null;
             return;
         }
         loadUnitScreenshot(unit);
@@ -618,6 +730,11 @@ export function closeDetail(restoreMainTab = true) {
     if(view) view.style.display = "none";
     closeUnitAiDialog();
     currentUnitDetail = null;
+    if (currentUnitScreenshotTimer) {
+        clearInterval(currentUnitScreenshotTimer);
+        currentUnitScreenshotTimer = null;
+    }
+    setUnitControlBusy(false);
     const img = $("unitScreenshotImg");
     if (img && img.src && img.src.startsWith('blob:')) {
         URL.revokeObjectURL(img.src);

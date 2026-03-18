@@ -246,6 +246,19 @@ h1, h2, h3, h4 { color: var(--text-main); font-weight: 600; letter-spacing: -0.0
   padding: 20px;
 }
 
+.device-control-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.device-control-actions,
+.device-swipe-pad {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
 .divider {
   height: 1px;
   background-color: var(--border);
@@ -347,6 +360,13 @@ h1, h2, h3, h4 { color: var(--text-main); font-weight: 600; letter-spacing: -0.0
 .columns-2 { grid-template-columns: 1fr 1fr; }
 .columns-3 { grid-template-columns: 1fr 1fr 1fr; }
 .col-span-2 { grid-column: span 2; }
+
+@media (max-width: 720px) {
+  .device-control-actions,
+  .device-swipe-pad {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
 
 .form-group { display: flex; flex-direction: column; gap: 8px; }
 .form-group label { font-size: 13px; font-weight: 500; color: var(--text-muted); }

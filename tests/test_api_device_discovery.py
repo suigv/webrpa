@@ -243,6 +243,102 @@ def test_api_devices_list_preserves_payload_shape_for_available_only(monkeypatch
         ConfigLoader._config = backup
 
 
+class _FakeRpcControl:
+    def __init__(self) -> None:
+        self.closed = 0
+        self.touch_click_calls: list[tuple[int, int, int]] = []
+        self.swipe_calls: list[tuple[int, int, int, int, int, int]] = []
+        self.key_calls: list[str] = []
+
+    def exec_cmd(self, cmd: str) -> tuple[str, bool]:
+        assert cmd == "wm size"
+        return "Physical size: 1080x1920", True
+
+    def touchClick(self, finger_id: int, x: int, y: int) -> bool:
+        self.touch_click_calls.append((finger_id, x, y))
+        return True
+
+    def swipe(self, finger_id: int, x0: int, y0: int, x1: int, y1: int, duration: int) -> int:
+        self.swipe_calls.append((finger_id, x0, y0, x1, y1, duration))
+        return 1
+
+    def pressBack(self) -> bool:
+        self.key_calls.append("back")
+        return True
+
+    def pressHome(self) -> bool:
+        self.key_calls.append("home")
+        return True
+
+    def pressEnter(self) -> bool:
+        self.key_calls.append("enter")
+        return True
+
+    def pressRecent(self) -> bool:
+        self.key_calls.append("recent")
+        return True
+
+    def close(self) -> None:
+        self.closed += 1
+
+
+def test_api_device_tap_accepts_normalized_coordinates(monkeypatch: MonkeyPatch):
+    _disable_lifespan(monkeypatch)
+    fake_rpc = _FakeRpcControl()
+    monkeypatch.setattr(
+        devices_route, "_validate_device_target", lambda *_args: ("10.0.0.11", 30002)
+    )
+    monkeypatch.setattr(devices_route, "_connect_rpc", lambda *_args: fake_rpc)
+
+    with TestClient(app) as client:
+        response = client.post("/api/devices/1/1/tap", json={"nx": 500, "ny": 500})
+
+    assert response.status_code == 200
+    payload = cast(dict[str, object], response.json())
+    assert payload["ok"] is True
+    assert fake_rpc.touch_click_calls == [(0, 540, 960)]
+    assert fake_rpc.closed == 1
+
+
+def test_api_device_swipe_accepts_normalized_coordinates(monkeypatch: MonkeyPatch):
+    _disable_lifespan(monkeypatch)
+    fake_rpc = _FakeRpcControl()
+    monkeypatch.setattr(
+        devices_route, "_validate_device_target", lambda *_args: ("10.0.0.11", 30002)
+    )
+    monkeypatch.setattr(devices_route, "_connect_rpc", lambda *_args: fake_rpc)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/devices/1/1/swipe",
+            json={"nx0": 500, "ny0": 800, "nx1": 500, "ny1": 200, "duration": 450},
+        )
+
+    assert response.status_code == 200
+    payload = cast(dict[str, object], response.json())
+    assert payload["ok"] is True
+    assert fake_rpc.swipe_calls == [(0, 540, 1536, 540, 384, 450)]
+    assert fake_rpc.closed == 1
+
+
+def test_api_device_key_endpoint_routes_to_rpc_key(monkeypatch: MonkeyPatch):
+    _disable_lifespan(monkeypatch)
+    fake_rpc = _FakeRpcControl()
+    monkeypatch.setattr(
+        devices_route, "_validate_device_target", lambda *_args: ("10.0.0.11", 30002)
+    )
+    monkeypatch.setattr(devices_route, "_connect_rpc", lambda *_args: fake_rpc)
+
+    with TestClient(app) as client:
+        response = client.post("/api/devices/1/1/key", json={"key": "home"})
+
+    assert response.status_code == 200
+    payload = cast(dict[str, object], response.json())
+    assert payload["ok"] is True
+    assert fake_rpc.key_calls == ["home"]
+    assert fake_rpc.closed == 1
+
+
 def test_api_devices_available_only_filters_out_devices_without_available_clouds(
     monkeypatch: MonkeyPatch,
 ):

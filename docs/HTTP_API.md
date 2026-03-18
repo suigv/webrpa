@@ -62,6 +62,9 @@
 - `POST /api/devices/{device_id}/stop`：停止设备（runtime_stub 模式下为占位实现）。
 - `POST /api/devices/discover`：局域网设备发现（当前也兼容 `POST /api/devices/discover/`）。
 - `GET /api/devices/{device_id}/{cloud_id}/screenshot`：云机截图（`MYT_ENABLE_RPC=0` 时会返回 503）。
+- `POST /api/devices/{device_id}/{cloud_id}/tap`：按像素坐标或归一化坐标点击云机屏幕。
+- `POST /api/devices/{device_id}/{cloud_id}/swipe`：按像素坐标或归一化坐标滑动云机屏幕。
+- `POST /api/devices/{device_id}/{cloud_id}/key`：发送基础系统按键（`back` / `home` / `enter` / `recent`）。
 
 ---
 

@@ -472,12 +472,28 @@
             <div class="panel-header">
               <h3>当前屏幕</h3>
               <div class="flex gap-2">
-                <button id="refreshScreenshot" class="btn btn-secondary btn-sm">刷新截图</button>
+                <button id="refreshScreenshot" class="btn btn-secondary btn-sm" data-unit-control>刷新截图</button>
               </div>
             </div>
             <div class="panel-body" style="position:relative; height:420px; padding:0; overflow:hidden;">
-              <img id="unitScreenshotImg" src="" alt="" style="position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:auto; height:auto; max-width:60%; max-height:400px; border-radius:var(--radius-sm); visibility:hidden;">
+              <img id="unitScreenshotImg" src="" alt="" style="position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:auto; height:auto; max-width:85%; max-height:400px; border-radius:var(--radius-sm); visibility:hidden; cursor:crosshair;">
               <div id="unitScreenshotPlaceholder" class="text-muted" style="position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); white-space:nowrap;">正在加载截图...</div>
+            </div>
+            <div class="panel-header" style="border-top: 1px solid var(--border);"><h3>轻控制</h3></div>
+            <div class="panel-body device-control-panel">
+              <div class="device-control-actions">
+                <button id="unitKeyBack" class="btn btn-secondary btn-sm" data-unit-control>返回</button>
+                <button id="unitKeyHome" class="btn btn-secondary btn-sm" data-unit-control>Home</button>
+                <button id="unitKeyEnter" class="btn btn-secondary btn-sm" data-unit-control>Enter</button>
+                <button id="unitKeyRecent" class="btn btn-secondary btn-sm" data-unit-control>任务键</button>
+              </div>
+              <div class="device-swipe-pad">
+                <button id="unitSwipeUp" class="btn btn-secondary btn-sm" data-unit-control>上滑</button>
+                <button id="unitSwipeLeft" class="btn btn-secondary btn-sm" data-unit-control>左滑</button>
+                <button id="unitSwipeDown" class="btn btn-secondary btn-sm" data-unit-control>下滑</button>
+                <button id="unitSwipeRight" class="btn btn-secondary btn-sm" data-unit-control>右滑</button>
+              </div>
+              <div class="text-muted text-xs">点击截图发送轻触；每次控制后自动刷新当前画面。</div>
             </div>
             <div class="panel-header" style="border-top: 1px solid var(--border);"><h3>实时执行日志</h3></div>
             <div class="panel-body p-0 flex-1" style="min-height: 160px;">
