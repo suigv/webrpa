@@ -141,7 +141,7 @@
 - 共享 RPC 启动/关闭逻辑已收敛到 `engine/actions/_rpc_bootstrap.py`
 - selector/node 子系统与状态提取逻辑已拆到内部 helper，避免动作模块继续膨胀
 - `core/task_control.py` 中的账号反馈策略已下沉到 `core/account_feedback.py`
-- `hardware_adapters/mytRpc.py` 已补齐 pointer ownership / timeout / failure-safe 处理，且 `MYT_ENABLE_RPC=0` 启动路径已验证
+- `hardware_adapters/mytRpc.py` 已补齐 pointer ownership / timeout / failure-safe 处理，RPC 启用与 `MYT_ENABLE_RPC=0` 禁用路径均已支持
 
 ### 7) 已内置插件示例
 
@@ -234,8 +234,14 @@ curl http://127.0.0.1:8001/health
 ```bash
 ./.venv/bin/python tools/check_no_legacy_imports.py
 ./.venv/bin/python -m pytest tests -q
-MYT_ENABLE_RPC=0 ./.venv/bin/python -m uvicorn api.server:app --host 127.0.0.1 --port 8001
+./.venv/bin/python -m uvicorn api.server:app --host 127.0.0.1 --port 8001
 curl http://127.0.0.1:8001/health
+```
+
+如需额外验证禁用 RPC 的兼容路径，可再执行：
+
+```bash
+MYT_ENABLE_RPC=0 ./.venv/bin/python -m uvicorn api.server:app --host 127.0.0.1 --port 8001
 ```
 
 若在项目父目录执行，可使用等效命令：

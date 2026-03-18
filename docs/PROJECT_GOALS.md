@@ -73,7 +73,7 @@ The following evidence is required per run to qualify for distillation:
 - **Self-Healing Failover**：运行时具备自愈能力。当 1.0 数据匹配失败时，自动退避（Failover）至 2.0 AI 探索模式重新测绘。
 
 ## Constraints and Invariants
-- Baseline startup must succeed with `MYT_ENABLE_RPC=0`.
+- Baseline startup must succeed with RPC enabled by default, while `MYT_ENABLE_RPC=0` remains a supported compatibility path.
 - Persistent data must remain under `config/data`.
 - `api/server.py` is the sole application entrypoint and `/web` remains available.
 - No legacy imports from `tasks` or `app.*`.

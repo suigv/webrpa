@@ -32,8 +32,9 @@ Hard goals:
 1. No forbidden imports:
    - `from tasks ...` / `import tasks`
    - `from app....` / `import app....`
-2. Baseline startup must work with RPC disabled:
-   - `MYT_ENABLE_RPC=0`
+2. Baseline startup must work with RPC enabled or disabled:
+   - default runtime: RPC enabled
+   - compatibility path: `MYT_ENABLE_RPC=0`
 3. Data path must stay inside:
    - `config/data`
 
@@ -43,13 +44,19 @@ Run all before finishing any meaningful change:
 ```bash
 ./.venv/bin/python tools/check_no_legacy_imports.py
 ./.venv/bin/python -m pytest tests -q
-MYT_ENABLE_RPC=0 ./.venv/bin/python -m uvicorn api.server:app --host 127.0.0.1 --port 8001
+./.venv/bin/python -m uvicorn api.server:app --host 127.0.0.1 --port 8001
 ```
 
 Health check:
 
 ```bash
 curl http://127.0.0.1:8001/health
+```
+
+Optional compatibility check:
+
+```bash
+MYT_ENABLE_RPC=0 ./.venv/bin/python -m uvicorn api.server:app --host 127.0.0.1 --port 8001
 ```
 
 ## Architecture Contracts
