@@ -44,6 +44,22 @@ function createTextBlock(label, value, valueStyle = '') {
     return row;
 }
 
+function createDeviceStat(label, value, extraClass = '') {
+    const block = document.createElement('div');
+    block.className = 'device-stat';
+
+    const labelEl = document.createElement('div');
+    labelEl.className = 'device-stat-label';
+    labelEl.textContent = label;
+
+    const valueEl = document.createElement('div');
+    valueEl.className = `device-stat-value ${extraClass}`.trim();
+    valueEl.textContent = value;
+
+    block.append(labelEl, valueEl);
+    return block;
+}
+
 let unitAccounts = [];
 
 async function loadUnitAccounts() {
@@ -487,9 +503,21 @@ function renderUnitCard(container, u) {
 
     const meta = document.createElement('div');
     meta.className = 'device-meta';
-    meta.append(
-        createTextBlock('路由', `${u.parent_ip}:${u.rpa_port}`),
+    meta.append(createTextBlock('路由', `${u.parent_ip}:${u.rpa_port}`));
+
+    const stats = document.createElement('div');
+    stats.className = 'device-meta-grid';
+    stats.append(
+        createDeviceStat('机型', u.machine_model_name || '未识别'),
+        createDeviceStat(
+            '状态',
+            isOnline ? '在线' : '离线',
+            isOnline ? 'status-online' : 'status-offline'
+        ),
+        createDeviceStat('API', String(u.api_port || '-')),
+        createDeviceStat('控制', String(u.rpa_port || '-'))
     );
+    meta.appendChild(stats);
 
     if (u.current_task) {
         const taskTag = document.createElement('div');
@@ -861,7 +889,7 @@ async function runBulkTasks() {
             payload: payload,
             targets: [{ device_id: parseInt(dId, 10), cloud_id: parseInt(cId, 10) }],
         });
-        await apiSubmitTask(taskData, { notify: false, log: false });
+        await apiSubmitTask(taskData, { notify: false, log: false, openReport: false });
     }
     toast.success("集群任务分发完成");
     clearSelection();
@@ -894,7 +922,7 @@ async function initializeAllDevices() {
             },
             targets: [{ device_id: u.parent_id, cloud_id: u.cloud_id }],
         });
-        await apiSubmitTask(taskData, { notify: false, log: false });
+        await apiSubmitTask(taskData, { notify: false, log: false, openReport: false });
     }
     toast.success("全量一键新机指令已分发");
 }

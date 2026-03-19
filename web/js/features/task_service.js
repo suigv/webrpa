@@ -126,7 +126,7 @@ function describeTargets(taskData) {
  * @param {Object} payload 任务体
  */
 export async function apiSubmitTask(taskData, options = {}) {
-    const { notify = true, log = true } = options;
+    const { notify = true, log = true, openReport = true } = options;
     const r = await fetchJson("/api/tasks/", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -143,6 +143,15 @@ export async function apiSubmitTask(taskData, options = {}) {
             const taskObj = (catalogCache || []).find(x => x.task === taskData.task);
             const taskDisplayName = taskObj ? taskObj.display_name : taskData.task;
             sysLog(`[任务] ${taskDisplayName} 已分配至云机 ${describeTargets(taskData)}`);
+        }
+        if (openReport && typeof window !== 'undefined' && r.data?.task_id) {
+            window.dispatchEvent(new CustomEvent('webrpa:task-submitted', {
+                detail: {
+                    taskId: r.data.task_id,
+                    taskName: taskData.task,
+                    displayName: r.data.display_name || null,
+                },
+            }));
         }
         return { ok: true, data: r.data };
     }

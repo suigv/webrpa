@@ -492,7 +492,7 @@ async function bulkDispatch() {
             payload,
             targets: [{ device_id: u.dId, cloud_id: u.cId }],
         });
-        const res = await apiSubmitTask(taskData, { notify: false, log: false });
+        const res = await apiSubmitTask(taskData, { notify: false, log: false, openReport: false });
         if (res.ok) dispatched++;
     }
 

@@ -23,6 +23,7 @@
     - Web 端插件提交入口已统一追加 manifest 白名单过滤，`one_click_new_device` 不再被设备页/任务页/账号页误注入 `device_ip`、`package`、`app_id` 或账号字段，避免严格模式下触发 `unknown input parameter(s)`。
     - `one_click_new_device` 的运行时目标解析已收敛到 `runtime.target`：环境写入动作会读取当前云机的 `device_ip/api_port`，容器列表接口 `503` 时可按 `cloud_id -> android-XX` 降级解析容器名，避免首步因 SDK 列表瞬时不可用而直接失败。
     - 机型选择新增来源降级：当首选在线/本地库存为空、接口异常或筛选后无候选时，选择器会自动尝试另一来源，并把 `requested_source/source/fallback_used/inventory_attempts` 写回结果，避免一键新机因单侧库存波动直接失败。
+    - Web 前端任务弹窗已升级为“提交即拉起、终态自动总结”的任务报告面板；执行完成后左侧会展示汇总结论和目标级结果明细。设备卡片也恢复展示云机机型、状态和控制端口等关键信息，不再只在详情弹窗中可见。
   - **MYTOS API 新能力接入 (2026-03-19)**：
     - `AndroidApiClient` 与 `android.*` / `mytos.*` 动作已补齐新版 `task=snap` 截图、`modifydev?cmd=7` 指纹更新、`modifydev?cmd=17` 摇一摇开关。
     - `mytos.screenshot` 现兼容 `level=1/2/3`，可直接走新版截图接口；同时新增 `mytos.set_fingerprint` / `mytos.update_fingerprint` / `mytos.set_shake`。

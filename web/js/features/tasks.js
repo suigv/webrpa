@@ -15,6 +15,7 @@ const $ = (id) => document.getElementById(id);
 let pluginCatalog = [];
 let selectedTaskName = '';
 let currentEventStream = null;
+let taskSubmissionListenerBound = false;
 
 function clearElement(element) {
     if (element) {
@@ -53,6 +54,198 @@ const closeTaskModal = () => {
     }
 };
 
+function updateTaskModalStatus(status) {
+    const badge = $('taskModalStatusBadge');
+    if (!badge) return;
+    const normalized = String(status || 'pending').toLowerCase();
+    const variant = normalized === 'completed'
+        ? 'ok'
+        : (normalized === 'failed' || normalized === 'cancelled' ? 'warn' : 'default');
+    badge.className = `badge badge-${variant}`;
+    badge.textContent = normalized.toUpperCase();
+}
+
+function createSummaryCard(title, text, badgeText = '', badgeVariant = 'default') {
+    const card = document.createElement('div');
+    card.className = 'task-summary-card';
+
+    const header = document.createElement('div');
+    header.className = 'task-summary-target-header';
+
+    const titleEl = document.createElement('div');
+    titleEl.className = 'task-summary-title';
+    titleEl.textContent = title;
+    header.appendChild(titleEl);
+
+    if (badgeText) {
+        const badge = document.createElement('span');
+        badge.className = `badge badge-${badgeVariant}`;
+        badge.textContent = badgeText;
+        header.appendChild(badge);
+    }
+
+    const body = document.createElement('div');
+    body.className = 'task-summary-text';
+    body.textContent = text;
+    card.append(header, body);
+    return card;
+}
+
+function normalizeTargetResults(task) {
+    const rawTargets = Array.isArray(task?.result?.targets) ? task.result.targets : [];
+    return rawTargets.map((entry) => {
+        const target = entry?.target || {};
+        const result = entry?.result || {};
+        const ok = Boolean(result?.ok);
+        const label = `#${target.device_id ?? '?'}-${target.cloud_id ?? '?'}`;
+        const message = String(
+            result?.message || result?.error || result?.status || task?.error || '未返回详细信息'
+        );
+        return { label, ok, message };
+    });
+}
+
+function buildTaskSummary(task) {
+    const targetResults = normalizeTargetResults(task);
+    const successCount = targetResults.filter(item => item.ok).length;
+    const failureCount = targetResults.length - successCount;
+
+    if (task.status === 'completed') {
+        if (targetResults.length > 0) {
+            return {
+                title: '执行完成',
+                badgeText: `${successCount}/${targetResults.length} 成功`,
+                badgeVariant: failureCount === 0 ? 'ok' : 'warn',
+                text: failureCount === 0
+                    ? '全部目标节点已经完成执行，结果已归档。'
+                    : `执行已结束，其中 ${failureCount} 个目标返回异常。`,
+            };
+        }
+        return {
+            title: '执行完成',
+            badgeText: '成功',
+            badgeVariant: 'ok',
+            text: '任务已执行完成，未返回目标级明细。',
+        };
+    }
+    if (task.status === 'failed') {
+        return {
+            title: '执行失败',
+            badgeText: '失败',
+            badgeVariant: 'warn',
+            text: String(task.error || '任务执行失败，请查看下方轨迹和错误信息。'),
+        };
+    }
+    if (task.status === 'cancelled') {
+        return {
+            title: '任务已取消',
+            badgeText: '已取消',
+            badgeVariant: 'warn',
+            text: String(task.error || '任务被人工停止或系统取消。'),
+        };
+    }
+    return {
+        title: '执行中',
+        badgeText: '进行中',
+        badgeVariant: 'default',
+        text: '任务正在执行，完成后这里会自动生成总结报告。',
+    };
+}
+
+function renderTaskSummary(task) {
+    const host = $('taskSummaryContent');
+    if (!host) return;
+    clearElement(host);
+
+    const summary = buildTaskSummary(task);
+    host.appendChild(
+        createSummaryCard(summary.title, summary.text, summary.badgeText, summary.badgeVariant)
+    );
+
+    if (task.workflow_draft?.message) {
+        host.appendChild(
+            createSummaryCard('蒸馏状态', String(task.workflow_draft.message))
+        );
+    }
+
+    const targetResults = normalizeTargetResults(task);
+    if (targetResults.length > 0) {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'task-summary-list';
+        targetResults.forEach((item) => {
+            const row = document.createElement('div');
+            row.className = 'task-summary-target';
+
+            const header = document.createElement('div');
+            header.className = 'task-summary-target-header';
+
+            const label = document.createElement('div');
+            label.className = 'task-summary-target-label';
+            label.textContent = item.label;
+
+            const badge = document.createElement('span');
+            badge.className = `badge badge-${item.ok ? 'ok' : 'warn'}`;
+            badge.textContent = item.ok ? '成功' : '异常';
+
+            const message = document.createElement('div');
+            message.className = 'task-summary-target-message';
+            message.textContent = item.message;
+
+            header.append(label, badge);
+            row.append(header, message);
+            wrapper.appendChild(row);
+        });
+        host.appendChild(wrapper);
+    }
+}
+
+function renderTaskSnapshot(task) {
+    let finalName = task.display_name;
+    if (!finalName && pluginCatalog.length > 0) {
+        const matched = pluginCatalog.find(p => p.task === task.task_name);
+        if (matched) finalName = matched.display_name;
+    }
+
+    const title = $('taskModalTitle');
+    if (title) {
+        title.textContent = finalName
+            ? `任务追踪 - ${finalName}`
+            : '任务追踪';
+    }
+
+    const infoBox = $('taskInfoContent');
+    clearElement(infoBox);
+    infoBox.append(
+        createInfoRow('任务 ID', task.task_id),
+        createInfoRow('驱动程序', finalName || task.task_name || '未知插件'),
+        createInfoRow('指派节点', formatTargetText(task.targets)),
+        createInfoRow('开始时间', task.started_at || '-'),
+        createInfoRow('结束时间', task.finished_at || '-')
+    );
+
+    updateTaskModalStatus(task.status);
+    renderTaskSummary(task);
+
+    const cancelBtn = $('taskCancelBtn');
+    if (cancelBtn) {
+        cancelBtn.disabled = !['pending', 'running'].includes(task.status);
+        cancelBtn.onclick = () => cancelTask(task.task_id);
+    }
+}
+
+async function refreshTaskSnapshot(taskId) {
+    const r = await fetchJson(`/api/tasks/${taskId}`);
+    if (!r.ok) return null;
+    renderTaskSnapshot(r.data);
+    return r.data;
+}
+
+function handleTaskSubmitted(event) {
+    const taskId = event?.detail?.taskId;
+    if (!taskId) return;
+    loadTaskDetail(taskId);
+}
+
 export function initTasks() {
     const submitBtn = $('submitTask');
     const refreshBtn = $('refreshTasks');
@@ -74,50 +267,20 @@ export function initTasks() {
         btn.onclick = closeTaskModal;
     });
 
+    if (!taskSubmissionListenerBound) {
+        window.addEventListener('webrpa:task-submitted', handleTaskSubmitted);
+        taskSubmissionListenerBound = true;
+    }
+
     initAppSelector();
     initPluginSelector();
     loadTasks();
 }
 
 async function loadTaskDetail(taskId) {
-    const r = await fetchJson(`/api/tasks/${taskId}`);
-    if (!r.ok) return;
-    const t = r.data;
-    
     const modal = $('taskModal');
     if (modal) modal.style.display = 'flex';
-    
-    // 1. 渲染左侧详情
-    const infoBox = $('taskInfoContent');
-    clearElement(infoBox);
-    
-    let finalName = t.display_name;
-    if (!finalName && pluginCatalog.length > 0) {
-        const matched = pluginCatalog.find(p => p.task === t.task_name);
-        if (matched) finalName = matched.display_name;
-    }
-
-    infoBox.append(
-        createInfoRow('任务 ID', t.task_id),
-        createInfoRow('驱动程序', finalName || t.task_name || '未知插件'),
-        createInfoRow('指派节点', formatTargetText(t.targets)),
-        createInfoRow('开始时间', t.started_at || '-'),
-        createInfoRow('结束时间', t.finished_at || '-')
-    );
-
-    // 状态 Badge
-    const badge = $('taskModalStatusBadge');
-    badge.className = `badge badge-${t.status === 'completed' ? 'ok' : (t.status === 'failed' ? 'warn' : 'default')}`;
-    badge.textContent = t.status.toUpperCase();
-
-    // 停止按钮状态
-    const cancelBtn = $('taskCancelBtn');
-    if (cancelBtn) {
-        cancelBtn.disabled = !['pending', 'running'].includes(t.status);
-        cancelBtn.onclick = () => cancelTask(t.task_id);
-    }
-
-    // 2. 建立 SSE 连接
+    await refreshTaskSnapshot(taskId);
     startTaskEventStream(taskId);
 }
 
@@ -133,7 +296,7 @@ function startTaskEventStream(taskId) {
 
     // 监听所有自定义事件
     const eventTypes = [
-        'task.created', 'task.started', 'task.completed', 'task.failed', 'task.cancelled',
+        'task.created', 'task.started', 'task.completed', 'task.failed', 'task.cancelled', 'task.dispatch_result',
         'interpreter.step_start', 'interpreter.step_result',
         'action.executing', 'action.success', 'action.failed',
         'humanized.click', 'humanized.typing'
@@ -156,6 +319,8 @@ function startTaskEventStream(taskId) {
             if (['task.completed', 'task.failed', 'task.cancelled'].includes(type)) {
                 streamClosed = true;
                 statusText.textContent = '🏁 执行结束';
+                refreshTaskSnapshot(taskId);
+                loadTasks();
             }
         },
         onError: () => {
@@ -204,6 +369,21 @@ function appendEventToTimeline(type, data) {
         tagSpan.className = 'text-success';
         tagSpan.textContent = '[成功] ';
         msgSpan.textContent = '任务已圆满结束';
+        line.append(tagSpan, msgSpan);
+    } else if (type === 'task.failed') {
+        tagSpan.className = 'text-error';
+        tagSpan.textContent = '[失败] ';
+        msgSpan.textContent = String(data.error || data.message || '任务执行失败');
+        line.append(tagSpan, msgSpan);
+    } else if (type === 'task.cancelled') {
+        tagSpan.className = 'text-muted';
+        tagSpan.textContent = '[取消] ';
+        msgSpan.textContent = String(data.message || '任务已取消');
+        line.append(tagSpan, msgSpan);
+    } else if (type === 'task.dispatch_result') {
+        tagSpan.style.color = 'var(--info)';
+        tagSpan.textContent = '[汇总] ';
+        msgSpan.textContent = String(data.checkpoint || data.status || '已生成本轮执行结果');
         line.append(tagSpan, msgSpan);
     } else {
         msgSpan.textContent = `${type}: ${JSON.stringify(data)}`;
