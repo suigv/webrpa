@@ -493,7 +493,11 @@
                 <button id="unitSwipeDown" class="btn btn-secondary btn-sm" data-unit-control>下滑</button>
                 <button id="unitSwipeRight" class="btn btn-secondary btn-sm" data-unit-control>右滑</button>
               </div>
-              <div class="text-muted text-xs">点击截图发送轻触；每次控制后自动刷新当前画面。</div>
+              <div class="device-text-input-row">
+                <input id="unitTextInput" type="text" placeholder="向当前焦点输入框发送单行文本" autocomplete="off" data-unit-control>
+                <button id="unitSendText" class="btn btn-secondary btn-sm" data-unit-control>发送文本</button>
+              </div>
+              <div class="text-muted text-xs">点击截图发送轻触；也可向当前焦点输入框发送单行文本；每次控制后自动刷新当前画面。</div>
             </div>
             <div class="panel-header" style="border-top: 1px solid var(--border);"><h3>实时执行日志</h3></div>
             <div class="panel-body p-0 flex-1" style="min-height: 160px;">

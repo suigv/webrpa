@@ -646,6 +646,26 @@ async function handleScreenshotTap(event, unit) {
     await postUnitControl(unit, 'tap', { nx, ny }, `已点击 (${nx}, ${ny})`);
 }
 
+async function handleUnitTextSend(unit) {
+    const input = $("unitTextInput");
+    if (!input) return;
+    const text = typeof input.value === "string" ? input.value : "";
+    if (!text.trim()) {
+        toast.error("请输入要发送的文本");
+        input.focus();
+        return;
+    }
+    if (/[\r\n]/.test(text)) {
+        toast.error("轻控制仅支持单行文本");
+        input.focus();
+        return;
+    }
+    const ok = await postUnitControl(unit, "text", { text }, "已发送文本");
+    if (ok) {
+        input.value = "";
+    }
+}
+
 function bindUnitControls(unit) {
     const refreshBtn = $("refreshScreenshot");
     if (refreshBtn) refreshBtn.onclick = () => loadUnitScreenshot(unit);
@@ -691,6 +711,22 @@ function bindUnitControls(unit) {
             void postUnitControl(unit, config.action, config.payload, config.message);
         };
     });
+
+    const textInput = $("unitTextInput");
+    if (textInput) {
+        textInput.onkeydown = (event) => {
+            if (event.key !== "Enter") return;
+            event.preventDefault();
+            void handleUnitTextSend(unit);
+        };
+    }
+
+    const sendTextBtn = $("unitSendText");
+    if (sendTextBtn) {
+        sendTextBtn.onclick = () => {
+            void handleUnitTextSend(unit);
+        };
+    }
 }
 
 function openUnitDetail(unit) {

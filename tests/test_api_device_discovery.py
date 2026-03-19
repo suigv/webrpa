@@ -249,6 +249,7 @@ class _FakeRpcControl:
         self.touch_click_calls: list[tuple[int, int, int]] = []
         self.swipe_calls: list[tuple[int, int, int, int, int, int]] = []
         self.key_calls: list[str] = []
+        self.text_calls: list[str] = []
 
     def exec_cmd(self, cmd: str) -> tuple[str, bool]:
         assert cmd == "wm size"
@@ -276,6 +277,10 @@ class _FakeRpcControl:
 
     def pressRecent(self) -> bool:
         self.key_calls.append("recent")
+        return True
+
+    def sendText(self, text: str) -> bool:
+        self.text_calls.append(text)
         return True
 
     def close(self) -> None:
@@ -337,6 +342,33 @@ def test_api_device_key_endpoint_routes_to_rpc_key(monkeypatch: MonkeyPatch):
     assert payload["ok"] is True
     assert fake_rpc.key_calls == ["home"]
     assert fake_rpc.closed == 1
+
+
+def test_api_device_text_endpoint_routes_to_rpc_text(monkeypatch: MonkeyPatch):
+    _disable_lifespan(monkeypatch)
+    fake_rpc = _FakeRpcControl()
+    monkeypatch.setattr(
+        devices_route, "_validate_device_target", lambda *_args: ("10.0.0.11", 30002)
+    )
+    monkeypatch.setattr(devices_route, "_connect_rpc", lambda *_args: fake_rpc)
+
+    with TestClient(app) as client:
+        response = client.post("/api/devices/1/1/text", json={"text": "hello world"})
+
+    assert response.status_code == 200
+    payload = cast(dict[str, object], response.json())
+    assert payload["ok"] is True
+    assert fake_rpc.text_calls == ["hello world"]
+    assert fake_rpc.closed == 1
+
+
+def test_api_device_text_endpoint_rejects_blank_input(monkeypatch: MonkeyPatch):
+    _disable_lifespan(monkeypatch)
+
+    with TestClient(app) as client:
+        response = client.post("/api/devices/1/1/text", json={"text": "   "})
+
+    assert response.status_code == 422
 
 
 def test_api_devices_available_only_filters_out_devices_without_available_clouds(

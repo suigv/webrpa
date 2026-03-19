@@ -259,6 +259,13 @@ h1, h2, h3, h4 { color: var(--text-main); font-weight: 600; letter-spacing: -0.0
   gap: 8px;
 }
 
+.device-text-input-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
 .divider {
   height: 1px;
   background-color: var(--border);
@@ -365,6 +372,10 @@ h1, h2, h3, h4 { color: var(--text-main); font-weight: 600; letter-spacing: -0.0
   .device-control-actions,
   .device-swipe-pad {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .device-text-input-row {
+    grid-template-columns: 1fr;
   }
 }
 

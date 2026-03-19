@@ -65,6 +65,7 @@
 - `POST /api/devices/{device_id}/{cloud_id}/tap`：按像素坐标或归一化坐标点击云机屏幕。
 - `POST /api/devices/{device_id}/{cloud_id}/swipe`：按像素坐标或归一化坐标滑动云机屏幕。
 - `POST /api/devices/{device_id}/{cloud_id}/key`：发送基础系统按键（`back` / `home` / `enter` / `recent`）。
+- `POST /api/devices/{device_id}/{cloud_id}/text`：向当前焦点输入框发送单行文本，要求 `text` 非空且不包含换行。
 
 ---
 

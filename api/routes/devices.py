@@ -69,6 +69,18 @@ class KeyRequest(BaseModel):
     key: Literal["back", "home", "enter", "recent"]
 
 
+class TextRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=500, description="single-line text to send")
+
+    @model_validator(mode="after")
+    def _validate_text(self) -> "TextRequest":
+        if not self.text.strip():
+            raise ValueError("text cannot be blank")
+        if "\n" in self.text or "\r" in self.text:
+            raise ValueError("text must be single-line")
+        return self
+
+
 def _validate_device_target(device_id: int, cloud_id: int) -> tuple[str, int]:
     if not is_rpc_enabled():
         raise HTTPException(status_code=503, detail="RPC is disabled (MYT_ENABLE_RPC=0)")
@@ -361,6 +373,28 @@ async def press_cloud_key(device_id: int, cloud_id: int, request: KeyRequest):
 
     try:
         result = await to_thread.run_sync(_press_key)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {"ok": True, "data": result}
+
+
+@router.post("/{device_id}/{cloud_id}/text")
+async def send_cloud_text(device_id: int, cloud_id: int, request: TextRequest):
+    device_ip, rpa_port = _validate_device_target(device_id, cloud_id)
+
+    def _send_text() -> dict[str, str]:
+        rpc = _connect_rpc(device_ip, rpa_port)
+        try:
+            ok = bool(rpc.sendText(request.text))
+            if not ok:
+                raise RuntimeError("text input failed")
+            return {"text": request.text}
+        finally:
+            with suppress(Exception):
+                rpc.close()
+
+    try:
+        result = await to_thread.run_sync(_send_text)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return {"ok": True, "data": result}
