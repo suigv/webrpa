@@ -9,11 +9,17 @@ def test_task_catalog_returns_input_metadata_for_new_device_plugin():
 
     assert response.status_code == 200
     tasks = response.json()["tasks"]
-    plugin = next(item for item in tasks if item["task"] == "one_click_new_device")
+    assert all(item["task"] != "one_click_new_device" for item in tasks)
+
+    hidden_response = client.get("/api/tasks/catalog?include_hidden=true")
+    assert hidden_response.status_code == 200
+    hidden_tasks = hidden_response.json()["tasks"]
+    plugin = next(item for item in hidden_tasks if item["task"] == "one_click_new_device")
 
     assert plugin["display_name"] == "一键新机"
     assert plugin["description"]
     assert plugin["distillable"] is False
+    assert plugin["visible_in_task_catalog"] is False
     inputs = plugin["inputs"]
     model_source = next(item for item in inputs if item["name"] == "model_source")
     assert model_source["widget"] == "select"

@@ -29,10 +29,6 @@ def _api_client(params: dict[str, Any], context: ExecutionContext) -> AndroidApi
     return AndroidApiClient(device_ip=device_ip, api_port=api_port, timeout_seconds=timeout)
 
 
-def _ok(data: dict[str, Any]) -> ActionResult:
-    return ActionResult(ok=True, code="ok", data=data)
-
-
 def _err(code: str, message: str) -> ActionResult:
     return ActionResult(ok=False, code=code, message=message)
 
@@ -45,6 +41,40 @@ def _from_api(result: dict[str, Any]) -> ActionResult:
     msg = str(result.get("message") or result.get("error") or result.get("reason") or "")
     code = "ok" if ok else str(result.get("code") or "api_error")
     return ActionResult(ok=ok, code=code, message=msg, data=data)
+
+
+def _with_client(
+    params: dict[str, Any],
+    context: ExecutionContext,
+    callback: Any,
+) -> ActionResult:
+    client = _api_client(params, context)
+    if client is None:
+        return _err("invalid_params", "device_ip is required")
+    return _from_api(callback(client))
+
+
+def _package_param(params: dict[str, Any]) -> str:
+    return str(params.get("package") or "").strip()
+
+
+def _require_package(params: dict[str, Any]) -> str | None:
+    package = _package_param(params)
+    return package or None
+
+
+def _backup_target_path(params: dict[str, Any]) -> str:
+    return str(params.get("save_to") or params.get("saveto") or "")
+
+
+def _restore_source_path(
+    params: dict[str, Any],
+    *,
+    primary_key: str,
+    aliases: tuple[str, ...] = (),
+) -> str:
+    values = [params.get(primary_key), *(params.get(alias) for alias in aliases)]
+    return str(next((value for value in values if value), "")).strip()
 
 
 # ------------------------------------------------------------------ #
@@ -68,10 +98,7 @@ GET_CLIPBOARD_METADATA = ActionMetadata(
 
 
 def android_get_clipboard(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
-    client = _api_client(params, context)
-    if client is None:
-        return _err("invalid_params", "device_ip is required")
-    return _from_api(client.get_clipboard())
+    return _with_client(params, context, lambda client: client.get_clipboard())
 
 
 SET_CLIPBOARD_METADATA = ActionMetadata(
@@ -111,10 +138,7 @@ QUERY_PROXY_METADATA = ActionMetadata(
 
 
 def android_query_proxy(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
-    client = _api_client(params, context)
-    if client is None:
-        return _err("invalid_params", "device_ip is required")
-    return _from_api(client.query_s5_proxy())
+    return _with_client(params, context, lambda client: client.query_s5_proxy())
 
 
 SET_PROXY_METADATA = ActionMetadata(
@@ -157,10 +181,7 @@ def android_set_proxy(params: dict[str, Any], context: ExecutionContext) -> Acti
 
 
 def android_stop_proxy(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
-    client = _api_client(params, context)
-    if client is None:
-        return _err("invalid_params", "device_ip is required")
-    return _from_api(client.stop_s5_proxy())
+    return _with_client(params, context, lambda client: client.stop_s5_proxy())
 
 
 def android_set_proxy_filter(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
@@ -341,17 +362,11 @@ def android_set_language(params: dict[str, Any], context: ExecutionContext) -> A
 
 
 def android_refresh_location(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
-    client = _api_client(params, context)
-    if client is None:
-        return _err("invalid_params", "device_ip is required")
-    return _from_api(client.refresh_location())
+    return _with_client(params, context, lambda client: client.refresh_location())
 
 
 def android_get_google_adid(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
-    client = _api_client(params, context)
-    if client is None:
-        return _err("invalid_params", "device_ip is required")
-    return _from_api(client.get_google_id())
+    return _with_client(params, context, lambda client: client.get_google_id())
 
 
 RECEIVE_SMS_METADATA = ActionMetadata(
@@ -414,17 +429,11 @@ def android_add_contact(params: dict[str, Any], context: ExecutionContext) -> Ac
 
 
 def android_get_container_info(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
-    client = _api_client(params, context)
-    if client is None:
-        return _err("invalid_params", "device_ip is required")
-    return _from_api(client.get_container_info())
+    return _with_client(params, context, lambda client: client.get_container_info())
 
 
 def android_get_version(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
-    client = _api_client(params, context)
-    if client is None:
-        return _err("invalid_params", "device_ip is required")
-    return _from_api(client.get_version())
+    return _with_client(params, context, lambda client: client.get_version())
 
 
 def android_set_virtual_camera_source(
@@ -445,10 +454,7 @@ def android_set_virtual_camera_source(
 def android_get_app_bootstart_list(
     params: dict[str, Any], context: ExecutionContext
 ) -> ActionResult:
-    client = _api_client(params, context)
-    if client is None:
-        return _err("invalid_params", "device_ip is required")
-    return _from_api(client.get_boot_apps())
+    return _with_client(params, context, lambda client: client.get_boot_apps())
 
 
 def android_set_app_bootstart(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
@@ -509,46 +515,34 @@ def android_set_background_keepalive(
 def android_query_background_keepalive(
     params: dict[str, Any], context: ExecutionContext
 ) -> ActionResult:
-    client = _api_client(params, context)
-    if client is None:
-        return _err("invalid_params", "device_ip is required")
-    return _from_api(client.query_background_keepalive())
+    return _with_client(params, context, lambda client: client.query_background_keepalive())
 
 
 def android_add_background_keepalive(
     params: dict[str, Any], context: ExecutionContext
 ) -> ActionResult:
-    client = _api_client(params, context)
-    if client is None:
-        return _err("invalid_params", "device_ip is required")
-    package = str(params.get("package") or "").strip()
+    package = _require_package(params)
     if not package:
         return _err("invalid_params", "package is required")
-    return _from_api(client.add_background_keepalive(package))
+    return _with_client(params, context, lambda client: client.add_background_keepalive(package))
 
 
 def android_remove_background_keepalive(
     params: dict[str, Any], context: ExecutionContext
 ) -> ActionResult:
-    client = _api_client(params, context)
-    if client is None:
-        return _err("invalid_params", "device_ip is required")
-    package = str(params.get("package") or "").strip()
+    package = _require_package(params)
     if not package:
         return _err("invalid_params", "package is required")
-    return _from_api(client.remove_background_keepalive(package))
+    return _with_client(params, context, lambda client: client.remove_background_keepalive(package))
 
 
 def android_update_background_keepalive(
     params: dict[str, Any], context: ExecutionContext
 ) -> ActionResult:
-    client = _api_client(params, context)
-    if client is None:
-        return _err("invalid_params", "device_ip is required")
-    package = str(params.get("package") or "").strip()
+    package = _require_package(params)
     if not package:
         return _err("invalid_params", "package is required")
-    return _from_api(client.update_background_keepalive(package))
+    return _with_client(params, context, lambda client: client.update_background_keepalive(package))
 
 
 BACKUP_APP_METADATA = ActionMetadata(
@@ -566,14 +560,11 @@ BACKUP_APP_METADATA = ActionMetadata(
 
 
 def android_backup_app(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
-    client = _api_client(params, context)
-    if client is None:
-        return _err("invalid_params", "device_ip is required")
     package = str(params.get("package") or params.get("pkg") or "").strip()
     if not package:
         return _err("invalid_params", "package is required")
-    save_to = str(params.get("save_to") or params.get("saveto") or "")
-    return _from_api(client.backup_app(package, save_to))
+    save_to = _backup_target_path(params)
+    return _with_client(params, context, lambda client: client.backup_app(package, save_to))
 
 
 RESTORE_APP_METADATA = ActionMetadata(
@@ -590,13 +581,14 @@ RESTORE_APP_METADATA = ActionMetadata(
 
 
 def android_restore_app(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
-    client = _api_client(params, context)
-    if client is None:
-        return _err("invalid_params", "device_ip is required")
-    backup_path = str(params.get("backup_path") or params.get("backuppath") or "").strip()
+    backup_path = _restore_source_path(
+        params,
+        primary_key="backup_path",
+        aliases=("backuppath",),
+    )
     if not backup_path:
         return _err("invalid_params", "backup_path is required")
-    return _from_api(client.restore_app(backup_path))
+    return _with_client(params, context, lambda client: client.restore_app(backup_path))
 
 
 def android_upload_google_cert(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
@@ -632,25 +624,22 @@ def android_batch_install_apps(params: dict[str, Any], context: ExecutionContext
 
 
 def android_export_app_info(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
-    client = _api_client(params, context)
-    if client is None:
-        return _err("invalid_params", "device_ip is required")
-    package = str(params.get("package") or "").strip()
+    package = _require_package(params)
     if not package:
         return _err("invalid_params", "package is required")
-    return _from_api(client.backup_app(package, str(params.get("save_to") or "")))
+    save_to = _backup_target_path(params)
+    return _with_client(params, context, lambda client: client.backup_app(package, save_to))
 
 
 def android_import_app_info(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
-    client = _api_client(params, context)
-    if client is None:
-        return _err("invalid_params", "device_ip is required")
-    data_path = str(
-        params.get("data_path") or params.get("backuppath") or params.get("backup_path") or ""
-    ).strip()
+    data_path = _restore_source_path(
+        params,
+        primary_key="data_path",
+        aliases=("backuppath", "backup_path"),
+    )
     if not data_path:
         return _err("invalid_params", "data_path is required")
-    return _from_api(client.restore_app(data_path))
+    return _with_client(params, context, lambda client: client.restore_app(data_path))
 
 
 # ------------------------------------------------------------------ #
@@ -705,11 +694,14 @@ def android_switch_adb(params: dict[str, Any], context: ExecutionContext) -> Act
 
 
 def android_get_google_id(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
-    client = _api_client(params, context)
-    if client is None:
-        return _err("invalid_params", "device_ip is required")
     cmd = params.get("cmd")
-    return _from_api(client.get_google_id(int(cmd)) if cmd is not None else client.get_google_id())
+    return _with_client(
+        params,
+        context,
+        lambda client: (
+            client.get_google_id(int(cmd)) if cmd is not None else client.get_google_id()
+        ),
+    )
 
 
 def android_set_google_id(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
@@ -778,10 +770,7 @@ def android_autoclick(params: dict[str, Any], context: ExecutionContext) -> Acti
 def android_get_root_allowed_apps(
     params: dict[str, Any], context: ExecutionContext
 ) -> ActionResult:
-    client = _api_client(params, context)
-    if client is None:
-        return _err("invalid_params", "device_ip is required")
-    return _from_api(client.get_root_allowed_apps())
+    return _with_client(params, context, lambda client: client.get_root_allowed_apps())
 
 
 def android_set_root_allowed_app(params: dict[str, Any], context: ExecutionContext) -> ActionResult:

@@ -26,10 +26,28 @@
     - Web 前端任务弹窗已升级为“提交即拉起、终态自动总结”的任务报告面板；执行完成后左侧会展示汇总结论和目标级结果明细。设备卡片也恢复展示云机机型、状态和控制端口等关键信息，不再只在详情弹窗中可见。
     - `one_click_new_device` 现会默认避开当前机型：当用户不填 `seed` 时，机会从库存中自动随机；插件同时会把切换前机型、选中机型、切换后机型以及环境写入结果汇总，前端弹窗在任务结束后展示报告而不是仅显示运行追踪。
     - 插件契约新增 `distillable`：设备初始化、环境编排、随机化、运维类插件可显式声明 `distillable: false`，目录/指标接口会透出该标记，蒸馏接口也会直接拒绝这类插件；`one_click_new_device` 已按不可蒸馏处理。
+    - 插件契约新增 `visible_in_task_catalog`：像 `one_click_new_device` 这类明确不适合客户在任务列表里直接蒸馏/复用的内部编排型插件，默认会从 `/api/tasks/catalog` 隐藏；如需运维排查或管理端查看，可通过 `include_hidden=true` 显式拉取。
+    - 任务运行时产物新增自动清理策略：`TaskController.cleanup_runtime_artifacts()` 会按隐藏任务保留天数、事件保留天数、trace 保留天数、事件总行数上限和 trace 总体积上限，自动裁剪 `task_events` 与 `config/data/traces/`；同时暴露 `POST/DELETE /api/tasks/cleanup_runtime` 供人工触发清理，避免非蒸馏型任务长期堆积日志与截图。
     - Web 任务面板与单机执行面板新增“任务说明卡”：选中插件后会直接显示任务用途、默认行为和可调参数标签；`/api/tasks/catalog` 也同步透出插件 `description`，便于客户理解像“一键新机”这类任务可以改哪些参数。
     - Web 设备页进一步补齐参数化体验：单机执行面板的“配置高级属性”现在只控制 manifest 中声明为 `advanced` 的字段，切换任务后会自动复位展开状态；底部批量分发条也新增任务说明卡、参数表单和高级参数展开，批量下发不再只能发空 payload。
     - **冗余与回退治理 (2026-03-19)**：
       - 新增 `core.device_control`，统一直连设备控制链路里的 RPC 目标校验、连接、分辨率发现、归一化坐标换算和截图字节校验；`/api/devices/*` 轻控制路由与 `ui_touch_actions` 现在复用同一套设备控制 helper，不再各自维护 `wm size` 解析和坐标缩放逻辑。
+      - **任务终态出口继续收敛**：`TaskAttemptFinalizer` 新增内部 helper，统一承接 retry 事件、terminal 事件和 workflow draft 终态更新；`TaskExecutionService` 的子进程强制取消退出路径也改为复用 finalizer，不再旁路直写 `mark_cancelled + append_event`。
+      - **强制取消回归保护**：新增测试固定 `TaskExecutionService._handle_process_exit()` 的 forced-cancel 行为，确保统一走 finalizer 后仍保留 `task.dispatch_result -> task.cancelled(reason=forced_cancel)` 的观测契约。
+      - **Native state action 重复骨架收口**：`state_actions.py` 新增局部 helper，统一 `follow_visible_targets/extract_follow_targets` 与 `open_first_unread_dm/extract_unread_dm_targets` 这两组 action 的 XML 提取、默认值回退和候选解析流程，重复逻辑继续留在文件内收敛，不向跨模块抽象扩散。
+      - **Action Registry 装配拆分**：`register_defaults()` 已拆成 browser/core/ui/android 四段私有注册函数，保留原有动作名和注册顺序语义不变，同时把后续新增动作的改动面从单个超长函数收敛到对应能力分区。
+      - **Agent Executor 主循环瘦身**：`AgentExecutorRuntime.run()` 已把“单步观察”和“单步规划”两段厚逻辑下沉为类内私有 helper，保留原有 planner / trace / 事件契约不变，主循环开始从“超长顺序脚本”收敛成显式步骤状态机。
+      - **Selector 包装层去机械重复**：`_ui_selector_support.py` 中 `MytSelector` 的 `addQuery_*` 包装已收敛为统一动态分发，保留 `execQuery* / clear / free` 显式出口不变，减少几十个一行转发方法继续堆积。
+      - **RpcNode 字符串 getter 收口**：`_ui_selector_support.py` 中 `RpcNode` 已把 `text/id/class/package/desc/json` 这组完全同型的 handle/object 双路径读取逻辑统一到文件内私有 helper，保留原有返回值、fallback 顺序与公开方法名不变，继续把选择器支持层控制在局部、小步、可回滚的收敛范围内。
+      - **RpcNode 通用 helper 继续收敛**：`_ui_selector_support.py` 中 `RpcNode` 进一步统一了 handle 调用入口、带参数的节点方法安全调用和 bounds 归一化逻辑；`parent/child/child_count/bound` 这些分支现在共用文件内 helper，但 `click` 这类返回语义不完全同型的路径仍保持原状，避免低风险重构越界成行为调整。
+      - **Android API 动作局部重复收口**：`android_api_actions.py` 中 `background_keepalive` 这一组 package 型动作与 `google_id/adid` 读取动作已统一复用文件内 client 包装和参数解析 helper，减少“同一套校验 + 同一套 `_from_api` 包装”在后续修功能时重新堆回大文件的概率；同时补了小范围回归测试，固定这组动作的调用路径与缺参返回契约。
+      - **Android API 零参数 wrapper 收口**：`android_api_actions.py` 中 `get_clipboard/query_proxy/stop_proxy/refresh_location/get_container_info/get_version/get_app_bootstart_list/get_root_allowed_apps` 这批纯透传动作已统一改为复用 `_with_client(...)`，把反复复制的“拿 client -> 判空 -> `_from_api`”样板从动作定义里移走；同时补充定向测试，固定这些 wrapper 仍然逐个命中原有 client 方法。
+      - **Android API 别名动作继续收口**：`android_api_actions.py` 中 `backup/export` 与 `restore/import` 这两对别名动作已统一复用共享的路径解析与 client 包装 helper，避免后续再把相同的参数别名处理和 `_from_api` 样板复制回文件；同时补充回归测试，固定别名参数仍映射到原有 `backup_app/restore_app` client 调用。
+      - **防回弹约束已固化到仓库**：`AGENTS.md` 新增大文件回填防线，明确要求在 `android_api_actions.py`、`_ui_selector_support.py`、`_state_detection_support.py`、`agent_executor.py`、`task_execution.py` 这类热点文件中，新增逻辑前必须先检查是否只是重复既有 helper 模式；对零参数 wrapper、package 型动作和 alias 动作，禁止再复制整段 handler。
+      - **State detection DM 提取骨架收口**：`_state_detection_support.py` 中 inbound/outbound DM 最后一条消息提取已统一复用共享 helper，保留“按左右边界筛选 + 取最靠下消息”的原有契约不变，同时补充定向测试固定方向阈值、末条选择和解析失败日志。
+      - **State detection 列表目标提取继续收口**：`_state_detection_support.py` 中 `extract_follow_targets_from_xml` 与 `extract_unread_dm_targets_from_xml` 已统一复用共享的 XML 解析、package 过滤、bounds/center 计算、去重和排序 helper，保留各自的匹配条件与返回结构不变；同时补充定向测试，固定按钮/未读目标提取和解析失败日志契约。
+      - **任务取消原因语义对齐**：`TaskAttemptFinalizer.finalize_result_attempt()` 在“结果路径里遇到 cancel_requested”时，`task.cancelled` 事件原因已从误导性的 `user_exception_path` 收敛回 `user`；同时补充回归测试，固定 forced-cancel 与 result-path cancel 两条取消出口的 reason 契约。
+      - **State action 转发壳去除**：`state_actions.py` 已移除一层对 `_state_detection_support.py` 的纯转发 wrapper，跟进把 DM 提取、follow/unread 目标提取、候选提取直接接到 support 实现，减少 support 层与 action 层之间的双处同步点；`android_api_actions.py` 中未使用的 `_ok()` helper 也一并清理。
       - Web 端新增共享任务表单 UI helper，任务主面板、单机执行面板和批量下发条统一复用“说明卡 + 字段渲染 + 高级参数展开”逻辑，减少前端重复实现继续漂移。
       - 收紧若干过度静默回退：WebSocket 事件轮询/广播、账号失败反馈持久化、浏览器 selector 轮询 fallback 现在都会保留可观测错误信息；浏览器 cookie 注入对不支持的 backend 会明确返回失败，而不再伪装成成功。
       - Native 状态兼容继续收口：`ui_state_actions` 和 `navigation_actions` 仍兼容读取 legacy `binding_id` 入口，但内部传递、路由探测与执行热路径统一只使用 `state_profile_id`，避免新逻辑继续向内层传播双字段。
@@ -266,6 +284,7 @@
     - **登录执行器约束增强**：`agent_executor` 不再把 `ui.observe_transition` 暴露给 planner 直接决策；当 `account/password/two_factor` 处于弱匹配且尚未确认输入框聚焦时，会强制 `ai.locate_point` 优先寻找输入框而非提交按钮。
     - **加载态预算修复**：`agent_executor` 现在会在成功交互后检测通用 loading/progress 过渡层，并先内部等待状态稳定再重新规划，避免把“正在载入…”这类瞬态页面白白消耗成一个独立步骤。
     - **尾部动态续步**：`agent_executor` 在用尽 `max_steps` 时不再一律硬失败；若最近观察仍显示明显推进、且未接近停滞/重复死循环，会自动一次性追加少量尾部预算，用于完成首页判定或收口动作。
+    - **观测抖动与探测稳定性修复 (2026-03-19)**：`agent_executor` 现在会识别“弱观察 + planner 空动作”的组合场景，将其视为短暂观测不可靠并执行受限延迟重试；只有在观察已可用时仍返回空动作，才继续按 `invalid_action_selection` 处理。同时统一云机探测快照 `last_checked_at` 为带时区的 UTC 时间，避免本地时区字符串被按 UTC 误解后触发误熔断；为 RPA 端口探测补上一轮轻量重试，并在任务熔断前对当前目标追加一次同步确认探测，降低瞬时 `Host is down` / `timed out` 抖动导致的错误熔断。对于账号/密码/2FA 这些弱观察阶段，若 planner 已明确在寻找“下一步/继续/登录”类提交按钮，运行时也不再把视觉定位意图强行改写成“只找输入框”。
 
 ## 2. 已实现功能清单
 
@@ -292,12 +311,12 @@
 
 | Metric | Value |
 |---|---:|
-| API route decorators (`api/routes`) | 40 |
+| API route decorators (`api/routes`) | 56 |
 | App-level route decorators (`api/server.py`) | 5 |
-| Plugin count (`plugins/*/manifest.yaml`) | 4 |
-| SDK action bindings (`engine/actions/sdk_actions.py` + `engine/actions/sdk_action_catalog.py`) | 154 |
-| Test files (`tests/test_*.py`) | 60 |
-| Test functions (`def test_*`) | 329 |
+| Plugin count (`plugins/*/manifest.yaml`) | 1 |
+| SDK action bindings (`engine/actions/sdk_actions.py` + `engine/actions/sdk_action_catalog.py`) | 158 |
+| Test files (`tests/test_*.py`) | 70 |
+| Test functions (`def test_*`) | 387 |
 <!-- AUTO_PROGRESS_SNAPSHOT:END -->
 
 ## 4. 维护说明

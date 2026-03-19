@@ -533,6 +533,28 @@ class TaskStore(BaseStore):
                 tx_conn.execute(f"DELETE FROM tasks WHERE task_id IN ({placeholders})", task_ids)
             return task_ids
 
+    def list_active_task_ids(self) -> list[str]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT task_id FROM tasks WHERE status IN ('pending', 'running')"
+            ).fetchall()
+        return [str(row["task_id"]) for row in rows]
+
+    def list_terminal_tasks_oldest_first(self, limit: int | None = None) -> list[TaskRecord]:
+        sql = """
+            SELECT *
+            FROM tasks
+            WHERE status IN ('completed', 'failed', 'cancelled')
+            ORDER BY COALESCE(finished_at, updated_at, created_at) ASC
+        """
+        params: tuple[object, ...] = ()
+        if limit is not None:
+            sql += " LIMIT ?"
+            params = (int(limit),)
+        with self._connect() as conn:
+            rows = conn.execute(sql, params).fetchall()
+        return [self._row_to_record(row) for row in rows]
+
     def list_pending_tasks(self) -> list[TaskRecord]:
         with self._connect() as conn:
             rows = conn.execute(

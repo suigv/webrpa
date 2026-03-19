@@ -55,6 +55,14 @@ def _reset_manager_state(manager: DeviceManager) -> None:
         manager._devices = {}
 
 
+class _SocketConnection:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+
 def test_device_snapshot_filters_available_clouds_and_uses_probe_service_model_map(
     monkeypatch: MonkeyPatch,
 ):
@@ -99,6 +107,7 @@ def test_device_snapshot_filters_available_clouds_and_uses_probe_service_model_m
         assert cloud["availability_state"] == "available"
         assert cloud["availability_reason"] == "ok"
         assert isinstance(cloud["last_checked_at"], str)
+        assert str(cloud["last_checked_at"]).endswith("+00:00")
         assert cloud["machine_model_name"] == "Pixel 9"
         assert cloud["machine_model_id"] == "model-1"
         assert fake_probe.calls == [("10.0.0.11", False)]
@@ -151,6 +160,29 @@ def test_cloud_probe_service_drives_probe_cache_updates(monkeypatch: MonkeyPatch
         ConfigLoader._config = backup
 
 
+def test_cloud_probe_service_retries_transient_socket_failures(monkeypatch: MonkeyPatch):
+    service = CloudProbeService()
+    service._probe_retry_count = 1
+    service._probe_retry_backoff_seconds = 0
+    calls: list[tuple[str, int]] = []
+
+    def _fake_create_connection(address, timeout):  # noqa: ANN001
+        _ = timeout
+        calls.append(address)
+        if len(calls) == 1:
+            raise OSError(64, "Host is down")
+        return _SocketConnection()
+
+    monkeypatch.setattr("socket.create_connection", _fake_create_connection)
+
+    ok, latency_ms, reason = service._probe_rpa_port("192.168.1.186", 30002)
+
+    assert ok is True
+    assert latency_ms is not None
+    assert reason == "ok"
+    assert calls == [("192.168.1.186", 30002), ("192.168.1.186", 30002)]
+
+
 def test_mark_cloud_released_does_not_overwrite_probe_unavailable_state(monkeypatch: MonkeyPatch):
     backup = ConfigLoader._config
     manager = DeviceManager()
@@ -180,5 +212,6 @@ def test_mark_cloud_released_does_not_overwrite_probe_unavailable_state(monkeypa
         after = manager.get_cloud_probe_snapshot(1, 1)
         assert after["availability_state"] == "unavailable"
         assert after["availability_reason"] == "connect_failed"
+        assert str(after["last_checked_at"]).endswith("+00:00")
     finally:
         ConfigLoader._config = backup

@@ -3,7 +3,7 @@ import os
 import threading
 import time
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, Literal, cast
 
@@ -229,7 +229,7 @@ class DeviceManager:
             last_checked_at = None
         else:
             stale = (now - last_checked) > self._probe_stale_seconds
-            last_checked_at = datetime.fromtimestamp(last_checked).isoformat()
+            last_checked_at = datetime.fromtimestamp(last_checked, tz=UTC).isoformat()
 
         return {
             "availability_state": str(current.get("state", "unknown")),

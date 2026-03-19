@@ -156,8 +156,16 @@
 ### 7.1 任务取消与清理
 - `POST /api/tasks/{task_id}/cancel`：取消任务（等价于“更显式”的取消入口）。
 - `POST /api/tasks/cleanup_failed`：清理 failed/cancelled 任务及相关运行产物（兼容 `DELETE`）。
+- `POST /api/tasks/cleanup_runtime`：按保留期/上限裁剪任务事件与 trace（兼容 `DELETE`）。
 - `DELETE /api/tasks/`：清空任务（运维用途，谨慎使用）。
 - `POST /api/tasks/device/{device_id}/stop`：停止某设备的所有活跃任务（运维用途）。
+
+`POST /api/tasks/cleanup_runtime` / `DELETE /api/tasks/cleanup_runtime` 支持以下 query 参数：
+- `hidden_task_retention_days`
+- `event_retention_days`
+- `trace_retention_days`
+- `max_event_rows`
+- `max_trace_bytes`
 
 ### 7.2 任务目录与模板
 - `GET /api/tasks/catalog`：插件/任务目录（用于前端下拉与校验）。
@@ -170,6 +178,7 @@
 - `category`
 - `description`
 - `distillable`
+- `visible_in_task_catalog`
 - `required`
 - `defaults`
 - `example_payload`
@@ -184,10 +193,14 @@
 
 前端任务面板会基于这些元数据自动渲染下拉、复选框和数字输入，而不再把所有字段都退化成普通文本框。
 
+说明：
+- 默认 `GET /api/tasks/catalog` 不返回 `visible_in_task_catalog: false` 的内部插件。
+- 运维或管理端可通过 `GET /api/tasks/catalog?include_hidden=true` 显式查看隐藏插件。
+
 ### 7.3 指标
 - `GET /api/tasks/metrics`：JSON 指标。
 - `GET /api/tasks/metrics/prometheus`：Prometheus 抓取格式。
-- `GET /api/tasks/metrics/plugins`：按插件聚合的成功次数与蒸馏进度；返回中包含 `distillable`，用于区分“不支持蒸馏”和“尚未达到蒸馏门槛”。
+- `GET /api/tasks/metrics/plugins`：按插件聚合的成功次数与蒸馏进度；返回中包含 `distillable` 与 `visible_in_task_catalog`，用于区分“不支持蒸馏”“默认隐藏”和“尚未达到蒸馏门槛”。
 
 ### 7.4 Workflow Draft
 - `GET /api/tasks/drafts`：列出 workflow drafts（按更新时间倒序）。

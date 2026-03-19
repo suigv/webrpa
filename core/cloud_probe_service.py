@@ -39,6 +39,7 @@ class CloudProbeService:
             self._probe_interval_seconds = 3.0
             self._probe_timeout_seconds = 0.8
             self._probe_retry_count = 1
+            self._probe_retry_backoff_seconds = 0.15
 
             self._probe_stop_event = threading.Event()
             self._probe_thread: threading.Thread | None = None
@@ -122,15 +123,22 @@ class CloudProbeService:
 
     def _probe_rpa_port(self, device_ip: str, rpa_port: int) -> tuple[bool, int | None, str]:
         started = time.monotonic()
-        try:
-            with socket.create_connection(
-                (device_ip, rpa_port), timeout=self._probe_timeout_seconds
-            ):
-                latency = int((time.monotonic() - started) * 1000)
-                return True, latency, "ok"
-        except Exception as exc:
-            latency = int((time.monotonic() - started) * 1000)
-            return False, latency, str(exc)
+        attempts = max(1, int(self._probe_retry_count) + 1)
+        last_error: Exception | None = None
+        for attempt in range(attempts):
+            try:
+                with socket.create_connection(
+                    (device_ip, rpa_port), timeout=self._probe_timeout_seconds
+                ):
+                    latency = int((time.monotonic() - started) * 1000)
+                    return True, latency, "ok"
+            except Exception as exc:
+                last_error = exc
+                if attempt < attempts - 1:
+                    time.sleep(self._probe_retry_backoff_seconds)
+                    continue
+        latency = int((time.monotonic() - started) * 1000)
+        return False, latency, str(last_error or "probe_failed")
 
     def query_cloud_model_map(
         self, device_ip: str, refresh_if_missing: bool = False

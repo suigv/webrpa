@@ -2,12 +2,14 @@
 import json
 import os
 import queue
+import shutil
 import socket
 import sqlite3
 import subprocess
 import sys
 import threading
 import time
+import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from urllib import request as urllib_request
@@ -19,6 +21,7 @@ from ai_services.llm_client import LLMResponse
 from api.server import app
 from core.config_loader import ConfigLoader
 from core.device_manager import DeviceManager
+from core.paths import data_dir, traces_dir
 from core.task_control import (
     TaskController,
     override_task_controller_for_tests,
@@ -267,6 +270,89 @@ def test_task_control_plane_agent_executor_managed_lifecycle_and_cancel_support(
             assert cancel_event_types[-1] == "workflow_draft.updated"
     finally:
         reset_task_controller_for_tests()
+
+
+def test_cleanup_runtime_artifacts_route_clears_hidden_task_artifacts(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    reset_task_controller_for_tests()
+    data_subdir = f"pytest_runtime_cleanup_{uuid.uuid4().hex}"
+    monkeypatch.setenv("MYT_DATA_SUBDIR", data_subdir)
+
+    runtime_data_dir = data_dir()
+    db_path = runtime_data_dir / "tasks.db"
+    store = TaskStore(db_path=db_path)
+    events = TaskEventStore(db_path=db_path)
+    controller = TaskController(
+        store=store,
+        queue_backend=InMemoryTaskQueue(),
+        event_store=events,
+    )
+    override_task_controller_for_tests(controller)
+
+    hidden_task_id = "hidden-task"
+    visible_task_id = "visible-task"
+    try:
+        store.create_task(
+            task_id=hidden_task_id,
+            payload={"task": "one_click_new_device"},
+            devices=[1],
+            ai_type="volc",
+        )
+        store.mark_completed(hidden_task_id, {"ok": True})
+        events.append_event(hidden_task_id, "task.completed", {"hidden": True})
+
+        store.create_task(
+            task_id=visible_task_id,
+            payload={"task": "anonymous"},
+            devices=[1],
+            ai_type="volc",
+        )
+        store.mark_completed(visible_task_id, {"ok": True})
+        events.append_event(visible_task_id, "task.completed", {"visible": True})
+
+        trace_root = traces_dir()
+        (trace_root / f"{hidden_task_id}.jsonl").write_text('{"hidden": true}\n', encoding="utf-8")
+        hidden_dir = trace_root / hidden_task_id
+        hidden_dir.mkdir(parents=True, exist_ok=True)
+        (hidden_dir / "screen.png").write_bytes(b"hidden-bytes")
+
+        (trace_root / f"{visible_task_id}.jsonl").write_text(
+            '{"visible": true}\n', encoding="utf-8"
+        )
+        visible_dir = trace_root / visible_task_id
+        visible_dir.mkdir(parents=True, exist_ok=True)
+        (visible_dir / "screen.png").write_bytes(b"visible-bytes")
+
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/tasks/cleanup_runtime",
+                params={
+                    "hidden_task_retention_days": 0,
+                    "event_retention_days": 999,
+                    "trace_retention_days": 999,
+                    "max_event_rows": 999,
+                    "max_trace_bytes": 999999,
+                },
+            )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["status"] == "ok"
+        assert payload["events_tasks_cleared"] == 1
+        assert payload["event_rows_removed"] == 1
+        assert payload["trace_tasks_cleared"] == 1
+        assert payload["trace_bytes_removed"] > 0
+
+        assert events.list_events(hidden_task_id) == []
+        assert len(events.list_events(visible_task_id)) == 1
+        assert not (trace_root / f"{hidden_task_id}.jsonl").exists()
+        assert not (trace_root / hidden_task_id).exists()
+        assert (trace_root / f"{visible_task_id}.jsonl").exists()
+        assert (trace_root / visible_task_id).exists()
+    finally:
+        reset_task_controller_for_tests()
+        shutil.rmtree(runtime_data_dir, ignore_errors=True)
         if db_path.exists():
             db_path.unlink()
 
@@ -1445,6 +1531,10 @@ def test_running_task_fails_fast_when_active_target_probe_turns_unavailable(tmp_
                     return_value=_FakeProbeService(),
                 ),
                 mock.patch("core.system_settings_loader.get_rpc_enabled", return_value=True),
+                mock.patch(
+                    "core.task_execution._probe_target_rpa_port",
+                    return_value=(False, 21, "connect_failed"),
+                ),
             ):
                 create = client.post(
                     "/api/tasks/",

@@ -55,6 +55,10 @@ class PluginManifest(BaseModel):
         default=True,
         description="Whether this plugin is suitable for AI-run distillation into YAML.",
     )
+    visible_in_task_catalog: bool = Field(
+        default=True,
+        description="Whether this plugin should appear in the default task catalog.",
+    )
     distill_threshold: int = Field(
         default=3, ge=1, description="Min completed runs required before distillation"
     )

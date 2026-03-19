@@ -6,6 +6,7 @@ import math
 import multiprocessing
 import os
 import queue
+import socket
 import threading
 import time
 from collections.abc import Callable
@@ -15,10 +16,11 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 
 from core.account_feedback import AccountFeedbackService
+from core.config_loader import get_cloud_machines_per_device, get_device_ip
 from core.device_manager import get_device_manager
+from core.port_calc import calculate_ports
 from core.task_events import TaskEventStore
 from core.task_finalizer import TaskAttemptFinalizer
-from core.task_metrics import build_task_metrics_payload
 from core.task_queue import QueueBackend, RedisTaskQueue
 from core.task_runtime import (
     TaskDispatchRuntimeResolver,
@@ -128,6 +130,64 @@ def _trip_result(task_name: str, trip: TargetCircuitBreakerTrip) -> dict[str, An
     }
 
 
+def _probe_target_rpa_port(
+    device_id: int,
+    cloud_id: int,
+    *,
+    timeout_seconds: float = 0.8,
+    retry_count: int = 1,
+) -> tuple[bool, int | None, str]:
+    device_ip = get_device_ip(device_id)
+    _, rpa_port = calculate_ports(device_id, cloud_id, get_cloud_machines_per_device())
+    started = time.monotonic()
+    attempts = max(1, retry_count + 1)
+    last_error: Exception | None = None
+    for attempt in range(attempts):
+        try:
+            with socket.create_connection((device_ip, rpa_port), timeout=timeout_seconds):
+                latency_ms = int((time.monotonic() - started) * 1000)
+                return True, latency_ms, "ok"
+        except Exception as exc:
+            last_error = exc
+            if attempt < attempts - 1:
+                time.sleep(0.1)
+                continue
+    latency_ms = int((time.monotonic() - started) * 1000)
+    return False, latency_ms, str(last_error or "probe_failed")
+
+
+def _build_confirmed_target_trip(
+    *,
+    device_id: int,
+    cloud_id: int,
+    snapshot: dict[str, Any],
+    min_last_checked_at_epoch: float | None = None,
+) -> TargetCircuitBreakerTrip | None:
+    trip = _build_target_trip(
+        device_id=device_id,
+        cloud_id=cloud_id,
+        snapshot=snapshot,
+        min_last_checked_at_epoch=min_last_checked_at_epoch,
+    )
+    if trip is None:
+        return None
+    ok, latency_ms, reason = _probe_target_rpa_port(device_id, cloud_id)
+    if ok:
+        with suppress(Exception):
+            get_device_manager().update_cloud_probe(device_id, cloud_id, True, latency_ms, "ok")
+        return None
+    if reason and reason != str(trip.details.get("availability_reason") or ""):
+        details = dict(trip.details)
+        details["availability_reason"] = reason
+        details["latency_ms"] = latency_ms
+        message = (
+            f"target became unavailable during execution: device={device_id}, "
+            f"cloud={cloud_id}, reason={reason}"
+        )
+        return TargetCircuitBreakerTrip(code=trip.code, message=message, details=details)
+    return trip
+
+
 def _tolerate_target_unavailable(task_name: str, payload: dict[str, Any]) -> bool:
     return bool(payload.get("_allow_target_unavailable_during_execution")) or (
         task_name == "one_click_new_device"
@@ -168,7 +228,7 @@ class ActiveTargetCircuitBreaker:
         )
 
     def _handle_probe_update(self, snapshot: dict[str, Any]) -> None:
-        trip = _build_target_trip(
+        trip = _build_confirmed_target_trip(
             device_id=self._device_id,
             cloud_id=self._cloud_id,
             snapshot=snapshot,
@@ -765,7 +825,7 @@ class TaskExecutionService:
             return
         device_id, cloud_id = handle.current_target
         snapshot = get_device_manager().get_cloud_probe_snapshot(device_id, cloud_id)
-        trip = _build_target_trip(
+        trip = _build_confirmed_target_trip(
             device_id=device_id,
             cloud_id=cloud_id,
             snapshot=snapshot,
@@ -911,12 +971,19 @@ class TaskExecutionService:
             return
 
         if record.cancel_requested:
-            self._store.mark_cancelled(task_id, message="cancelled by user (forced)")
-            cancelled = self._store.get_task(task_id)
-            self._events.append_event(
-                task_id,
-                "task.cancelled",
-                build_task_metrics_payload(cancelled, {"reason": "forced_cancel"}),
+            task_name = str(record.payload.get("task") or "anonymous")
+            self._finalizer.finalize_cancelled_attempt(
+                task_id=task_id,
+                task_name=task_name,
+                result={
+                    "task": task_name,
+                    "status": "cancelled",
+                    "ok": False,
+                    "checkpoint": "dispatch",
+                    "message": "cancelled by user (forced)",
+                },
+                message="cancelled by user (forced)",
+                reason="forced_cancel",
             )
             return
 

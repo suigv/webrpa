@@ -8,6 +8,21 @@ from engine.models.runtime import ActionResult, ExecutionContext
 
 logger = logging.getLogger(__name__)
 
+_QUERY_INT_BOOL_METHODS = {
+    "addQuery_Clickable",
+    "addQuery_Enable",
+    "addQuery_Checkable",
+    "addQuery_Focusable",
+    "addQuery_Focused",
+    "addQuery_Scrollable",
+    "addQuery_LongClickable",
+    "addQuery_Password",
+    "addQuery_Selected",
+    "addQuery_Visible",
+}
+_QUERY_BOOL_RESULT_METHODS = {"addQuery_BoundsInside"}
+_MISSING = object()
+
 
 def _to_int(value: Any, default: int = 0) -> int:
     try:
@@ -43,122 +58,20 @@ class MytSelector:
             result = method(*args)
         return result
 
-    def addQuery_Text(self, value: str) -> bool:
-        return self._call("addQuery_Text", value)
+    def __getattr__(self, name: str) -> Any:
+        if not name.startswith("addQuery_"):
+            raise AttributeError(name)
 
-    def addQuery_TextStartWith(self, value: str) -> bool:
-        return self._call("addQuery_TextStartWith", value)
+        def _query_method(*args: object) -> Any:
+            normalized_args = args
+            if name in _QUERY_INT_BOOL_METHODS:
+                normalized_args = tuple(int(bool(arg)) for arg in args)
+            result = self._call(name, *normalized_args)
+            if name in _QUERY_BOOL_RESULT_METHODS:
+                return bool(result)
+            return result
 
-    def addQuery_TextEndWith(self, value: str) -> bool:
-        return self._call("addQuery_TextEndWith", value)
-
-    def addQuery_TextMatchWith(self, value: str) -> bool:
-        return self._call("addQuery_TextMatchWith", value)
-
-    def addQuery_TextContain(self, value: str) -> bool:
-        return self._call("addQuery_TextContain", value)
-
-    def addQuery_TextContainWith(self, value: str) -> bool:
-        return self._call("addQuery_TextContainWith", value)
-
-    def addQuery_Clickable(self, clickable: bool = True) -> bool:
-        return self._call("addQuery_Clickable", int(clickable))
-
-    def addQuery_Id(self, value: str) -> bool:
-        return self._call("addQuery_Id", value)
-
-    def addQuery_IdStartWith(self, value: str) -> bool:
-        return self._call("addQuery_IdStartWith", value)
-
-    def addQuery_IdEndWith(self, value: str) -> bool:
-        return self._call("addQuery_IdEndWith", value)
-
-    def addQuery_IdContainWith(self, value: str) -> bool:
-        return self._call("addQuery_IdContainWith", value)
-
-    def addQuery_IdMatchWith(self, value: str) -> bool:
-        return self._call("addQuery_IdMatchWith", value)
-
-    def addQuery_Class(self, value: str) -> bool:
-        return self._call("addQuery_Class", value)
-
-    def addQuery_ClassStartWith(self, value: str) -> bool:
-        return self._call("addQuery_ClassStartWith", value)
-
-    def addQuery_ClassEndWith(self, value: str) -> bool:
-        return self._call("addQuery_ClassEndWith", value)
-
-    def addQuery_ClassContainWith(self, value: str) -> bool:
-        return self._call("addQuery_ClassContainWith", value)
-
-    def addQuery_ClassMatchWith(self, value: str) -> bool:
-        return self._call("addQuery_ClassMatchWith", value)
-
-    def addQuery_Desc(self, value: str) -> bool:
-        return self._call("addQuery_Desc", value)
-
-    def addQuery_DescStartWith(self, value: str) -> bool:
-        return self._call("addQuery_DescStartWith", value)
-
-    def addQuery_DescEndWith(self, value: str) -> bool:
-        return self._call("addQuery_DescEndWith", value)
-
-    def addQuery_DescContainWith(self, value: str) -> bool:
-        return self._call("addQuery_DescContainWith", value)
-
-    def addQuery_DescMatchWith(self, value: str) -> bool:
-        return self._call("addQuery_DescMatchWith", value)
-
-    def addQuery_Package(self, value: str) -> bool:
-        return self._call("addQuery_Package", value)
-
-    def addQuery_PackageStartWith(self, value: str) -> bool:
-        return self._call("addQuery_PackageStartWith", value)
-
-    def addQuery_PackageEndWith(self, value: str) -> bool:
-        return self._call("addQuery_PackageEndWith", value)
-
-    def addQuery_PackageContainWith(self, value: str) -> bool:
-        return self._call("addQuery_PackageContainWith", value)
-
-    def addQuery_PackageMatchWith(self, value: str) -> bool:
-        return self._call("addQuery_PackageMatchWith", value)
-
-    def addQuery_Bounds(self, left: int, top: int, right: int, bottom: int) -> bool:
-        return self._call("addQuery_Bounds", left, top, right, bottom)
-
-    def addQuery_BoundsInside(self, left: int, top: int, right: int, bottom: int) -> bool:
-        return bool(self._call("addQuery_BoundsInside", left, top, right, bottom))
-
-    def addQuery_Enable(self, enabled: bool) -> bool:
-        return self._call("addQuery_Enable", int(enabled))
-
-    def addQuery_Checkable(self, enabled: bool) -> bool:
-        return self._call("addQuery_Checkable", int(enabled))
-
-    def addQuery_Focusable(self, enabled: bool) -> bool:
-        return self._call("addQuery_Focusable", int(enabled))
-
-    def addQuery_Focused(self, enabled: bool) -> bool:
-        return self._call("addQuery_Focused", int(enabled))
-
-    def addQuery_Scrollable(self, enabled: bool) -> bool:
-        return self._call("addQuery_Scrollable", int(enabled))
-
-    def addQuery_LongClickable(self, enabled: bool) -> bool:
-        return self._call("addQuery_LongClickable", int(enabled))
-
-    def addQuery_Password(self, enabled: bool) -> bool:
-        return self._call("addQuery_Password", int(enabled))
-
-    def addQuery_Selected(self, enabled: bool) -> bool:
-        return self._call("addQuery_Selected", int(enabled))
-
-    def addQuery_Visible(self, enabled: bool) -> bool:
-        return self._call("addQuery_Visible", int(enabled))
-
-    def addQuery_Index(self, index: int) -> bool:
-        return self._call("addQuery_Index", index)
+        return _query_method
 
     def execQueryOne(self) -> ActionResult:
         method = getattr(self.rpc, "execQueryOne", None)
@@ -207,62 +120,79 @@ class RpcNode:
     def _is_handle(self) -> bool:
         return isinstance(self.node, int)
 
-    def _method(self, name: str, default: Any = None) -> Any:
+    def _handle_call(self, method_name: str, *args: object) -> Any:
+        return getattr(self.rpc, method_name)(int(self.node), *args)
+
+    def _call_node_method(
+        self,
+        name: str,
+        *args: object,
+        default: Any = None,
+        missing: Any = _MISSING,
+        log_message: str = "rpc node callable failed",
+        **details: object,
+    ) -> Any:
         attr = getattr(self.node, name, None)
-        if callable(attr):
-            try:
-                return attr()
-            except Exception as exc:
-                _log_recoverable("rpc node callable failed", exc=exc, method=name)
-                return default
+        if not callable(attr):
+            return missing
+        try:
+            return attr(*args)
+        except Exception as exc:
+            _log_recoverable(log_message, exc=exc, method=name, **details)
+            return default
+
+    def _method(self, name: str, default: Any = None) -> Any:
+        result = self._call_node_method(
+            name, default=_MISSING, log_message="rpc node callable failed"
+        )
+        if result is not _MISSING:
+            return result
+        attr = getattr(self.node, name, None)
         if attr is not None:
             return attr
         return default
 
-    def get_node_text(self) -> str:
+    def _string_value(self, rpc_method_name: str, *fallback_names: str) -> str:
         if self._is_handle() and self.rpc is not None:
-            value = self.rpc.get_node_text(int(self.node))
+            value = self._handle_call(rpc_method_name)
             return str(value or "")
-        return str(self._method("get_node_text", self._method("text", "")))
+        fallback: Any = ""
+        for name in reversed(fallback_names):
+            fallback = self._method(name, fallback)
+        return str(fallback)
+
+    def _bound_value(self, bound: Any) -> dict[str, int]:
+        if not isinstance(bound, dict):
+            bound = {}
+        return {
+            "left": int(bound.get("left", 0)),
+            "top": int(bound.get("top", 0)),
+            "right": int(bound.get("right", 0)),
+            "bottom": int(bound.get("bottom", 0)),
+        }
+
+    def get_node_text(self) -> str:
+        return self._string_value("get_node_text", "get_node_text", "text")
 
     def get_node_id(self) -> str:
-        if self._is_handle() and self.rpc is not None:
-            value = self.rpc.get_node_id(int(self.node))
-            return str(value or "")
-        return str(self._method("get_node_id", self._method("id", "")))
+        return self._string_value("get_node_id", "get_node_id", "id")
 
     def get_node_class(self) -> str:
-        if self._is_handle() and self.rpc is not None:
-            value = self.rpc.get_node_class(int(self.node))
-            return str(value or "")
-        return str(self._method("get_node_class", self._method("class_name", "")))
+        return self._string_value("get_node_class", "get_node_class", "class_name")
 
     def get_node_package(self) -> str:
-        if self._is_handle() and self.rpc is not None:
-            value = self.rpc.get_node_package(int(self.node))
-            return str(value or "")
-        return str(self._method("get_node_package", self._method("package", "")))
+        return self._string_value("get_node_package", "get_node_package", "package")
 
     def get_node_desc(self) -> str:
-        if self._is_handle() and self.rpc is not None:
-            value = self.rpc.get_node_desc(int(self.node))
-            return str(value or "")
-        return str(self._method("get_node_desc", self._method("desc", "")))
+        return self._string_value("get_node_desc", "get_node_desc", "desc")
 
     def get_node_bound(self) -> dict[str, int]:
         if self._is_handle() and self.rpc is not None:
-            bound = self.rpc.get_node_bound(int(self.node))
-            if isinstance(bound, dict):
-                return {
-                    "left": int(bound.get("left", 0)),
-                    "top": int(bound.get("top", 0)),
-                    "right": int(bound.get("right", 0)),
-                    "bottom": int(bound.get("bottom", 0)),
-                }
+            return self._bound_value(self._handle_call("get_node_bound"))
         bound = self._method(
             "get_node_bound", self._method("bound", {"left": 0, "top": 0, "right": 0, "bottom": 0})
         )
-        return dict(bound)
+        return self._bound_value(bound)
 
     def get_node_bound_center(self) -> dict[str, int]:
         bound = self.get_node_bound()
@@ -273,19 +203,21 @@ class RpcNode:
 
     def get_node_parent(self) -> Any:
         if self._is_handle() and self.rpc is not None:
-            return self.rpc.get_node_parent(int(self.node))
+            return self._handle_call("get_node_parent")
         return self._method("get_node_parent")
 
     def get_node_child(self, index: int) -> Any:
         if self._is_handle() and self.rpc is not None:
-            return self.rpc.get_node_child(int(self.node), int(index))
-        method = getattr(self.node, "get_node_child", None)
-        if callable(method):
-            try:
-                return method(index)
-            except Exception as exc:
-                _log_recoverable("rpc node child lookup failed", exc=exc, index=index)
-                return None
+            return self._handle_call("get_node_child", int(index))
+        child = self._call_node_method(
+            "get_node_child",
+            index,
+            default=None,
+            log_message="rpc node child lookup failed",
+            index=index,
+        )
+        if child is not _MISSING:
+            return child
         children = self._method("children", [])
         if isinstance(children, list) and 0 <= index < len(children):
             return children[index]
@@ -293,7 +225,7 @@ class RpcNode:
 
     def get_node_child_count(self) -> int:
         if self._is_handle() and self.rpc is not None:
-            return int(self.rpc.get_node_child_count(int(self.node)))
+            return int(self._handle_call("get_node_child_count"))
         value = self._method("get_node_child_count", None)
         if value is not None:
             return int(value)
@@ -333,11 +265,7 @@ class RpcNode:
         return False
 
     def get_node_json(self) -> str:
-        if self._is_handle() and self.rpc is not None:
-            value = self.rpc.get_node_json(int(self.node))
-            return str(value or "")
-        value = self._method("get_node_json", self._method("getNodeJson", ""))
-        return str(value)
+        return self._string_value("get_node_json", "get_node_json", "getNodeJson")
 
 
 def _selector_from_context(context: ExecutionContext) -> MytSelector | None:

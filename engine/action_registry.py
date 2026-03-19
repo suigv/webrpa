@@ -100,8 +100,7 @@ def resolve_action(name: str) -> ActionCallable:
     return _registry.resolve(name)
 
 
-def register_defaults() -> None:
-    """Register all built-in actions. Call once at engine startup."""
+def _register_browser_actions(registry: ActionRegistry) -> None:
     from engine.actions.browser_actions import (
         browser_add_cookies,
         browser_check_html,
@@ -113,6 +112,26 @@ def register_defaults() -> None:
         browser_wait_url,
     )
 
+    from .actions.ui_state_actions import (
+        browser_match_state,
+        browser_observe_transition,
+        browser_wait_until,
+    )
+
+    registry.register("browser.open", browser_open)
+    registry.register("browser.input", browser_input)
+    registry.register("browser.click", browser_click)
+    registry.register("browser.exists", browser_exists)
+    registry.register("browser.check_html", browser_check_html)
+    registry.register("browser.wait_url", browser_wait_url)
+    registry.register("browser.match_state", browser_match_state)
+    registry.register("browser.wait_until", browser_wait_until)
+    registry.register("browser.observe_transition", browser_observe_transition)
+    registry.register("browser.add_cookies", browser_add_cookies)
+    registry.register("browser.close", browser_close)
+
+
+def _register_core_actions(registry: ActionRegistry) -> None:
     from .actions.ai_actions import (
         LLM_EVALUATE_METADATA,
         LOCATE_POINT_METADATA,
@@ -122,13 +141,6 @@ def register_defaults() -> None:
         vlm_evaluate,
     )
     from .actions.credential_actions import credentials_checkout, credentials_load
-    from .actions.login_actions import (
-        click_selector_or_tap,
-        fill_form,
-        focus_and_input_with_shell_fallback,
-        input_text_with_shell_fallback,
-    )
-    from .actions.navigation_actions import navigate_to
     from .actions.profile_actions import (
         APPLY_ENV_BUNDLE_METADATA,
         GENERATE_CONTACT_METADATA,
@@ -193,6 +205,109 @@ def register_defaults() -> None:
         open_first_unread_dm,
         wait_login_stage,
     )
+
+    registry.register("credentials.load", credentials_load)
+    registry.register("credentials.checkout", credentials_checkout)
+    registry.register("core.save_shared", save_shared, metadata=SAVE_SHARED_METADATA)
+    registry.register(
+        "core.load_shared_required", load_shared_required, metadata=LOAD_SHARED_REQUIRED_METADATA
+    )
+    registry.register("core.load_shared_optional", load_shared_optional)
+    registry.register("core.append_shared_unique", append_shared_unique)
+    registry.register("core.increment_shared_counter", increment_shared_counter)
+    registry.register("core.resolve_first_non_empty", resolve_first_non_empty)
+    registry.register("core.load_ui_value", load_ui_value)
+    registry.register("core.load_ui_selector", load_ui_selector)
+    registry.register("core.load_ui_selectors", load_ui_selectors)
+    registry.register("core.load_ui_scheme", load_ui_scheme)
+    registry.register("core.check_daily_limit", check_daily_limit)
+    registry.register("core.increment_daily_counter", increment_daily_counter)
+    registry.register("core.pick_weighted_keyword", pick_weighted_keyword)
+    registry.register("core.pick_candidate", pick_candidate)
+    registry.register("core.plan_follow_rounds", plan_follow_rounds)
+    registry.register("core.is_text_blacklisted", is_text_blacklisted)
+    registry.register("core.choose_blogger_search_query", choose_blogger_search_query)
+    registry.register("core.derive_blogger_profile", derive_blogger_profile)
+    registry.register("core.save_blogger_candidates", save_blogger_candidates)
+    registry.register("core.save_blogger_candidate", save_blogger_candidate)
+    registry.register("core.get_blogger_candidate", get_blogger_candidate)
+    registry.register("core.mark_processed", mark_processed)
+    registry.register("core.check_processed", check_processed)
+    registry.register("core.generate_totp", generate_totp)
+    registry.register("core.generate_dm_reply", generate_dm_reply)
+    registry.register("core.generate_quote_text", generate_quote_text)
+    registry.register(
+        "inventory.get_phone_models",
+        inventory_get_phone_models,
+        metadata=INVENTORY_PHONE_MODELS_METADATA,
+    )
+    registry.register(
+        "inventory.refresh_phone_models",
+        inventory_refresh_phone_models,
+        metadata=INVENTORY_PHONE_MODELS_METADATA,
+    )
+    registry.register(
+        "selector.select_phone_model",
+        selector_select_phone_model,
+        metadata=SELECT_PHONE_MODEL_METADATA,
+    )
+    registry.register(
+        "selector.resolve_cloud_container",
+        selector_resolve_cloud_container,
+        metadata=SELECT_CLOUD_CONTAINER_METADATA,
+    )
+    registry.register(
+        "generator.generate_fingerprint",
+        generator_generate_fingerprint,
+        metadata=GENERATE_FINGERPRINT_METADATA,
+    )
+    registry.register(
+        "generator.generate_contact",
+        generator_generate_contact,
+        metadata=GENERATE_CONTACT_METADATA,
+    )
+    registry.register(
+        "generator.generate_env_bundle",
+        generator_generate_env_bundle,
+        metadata=GENERATE_ENV_BUNDLE_METADATA,
+    )
+    registry.register(
+        "profile.apply_env_bundle",
+        profile_apply_env_bundle,
+        metadata=APPLY_ENV_BUNDLE_METADATA,
+    )
+    registry.register(
+        "profile.wait_cloud_available",
+        profile_wait_cloud_available,
+        metadata=WAIT_CLOUD_AVAILABLE_METADATA,
+    )
+    registry.register("core.detect_login_stage", detect_login_stage)
+    registry.register("core.wait_login_stage", wait_login_stage)
+    registry.register("core.extract_timeline_candidates", extract_timeline_candidates)
+    registry.register("core.extract_search_candidates", extract_search_candidates)
+    registry.register("core.collect_blogger_candidates", collect_blogger_candidates)
+    registry.register("core.open_candidate", open_candidate)
+    registry.register("core.extract_dm_last_message", extract_dm_last_message)
+    registry.register("core.extract_dm_last_outbound_message", extract_dm_last_outbound_message)
+    registry.register("core.extract_unread_dm_targets", extract_unread_dm_targets)
+    registry.register("core.open_first_unread_dm", open_first_unread_dm)
+    registry.register("core.extract_follow_targets", extract_follow_targets)
+    registry.register("core.follow_visible_targets", follow_visible_targets)
+    registry.register("ai.llm_evaluate", llm_evaluate, metadata=LLM_EVALUATE_METADATA)
+    registry.register("ai.vlm_evaluate", vlm_evaluate, metadata=VLM_EVALUATE_METADATA)
+    registry.register("ai.locate_point", locate_point, metadata=LOCATE_POINT_METADATA)
+    for action_name, handler in get_sdk_action_bindings().items():
+        registry.register(action_name, handler)
+
+
+def _register_ui_actions(registry: ActionRegistry) -> None:
+    from .actions.login_actions import (
+        click_selector_or_tap,
+        fill_form,
+        focus_and_input_with_shell_fallback,
+        input_text_with_shell_fallback,
+    )
+    from .actions.navigation_actions import navigate_to
     from .actions.ui_actions import (
         APP_ENSURE_RUNNING_METADATA,
         APP_OPEN_METADATA,
@@ -254,190 +369,80 @@ def register_defaults() -> None:
         touch_up,
         use_new_node_mode,
     )
-    from .actions.ui_state_actions import (
-        browser_match_state,
-        browser_observe_transition,
-        browser_wait_until,
-        ui_match_state,
-        ui_observe_transition,
-        ui_wait_until,
-    )
+    from .actions.ui_state_actions import ui_match_state, ui_observe_transition, ui_wait_until
 
-    _registry.register("browser.open", browser_open)
-    _registry.register("browser.input", browser_input)
-    _registry.register("browser.click", browser_click)
-    _registry.register("browser.exists", browser_exists)
-    _registry.register("browser.check_html", browser_check_html)
-    _registry.register("browser.wait_url", browser_wait_url)
-    _registry.register("browser.match_state", browser_match_state)
-    _registry.register("browser.wait_until", browser_wait_until)
-    _registry.register("browser.observe_transition", browser_observe_transition)
-    _registry.register("browser.add_cookies", browser_add_cookies)
-    _registry.register("browser.close", browser_close)
-    _registry.register("credentials.load", credentials_load)
-    _registry.register("credentials.checkout", credentials_checkout)
-    _registry.register("core.save_shared", save_shared, metadata=SAVE_SHARED_METADATA)
-    _registry.register(
-        "core.load_shared_required", load_shared_required, metadata=LOAD_SHARED_REQUIRED_METADATA
-    )
-    _registry.register("core.load_shared_optional", load_shared_optional)
-    _registry.register("core.append_shared_unique", append_shared_unique)
-    _registry.register("core.increment_shared_counter", increment_shared_counter)
-    _registry.register("core.resolve_first_non_empty", resolve_first_non_empty)
-    _registry.register("core.load_ui_value", load_ui_value)
-    _registry.register("core.load_ui_selector", load_ui_selector)
-    _registry.register("core.load_ui_selectors", load_ui_selectors)
-    _registry.register("core.load_ui_scheme", load_ui_scheme)
-    _registry.register("core.check_daily_limit", check_daily_limit)
-    _registry.register("core.increment_daily_counter", increment_daily_counter)
-    _registry.register("core.pick_weighted_keyword", pick_weighted_keyword)
-    _registry.register("core.pick_candidate", pick_candidate)
-    _registry.register("core.plan_follow_rounds", plan_follow_rounds)
-    _registry.register("core.is_text_blacklisted", is_text_blacklisted)
-    _registry.register("core.choose_blogger_search_query", choose_blogger_search_query)
-    _registry.register("core.derive_blogger_profile", derive_blogger_profile)
-    _registry.register("core.save_blogger_candidates", save_blogger_candidates)
-    _registry.register("core.save_blogger_candidate", save_blogger_candidate)
-    _registry.register("core.get_blogger_candidate", get_blogger_candidate)
-    _registry.register("core.mark_processed", mark_processed)
-    _registry.register("core.check_processed", check_processed)
-    _registry.register("core.generate_totp", generate_totp)
-    _registry.register("core.generate_dm_reply", generate_dm_reply)
-    _registry.register("core.generate_quote_text", generate_quote_text)
-    _registry.register(
-        "inventory.get_phone_models",
-        inventory_get_phone_models,
-        metadata=INVENTORY_PHONE_MODELS_METADATA,
-    )
-    _registry.register(
-        "inventory.refresh_phone_models",
-        inventory_refresh_phone_models,
-        metadata=INVENTORY_PHONE_MODELS_METADATA,
-    )
-    _registry.register(
-        "selector.select_phone_model",
-        selector_select_phone_model,
-        metadata=SELECT_PHONE_MODEL_METADATA,
-    )
-    _registry.register(
-        "selector.resolve_cloud_container",
-        selector_resolve_cloud_container,
-        metadata=SELECT_CLOUD_CONTAINER_METADATA,
-    )
-    _registry.register(
-        "generator.generate_fingerprint",
-        generator_generate_fingerprint,
-        metadata=GENERATE_FINGERPRINT_METADATA,
-    )
-    _registry.register(
-        "generator.generate_contact",
-        generator_generate_contact,
-        metadata=GENERATE_CONTACT_METADATA,
-    )
-    _registry.register(
-        "generator.generate_env_bundle",
-        generator_generate_env_bundle,
-        metadata=GENERATE_ENV_BUNDLE_METADATA,
-    )
-    _registry.register(
-        "profile.apply_env_bundle",
-        profile_apply_env_bundle,
-        metadata=APPLY_ENV_BUNDLE_METADATA,
-    )
-    _registry.register(
-        "profile.wait_cloud_available",
-        profile_wait_cloud_available,
-        metadata=WAIT_CLOUD_AVAILABLE_METADATA,
-    )
-    _registry.register("core.detect_login_stage", detect_login_stage)
-    _registry.register("core.wait_login_stage", wait_login_stage)
-    _registry.register("core.extract_timeline_candidates", extract_timeline_candidates)
-    _registry.register("core.extract_search_candidates", extract_search_candidates)
-    _registry.register("core.collect_blogger_candidates", collect_blogger_candidates)
-    _registry.register("core.open_candidate", open_candidate)
-    _registry.register("core.extract_dm_last_message", extract_dm_last_message)
-    _registry.register("core.extract_dm_last_outbound_message", extract_dm_last_outbound_message)
-    _registry.register("core.extract_unread_dm_targets", extract_unread_dm_targets)
-    _registry.register("core.open_first_unread_dm", open_first_unread_dm)
-    _registry.register("core.extract_follow_targets", extract_follow_targets)
-    _registry.register("core.follow_visible_targets", follow_visible_targets)
-    _registry.register("ai.llm_evaluate", llm_evaluate, metadata=LLM_EVALUATE_METADATA)
-    _registry.register("ai.vlm_evaluate", vlm_evaluate, metadata=VLM_EVALUATE_METADATA)
-    _registry.register("ai.locate_point", locate_point, metadata=LOCATE_POINT_METADATA)
-    _registry.register("ui.click", click, metadata=CLICK_METADATA)
-    _registry.register("ui.touch_down", touch_down)
-    _registry.register("ui.touch_up", touch_up)
-    _registry.register("ui.touch_move", touch_move)
-    _registry.register("ui.swipe", swipe, metadata=SWIPE_METADATA)
-    _registry.register("ui.long_click", long_click, metadata=LONG_CLICK_METADATA)
-    _registry.register("ui.input_text", input_text, metadata=INPUT_TEXT_METADATA)
-    _registry.register("ui.key_press", key_press, metadata=KEY_PRESS_METADATA)
-    _registry.register("ui.create_selector", create_selector)
-    _registry.register("ui.selector_add_query", selector_add_query)
-    _registry.register("ui.selector_click_one", selector_click_one)
-    _registry.register("ui.selector_click_with_fallback", selector_click_with_fallback)
-    _registry.register("ui.selector_exec_one", selector_exec_one)
-    _registry.register("ui.selector_exec_all", selector_exec_all)
-    _registry.register("ui.selector_find_nodes", selector_find_nodes)
-    _registry.register("ui.selector_free", selector_free)
-    _registry.register("ui.selector_free_nodes", selector_free_nodes)
-    _registry.register("ui.selector_get_nodes_size", selector_get_nodes_size)
-    _registry.register("ui.selector_get_node_by_index", selector_get_node_by_index)
-    _registry.register("ui.selector_clear", selector_clear)
-    _registry.register("ui.node_click", node_click)
-    _registry.register("ui.node_long_click", node_long_click)
-    _registry.register("ui.node_get_json", node_get_json)
-    _registry.register("ui.node_get_text", node_get_text)
-    _registry.register("ui.node_get_desc", node_get_desc)
-    _registry.register("ui.node_get_package", node_get_package)
-    _registry.register("ui.node_get_class", node_get_class)
-    _registry.register("ui.node_get_id", node_get_id)
-    _registry.register("ui.node_get_bound", node_get_bound)
-    _registry.register("ui.node_get_bound_center", node_get_bound_center)
-    _registry.register("ui.node_get_parent", node_get_parent)
-    _registry.register("ui.node_get_child_count", node_get_child_count)
-    _registry.register("ui.node_get_child", node_get_child)
-    _registry.register("ui.dump_node_xml", dump_node_xml_ex)
-    _registry.register("ui.dump_node_xml_ex", dump_node_xml_ex)
-    _registry.register("ui.navigate_to", navigate_to)
-    _registry.register("ui.app_dismiss_popups", app_dismiss_popups)
-    _registry.register("ui.app_open", app_open)
-    _registry.register("ui.app_stop", app_stop)
-    _registry.register("ui.app_ensure_running", app_ensure_running)
-    _registry.register("ui.screenshot", screenshot)
-    _registry.register("ui.capture_compressed", capture_compressed)
-    _registry.register("ui.click_selector_or_tap", click_selector_or_tap)
-    _registry.register("ui.input_text_with_shell_fallback", input_text_with_shell_fallback)
-    _registry.register(
-        "ui.focus_and_input_with_shell_fallback", focus_and_input_with_shell_fallback
-    )
-    _registry.register("ui.fill_form", fill_form)
-    _registry.register("ui.match_state", ui_match_state)
-    _registry.register("ui.wait_until", ui_wait_until)
-    _registry.register("ui.observe_transition", ui_observe_transition)
-    _registry.register("app.open", app_open, metadata=APP_OPEN_METADATA)
-    _registry.register("app.stop", app_stop, metadata=APP_STOP_METADATA)
-    _registry.register(
+    registry.register("ui.click", click, metadata=CLICK_METADATA)
+    registry.register("ui.touch_down", touch_down)
+    registry.register("ui.touch_up", touch_up)
+    registry.register("ui.touch_move", touch_move)
+    registry.register("ui.swipe", swipe, metadata=SWIPE_METADATA)
+    registry.register("ui.long_click", long_click, metadata=LONG_CLICK_METADATA)
+    registry.register("ui.input_text", input_text, metadata=INPUT_TEXT_METADATA)
+    registry.register("ui.key_press", key_press, metadata=KEY_PRESS_METADATA)
+    registry.register("ui.create_selector", create_selector)
+    registry.register("ui.selector_add_query", selector_add_query)
+    registry.register("ui.selector_click_one", selector_click_one)
+    registry.register("ui.selector_click_with_fallback", selector_click_with_fallback)
+    registry.register("ui.selector_exec_one", selector_exec_one)
+    registry.register("ui.selector_exec_all", selector_exec_all)
+    registry.register("ui.selector_find_nodes", selector_find_nodes)
+    registry.register("ui.selector_free", selector_free)
+    registry.register("ui.selector_free_nodes", selector_free_nodes)
+    registry.register("ui.selector_get_nodes_size", selector_get_nodes_size)
+    registry.register("ui.selector_get_node_by_index", selector_get_node_by_index)
+    registry.register("ui.selector_clear", selector_clear)
+    registry.register("ui.node_click", node_click)
+    registry.register("ui.node_long_click", node_long_click)
+    registry.register("ui.node_get_json", node_get_json)
+    registry.register("ui.node_get_text", node_get_text)
+    registry.register("ui.node_get_desc", node_get_desc)
+    registry.register("ui.node_get_package", node_get_package)
+    registry.register("ui.node_get_class", node_get_class)
+    registry.register("ui.node_get_id", node_get_id)
+    registry.register("ui.node_get_bound", node_get_bound)
+    registry.register("ui.node_get_bound_center", node_get_bound_center)
+    registry.register("ui.node_get_parent", node_get_parent)
+    registry.register("ui.node_get_child_count", node_get_child_count)
+    registry.register("ui.node_get_child", node_get_child)
+    registry.register("ui.dump_node_xml", dump_node_xml_ex)
+    registry.register("ui.dump_node_xml_ex", dump_node_xml_ex)
+    registry.register("ui.navigate_to", navigate_to)
+    registry.register("ui.app_dismiss_popups", app_dismiss_popups)
+    registry.register("ui.app_open", app_open)
+    registry.register("ui.app_stop", app_stop)
+    registry.register("ui.app_ensure_running", app_ensure_running)
+    registry.register("ui.screenshot", screenshot)
+    registry.register("ui.capture_compressed", capture_compressed)
+    registry.register("ui.click_selector_or_tap", click_selector_or_tap)
+    registry.register("ui.input_text_with_shell_fallback", input_text_with_shell_fallback)
+    registry.register("ui.focus_and_input_with_shell_fallback", focus_and_input_with_shell_fallback)
+    registry.register("ui.fill_form", fill_form)
+    registry.register("ui.match_state", ui_match_state)
+    registry.register("ui.wait_until", ui_wait_until)
+    registry.register("ui.observe_transition", ui_observe_transition)
+    registry.register("app.open", app_open, metadata=APP_OPEN_METADATA)
+    registry.register("app.stop", app_stop, metadata=APP_STOP_METADATA)
+    registry.register(
         "app.ensure_running", app_ensure_running, metadata=APP_ENSURE_RUNNING_METADATA
     )
-    _registry.register("app.grant_permissions", app_grant_permissions)
-    _registry.register("app.dismiss_popups", app_dismiss_popups)
-    _registry.register("device.screenshot", screenshot)
-    _registry.register("device.capture_raw", capture_raw)
-    _registry.register(
+    registry.register("app.grant_permissions", app_grant_permissions)
+    registry.register("app.dismiss_popups", app_dismiss_popups)
+    registry.register("device.screenshot", screenshot)
+    registry.register("device.capture_raw", capture_raw)
+    registry.register(
         "device.capture_compressed", capture_compressed, metadata=CAPTURE_COMPRESSED_METADATA
     )
-    _registry.register("device.get_display_rotate", get_display_rotate)
-    _registry.register("device.get_sdk_version", get_sdk_version)
-    _registry.register("device.check_connect_state", check_connect_state)
-    _registry.register("device.set_work_mode", set_work_mode)
-    _registry.register("device.use_new_node_mode", use_new_node_mode)
-    _registry.register("device.video_stream_start", start_video_stream)
-    _registry.register("device.video_stream_stop", stop_video_stream)
-    _registry.register("device.exec", exec_command)
-    for action_name, handler in get_sdk_action_bindings().items():
-        _registry.register(action_name, handler)
+    registry.register("device.get_display_rotate", get_display_rotate)
+    registry.register("device.get_sdk_version", get_sdk_version)
+    registry.register("device.check_connect_state", check_connect_state)
+    registry.register("device.set_work_mode", set_work_mode)
+    registry.register("device.use_new_node_mode", use_new_node_mode)
+    registry.register("device.video_stream_start", start_video_stream)
+    registry.register("device.video_stream_stop", stop_video_stream)
+    registry.register("device.exec", exec_command)
 
+
+def _register_android_actions(registry: ActionRegistry) -> None:
     from engine.actions.android_api_actions import (
         ADD_CONTACT_METADATA,
         BACKUP_APP_METADATA,
@@ -489,49 +494,57 @@ def register_defaults() -> None:
         android_upload_google_cert,
     )
 
-    _registry.register(
+    registry.register(
         "android.get_clipboard", android_get_clipboard, metadata=GET_CLIPBOARD_METADATA
     )
-    _registry.register(
+    registry.register(
         "android.set_clipboard", android_set_clipboard, metadata=SET_CLIPBOARD_METADATA
     )
-    _registry.register("android.query_proxy", android_query_proxy, metadata=QUERY_PROXY_METADATA)
-    _registry.register("android.set_proxy", android_set_proxy, metadata=SET_PROXY_METADATA)
-    _registry.register("android.stop_proxy", android_stop_proxy)
-    _registry.register("android.set_proxy_filter", android_set_proxy_filter)
-    _registry.register("android.screenshot", android_screenshot, metadata=SCREENSHOT_METADATA)
-    _registry.register("android.snap_screenshot", android_screenshot, metadata=SCREENSHOT_METADATA)
-    _registry.register("android.download_file", android_download_file)
-    _registry.register("android.upload_file", android_upload_file)
-    _registry.register("android.set_language", android_set_language, metadata=SET_LANGUAGE_METADATA)
-    _registry.register(
+    registry.register("android.query_proxy", android_query_proxy, metadata=QUERY_PROXY_METADATA)
+    registry.register("android.set_proxy", android_set_proxy, metadata=SET_PROXY_METADATA)
+    registry.register("android.stop_proxy", android_stop_proxy)
+    registry.register("android.set_proxy_filter", android_set_proxy_filter)
+    registry.register("android.screenshot", android_screenshot, metadata=SCREENSHOT_METADATA)
+    registry.register("android.snap_screenshot", android_screenshot, metadata=SCREENSHOT_METADATA)
+    registry.register("android.download_file", android_download_file)
+    registry.register("android.upload_file", android_upload_file)
+    registry.register("android.set_language", android_set_language, metadata=SET_LANGUAGE_METADATA)
+    registry.register(
         "android.set_fingerprint", android_set_fingerprint, metadata=SET_FINGERPRINT_METADATA
     )
-    _registry.register(
+    registry.register(
         "android.update_fingerprint", android_set_fingerprint, metadata=SET_FINGERPRINT_METADATA
     )
-    _registry.register("android.set_shake", android_set_shake, metadata=SET_SHAKE_METADATA)
-    _registry.register("android.refresh_location", android_refresh_location)
-    _registry.register("android.get_google_adid", android_get_google_adid)
-    _registry.register("android.receive_sms", android_receive_sms, metadata=RECEIVE_SMS_METADATA)
-    _registry.register("android.add_contact", android_add_contact, metadata=ADD_CONTACT_METADATA)
-    _registry.register("android.get_container_info", android_get_container_info)
-    _registry.register("android.set_key_block", android_set_key_block)
-    _registry.register("android.set_background_keepalive", android_set_background_keepalive)
-    _registry.register("android.backup_app", android_backup_app, metadata=BACKUP_APP_METADATA)
-    _registry.register("android.restore_app", android_restore_app, metadata=RESTORE_APP_METADATA)
-    _registry.register("android.upload_google_cert", android_upload_google_cert)
-    _registry.register("android.batch_install_apps", android_batch_install_apps)
-    _registry.register("android.get_root_allowed_apps", android_get_root_allowed_apps)
-    _registry.register("android.set_root_allowed_app", android_set_root_allowed_app)
-    _registry.register("android.export_app_info", android_export_app_info)
-    _registry.register("android.import_app_info", android_import_app_info)
-    _registry.register("android.get_call_records", android_get_call_records)
-    _registry.register("android.ip_geolocation", android_ip_geolocation)
-    _registry.register("android.query_adb", android_query_adb)
-    _registry.register("android.switch_adb", android_switch_adb)
-    _registry.register("android.get_google_id", android_get_google_id)
-    _registry.register("android.set_google_id", android_set_google_id)
-    _registry.register("android.install_magisk", android_install_magisk)
-    _registry.register("android.camera_hot_start", android_camera_hot_start)
-    _registry.register("android.autoclick", android_autoclick)
+    registry.register("android.set_shake", android_set_shake, metadata=SET_SHAKE_METADATA)
+    registry.register("android.refresh_location", android_refresh_location)
+    registry.register("android.get_google_adid", android_get_google_adid)
+    registry.register("android.receive_sms", android_receive_sms, metadata=RECEIVE_SMS_METADATA)
+    registry.register("android.add_contact", android_add_contact, metadata=ADD_CONTACT_METADATA)
+    registry.register("android.get_container_info", android_get_container_info)
+    registry.register("android.set_key_block", android_set_key_block)
+    registry.register("android.set_background_keepalive", android_set_background_keepalive)
+    registry.register("android.backup_app", android_backup_app, metadata=BACKUP_APP_METADATA)
+    registry.register("android.restore_app", android_restore_app, metadata=RESTORE_APP_METADATA)
+    registry.register("android.upload_google_cert", android_upload_google_cert)
+    registry.register("android.batch_install_apps", android_batch_install_apps)
+    registry.register("android.get_root_allowed_apps", android_get_root_allowed_apps)
+    registry.register("android.set_root_allowed_app", android_set_root_allowed_app)
+    registry.register("android.export_app_info", android_export_app_info)
+    registry.register("android.import_app_info", android_import_app_info)
+    registry.register("android.get_call_records", android_get_call_records)
+    registry.register("android.ip_geolocation", android_ip_geolocation)
+    registry.register("android.query_adb", android_query_adb)
+    registry.register("android.switch_adb", android_switch_adb)
+    registry.register("android.get_google_id", android_get_google_id)
+    registry.register("android.set_google_id", android_set_google_id)
+    registry.register("android.install_magisk", android_install_magisk)
+    registry.register("android.camera_hot_start", android_camera_hot_start)
+    registry.register("android.autoclick", android_autoclick)
+
+
+def register_defaults() -> None:
+    """Register all built-in actions. Call once at engine startup."""
+    _register_browser_actions(_registry)
+    _register_core_actions(_registry)
+    _register_ui_actions(_registry)
+    _register_android_actions(_registry)

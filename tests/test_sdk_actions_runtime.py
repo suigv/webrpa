@@ -137,6 +137,180 @@ def test_sdk_action_invocation_maps_to_client(monkeypatch):
     assert res6.ok is True
 
 
+def test_android_api_actions_keepalive_and_google_paths(monkeypatch):
+    android_mod = importlib.import_module("engine.actions.android_api_actions")
+    ExecutionContext = _load_execution_context()
+    calls: list[tuple[str, object]] = []
+
+    class FakeAndroidApiClient:
+        def __init__(
+            self, device_ip: str, api_port: int, timeout_seconds: float = 30.0, retries: int = 3
+        ):
+            self.device_ip = device_ip
+            self.api_port = api_port
+
+        def query_background_keepalive(self):
+            calls.append(("query_background_keepalive", None))
+            return {"ok": True, "data": {"items": []}}
+
+        def add_background_keepalive(self, package: str):
+            calls.append(("add_background_keepalive", package))
+            return {"ok": True, "data": {"package": package}}
+
+        def remove_background_keepalive(self, package: str):
+            calls.append(("remove_background_keepalive", package))
+            return {"ok": True, "data": {"package": package}}
+
+        def update_background_keepalive(self, package: str):
+            calls.append(("update_background_keepalive", package))
+            return {"ok": True, "data": {"package": package}}
+
+        def get_google_id(self, cmd=None):
+            calls.append(("get_google_id", cmd))
+            return {"ok": True, "data": {"cmd": cmd}}
+
+    monkeypatch.setattr(android_mod, "AndroidApiClient", FakeAndroidApiClient)
+    ctx = ExecutionContext(payload={"device_ip": "192.168.1.9"}, runtime={"api_port": 30001})
+
+    assert android_mod.android_query_background_keepalive({}, ctx).ok is True
+    assert android_mod.android_add_background_keepalive({"package": "pkg.demo"}, ctx).ok is True
+    assert android_mod.android_remove_background_keepalive({"package": "pkg.demo"}, ctx).ok is True
+    assert android_mod.android_update_background_keepalive({"package": "pkg.demo"}, ctx).ok is True
+    assert android_mod.android_get_google_adid({}, ctx).ok is True
+    assert android_mod.android_get_google_id({"cmd": 2}, ctx).ok is True
+
+    missing_package = android_mod.android_add_background_keepalive({}, ctx)
+    assert missing_package.ok is False
+    assert missing_package.code == "invalid_params"
+
+    assert calls == [
+        ("query_background_keepalive", None),
+        ("add_background_keepalive", "pkg.demo"),
+        ("remove_background_keepalive", "pkg.demo"),
+        ("update_background_keepalive", "pkg.demo"),
+        ("get_google_id", None),
+        ("get_google_id", 2),
+    ]
+
+
+def test_android_api_actions_zero_arg_wrappers(monkeypatch):
+    android_mod = importlib.import_module("engine.actions.android_api_actions")
+    ExecutionContext = _load_execution_context()
+    calls: list[str] = []
+
+    class FakeAndroidApiClient:
+        def __init__(
+            self, device_ip: str, api_port: int, timeout_seconds: float = 30.0, retries: int = 3
+        ):
+            self.device_ip = device_ip
+            self.api_port = api_port
+
+        def get_clipboard(self):
+            calls.append("get_clipboard")
+            return {"ok": True, "data": {"result": "clipboard"}}
+
+        def query_s5_proxy(self):
+            calls.append("query_s5_proxy")
+            return {"ok": True, "data": {"enabled": True}}
+
+        def stop_s5_proxy(self):
+            calls.append("stop_s5_proxy")
+            return {"ok": True, "data": {}}
+
+        def refresh_location(self):
+            calls.append("refresh_location")
+            return {"ok": True, "data": {}}
+
+        def get_container_info(self):
+            calls.append("get_container_info")
+            return {"ok": True, "data": {"name": "android-01"}}
+
+        def get_version(self):
+            calls.append("get_version")
+            return {"ok": True, "data": {"version": "1.0.0"}}
+
+        def get_boot_apps(self):
+            calls.append("get_boot_apps")
+            return {"ok": True, "data": {"packages": []}}
+
+        def get_root_allowed_apps(self):
+            calls.append("get_root_allowed_apps")
+            return {"ok": True, "data": {"packages": []}}
+
+    monkeypatch.setattr(android_mod, "AndroidApiClient", FakeAndroidApiClient)
+    ctx = ExecutionContext(payload={"device_ip": "192.168.1.10"}, runtime={"api_port": 30001})
+
+    assert android_mod.android_get_clipboard({}, ctx).ok is True
+    assert android_mod.android_query_proxy({}, ctx).ok is True
+    assert android_mod.android_stop_proxy({}, ctx).ok is True
+    assert android_mod.android_refresh_location({}, ctx).ok is True
+    assert android_mod.android_get_container_info({}, ctx).ok is True
+    assert android_mod.android_get_version({}, ctx).ok is True
+    assert android_mod.android_get_app_bootstart_list({}, ctx).ok is True
+    assert android_mod.android_get_root_allowed_apps({}, ctx).ok is True
+
+    assert calls == [
+        "get_clipboard",
+        "query_s5_proxy",
+        "stop_s5_proxy",
+        "refresh_location",
+        "get_container_info",
+        "get_version",
+        "get_boot_apps",
+        "get_root_allowed_apps",
+    ]
+
+
+def test_android_api_actions_backup_restore_aliases(monkeypatch):
+    android_mod = importlib.import_module("engine.actions.android_api_actions")
+    ExecutionContext = _load_execution_context()
+    calls: list[tuple[str, str, str]] = []
+
+    class FakeAndroidApiClient:
+        def __init__(
+            self, device_ip: str, api_port: int, timeout_seconds: float = 30.0, retries: int = 3
+        ):
+            self.device_ip = device_ip
+            self.api_port = api_port
+
+        def backup_app(self, package: str, save_to: str):
+            calls.append(("backup_app", package, save_to))
+            return {"ok": True, "data": {"package": package, "save_to": save_to}}
+
+        def restore_app(self, backup_path: str):
+            calls.append(("restore_app", backup_path, ""))
+            return {"ok": True, "data": {"backup_path": backup_path}}
+
+    monkeypatch.setattr(android_mod, "AndroidApiClient", FakeAndroidApiClient)
+    ctx = ExecutionContext(payload={"device_ip": "192.168.1.11"}, runtime={"api_port": 30001})
+
+    assert (
+        android_mod.android_backup_app({"pkg": "pkg.demo", "saveto": "/tmp/a.bak"}, ctx).ok is True
+    )
+    assert (
+        android_mod.android_export_app_info(
+            {"package": "pkg.demo", "save_to": "/tmp/b.bak"}, ctx
+        ).ok
+        is True
+    )
+    assert android_mod.android_restore_app({"backuppath": "/tmp/a.bak"}, ctx).ok is True
+    assert android_mod.android_import_app_info({"backup_path": "/tmp/b.bak"}, ctx).ok is True
+
+    missing_backup = android_mod.android_backup_app({}, ctx)
+    missing_restore = android_mod.android_import_app_info({}, ctx)
+    assert missing_backup.ok is False
+    assert missing_backup.code == "invalid_params"
+    assert missing_restore.ok is False
+    assert missing_restore.code == "invalid_params"
+
+    assert calls == [
+        ("backup_app", "pkg.demo", "/tmp/a.bak"),
+        ("backup_app", "pkg.demo", "/tmp/b.bak"),
+        ("restore_app", "/tmp/a.bak", ""),
+        ("restore_app", "/tmp/b.bak", ""),
+    ]
+
+
 def test_save_shared_preserves_valid_json_across_repeated_updates(monkeypatch, tmp_path):
     _ = monkeypatch
     _ = tmp_path

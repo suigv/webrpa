@@ -1,6 +1,10 @@
 from datetime import UTC, datetime, timedelta
 
-from core.task_execution import ActiveTargetCircuitBreaker, _build_target_trip
+from core.task_execution import (
+    ActiveTargetCircuitBreaker,
+    _build_confirmed_target_trip,
+    _build_target_trip,
+)
 from engine.models.manifest import InputType, PluginInput
 from engine.models.runtime import ActionResult
 from engine.models.workflow import ActionStep, StopStep, WorkflowScript
@@ -116,6 +120,67 @@ def test_build_target_trip_accepts_probe_snapshot_after_activation():
     }
 
     trip = _build_target_trip(
+        device_id=1,
+        cloud_id=1,
+        snapshot=snapshot,
+        min_last_checked_at_epoch=datetime.now(UTC).timestamp(),
+    )
+
+    assert trip is not None
+    assert trip.code == "target_unavailable"
+
+
+def test_build_confirmed_target_trip_ignores_false_unavailable_when_direct_probe_succeeds(
+    monkeypatch,
+):
+    after_activation = datetime.now(UTC) + timedelta(seconds=1)
+    snapshot = {
+        "availability_state": "unavailable",
+        "availability_reason": "[Errno 64] Host is down",
+        "last_checked_at": after_activation.isoformat(),
+        "latency_ms": 3,
+        "stale": False,
+    }
+    healed: list[tuple[int, int, bool, int | None, str]] = []
+
+    class _Manager:
+        def update_cloud_probe(
+            self, device_id: int, cloud_id: int, ok: bool, latency_ms: int | None, reason: str
+        ) -> None:
+            healed.append((device_id, cloud_id, ok, latency_ms, reason))
+
+    monkeypatch.setattr(
+        "core.task_execution._probe_target_rpa_port", lambda device_id, cloud_id: (True, 6, "ok")
+    )
+    monkeypatch.setattr("core.task_execution.get_device_manager", lambda: _Manager())
+
+    trip = _build_confirmed_target_trip(
+        device_id=1,
+        cloud_id=1,
+        snapshot=snapshot,
+        min_last_checked_at_epoch=datetime.now(UTC).timestamp(),
+    )
+
+    assert trip is None
+    assert healed == [(1, 1, True, 6, "ok")]
+
+
+def test_build_confirmed_target_trip_preserves_failure_when_direct_probe_still_fails(monkeypatch):
+    after_activation = datetime.now(UTC) + timedelta(seconds=1)
+    snapshot = {
+        "availability_state": "unavailable",
+        "availability_reason": "[Errno 64] Host is down",
+        "last_checked_at": after_activation.isoformat(),
+        "latency_ms": 3,
+        "stale": False,
+    }
+
+    monkeypatch.setattr(
+        "core.task_execution._probe_target_rpa_port",
+        lambda device_id, cloud_id: (False, 4, "[Errno 64] Host is down"),
+    )
+
+    trip = _build_confirmed_target_trip(
         device_id=1,
         cloud_id=1,
         snapshot=snapshot,

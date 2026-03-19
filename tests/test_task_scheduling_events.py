@@ -18,6 +18,8 @@ from core.task_control import (
     reset_task_controller_for_tests,
 )
 from core.task_events import TaskEventStore
+from core.task_execution import ProcessTaskHandle, TaskExecutionService
+from core.task_finalizer import TaskAttemptFinalizer
 from core.task_queue import InMemoryTaskQueue
 from core.task_store import TaskStore
 from engine.action_registry import ActionRegistry
@@ -361,6 +363,89 @@ def test_pending_task_cancel_emits_cancel_requested_and_cancelled_without_starti
         assert "event: task.cancelled" in text
         assert "event: task.started" not in text
         assert "event: task.dispatching" not in text
+
+
+def test_process_exit_forced_cancel_uses_finalizer_path(tmp_path: Path):
+    db_path = tmp_path / "task_execution_forced_cancel.db"
+    store = TaskStore(db_path=db_path)
+    events = TaskEventStore(db_path=db_path)
+    finalizer = TaskAttemptFinalizer(store=store, event_store=events)
+    service = TaskExecutionService(
+        store=store,
+        queue_backend=InMemoryTaskQueue(),
+        runner=OrderRunner(),
+        event_store=events,
+        finalizer=finalizer,
+        dispatch_runtime_resolver=object(),
+    )
+
+    record = store.create_task(
+        task_id="forced-cancel-task",
+        payload={"task": "anonymous", "steps": []},
+        devices=[1],
+        targets=[{"device_id": 1, "cloud_id": 1}],
+    )
+    assert store.mark_running(record.task_id) is True
+    assert store.request_cancel(record.task_id) == "cancelling"
+
+    service._handle_process_exit(
+        ProcessTaskHandle(
+            task_id=record.task_id,
+            process=None,
+            cancel_event=None,
+            control_queue=None,
+            status_queue=None,
+            started_at=0.0,
+        ),
+        exit_code=-15,
+    )
+
+    updated = store.get_task(record.task_id)
+    assert updated is not None
+    assert updated.status == "cancelled"
+    assert updated.error == "cancelled by user (forced)"
+
+    task_events = events.list_events(record.task_id)
+    event_types = [event.event_type for event in task_events]
+    assert event_types == ["task.dispatch_result", "task.cancelled"]
+    assert task_events[0].payload["status"] == "cancelled"
+    assert task_events[1].payload["reason"] == "forced_cancel"
+
+
+def test_finalizer_result_path_cancel_uses_user_reason(tmp_path: Path):
+    db_path = tmp_path / "task_finalizer_result_cancel.db"
+    store = TaskStore(db_path=db_path)
+    events = TaskEventStore(db_path=db_path)
+    finalizer = TaskAttemptFinalizer(store=store, event_store=events)
+
+    record = store.create_task(
+        task_id="result-cancel-task",
+        payload={"task": "anonymous", "steps": []},
+        devices=[1],
+        targets=[{"device_id": 1, "cloud_id": 1}],
+        max_retries=0,
+    )
+    assert store.mark_running(record.task_id) is True
+    assert store.request_cancel(record.task_id) == "cancelling"
+
+    outcome = finalizer.finalize_result_attempt(
+        record.task_id,
+        "anonymous",
+        {"ok": False, "status": "failed_runtime_error", "message": "runner failed"},
+        payload=record.payload,
+    )
+
+    assert outcome.retry_record is None
+    assert outcome.should_enqueue_retry is False
+
+    updated = store.get_task(record.task_id)
+    assert updated is not None
+    assert updated.status == "cancelled"
+
+    task_events = events.list_events(record.task_id)
+    event_types = [event.event_type for event in task_events]
+    assert event_types == ["task.dispatch_result", "task.cancelled"]
+    assert task_events[1].payload["reason"] == "user"
 
 
 def test_trace_managed_gpt_execution_persists_jsonl_without_raw_trace_events(tmp_path: Path):

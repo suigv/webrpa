@@ -162,10 +162,16 @@ class TaskEventStore(BaseStore):
                 ).fetchall()
         return {str(row[0]): int(row[1]) for row in rows}
 
+    def count_events(self) -> int:
+        with self._connect() as conn:
+            row = conn.execute("SELECT COUNT(*) AS cnt FROM task_events").fetchone()
+        return int(row["cnt"] or 0) if row else 0
+
     def clear_all_events(self, conn: sqlite3.Connection | None = None) -> None:
         with self._tx(conn) as tx_conn:
             tx_conn.execute("DELETE FROM task_events")
 
-    def clear_task_events(self, task_id: str, conn: sqlite3.Connection | None = None) -> None:
+    def clear_task_events(self, task_id: str, conn: sqlite3.Connection | None = None) -> int:
         with self._tx(conn) as tx_conn:
-            tx_conn.execute("DELETE FROM task_events WHERE task_id = ?", (task_id,))
+            cur = tx_conn.execute("DELETE FROM task_events WHERE task_id = ?", (task_id,))
+            return int(cur.rowcount or 0)

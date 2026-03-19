@@ -91,6 +91,14 @@ def _resolve_package(params: Params, context: ExecutionContext) -> str:
     return str(params.get("package") or context.get_session_default("package") or "").strip()
 
 
+def _load_state_action_defaults_document() -> dict[str, object]:
+    try:
+        defaults_doc = sdk_config_support.load_state_action_defaults_document()
+    except Exception:
+        return {}
+    return defaults_doc if isinstance(defaults_doc, dict) else {}
+
+
 DEFAULT_LOGIN_STAGE_ORDER = ("captcha", "two_factor", "account", "password", "login_entry", "home")
 
 
@@ -213,7 +221,7 @@ def _detect_login_stage_with_rpc(rpc: MytRpc, params: Params, context: Execution
     xml_index: dict[str, tuple[str, ...]] | None = None
     try:
         # Use common helper to get XML (handles fallbacks)
-        xml_str = _dump_xml_for_candidates(rpc)
+        xml_str = _support.dump_xml_for_candidates(rpc)
         xml_index = _support.build_xml_match_index(xml_str)
     except Exception:
         pass
@@ -231,6 +239,18 @@ def _detect_login_stage_with_rpc(rpc: MytRpc, params: Params, context: Execution
             for m in markers:
                 if _support.xml_index_contains_visible_text(xml_index, m):
                     return stage
+    elif str(xml_str or "").strip():
+        xml_lower = str(xml_str).lower()
+        for stage in order:
+            for marker in patterns.get(stage, {}).get("resource_ids", []):
+                needle = str(marker or "").strip().lower()
+                if needle and needle in xml_lower:
+                    return stage
+        for stage in order:
+            for marker in patterns.get(stage, {}).get("text_markers", []):
+                needle = str(marker or "").strip().lower()
+                if needle and needle in xml_lower:
+                    return stage
 
     # 2. Check focus markers (requires separate dumpsys call)
     try:
@@ -247,7 +267,7 @@ def _detect_login_stage_with_rpc(rpc: MytRpc, params: Params, context: Execution
     except Exception:
         pass
 
-    if not xml_index:
+    if not xml_index and not str(xml_str or "").strip():
         for stage in order:
             markers = patterns.get(stage, {}).get("text_markers", [])
             if markers and _support.query_any_text_contains(rpc, markers):
@@ -256,58 +276,68 @@ def _detect_login_stage_with_rpc(rpc: MytRpc, params: Params, context: Execution
     return "unknown"
 
 
-def _dump_xml_for_candidates(rpc: MytRpc, timeout_ms: int = 2500) -> str:
-    return _support.dump_xml_for_candidates(rpc, timeout_ms)
-
-
-def _extract_last_dm_message_from_xml(
-    xml_text: str,
-    package: str = "",
-    max_left: int = 540,
-    separator_tokens: list[str] | None = None,
-) -> Candidate | None:
-    return _support.extract_last_dm_message_from_xml(xml_text, package, max_left, separator_tokens)
-
-
-def _extract_last_outbound_dm_message_from_xml(
-    xml_text: str,
-    package: str = "",
-    min_left: int = 540,
-    separator_tokens: list[str] | None = None,
-) -> Candidate | None:
-    return _support.extract_last_outbound_dm_message_from_xml(
-        xml_text, package, min_left, separator_tokens
+def _resolve_follow_targets(
+    rpc: MytRpc,
+    params: Params,
+    context: ExecutionContext,
+) -> tuple[ActionResult | None, list[Candidate]]:
+    xml_text = _support.dump_xml_for_candidates(
+        rpc, _int_from_param(params.get("timeout_ms"), 2500)
     )
-
-
-def _extract_follow_targets_from_xml(
-    xml_text: str,
-    package: str = "",
-    min_top: int = 350,
-    button_texts: list[str] | None = None,
-) -> list[Candidate]:
-    return _support.extract_follow_targets_from_xml(xml_text, package, min_top, button_texts)
-
-
-def _extract_unread_dm_targets_from_xml(
-    xml_text: str,
-    package: str = "",
-    min_top: int = 250,
-    markers: list[str] | None = None,
-) -> list[Candidate]:
-    return _support.extract_unread_dm_targets_from_xml(xml_text, package, min_top, markers)
-
-
-def _extract_candidates_action(
-    params: Params, context: ExecutionContext, row_id_contains: str
-) -> ActionResult:
-    return _support.extract_candidates_action(
-        params,
-        context,
-        row_id_contains=row_id_contains,
-        connect_rpc=_connect_rpc,
-        close_rpc=_close_rpc,
+    default_follow_texts = _coerce_text_list(
+        _load_state_action_defaults_document().get("follow_texts")
     )
+    button_texts = _coerce_text_list(
+        params.get("follow_texts")
+        or params.get("button_texts")
+        or context.get_session_default("follow_texts")
+        or default_follow_texts
+    )
+    if not button_texts:
+        return (
+            ActionResult(ok=False, code="invalid_params", message="follow_texts is required"),
+            [],
+        )
+    package = _resolve_package(params, context)
+    targets = _support.extract_follow_targets_from_xml(
+        xml_text=xml_text,
+        package=package,
+        min_top=_int_from_param(params.get("min_top"), 350),
+        button_texts=button_texts,
+    )
+    return None, targets
+
+
+def _resolve_unread_dm_targets(
+    rpc: MytRpc,
+    params: Params,
+    context: ExecutionContext,
+) -> tuple[ActionResult | None, list[Candidate]]:
+    xml_text = _support.dump_xml_for_candidates(
+        rpc, _int_from_param(params.get("timeout_ms"), 2500)
+    )
+    default_unread_markers = _coerce_text_list(
+        _load_state_action_defaults_document().get("unread_markers")
+    )
+    markers = _coerce_text_list(
+        params.get("unread_markers")
+        or params.get("markers")
+        or context.get_session_default("unread_markers")
+        or default_unread_markers
+    )
+    if not markers:
+        return (
+            ActionResult(ok=False, code="invalid_params", message="unread_markers is required"),
+            [],
+        )
+    package = _resolve_package(params, context)
+    targets = _support.extract_unread_dm_targets_from_xml(
+        xml_text=xml_text,
+        package=package,
+        min_top=_int_from_param(params.get("min_top"), 250),
+        markers=markers,
+    )
+    return None, targets
 
 
 def detect_login_stage(params: Params, context: ExecutionContext) -> ActionResult:
@@ -388,14 +418,26 @@ def extract_timeline_candidates(params: Params, context: ExecutionContext) -> Ac
     row_id_contains = str(
         params.get("row_id_contains") or context.get_session_default("row_id_contains") or ":id/"
     ).strip()
-    return _extract_candidates_action(params, context, row_id_contains=row_id_contains)
+    return _support.extract_candidates_action(
+        params,
+        context,
+        row_id_contains=row_id_contains,
+        connect_rpc=_connect_rpc,
+        close_rpc=_close_rpc,
+    )
 
 
 def extract_search_candidates(params: Params, context: ExecutionContext) -> ActionResult:
     row_id_contains = str(
         params.get("row_id_contains") or context.get_session_default("row_id_contains") or ":id/row"
     ).strip()
-    return _extract_candidates_action(params, context, row_id_contains=row_id_contains)
+    return _support.extract_candidates_action(
+        params,
+        context,
+        row_id_contains=row_id_contains,
+        connect_rpc=_connect_rpc,
+        close_rpc=_close_rpc,
+    )
 
 
 def collect_blogger_candidates(params: Params, context: ExecutionContext) -> ActionResult:
@@ -445,7 +487,9 @@ def extract_dm_last_message(params: Params, context: ExecutionContext) -> Action
         return err
     assert rpc is not None
     try:
-        xml_text = _dump_xml_for_candidates(rpc, _int_from_param(params.get("timeout_ms"), 2500))
+        xml_text = _support.dump_xml_for_candidates(
+            rpc, _int_from_param(params.get("timeout_ms"), 2500)
+        )
         separator_tokens = _coerce_text_list(
             params.get("separator_tokens")
             or params.get("message_separators")
@@ -457,7 +501,7 @@ def extract_dm_last_message(params: Params, context: ExecutionContext) -> Action
                 ok=False, code="invalid_params", message="separator_tokens is required"
             )
         package = _resolve_package(params, context)
-        message = _extract_last_dm_message_from_xml(
+        message = _support.extract_last_dm_message_from_xml(
             xml_text=xml_text,
             package=package,
             max_left=_int_from_param(params.get("max_left"), 540),
@@ -478,12 +522,10 @@ def extract_dm_last_outbound_message(params: Params, context: ExecutionContext) 
         return err
     assert rpc is not None
     try:
-        xml_text = _dump_xml_for_candidates(rpc, _int_from_param(params.get("timeout_ms"), 2500))
-        defaults_doc = {}
-        try:
-            defaults_doc = sdk_config_support.load_state_action_defaults_document()
-        except Exception:
-            defaults_doc = {}
+        xml_text = _support.dump_xml_for_candidates(
+            rpc, _int_from_param(params.get("timeout_ms"), 2500)
+        )
+        defaults_doc = _load_state_action_defaults_document()
         default_separator_tokens = (
             _coerce_text_list(defaults_doc.get("dm_separator_tokens"))
             if isinstance(defaults_doc, dict)
@@ -500,7 +542,7 @@ def extract_dm_last_outbound_message(params: Params, context: ExecutionContext) 
                 ok=False, code="invalid_params", message="separator_tokens is required"
             )
         package = _resolve_package(params, context)
-        message = _extract_last_outbound_dm_message_from_xml(
+        message = _support.extract_last_outbound_dm_message_from_xml(
             xml_text=xml_text,
             package=package,
             min_left=_int_from_param(params.get("min_left"), 540),
@@ -523,32 +565,9 @@ def extract_follow_targets(params: Params, context: ExecutionContext) -> ActionR
         return err
     assert rpc is not None
     try:
-        xml_text = _dump_xml_for_candidates(rpc, _int_from_param(params.get("timeout_ms"), 2500))
-        defaults_doc = {}
-        try:
-            defaults_doc = sdk_config_support.load_state_action_defaults_document()
-        except Exception:
-            defaults_doc = {}
-        default_follow_texts = (
-            _coerce_text_list(defaults_doc.get("follow_texts"))
-            if isinstance(defaults_doc, dict)
-            else []
-        )
-        button_texts = _coerce_text_list(
-            params.get("follow_texts")
-            or params.get("button_texts")
-            or context.get_session_default("follow_texts")
-            or default_follow_texts
-        )
-        if not button_texts:
-            return ActionResult(ok=False, code="invalid_params", message="follow_texts is required")
-        package = _resolve_package(params, context)
-        targets = _extract_follow_targets_from_xml(
-            xml_text=xml_text,
-            package=package,
-            min_top=_int_from_param(params.get("min_top"), 350),
-            button_texts=button_texts,
-        )
+        invalid_result, targets = _resolve_follow_targets(rpc, params, context)
+        if invalid_result is not None:
+            return invalid_result
         if not targets:
             return ActionResult(
                 ok=False,
@@ -567,32 +586,9 @@ def follow_visible_targets(params: Params, context: ExecutionContext) -> ActionR
         return err
     assert rpc is not None
     try:
-        xml_text = _dump_xml_for_candidates(rpc, _int_from_param(params.get("timeout_ms"), 2500))
-        defaults_doc = {}
-        try:
-            defaults_doc = sdk_config_support.load_state_action_defaults_document()
-        except Exception:
-            defaults_doc = {}
-        default_follow_texts = (
-            _coerce_text_list(defaults_doc.get("follow_texts"))
-            if isinstance(defaults_doc, dict)
-            else []
-        )
-        button_texts = _coerce_text_list(
-            params.get("follow_texts")
-            or params.get("button_texts")
-            or context.get_session_default("follow_texts")
-            or default_follow_texts
-        )
-        if not button_texts:
-            return ActionResult(ok=False, code="invalid_params", message="follow_texts is required")
-        package = _resolve_package(params, context)
-        targets = _extract_follow_targets_from_xml(
-            xml_text=xml_text,
-            package=package,
-            min_top=_int_from_param(params.get("min_top"), 350),
-            button_texts=button_texts,
-        )
+        invalid_result, targets = _resolve_follow_targets(rpc, params, context)
+        if invalid_result is not None:
+            return invalid_result
         max_clicks = max(_int_from_param(params.get("max_clicks"), 3), 1)
         delay_ms = max(_int_from_param(params.get("delay_ms"), 1200), 0)
 
@@ -632,34 +628,9 @@ def extract_unread_dm_targets(params: Params, context: ExecutionContext) -> Acti
         return err
     assert rpc is not None
     try:
-        xml_text = _dump_xml_for_candidates(rpc, _int_from_param(params.get("timeout_ms"), 2500))
-        defaults_doc = {}
-        try:
-            defaults_doc = sdk_config_support.load_state_action_defaults_document()
-        except Exception:
-            defaults_doc = {}
-        default_unread_markers = (
-            _coerce_text_list(defaults_doc.get("unread_markers"))
-            if isinstance(defaults_doc, dict)
-            else []
-        )
-        markers = _coerce_text_list(
-            params.get("unread_markers")
-            or params.get("markers")
-            or context.get_session_default("unread_markers")
-            or default_unread_markers
-        )
-        if not markers:
-            return ActionResult(
-                ok=False, code="invalid_params", message="unread_markers is required"
-            )
-        package = _resolve_package(params, context)
-        targets = _extract_unread_dm_targets_from_xml(
-            xml_text=xml_text,
-            package=package,
-            min_top=_int_from_param(params.get("min_top"), 250),
-            markers=markers,
-        )
+        invalid_result, targets = _resolve_unread_dm_targets(rpc, params, context)
+        if invalid_result is not None:
+            return invalid_result
         if not targets:
             return ActionResult(
                 ok=False,
@@ -678,34 +649,9 @@ def open_first_unread_dm(params: Params, context: ExecutionContext) -> ActionRes
         return err
     assert rpc is not None
     try:
-        xml_text = _dump_xml_for_candidates(rpc, _int_from_param(params.get("timeout_ms"), 2500))
-        defaults_doc = {}
-        try:
-            defaults_doc = sdk_config_support.load_state_action_defaults_document()
-        except Exception:
-            defaults_doc = {}
-        default_unread_markers = (
-            _coerce_text_list(defaults_doc.get("unread_markers"))
-            if isinstance(defaults_doc, dict)
-            else []
-        )
-        markers = _coerce_text_list(
-            params.get("unread_markers")
-            or params.get("markers")
-            or context.get_session_default("unread_markers")
-            or default_unread_markers
-        )
-        if not markers:
-            return ActionResult(
-                ok=False, code="invalid_params", message="unread_markers is required"
-            )
-        package = _resolve_package(params, context)
-        targets = _extract_unread_dm_targets_from_xml(
-            xml_text=xml_text,
-            package=package,
-            min_top=_int_from_param(params.get("min_top"), 250),
-            markers=markers,
-        )
+        invalid_result, targets = _resolve_unread_dm_targets(rpc, params, context)
+        if invalid_result is not None:
+            return invalid_result
         if not targets:
             return ActionResult(
                 ok=False,

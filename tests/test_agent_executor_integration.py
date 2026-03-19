@@ -1177,6 +1177,142 @@ def test_agent_executor_collects_fallback_evidence_into_planner_and_trace(tmp_pa
     assert planner_screen_capture_metadata["save_path"] == screen_capture_metadata["save_path"]
 
 
+def test_agent_executor_defers_empty_planner_action_during_fallback_observation():
+    llm_client = _SequencedLLMClient(
+        responses=[
+            LLMResponse(
+                ok=True,
+                request_id="req-1",
+                provider="openai",
+                model="gpt-5.4",
+                output_text=json.dumps({"done": False, "message": "need a reliable observation"}),
+            ),
+            LLMResponse(
+                ok=True,
+                request_id="req-2",
+                provider="openai",
+                model="gpt-5.4",
+                output_text=json.dumps({"done": True, "message": "screen stabilized"}),
+            ),
+        ]
+    )
+
+    runtime = _build_runtime(
+        llm_client=llm_client,
+        observations=[
+            {
+                "platform": "native",
+                "state": {"state_id": "unknown"},
+                "status": "no_match",
+                "ok": False,
+            },
+            {
+                "platform": "native",
+                "state": {"state_id": "home"},
+                "status": "matched",
+                "ok": True,
+            },
+        ],
+    )
+
+    result = runtime.run(
+        {
+            "goal": "wait for a stable state",
+            "expected_state_ids": ["home"],
+            "allowed_actions": ["ui.click"],
+            "max_steps": 3,
+            "stagnant_limit": 3,
+        }
+    )
+
+    assert result["ok"] is True
+    assert result["status"] == "completed"
+    assert len(llm_client.calls) == 2
+
+
+def test_agent_executor_empty_planner_action_still_fails_when_observation_is_usable():
+    llm_client = _SequencedLLMClient(
+        responses=[
+            LLMResponse(
+                ok=True,
+                request_id="req-1",
+                provider="openai",
+                model="gpt-5.4",
+                output_text=json.dumps({"done": False, "message": "no action selected"}),
+            ),
+        ]
+    )
+
+    runtime = _build_runtime(
+        llm_client=llm_client,
+        observations=[
+            {
+                "platform": "native",
+                "state": {"state_id": "account"},
+                "status": "matched",
+                "ok": True,
+            }
+        ],
+    )
+
+    result = runtime.run(
+        {
+            "goal": "must choose an action",
+            "expected_state_ids": ["account"],
+            "allowed_actions": ["ui.click"],
+            "max_steps": 1,
+            "stagnant_limit": 1,
+        }
+    )
+
+    assert result["ok"] is False
+    assert result["status"] == "failed_runtime_error"
+    assert result["code"] == "invalid_action_selection"
+    assert result["message"] == "planner selected action outside allowed set: <empty>"
+
+
+def test_agent_executor_caps_empty_planner_action_defers_during_fallback_observation():
+    llm_client = _SequencedLLMClient(
+        responses=[
+            LLMResponse(
+                ok=True,
+                request_id=f"req-{idx}",
+                provider="openai",
+                model="gpt-5.4",
+                output_text=json.dumps({"done": False, "message": "still waiting"}),
+            )
+            for idx in range(1, 5)
+        ]
+    )
+
+    runtime = _build_runtime(
+        llm_client=llm_client,
+        observations=[
+            {
+                "platform": "native",
+                "state": {"state_id": "unknown"},
+                "status": "no_match",
+                "ok": False,
+            }
+        ],
+    )
+
+    result = runtime.run(
+        {
+            "goal": "wait until observation recovers",
+            "expected_state_ids": ["home"],
+            "allowed_actions": ["ui.click"],
+            "max_steps": 5,
+            "stagnant_limit": 5,
+        }
+    )
+
+    assert result["ok"] is False
+    assert result["status"] == "failed_runtime_error"
+    assert result["code"] == "planner_empty_action_retry_exhausted"
+    assert len(llm_client.calls) == 4
+
+
 def test_agent_executor_treats_unknown_match_as_fallback_and_keeps_observed_states_clean(
     tmp_path: Path,
 ):

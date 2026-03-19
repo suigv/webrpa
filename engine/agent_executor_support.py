@@ -47,6 +47,19 @@ _TEXT_ENTRY_SUBMIT_QUERIES = {
         "优先返回页面主按钮、键盘动作键或明显的确认控件中心点，不要返回输入框。"
     ),
 }
+_SUBMIT_LOCATE_TOKENS = (
+    "next",
+    "continue",
+    "submit",
+    "sign in",
+    "log in",
+    "login",
+    "登录",
+    "下一步",
+    "继续",
+    "提交",
+)
+_FOCUS_LOCATE_TOKENS = ("输入框", "文本框", "edittext", "text field", "field")
 _HISTORY_DIGEST_WINDOW = 5
 _DYNAMIC_STEP_EXTENSION_MIN = 2
 _DYNAMIC_STEP_EXTENSION_CAP = 5
@@ -546,6 +559,25 @@ def _rewrite_text_entry_locate_params(
     if state_id not in _TEXT_ENTRY_STATE_IDS:
         return next_params
     if _is_submit_keypress(last_action) and previous_state_id == state_id:
+        submit_query = _TEXT_ENTRY_SUBMIT_QUERIES.get(state_id)
+        if submit_query:
+            for key in ("prompt", "query", "instruction", "text", "description"):
+                if key in next_params:
+                    next_params[key] = submit_query
+                    break
+            else:
+                next_params["query"] = submit_query
+        return next_params
+    locate_text = " ".join(
+        str(next_params.get(key) or "").strip().lower()
+        for key in ("prompt", "query", "instruction", "text", "description")
+    )
+    if (
+        state_id == "account"
+        and locate_text
+        and not any(token in locate_text for token in _FOCUS_LOCATE_TOKENS)
+        and any(token in locate_text for token in _SUBMIT_LOCATE_TOKENS)
+    ):
         submit_query = _TEXT_ENTRY_SUBMIT_QUERIES.get(state_id)
         if submit_query:
             for key in ("prompt", "query", "instruction", "text", "description"):

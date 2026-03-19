@@ -72,6 +72,19 @@ def _plugin_distillable(task_name: str) -> bool:
         return True
 
 
+def _plugin_visible_in_task_catalog(task_name: str) -> bool:
+    from engine.plugin_loader import get_shared_plugin_loader
+
+    loader = get_shared_plugin_loader()
+    entry = loader.get(task_name)
+    if entry is None:
+        return True
+    try:
+        return bool(entry.manifest.visible_in_task_catalog)
+    except Exception:
+        return True
+
+
 def _task_response_for(controller: Any, record: Any) -> TaskResponse:
     workflow_draft = controller.workflow_draft_summary_for_task(record)
     return to_task_response(record, workflow_draft=workflow_draft)
@@ -155,6 +168,61 @@ async def cleanup_failed_tasks_post():
     return await _cleanup_failed_tasks_response()
 
 
+async def _cleanup_runtime_artifacts_response(
+    *,
+    hidden_task_retention_days: int | None = None,
+    event_retention_days: int | None = None,
+    trace_retention_days: int | None = None,
+    max_event_rows: int | None = None,
+    max_trace_bytes: int | None = None,
+) -> dict[str, object]:
+    controller = get_task_controller()
+    result = await run_sync(
+        lambda: controller.cleanup_runtime_artifacts(
+            hidden_task_retention_days=hidden_task_retention_days,
+            event_retention_days=event_retention_days,
+            trace_retention_days=trace_retention_days,
+            max_event_rows=max_event_rows,
+            max_trace_bytes=max_trace_bytes,
+        )
+    )
+    return {"status": "ok", **result}
+
+
+@router.post("/cleanup_runtime")
+async def cleanup_runtime_artifacts_post(
+    hidden_task_retention_days: int | None = Query(default=None, ge=0),
+    event_retention_days: int | None = Query(default=None, ge=0),
+    trace_retention_days: int | None = Query(default=None, ge=0),
+    max_event_rows: int | None = Query(default=None, ge=0),
+    max_trace_bytes: int | None = Query(default=None, ge=0),
+):
+    return await _cleanup_runtime_artifacts_response(
+        hidden_task_retention_days=hidden_task_retention_days,
+        event_retention_days=event_retention_days,
+        trace_retention_days=trace_retention_days,
+        max_event_rows=max_event_rows,
+        max_trace_bytes=max_trace_bytes,
+    )
+
+
+@router.delete("/cleanup_runtime")
+async def cleanup_runtime_artifacts_delete(
+    hidden_task_retention_days: int | None = Query(default=None, ge=0),
+    event_retention_days: int | None = Query(default=None, ge=0),
+    trace_retention_days: int | None = Query(default=None, ge=0),
+    max_event_rows: int | None = Query(default=None, ge=0),
+    max_trace_bytes: int | None = Query(default=None, ge=0),
+):
+    return await _cleanup_runtime_artifacts_response(
+        hidden_task_retention_days=hidden_task_retention_days,
+        event_retention_days=event_retention_days,
+        trace_retention_days=trace_retention_days,
+        max_event_rows=max_event_rows,
+        max_trace_bytes=max_trace_bytes,
+    )
+
+
 @router.delete("/")
 async def clear_tasks():
     controller = get_task_controller()
@@ -166,7 +234,7 @@ async def clear_tasks():
 
 
 @router.get("/catalog")
-def task_catalog():
+def task_catalog(include_hidden: bool = Query(default=False)):
     from engine.plugin_loader import get_shared_plugin_loader
 
     loader = get_shared_plugin_loader(refresh=True)
@@ -176,6 +244,8 @@ def task_catalog():
         if entry is None:
             continue
         manifest = entry.manifest
+        if not include_hidden and not bool(manifest.visible_in_task_catalog):
+            continue
         required = [item.name for item in manifest.inputs if item.required]
         defaults = {
             item.name: item.default
@@ -225,6 +295,7 @@ def task_catalog():
                 "category": manifest.category,
                 "description": manifest.description,
                 "distillable": bool(manifest.distillable),
+                "visible_in_task_catalog": bool(manifest.visible_in_task_catalog),
                 "required": required,
                 "defaults": defaults,
                 "example_payload": example_payload,
@@ -285,6 +356,7 @@ async def plugin_success_metrics():
             {
                 **r,
                 "distillable": _plugin_distillable(name),
+                "visible_in_task_catalog": _plugin_visible_in_task_catalog(name),
                 "distill_threshold": threshold,
                 "distill_ready": _plugin_distillable(name) and completed >= threshold,
                 "distill_remaining": max(0, threshold - completed),

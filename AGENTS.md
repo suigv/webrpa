@@ -72,6 +72,9 @@ MYT_ENABLE_RPC=0 ./.venv/bin/python -m uvicorn api.server:app --host 127.0.0.1 -
 - `engine/actions/*` contains atomic action functions.
 - Keep action modules capability-focused; when one file starts mixing connection lifecycle, parameter policy, fallback strategy, and a mini-subsystem, split it before adding more features.
 - Prefer shared helpers for RPC/session/bootstrap wiring; do not duplicate connection patterns across action modules.
+- When extending an already-large action/support file, first check whether the new branch is only repeating an existing pattern such as client bootstrap, `_from_api` wrapping, alias parameter parsing, bounds normalization, XML node filtering, or fallback chains. If yes, reuse or extend a file-local helper before adding more copy-pasted branches.
+- Do not reintroduce alias-style duplicate actions in large files by copying full handler bodies. For pairs such as `backup/export`, `restore/import`, zero-arg wrappers, or repeated package-scoped handlers, keep one shared helper path and make aliases thin wrappers.
+- Treat repeated “fix-forward” additions inside hotspots such as `engine/actions/android_api_actions.py`, `engine/actions/_ui_selector_support.py`, `engine/actions/_state_detection_support.py`, `engine/agent_executor.py`, and `core/task_execution.py` as an architecture smell. Before adding logic there, explicitly check whether the change belongs in a local helper or an already-extracted companion module.
 
 ### Orchestration Boundary
 - `core/task_control.py` is orchestration glue, not a home for business policy.

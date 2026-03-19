@@ -27,6 +27,33 @@ def _coerce_text_list(raw: Iterable[str] | str | None) -> list[str]:
     return [str(part).strip() for part in raw if str(part).strip()]
 
 
+def _parse_xml_root(xml_text: str, *, log_message: str) -> ET.Element | None:
+    if not xml_text.strip():
+        return None
+    try:
+        return ET.fromstring(xml_text)
+    except Exception as exc:
+        _log_recoverable(log_message, exc=exc, xml_size=len(xml_text))
+        return None
+
+
+def _center_y_from_bound(bound: dict[str, int]) -> int:
+    return int((int(bound.get("top", 0)) + int(bound.get("bottom", 0))) / 2)
+
+
+def _node_raw_text(node: ET.Element) -> str:
+    desc = str(node.attrib.get("content-desc") or "").strip()
+    text = str(node.attrib.get("text") or "").strip()
+    return desc or text
+
+
+def _bound_center(bound: dict[str, int]) -> dict[str, int]:
+    return {
+        "x": int((int(bound.get("left", 0)) + int(bound.get("right", 0))) / 2),
+        "y": _center_y_from_bound(bound),
+    }
+
+
 def query_any_text_contains(rpc: Any, texts: Iterable[str], timeout_ms: int = 900) -> bool:
     _ = timeout_ms
     selector = rpc.create_selector()
@@ -340,12 +367,25 @@ def extract_last_dm_message_from_xml(
     max_left: int = 540,
     separator_tokens: Iterable[str] | None = None,
 ) -> dict[str, Any] | None:
-    if not xml_text.strip():
-        return None
-    try:
-        root = ET.fromstring(xml_text)
-    except Exception as exc:
-        _log_recoverable("inbound dm XML parse failed", exc=exc, xml_size=len(xml_text))
+    return _extract_last_dm_message(
+        xml_text,
+        package=package,
+        separator_tokens=separator_tokens,
+        log_message="inbound dm XML parse failed",
+        accept_bound=lambda bound: int(bound.get("left", 0)) < max_left,
+    )
+
+
+def _extract_last_dm_message(
+    xml_text: str,
+    *,
+    package: str,
+    separator_tokens: Iterable[str] | None,
+    log_message: str,
+    accept_bound: Any,
+) -> dict[str, Any] | None:
+    root = _parse_xml_root(xml_text, log_message=log_message)
+    if root is None:
         return None
 
     separator_tokens = _coerce_text_list(separator_tokens)
@@ -357,20 +397,18 @@ def extract_last_dm_message_from_xml(
         node_package = str(node.attrib.get("package") or "")
         if package and node_package not in {"", package}:
             continue
-        desc = str(node.attrib.get("content-desc") or "").strip()
-        text = str(node.attrib.get("text") or "").strip()
-        raw = desc or text
+        raw = _node_raw_text(node)
         if not raw:
             continue
         if all(token not in raw for token in separator_tokens):
             continue
         bound = parse_bounds(node.attrib.get("bounds", ""))
-        if int(bound.get("left", 0)) >= max_left:
+        if not accept_bound(bound):
             continue
         message = normalize_dm_text(raw)
         if not message:
             continue
-        center_y = int((int(bound.get("top", 0)) + int(bound.get("bottom", 0))) / 2)
+        center_y = _center_y_from_bound(bound)
         matches.append({"message": message, "raw": raw, "bound": bound, "center_y": center_y})
 
     if not matches:
@@ -385,43 +423,13 @@ def extract_last_outbound_dm_message_from_xml(
     min_left: int = 540,
     separator_tokens: Iterable[str] | None = None,
 ) -> dict[str, Any] | None:
-    if not xml_text.strip():
-        return None
-    try:
-        root = ET.fromstring(xml_text)
-    except Exception as exc:
-        _log_recoverable("outbound dm XML parse failed", exc=exc, xml_size=len(xml_text))
-        return None
-
-    separator_tokens = _coerce_text_list(separator_tokens)
-    if not separator_tokens:
-        return None
-
-    matches: list[dict[str, Any]] = []
-    for node in root.iter("node"):
-        node_package = str(node.attrib.get("package") or "")
-        if package and node_package not in {"", package}:
-            continue
-        desc = str(node.attrib.get("content-desc") or "").strip()
-        text = str(node.attrib.get("text") or "").strip()
-        raw = desc or text
-        if not raw:
-            continue
-        if all(token not in raw for token in separator_tokens):
-            continue
-        bound = parse_bounds(node.attrib.get("bounds", ""))
-        if int(bound.get("left", 0)) < min_left:
-            continue
-        message = normalize_dm_text(raw)
-        if not message:
-            continue
-        center_y = int((int(bound.get("top", 0)) + int(bound.get("bottom", 0))) / 2)
-        matches.append({"message": message, "raw": raw, "bound": bound, "center_y": center_y})
-
-    if not matches:
-        return None
-    matches.sort(key=lambda item: item["center_y"], reverse=True)
-    return matches[0]
+    return _extract_last_dm_message(
+        xml_text,
+        package=package,
+        separator_tokens=separator_tokens,
+        log_message="outbound dm XML parse failed",
+        accept_bound=lambda bound: int(bound.get("left", 0)) >= min_left,
+    )
 
 
 def extract_follow_targets_from_xml(
@@ -430,42 +438,23 @@ def extract_follow_targets_from_xml(
     min_top: int = 350,
     button_texts: Iterable[str] | None = None,
 ) -> list[dict[str, Any]]:
-    if not xml_text.strip():
-        return []
-    try:
-        root = ET.fromstring(xml_text)
-    except Exception as exc:
-        _log_recoverable("follow target XML parse failed", exc=exc, xml_size=len(xml_text))
-        return []
-
     button_text_set = {text.lower() for text in _coerce_text_list(button_texts) if text}
     if not button_text_set:
         return []
-
-    targets: list[dict[str, Any]] = []
-    seen: set[tuple[int, int]] = set()
-
-    for node in root.iter("node"):
-        node_package = str(node.attrib.get("package") or "")
-        if package and node_package not in {"", package}:
-            continue
-        text = str(node.attrib.get("text") or "").strip()
-        if text.lower() not in button_text_set:
-            continue
-        bound = parse_bounds(node.attrib.get("bounds", ""))
-        top = int(bound.get("top", 0))
-        if top < min_top:
-            continue
-        center_x = int((int(bound.get("left", 0)) + int(bound.get("right", 0))) / 2)
-        center_y = int((int(bound.get("top", 0)) + int(bound.get("bottom", 0))) / 2)
-        key = (center_x, center_y)
-        if key in seen:
-            continue
-        seen.add(key)
-        targets.append({"text": text, "bound": bound, "center": {"x": center_x, "y": center_y}})
-
-    targets.sort(key=lambda item: int(item["bound"].get("top", 0)))
-    return targets
+    return _extract_centered_targets(
+        xml_text,
+        package=package,
+        min_top=min_top,
+        log_message="follow target XML parse failed",
+        match_node=lambda node: (
+            str(node.attrib.get("text") or "").strip().lower() in button_text_set
+        ),
+        build_target=lambda node, bound, center: {
+            "text": str(node.attrib.get("text") or "").strip(),
+            "bound": bound,
+            "center": center,
+        },
+    )
 
 
 def extract_unread_dm_targets_from_xml(
@@ -474,16 +463,42 @@ def extract_unread_dm_targets_from_xml(
     min_top: int = 250,
     markers: Iterable[str] | None = None,
 ) -> list[dict[str, Any]]:
-    if not xml_text.strip():
-        return []
-    try:
-        root = ET.fromstring(xml_text)
-    except Exception as exc:
-        _log_recoverable("unread dm XML parse failed", exc=exc, xml_size=len(xml_text))
-        return []
-
     marker_set = [marker.lower() for marker in _coerce_text_list(markers) if marker]
     if not marker_set:
+        return []
+    return _extract_centered_targets(
+        xml_text,
+        package=package,
+        min_top=min_top,
+        log_message="unread dm XML parse failed",
+        match_node=lambda node: any(
+            marker
+            in (
+                f"{str(node.attrib.get('text') or '').strip()} "
+                f"{str(node.attrib.get('content-desc') or '').strip()}"
+            ).lower()
+            for marker in marker_set
+        ),
+        build_target=lambda node, bound, center: {
+            "text": str(node.attrib.get("text") or "").strip(),
+            "desc": str(node.attrib.get("content-desc") or "").strip(),
+            "bound": bound,
+            "center": center,
+        },
+    )
+
+
+def _extract_centered_targets(
+    xml_text: str,
+    *,
+    package: str,
+    min_top: int,
+    log_message: str,
+    match_node: Any,
+    build_target: Any,
+) -> list[dict[str, Any]]:
+    root = _parse_xml_root(xml_text, log_message=log_message)
+    if root is None:
         return []
 
     targets: list[dict[str, Any]] = []
@@ -493,24 +508,18 @@ def extract_unread_dm_targets_from_xml(
         node_package = str(node.attrib.get("package") or "")
         if package and node_package not in {"", package}:
             continue
-        text = str(node.attrib.get("text") or "").strip()
-        desc = str(node.attrib.get("content-desc") or "").strip()
-        combined = f"{text} {desc}".lower()
-        if not any(marker in combined for marker in marker_set):
+        if not match_node(node):
             continue
         bound = parse_bounds(node.attrib.get("bounds", ""))
         top = int(bound.get("top", 0))
         if top < min_top:
             continue
-        center_x = int((int(bound.get("left", 0)) + int(bound.get("right", 0))) / 2)
-        center_y = int((int(bound.get("top", 0)) + int(bound.get("bottom", 0))) / 2)
-        key = (center_x, center_y)
+        center = _bound_center(bound)
+        key = (center["x"], center["y"])
         if key in seen:
             continue
         seen.add(key)
-        targets.append(
-            {"text": text, "desc": desc, "bound": bound, "center": {"x": center_x, "y": center_y}}
-        )
+        targets.append(build_target(node, bound, center))
 
     targets.sort(key=lambda item: int(item["bound"].get("top", 0)))
     return targets

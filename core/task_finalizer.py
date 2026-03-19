@@ -32,10 +32,126 @@ class TaskAttemptFinalizer:
         self._account_feedback = account_feedback
         self._workflow_drafts = workflow_drafts
 
+    def _record_workflow_terminal(
+        self,
+        *,
+        task_id: str,
+        task_record: TaskRecord | None,
+        result: dict[str, Any],
+        conn: Any,
+    ) -> None:
+        if task_record is None or self._workflow_drafts is None:
+            return
+        workflow_payload = self._workflow_drafts.record_terminal(
+            task_record=task_record,
+            result=result,
+            conn=conn,
+        )
+        if workflow_payload:
+            self._events.append_event(
+                task_id,
+                "workflow_draft.updated",
+                workflow_payload,
+                conn=conn,
+            )
+
+    def _append_retry_scheduled(
+        self,
+        *,
+        task_id: str,
+        retry_record: TaskRecord | None,
+        error: str,
+        conn: Any,
+    ) -> bool:
+        if retry_record is None or retry_record.next_retry_at is None:
+            return False
+        self._events.append_event(
+            task_id,
+            "task.retry_scheduled",
+            {
+                "retry_count": retry_record.retry_count,
+                "max_retries": retry_record.max_retries,
+                "next_retry_at": retry_record.next_retry_at,
+                "error": error,
+            },
+            conn=conn,
+        )
+        return True
+
+    def _finalize_cancelled_terminal(
+        self,
+        *,
+        task_id: str,
+        result: dict[str, Any],
+        message: str,
+        reason: str,
+        conn: Any,
+    ) -> None:
+        self._store.mark_cancelled(task_id, message=message, conn=conn)
+        cancelled = self._store.get_task(task_id, conn=conn)
+        self._events.append_event(
+            task_id,
+            "task.cancelled",
+            build_task_metrics_payload(cancelled, {"reason": reason}),
+            conn=conn,
+        )
+        self._record_workflow_terminal(
+            task_id=task_id,
+            task_record=cancelled,
+            result=result,
+            conn=conn,
+        )
+
+    def _finalize_failed_terminal(
+        self,
+        *,
+        task_id: str,
+        error: str,
+        result: dict[str, Any],
+        conn: Any,
+    ) -> None:
+        self._store.mark_failed(task_id, error=error, result=result, conn=conn)
+        failed = self._store.get_task(task_id, conn=conn)
+        self._events.append_event(
+            task_id,
+            "task.failed",
+            build_task_metrics_payload(failed, {"error": error}),
+            conn=conn,
+        )
+        self._record_workflow_terminal(
+            task_id=task_id,
+            task_record=failed,
+            result=result,
+            conn=conn,
+        )
+
+    def _finalize_completed_terminal(
+        self,
+        *,
+        task_id: str,
+        result: dict[str, Any],
+        conn: Any,
+    ) -> None:
+        self._store.mark_completed(task_id, result=result, conn=conn)
+        completed = self._store.get_task(task_id, conn=conn)
+        self._events.append_event(
+            task_id,
+            "task.completed",
+            build_task_metrics_payload(completed, {"ok": True}),
+            conn=conn,
+        )
+        self._record_workflow_terminal(
+            task_id=task_id,
+            task_record=completed,
+            result=result,
+            conn=conn,
+        )
+
     def finalize_exception_attempt(
         self, task_id: str, task_name: str, error: str
     ) -> TaskFinalizeOutcome:
         outcome = TaskFinalizeOutcome()
+        terminal_result = {"message": error, "checkpoint": "", "ok": False}
         with self._store.transaction(immediate=True) as conn:
             self._append_dispatch_result_event(
                 conn=conn,
@@ -44,66 +160,55 @@ class TaskAttemptFinalizer:
                 result={"task": task_name, "status": "exception", "ok": False, "checkpoint": ""},
             )
             outcome.retry_record = self._store.schedule_retry(task_id, error=error, conn=conn)
-            if outcome.retry_record is not None and outcome.retry_record.next_retry_at is not None:
-                self._events.append_event(
-                    task_id,
-                    "task.retry_scheduled",
-                    {
-                        "retry_count": outcome.retry_record.retry_count,
-                        "max_retries": outcome.retry_record.max_retries,
-                        "next_retry_at": outcome.retry_record.next_retry_at,
-                        "error": error,
-                    },
+            outcome.should_enqueue_retry = self._append_retry_scheduled(
+                task_id=task_id,
+                retry_record=outcome.retry_record,
+                error=error,
+                conn=conn,
+            )
+            if outcome.should_enqueue_retry:
+                return outcome
+            current = self._store.get_task(task_id, conn=conn)
+            if current is not None and current.cancel_requested:
+                self._finalize_cancelled_terminal(
+                    task_id=task_id,
+                    result=terminal_result,
+                    message="cancelled by user",
+                    reason="user_exception_path",
                     conn=conn,
                 )
-                outcome.should_enqueue_retry = True
             else:
-                current = self._store.get_task(task_id, conn=conn)
-                if current is not None and current.cancel_requested:
-                    self._store.mark_cancelled(task_id, message="cancelled by user", conn=conn)
-                    cancelled = self._store.get_task(task_id, conn=conn)
-                    self._events.append_event(
-                        task_id,
-                        "task.cancelled",
-                        build_task_metrics_payload(cancelled, {"reason": "user_exception_path"}),
-                        conn=conn,
-                    )
-                    if cancelled is not None and self._workflow_drafts is not None:
-                        workflow_payload = self._workflow_drafts.record_terminal(
-                            task_record=cancelled,
-                            result={"message": error, "checkpoint": "", "ok": False},
-                            conn=conn,
-                        )
-                        if workflow_payload:
-                            self._events.append_event(
-                                task_id,
-                                "workflow_draft.updated",
-                                workflow_payload,
-                                conn=conn,
-                            )
-                else:
-                    self._store.mark_failed(task_id, error=error, conn=conn)
-                    failed = self._store.get_task(task_id, conn=conn)
-                    self._events.append_event(
-                        task_id,
-                        "task.failed",
-                        build_task_metrics_payload(failed, {"error": error}),
-                        conn=conn,
-                    )
-                    if failed is not None and self._workflow_drafts is not None:
-                        workflow_payload = self._workflow_drafts.record_terminal(
-                            task_record=failed,
-                            result={"message": error, "checkpoint": "", "ok": False},
-                            conn=conn,
-                        )
-                        if workflow_payload:
-                            self._events.append_event(
-                                task_id,
-                                "workflow_draft.updated",
-                                workflow_payload,
-                                conn=conn,
-                            )
+                self._finalize_failed_terminal(
+                    task_id=task_id,
+                    error=error,
+                    result=terminal_result,
+                    conn=conn,
+                )
         return outcome
+
+    def finalize_cancelled_attempt(
+        self,
+        *,
+        task_id: str,
+        task_name: str,
+        result: dict[str, Any],
+        message: str = "cancelled by user",
+        reason: str = "user",
+    ) -> None:
+        with self._store.transaction(immediate=True) as conn:
+            self._append_dispatch_result_event(
+                conn=conn,
+                task_id=task_id,
+                task_name=task_name,
+                result=result,
+            )
+            self._finalize_cancelled_terminal(
+                task_id=task_id,
+                result=result,
+                message=message,
+                reason=reason,
+                conn=conn,
+            )
 
     def finalize_result_attempt(
         self,
@@ -121,117 +226,43 @@ class TaskAttemptFinalizer:
             current = self._store.get_task(task_id, conn=conn)
             cancel_requested = bool(current.cancel_requested) if current is not None else False
             if cancel_requested or str(result.get("status")) == "cancelled":
-                self._store.mark_cancelled(task_id, message="cancelled by user", conn=conn)
-                cancelled = self._store.get_task(task_id, conn=conn)
-                self._events.append_event(
-                    task_id,
-                    "task.cancelled",
-                    build_task_metrics_payload(cancelled, {"reason": "user"}),
+                self._finalize_cancelled_terminal(
+                    task_id=task_id,
+                    result=result,
+                    message="cancelled by user",
+                    reason="user",
                     conn=conn,
                 )
-                if cancelled is not None and self._workflow_drafts is not None:
-                    workflow_payload = self._workflow_drafts.record_terminal(
-                        task_record=cancelled,
-                        result=result,
-                        conn=conn,
-                    )
-                    if workflow_payload:
-                        self._events.append_event(
-                            task_id,
-                            "workflow_draft.updated",
-                            workflow_payload,
-                            conn=conn,
-                        )
             elif bool(result.get("ok")):
-                self._store.mark_completed(task_id, result=result, conn=conn)
-                completed = self._store.get_task(task_id, conn=conn)
-                self._events.append_event(
-                    task_id,
-                    "task.completed",
-                    build_task_metrics_payload(completed, {"ok": True}),
-                    conn=conn,
-                )
-                if completed is not None and self._workflow_drafts is not None:
-                    workflow_payload = self._workflow_drafts.record_terminal(
-                        task_record=completed,
-                        result=result,
-                        conn=conn,
-                    )
-                    if workflow_payload:
-                        self._events.append_event(
-                            task_id,
-                            "workflow_draft.updated",
-                            workflow_payload,
-                            conn=conn,
-                        )
+                self._finalize_completed_terminal(task_id=task_id, result=result, conn=conn)
             else:
                 error = str(result.get("message", "task failed"))
                 outcome.retry_record = self._store.schedule_retry(task_id, error=error, conn=conn)
-                if (
-                    outcome.retry_record is not None
-                    and outcome.retry_record.next_retry_at is not None
-                ):
-                    self._events.append_event(
-                        task_id,
-                        "task.retry_scheduled",
-                        {
-                            "retry_count": outcome.retry_record.retry_count,
-                            "max_retries": outcome.retry_record.max_retries,
-                            "next_retry_at": outcome.retry_record.next_retry_at,
-                            "error": error,
-                        },
+                outcome.should_enqueue_retry = self._append_retry_scheduled(
+                    task_id=task_id,
+                    retry_record=outcome.retry_record,
+                    error=error,
+                    conn=conn,
+                )
+                if outcome.should_enqueue_retry:
+                    return outcome
+                current = self._store.get_task(task_id, conn=conn)
+                if current is not None and current.cancel_requested:
+                    self._finalize_cancelled_terminal(
+                        task_id=task_id,
+                        result=result,
+                        message="cancelled by user",
+                        reason="user",
                         conn=conn,
                     )
-                    outcome.should_enqueue_retry = True
                 else:
-                    current = self._store.get_task(task_id, conn=conn)
-                    if current is not None and current.cancel_requested:
-                        self._store.mark_cancelled(task_id, message="cancelled by user", conn=conn)
-                        cancelled = self._store.get_task(task_id, conn=conn)
-                        self._events.append_event(
-                            task_id,
-                            "task.cancelled",
-                            build_task_metrics_payload(
-                                cancelled, {"reason": "user_exception_path"}
-                            ),
-                            conn=conn,
-                        )
-                        if cancelled is not None and self._workflow_drafts is not None:
-                            workflow_payload = self._workflow_drafts.record_terminal(
-                                task_record=cancelled,
-                                result=result,
-                                conn=conn,
-                            )
-                            if workflow_payload:
-                                self._events.append_event(
-                                    task_id,
-                                    "workflow_draft.updated",
-                                    workflow_payload,
-                                    conn=conn,
-                                )
-                    else:
-                        self._store.mark_failed(task_id, error=error, result=result, conn=conn)
-                        failed = self._store.get_task(task_id, conn=conn)
-                        self._events.append_event(
-                            task_id,
-                            "task.failed",
-                            build_task_metrics_payload(failed, {"error": error}),
-                            conn=conn,
-                        )
-                        if failed is not None and self._workflow_drafts is not None:
-                            workflow_payload = self._workflow_drafts.record_terminal(
-                                task_record=failed,
-                                result=result,
-                                conn=conn,
-                            )
-                            if workflow_payload:
-                                self._events.append_event(
-                                    task_id,
-                                    "workflow_draft.updated",
-                                    workflow_payload,
-                                    conn=conn,
-                                )
-                        feedback_error = error
+                    self._finalize_failed_terminal(
+                        task_id=task_id,
+                        error=error,
+                        result=result,
+                        conn=conn,
+                    )
+                    feedback_error = error
         if feedback_error is not None and self._account_feedback is not None:
             self._account_feedback.handle_terminal_failure(payload, feedback_error)
         return outcome

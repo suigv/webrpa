@@ -20,6 +20,7 @@ from .agent_executor_support import (
     _build_reflection,
     _dynamic_step_extension_reason,
     _dynamic_step_extension_size,
+    _fallback_xml_text,
     _int_in_range,
     _is_non_mutating_action,
     _json_dict,
@@ -34,6 +35,7 @@ from .agent_executor_support import (
     _rewrite_text_entry_locate_params,
     _rewrite_two_factor_input_params,
     _should_wait_through_loading_overlay,
+    _stabilize_fallback_state_hint,
     _stable_fingerprint,
     _string_list,
     _timestamp,
@@ -51,6 +53,7 @@ _TRANSITION_WAIT_INTERVAL_MS = 300
 _LOADING_WAIT_TIMEOUT_MS = 5000
 _LOADING_WAIT_INTERVAL_MS = 400
 _DYNAMIC_STEP_EXTENSION_MAX_ROUNDS = 1
+_EMPTY_ACTION_DEFER_LIMIT = 3
 
 _ = sys.modules.setdefault(f"{__name__}.time", time)
 
@@ -131,6 +134,7 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
         pending_trace_record: dict[str, object] | None = None
         repeated_action_count = 0
         previous_action_fingerprint = ""
+        empty_action_defer_count = 0
         effective_max_steps = config.max_steps
         step_budget_extensions_used = 0
         extended_steps_total = 0
@@ -207,151 +211,28 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
                 )
                 return self._cancelled(step_index=step_index - 1, history=history)
 
-            observation_params = {
-                **config.observation_params,
-                "expected_state_ids": list(config.expected_state_ids),
-            }
-            observation_operation = "match_state"
-            transition_target_state_ids = [
-                state_id for state_id in config.expected_state_ids if state_id != previous_state_id
-            ]
-            if (
-                last_action is not None
-                and previous_state_id
-                and previous_state_id != "unknown"
-                and transition_target_state_ids
-                and ui_observe_transition is not None
-                and _json_dict(last_action).get("action") == "ui.key_press"
-                and str(_json_dict(_json_dict(last_action).get("params")).get("key") or "").strip().lower()
-                == "enter"
-                and bool(_json_dict(_json_dict(last_action).get("result")).get("ok"))
-            ):
-                observation_operation = "observe_transition"
-                observation = ui_observe_transition(
-                    {
-                        **observation_params,
-                        "from_state_ids": [previous_state_id],
-                        "to_state_ids": transition_target_state_ids,
-                        "timeout_ms": _TRANSITION_WAIT_TIMEOUT_MS,
-                        "interval_ms": _TRANSITION_WAIT_INTERVAL_MS,
-                    },
-                    context,
-                )
-            elif (
-                last_action is not None
-                and _json_dict(last_action).get("action") == "ui.key_press"
-                and str(_json_dict(_json_dict(last_action).get("params")).get("key") or "").strip().lower()
-                == "enter"
-                and bool(_json_dict(_json_dict(last_action).get("result")).get("ok"))
-                and ui_wait_until is not None
-            ):
-                observation_operation = "wait_until"
-                observation = ui_wait_until(
-                    {
-                        **observation_params,
-                        "expected_state_ids": transition_target_state_ids
-                        or list(config.expected_state_ids),
-                        "timeout_ms": _TRANSITION_WAIT_TIMEOUT_MS,
-                        "interval_ms": _TRANSITION_WAIT_INTERVAL_MS,
-                    },
-                    context,
-                )
-            else:
-                observation = ui_match_state(observation_params, context)
-
-            observed_at = _timestamp()
-            observation_payload = observation.model_dump(mode="python")
-            observation_state = observation_payload.get("data", {})
-            fallback_evidence = self._collect_fallback_evidence(
-                context,
-                observation_state,
+            observation_result = self._observe_step(
+                config=config,
+                context=context,
                 trace_context=trace_context,
                 step_index=step_index,
-            )
-            observation_state = _apply_fallback_state_hint(
-                observation_state,
-                fallback_evidence,
-                last_action,
-            )
-            from .agent_executor_support import _stabilize_fallback_state_hint
-
-            observation_state = _stabilize_fallback_state_hint(
-                observation_state,
+                last_action=last_action,
                 previous_state_id=previous_state_id,
-                last_action=last_action,
+                ui_match_state=ui_match_state,
+                ui_observe_transition=ui_observe_transition,
+                ui_wait_until=ui_wait_until,
             )
-            if _should_wait_through_loading_overlay(
-                last_action=last_action,
-                fallback_evidence=fallback_evidence,
-            ):
-                loading_wait_params = {
-                    **observation_params,
-                    "expected_state_ids": list(config.expected_state_ids),
-                    "timeout_ms": _LOADING_WAIT_TIMEOUT_MS,
-                    "interval_ms": _LOADING_WAIT_INTERVAL_MS,
-                }
-                if ui_wait_until is not None:
-                    observation_operation = "wait_until_loading"
-                    observation = ui_wait_until(loading_wait_params, context)
-                else:
-                    observation_operation = "match_state_loading"
-                    observation = ui_match_state(loading_wait_params, context)
-                observed_at = _timestamp()
-                observation_payload = observation.model_dump(mode="python")
-                observation_state = observation_payload.get("data", {})
-                fallback_evidence = self._collect_fallback_evidence(
-                    context,
-                    observation_state,
-                    trace_context=trace_context,
-                    step_index=step_index,
-                )
-                observation_state = _apply_fallback_state_hint(
-                    observation_state,
-                    fallback_evidence,
-                    last_action,
-                )
-                observation_state = _stabilize_fallback_state_hint(
-                    observation_state,
-                    previous_state_id=previous_state_id,
-                    last_action=last_action,
-                )
-
-            observation_modality = self._observation_modality(observation_state)
-            observed_state_ids = self._observed_state_ids(observation_state)
-            observation_requires_fallback = _observation_requires_fallback(
-                observation_ok=bool(observation.ok),
-                observation_payload=observation_state,
-            )
-            observation_certainty = _observation_certainty(
-                observation_state,
-                observation_ok=bool(observation.ok),
-            )
-            observation_source = _observation_source(
-                observation_state,
-                operation=observation_operation,
-            )
-            fallback_reason = self._fallback_reason(
-                observation_ok=bool(observation.ok),
-                observation_payload=observation_state,
-            )
-            if not observation_requires_fallback:
-                observation_fingerprint = _stable_fingerprint(observation_state)
-            else:
-                from .agent_executor_support import _fallback_xml_text
-
-                observation_fingerprint = _stable_fingerprint(_fallback_xml_text(fallback_evidence))
-            if context.emit_event:
-                context.emit_event(
-                    "task.observation",
-                    {
-                        "step": step_index,
-                        "modality": observation_modality,
-                        "observed_state_ids": observed_state_ids,
-                        "ok": bool(observation.ok),
-                        "state_certainty": observation_certainty,
-                        "state_source": observation_source,
-                    },
-                )
+            observation = observation_result["observation"]
+            observation_state = observation_result["observation_state"]
+            observed_at = str(observation_result["observed_at"])
+            observation_modality = str(observation_result["modality"])
+            observed_state_ids = _string_list(observation_result["observed_state_ids"])
+            observation_requires_fallback = bool(observation_result["requires_fallback"])
+            observation_certainty = str(observation_result["state_certainty"])
+            observation_source = str(observation_result["state_source"])
+            fallback_reason = str(observation_result["fallback_reason"])
+            fallback_evidence = _json_dict(observation_result["fallback_evidence"])
+            observation_fingerprint = str(observation_result["fingerprint"])
             last_observation = {
                 "data": observation_state if isinstance(observation_state, dict) else {},
                 "ok": bool(observation.ok),
@@ -424,91 +305,23 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
                     },
                 )
 
-            plan: dict[str, Any] = {"ok": False, "message": "uninitialized"}
-            max_planner_retries = 3
-            history_digest = _build_history_digest(history)
-            reflection = _build_reflection(
-                last_action,
-                repeated_action_count=repeated_action_count,
-            )
-            planner_allowed_actions = _planner_allowed_actions(
-                allowed_actions=config.allowed_actions,
+            planned_step = self._plan_step(
+                config=config,
+                context=context,
+                step_index=step_index,
                 last_action=last_action,
-                observation_payload=observation_state
-                if isinstance(observation_state, dict)
-                else None,
+                history=history,
+                repeated_action_count=repeated_action_count,
                 previous_state_id=previous_state_id,
+                observation_state=observation_state,
                 observation_requires_fallback=observation_requires_fallback,
+                fallback_reason=fallback_reason,
+                fallback_evidence=fallback_evidence,
+                should_cancel=should_cancel,
             )
-            if _needs_form_submit(
-                last_action,
-                observation_state if isinstance(observation_state, dict) else None,
-                previous_state_id=previous_state_id,
-            ):
-                plan = {
-                    "ok": True,
-                    "done": False,
-                    "action": "ui.key_press",
-                    "params": {"key": "enter"},
-                    "message": "submit focused login field",
-                    "planned_at": _timestamp(),
-                    "fallback_reason": fallback_reason,
-                    "request_id": "",
-                    "provider": "",
-                    "model": "",
-                    "planner_structured_state": None,
-                }
-            else:
-                compensation_plan = None
-                if (
-                    observation_requires_fallback
-                    and "ai.locate_point" in config.allowed_actions
-                    and "ui.click" in config.allowed_actions
-                ):
-                    compensation_plan = self._maybe_build_submit_compensation_plan(
-                        context=context,
-                        last_action=last_action,
-                        observation_state=observation_state
-                        if isinstance(observation_state, dict)
-                        else None,
-                        previous_state_id=previous_state_id,
-                        fallback_reason=fallback_reason,
-                        step_index=step_index,
-                    )
-                if compensation_plan is not None:
-                    plan = compensation_plan
-                else:
-                    from engine.planners import PlannerInput
-
-                    planner_input = PlannerInput(
-                        goal=config.goal,
-                        step_index=step_index,
-                        allowed_actions=planner_allowed_actions,
-                        observation=observation_state
-                        if isinstance(observation_state, dict)
-                        else {},
-                        last_action=last_action,
-                        fallback_enabled=observation_requires_fallback,
-                        fallback_reason=fallback_reason,
-                        fallback_evidence=fallback_evidence,
-                        fallback_modalities=config.fallback_modalities,
-                        system_prompt=config.system_prompt,
-                        llm_runtime=config.llm_runtime,
-                        planner_inputs=config.planner_inputs,
-                        history_digest=history_digest,
-                        reflection=reflection,
-                    )
-                    for attempt in range(max_planner_retries):
-                        planner_output = self._planner.plan(planner_input)
-                        plan = planner_output.to_legacy_dict()
-                        if plan.get("ok") is not False:
-                            break
-                        if plan.get("retryable") and attempt < max_planner_retries - 1:
-                            backoff = 2 ** (attempt + 1)
-                            if self._interruptible_sleep(backoff, should_cancel):
-                                break
-                            continue
-                        break
+            plan = _json_dict(planned_step["plan"])
+            history_digest = list(planned_step["history_digest"])
+            reflection = _json_dict(planned_step["reflection"])
 
             if plan["ok"] is False:
                 self._append_trace(
@@ -578,23 +391,94 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
                     planner=plan,
                 )
 
-            action_name = str(plan.get("action") or "").strip()
-            action_params = _rewrite_two_factor_input_params(
-                action_name,
-                _json_dict(plan.get("params")),
-                observation_state if isinstance(observation_state, dict) else None,
-                config.planner_inputs,
-            )
-            action_params = _normalize_locate_point_params(action_name, action_params)
-            action_params = _rewrite_text_entry_locate_params(
-                action_name,
-                action_params,
-                observation_state if isinstance(observation_state, dict) else None,
-                last_action=last_action,
-                previous_state_id=previous_state_id,
-                observation_requires_fallback=observation_requires_fallback,
-            )
+            action_name = str(planned_step["action_name"])
+            action_params = _json_dict(planned_step["action_params"])
 
+            if not action_name and observation_requires_fallback:
+                empty_action_defer_count += 1
+                defer_message = str(
+                    plan.get("message")
+                    or "planner returned empty action during fallback observation"
+                )
+                if context.emit_event:
+                    context.emit_event(
+                        "task.planning_deferred",
+                        {
+                            "step": step_index,
+                            "reason": "empty_action_during_fallback_observation",
+                            "retry_count": empty_action_defer_count,
+                            "retry_limit": _EMPTY_ACTION_DEFER_LIMIT,
+                            "message": defer_message,
+                        },
+                    )
+                if empty_action_defer_count <= _EMPTY_ACTION_DEFER_LIMIT:
+                    self._append_trace(
+                        trace_context,
+                        {
+                            "trace_version": 1,
+                            "sequence": step_index,
+                            "step_index": step_index,
+                            "record_type": "step",
+                            "task": self.task_name,
+                            "status": "planning_deferred",
+                            "observation": {
+                                "ok": bool(observation.ok),
+                                "modality": observation_modality,
+                                "observed_state_ids": observed_state_ids,
+                                "expected_state_ids": list(config.expected_state_ids),
+                                "data": observation_state,
+                            },
+                            "fallback_reason": str(plan.get("fallback_reason") or fallback_reason),
+                            "fallback_evidence": fallback_evidence,
+                            "planner": self._trace_planner(plan),
+                            "message": defer_message,
+                            "defer_count": empty_action_defer_count,
+                            "defer_limit": _EMPTY_ACTION_DEFER_LIMIT,
+                            "timestamps": {
+                                "observed_at": observed_at,
+                                "planned_at": str(plan.get("planned_at") or ""),
+                                "recorded_at": _timestamp(),
+                            },
+                        },
+                    )
+                    step_index += 1
+                    continue
+                self._append_trace(
+                    trace_context,
+                    self._terminal_trace_record(
+                        status="failed_runtime_error",
+                        sequence=step_index,
+                        step_index=step_index,
+                        observation=observation_state
+                        if isinstance(observation_state, dict)
+                        else {},
+                        observation_ok=bool(last_observation.get("ok")),
+                        observation_modality=observation_modality,
+                        observed_state_ids=observed_state_ids,
+                        fallback_reason=str(plan.get("fallback_reason") or ""),
+                        fallback_evidence=fallback_evidence,
+                        code="planner_empty_action_retry_exhausted",
+                        message=(
+                            "planner returned empty action during fallback observation too many times"
+                        ),
+                        observed_at=observed_at,
+                        planner=plan,
+                    ),
+                )
+                return self._result(
+                    ok=False,
+                    status="failed_runtime_error",
+                    checkpoint="planning",
+                    code="planner_empty_action_retry_exhausted",
+                    message=(
+                        "planner returned empty action during fallback observation too many times"
+                    ),
+                    step_count=step_index - 1,
+                    history=history,
+                    planner=plan,
+                )
+
+            empty_action_defer_count = 0
             if action_name not in config.allowed_actions:
                 self._append_trace(
                     trace_context,
@@ -771,6 +655,300 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
                 "extended_steps_total": extended_steps_total,
             },
         )
+
+    def _observe_step(
+        self,
+        *,
+        config: AgentExecutorConfig,
+        context: ExecutionContext,
+        trace_context: dict[str, object],
+        step_index: int,
+        last_action: dict[str, object] | None,
+        previous_state_id: str,
+        ui_match_state: Callable[[dict[str, object], ExecutionContext], Any],
+        ui_observe_transition: Callable[[dict[str, object], ExecutionContext], Any] | None,
+        ui_wait_until: Callable[[dict[str, object], ExecutionContext], Any] | None,
+    ) -> dict[str, object]:
+        observation_params = {
+            **config.observation_params,
+            "expected_state_ids": list(config.expected_state_ids),
+        }
+        observation_operation = "match_state"
+        transition_target_state_ids = [
+            state_id for state_id in config.expected_state_ids if state_id != previous_state_id
+        ]
+
+        if (
+            last_action is not None
+            and previous_state_id
+            and previous_state_id != "unknown"
+            and transition_target_state_ids
+            and ui_observe_transition is not None
+            and _json_dict(last_action).get("action") == "ui.key_press"
+            and str(_json_dict(_json_dict(last_action).get("params")).get("key") or "")
+            .strip()
+            .lower()
+            == "enter"
+            and bool(_json_dict(_json_dict(last_action).get("result")).get("ok"))
+        ):
+            observation_operation = "observe_transition"
+            observation = ui_observe_transition(
+                {
+                    **observation_params,
+                    "from_state_ids": [previous_state_id],
+                    "to_state_ids": transition_target_state_ids,
+                    "timeout_ms": _TRANSITION_WAIT_TIMEOUT_MS,
+                    "interval_ms": _TRANSITION_WAIT_INTERVAL_MS,
+                },
+                context,
+            )
+        elif (
+            last_action is not None
+            and _json_dict(last_action).get("action") == "ui.key_press"
+            and str(_json_dict(_json_dict(last_action).get("params")).get("key") or "")
+            .strip()
+            .lower()
+            == "enter"
+            and bool(_json_dict(_json_dict(last_action).get("result")).get("ok"))
+            and ui_wait_until is not None
+        ):
+            observation_operation = "wait_until"
+            observation = ui_wait_until(
+                {
+                    **observation_params,
+                    "expected_state_ids": transition_target_state_ids
+                    or list(config.expected_state_ids),
+                    "timeout_ms": _TRANSITION_WAIT_TIMEOUT_MS,
+                    "interval_ms": _TRANSITION_WAIT_INTERVAL_MS,
+                },
+                context,
+            )
+        else:
+            observation = ui_match_state(observation_params, context)
+
+        def _capture_observation(
+            observation_result: Any, operation: str
+        ) -> tuple[str, str, object, dict[str, object]]:
+            observed_at = _timestamp()
+            observation_payload = observation_result.model_dump(mode="python")
+            observation_state = observation_payload.get("data", {})
+            fallback_evidence = self._collect_fallback_evidence(
+                context,
+                observation_state,
+                trace_context=trace_context,
+                step_index=step_index,
+            )
+            observation_state = _apply_fallback_state_hint(
+                observation_state,
+                fallback_evidence,
+                last_action,
+            )
+            observation_state = _stabilize_fallback_state_hint(
+                observation_state,
+                previous_state_id=previous_state_id,
+                last_action=last_action,
+            )
+            return operation, observed_at, observation_state, fallback_evidence
+
+        (
+            observation_operation,
+            observed_at,
+            observation_state,
+            fallback_evidence,
+        ) = _capture_observation(observation, observation_operation)
+
+        if _should_wait_through_loading_overlay(
+            last_action=last_action,
+            fallback_evidence=fallback_evidence,
+        ):
+            loading_wait_params = {
+                **observation_params,
+                "expected_state_ids": list(config.expected_state_ids),
+                "timeout_ms": _LOADING_WAIT_TIMEOUT_MS,
+                "interval_ms": _LOADING_WAIT_INTERVAL_MS,
+            }
+            if ui_wait_until is not None:
+                observation_operation = "wait_until_loading"
+                observation = ui_wait_until(loading_wait_params, context)
+            else:
+                observation_operation = "match_state_loading"
+                observation = ui_match_state(loading_wait_params, context)
+            (
+                observation_operation,
+                observed_at,
+                observation_state,
+                fallback_evidence,
+            ) = _capture_observation(observation, observation_operation)
+
+        observation_modality = self._observation_modality(observation_state)
+        observed_state_ids = self._observed_state_ids(observation_state)
+        observation_requires_fallback = _observation_requires_fallback(
+            observation_ok=bool(observation.ok),
+            observation_payload=observation_state,
+        )
+        observation_certainty = _observation_certainty(
+            observation_state,
+            observation_ok=bool(observation.ok),
+        )
+        observation_source = _observation_source(
+            observation_state,
+            operation=observation_operation,
+        )
+        fallback_reason = self._fallback_reason(
+            observation_ok=bool(observation.ok),
+            observation_payload=observation_state,
+        )
+        if not observation_requires_fallback:
+            observation_fingerprint = _stable_fingerprint(observation_state)
+        else:
+            observation_fingerprint = _stable_fingerprint(_fallback_xml_text(fallback_evidence))
+        if context.emit_event:
+            context.emit_event(
+                "task.observation",
+                {
+                    "step": step_index,
+                    "modality": observation_modality,
+                    "observed_state_ids": observed_state_ids,
+                    "ok": bool(observation.ok),
+                    "state_certainty": observation_certainty,
+                    "state_source": observation_source,
+                },
+            )
+        return {
+            "observation": observation,
+            "observation_state": observation_state,
+            "observed_at": observed_at,
+            "modality": observation_modality,
+            "observed_state_ids": observed_state_ids,
+            "requires_fallback": observation_requires_fallback,
+            "state_certainty": observation_certainty,
+            "state_source": observation_source,
+            "fallback_reason": fallback_reason,
+            "fallback_evidence": fallback_evidence,
+            "fingerprint": observation_fingerprint,
+        }
+
+    def _plan_step(
+        self,
+        *,
+        config: AgentExecutorConfig,
+        context: ExecutionContext,
+        step_index: int,
+        last_action: dict[str, object] | None,
+        history: list[dict[str, object]],
+        repeated_action_count: int,
+        previous_state_id: str,
+        observation_state: object,
+        observation_requires_fallback: bool,
+        fallback_reason: str,
+        fallback_evidence: dict[str, object],
+        should_cancel: Callable[[], bool] | None = None,
+    ) -> dict[str, object]:
+        plan: dict[str, Any] = {"ok": False, "message": "uninitialized"}
+        max_planner_retries = 3
+        history_digest = _build_history_digest(history)
+        reflection = _build_reflection(
+            last_action,
+            repeated_action_count=repeated_action_count,
+        )
+        planner_allowed_actions = _planner_allowed_actions(
+            allowed_actions=config.allowed_actions,
+            last_action=last_action,
+            observation_payload=observation_state if isinstance(observation_state, dict) else None,
+            previous_state_id=previous_state_id,
+            observation_requires_fallback=observation_requires_fallback,
+        )
+        if _needs_form_submit(
+            last_action,
+            observation_state if isinstance(observation_state, dict) else None,
+            previous_state_id=previous_state_id,
+        ):
+            plan = {
+                "ok": True,
+                "done": False,
+                "action": "ui.key_press",
+                "params": {"key": "enter"},
+                "message": "submit focused login field",
+                "planned_at": _timestamp(),
+                "fallback_reason": fallback_reason,
+                "request_id": "",
+                "provider": "",
+                "model": "",
+                "planner_structured_state": None,
+            }
+        else:
+            compensation_plan = None
+            if (
+                observation_requires_fallback
+                and "ai.locate_point" in config.allowed_actions
+                and "ui.click" in config.allowed_actions
+            ):
+                compensation_plan = self._maybe_build_submit_compensation_plan(
+                    context=context,
+                    last_action=last_action,
+                    observation_state=observation_state
+                    if isinstance(observation_state, dict)
+                    else None,
+                    previous_state_id=previous_state_id,
+                    fallback_reason=fallback_reason,
+                    step_index=step_index,
+                )
+            if compensation_plan is not None:
+                plan = compensation_plan
+            else:
+                from engine.planners import PlannerInput
+
+                planner_input = PlannerInput(
+                    goal=config.goal,
+                    step_index=step_index,
+                    allowed_actions=planner_allowed_actions,
+                    observation=observation_state if isinstance(observation_state, dict) else {},
+                    last_action=last_action,
+                    fallback_enabled=observation_requires_fallback,
+                    fallback_reason=fallback_reason,
+                    fallback_evidence=fallback_evidence,
+                    fallback_modalities=config.fallback_modalities,
+                    system_prompt=config.system_prompt,
+                    llm_runtime=config.llm_runtime,
+                    planner_inputs=config.planner_inputs,
+                    history_digest=history_digest,
+                    reflection=reflection,
+                )
+                for attempt in range(max_planner_retries):
+                    planner_output = self._planner.plan(planner_input)
+                    plan = planner_output.to_legacy_dict()
+                    if plan.get("ok") is not False:
+                        break
+                    if plan.get("retryable") and attempt < max_planner_retries - 1:
+                        backoff = 2 ** (attempt + 1)
+                        if self._interruptible_sleep(backoff, should_cancel):
+                            break
+                        continue
+                    break
+
+        action_name = str(plan.get("action") or "").strip()
+        action_params = _rewrite_two_factor_input_params(
+            action_name,
+            _json_dict(plan.get("params")),
+            observation_state if isinstance(observation_state, dict) else None,
+            config.planner_inputs,
+        )
+        action_params = _normalize_locate_point_params(action_name, action_params)
+        action_params = _rewrite_text_entry_locate_params(
+            action_name,
+            action_params,
+            observation_state if isinstance(observation_state, dict) else None,
+            last_action=last_action,
+            previous_state_id=previous_state_id,
+            observation_requires_fallback=observation_requires_fallback,
+        )
+        return {
+            "plan": plan,
+            "history_digest": history_digest,
+            "reflection": reflection,
+            "action_name": action_name,
+            "action_params": action_params,
+        }
 
     def validate_payload(self, payload: Mapping[str, object]) -> dict[str, str] | None:
         try:
