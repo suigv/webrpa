@@ -186,6 +186,47 @@ def _extract_ports(candidate: Any) -> set[int]:
     return ports
 
 
+def _guessed_container_name(cloud_id: int | None) -> str:
+    if cloud_id is None:
+        return ""
+    resolved = int(cloud_id)
+    if resolved < 1:
+        return ""
+    return f"android-{resolved:02d}"
+
+
+def _fallback_container_resolution(
+    *,
+    device_ip: str,
+    sdk_port: int,
+    cloud_id: int | None,
+    api_port: int | None,
+    reason: str,
+) -> dict[str, Any] | None:
+    container_name = _guessed_container_name(cloud_id)
+    if not container_name:
+        return None
+    return {
+        "ok": True,
+        "code": "ok",
+        "data": {
+            "device_ip": device_ip,
+            "sdk_port": int(sdk_port),
+            "cloud_id": cloud_id,
+            "api_port": api_port,
+            "container_name": container_name,
+            "selected": {
+                "name": container_name,
+                "indexNum": cloud_id,
+                "resolution": "guessed_from_cloud_id",
+            },
+            "candidate_count": 1,
+            "degraded": True,
+            "fallback_reason": reason,
+        },
+    }
+
+
 def resolve_cloud_container(
     *,
     device_ip: str,
@@ -203,10 +244,21 @@ def resolve_cloud_container(
     )
     result = client.list_androids()
     if not result.get("ok"):
+        fallback = _fallback_container_resolution(
+            device_ip=device_ip,
+            sdk_port=int(sdk_port),
+            cloud_id=cloud_id,
+            api_port=api_port,
+            reason=str(result.get("message") or result.get("error") or "failed to list androids"),
+        )
+        if fallback is not None:
+            return fallback
         return {
             "ok": False,
             "code": str(result.get("code") or "container_list_failed"),
-            "message": str(result.get("message") or result.get("error") or "failed to list androids"),
+            "message": str(
+                result.get("message") or result.get("error") or "failed to list androids"
+            ),
             "data": {},
         }
     items = _extract_android_list(result)
@@ -239,6 +291,15 @@ def resolve_cloud_container(
         if score > 0:
             scored.append((score, item))
     if not scored:
+        fallback = _fallback_container_resolution(
+            device_ip=device_ip,
+            sdk_port=int(sdk_port),
+            cloud_id=cloud_id,
+            api_port=api_port,
+            reason="failed to resolve cloud container from current target",
+        )
+        if fallback is not None:
+            return fallback
         return {
             "ok": False,
             "code": "container_not_found",

@@ -23,7 +23,11 @@ ALLOWED_ACTION_PREFIXES = (
     "core.",
     "credentials.",
     "device.",
+    "generator.",
+    "inventory.",
     "mytos.",
+    "profile.",
+    "selector.",
     "sdk.",
     "ui.",
 )

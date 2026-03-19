@@ -131,16 +131,31 @@ def _source(params: dict[str, Any]) -> str:
 
 
 def _device_ip(params: dict[str, Any], context: ExecutionContext) -> str:
+    runtime_target = context.runtime.get("target")
+    runtime_target_ip = (
+        runtime_target.get("device_ip") if isinstance(runtime_target, dict) else None
+    )
     return str(
         params.get("device_ip")
         or context.payload.get("device_ip")
+        or runtime_target_ip
         or context.runtime.get("device_ip")
         or ""
     ).strip()
 
 
 def _sdk_port(params: dict[str, Any], context: ExecutionContext) -> int:
-    raw = params.get("sdk_port") or context.payload.get("sdk_port") or 8000
+    runtime_target = context.runtime.get("target")
+    runtime_target_sdk_port = (
+        runtime_target.get("sdk_port") if isinstance(runtime_target, dict) else None
+    )
+    raw = (
+        params.get("sdk_port")
+        or context.payload.get("sdk_port")
+        or runtime_target_sdk_port
+        or context.runtime.get("sdk_port")
+        or 8000
+    )
     return int(raw)
 
 
@@ -148,7 +163,16 @@ def _api_client(params: dict[str, Any], context: ExecutionContext) -> AndroidApi
     device_ip = _device_ip(params, context)
     if not device_ip:
         return None
-    api_port = int(params.get("api_port") or context.runtime.get("api_port") or 30001)
+    runtime_target = context.runtime.get("target")
+    runtime_target_api_port = (
+        runtime_target.get("api_port") if isinstance(runtime_target, dict) else None
+    )
+    api_port = int(
+        params.get("api_port")
+        or runtime_target_api_port
+        or context.runtime.get("api_port")
+        or 30001
+    )
     return AndroidApiClient(
         device_ip=device_ip,
         api_port=api_port,
@@ -203,9 +227,7 @@ def inventory_refresh_phone_models(
     )
 
 
-def selector_select_phone_model(
-    params: dict[str, Any], context: ExecutionContext
-) -> ActionResult:
+def selector_select_phone_model(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
     items = params.get("items")
     normalized_items = items if isinstance(items, list) else None
     result = select_phone_model(
@@ -225,11 +247,21 @@ def selector_select_phone_model(
 def selector_resolve_cloud_container(
     params: dict[str, Any], context: ExecutionContext
 ) -> ActionResult:
+    runtime_target = context.runtime.get("target")
+    runtime_target_api_port = (
+        runtime_target.get("api_port") if isinstance(runtime_target, dict) else None
+    )
     result = resolve_cloud_container(
         device_ip=_device_ip(params, context),
         sdk_port=_sdk_port(params, context),
         cloud_id=int(params.get("cloud_id") or context.cloud_id or 0) or None,
-        api_port=int(params.get("api_port") or context.runtime.get("api_port") or 0) or None,
+        api_port=int(
+            params.get("api_port")
+            or runtime_target_api_port
+            or context.runtime.get("api_port")
+            or 0
+        )
+        or None,
         timeout_seconds=float(params.get("timeout_seconds", 30.0)),
         retries=int(params.get("retries", 3)),
     )
@@ -275,9 +307,7 @@ def generator_generate_env_bundle(
     return _ok(data)
 
 
-def profile_apply_env_bundle(
-    params: dict[str, Any], context: ExecutionContext
-) -> ActionResult:
+def profile_apply_env_bundle(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
     client = _api_client(params, context)
     if client is None:
         return _err("invalid_params", "device_ip is required")
@@ -323,7 +353,9 @@ def profile_apply_env_bundle(
         if failed is not None:
             return failed
     if write_contacts and isinstance(contacts, list) and contacts:
-        failed = _call("add_contact", client.add_contact(contacts=cast(list[dict[str, str]], contacts)))
+        failed = _call(
+            "add_contact", client.add_contact(contacts=cast(list[dict[str, str]], contacts))
+        )
         if failed is not None:
             return failed
     failed = _call("set_shake", client.set_shake(enabled=shake_enabled))

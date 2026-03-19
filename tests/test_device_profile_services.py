@@ -151,3 +151,25 @@ def test_resolve_cloud_container_prefers_cloud_index(monkeypatch):
 
     assert result["ok"] is True
     assert result["data"]["container_name"] == "android-02"
+
+
+def test_resolve_cloud_container_falls_back_to_cloud_id_when_sdk_list_unavailable(monkeypatch):
+    import core.device_profile_selector as selector_module
+
+    class _UnavailableSdkClient(_FakeSdkClient):
+        def list_androids(self):
+            return {"ok": False, "error": "http_503: Service Unavailable"}
+
+    monkeypatch.setattr(selector_module, "MytSdkClient", _UnavailableSdkClient)
+
+    result = resolve_cloud_container(
+        device_ip="192.168.1.214",
+        sdk_port=8000,
+        cloud_id=2,
+        api_port=30101,
+    )
+
+    assert result["ok"] is True
+    assert result["data"]["container_name"] == "android-02"
+    assert result["data"]["degraded"] is True
+    assert result["data"]["fallback_reason"] == "http_503: Service Unavailable"
