@@ -60,6 +60,7 @@ plugins/<plugin_name>/
 - **严格模式**：由 `MYT_STRICT_PLUGIN_UNKNOWN_INPUTS=1` 控制。若开启，插件将拒绝任何未在 `manifest.yaml` 中声明的输入参数（`task` 和 `_` 前缀参数除外）。
 - **验证失败**：返回 `status=failed_config_error`, `checkpoint=dispatch`。
 - **目录接口透传**：`GET /api/tasks/catalog` 会把 `inputs` 元数据原样透传给前端，任务面板可据此渲染文本框、数字框、复选框和下拉框。
+- **前端提交约束**：Web 端派发插件任务时，会按 `inputs` 白名单过滤 payload，只提交 `manifest.yaml` 已声明字段；`device_ip`、`package`、`app_id`、账号注入字段等系统侧上下文不再默认混入插件入参。
 
 ---
 

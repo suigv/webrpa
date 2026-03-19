@@ -2,7 +2,13 @@ import { authFetch, fetchJson } from '../utils/api.js';
 import { toast } from '../ui/toast.js';
 import { renderCommonFields } from '../utils/ui_utils.js';
 import { sysLog, unitLog } from './logs.js';
-import { getTaskCatalog, apiSubmitTask, buildTaskRequest, collectTaskPayload } from './task_service.js';
+import {
+    getTaskCatalog,
+    apiSubmitTask,
+    buildTaskRequest,
+    collectTaskPayload,
+    sanitizePayloadForTask,
+} from './task_service.js';
 import { store } from '../state/store.js';
 
 const $ = (id) => document.getElementById(id);
@@ -795,8 +801,8 @@ async function submitUnitTask(unit) {
     const container = $("unitPluginFields");
     if(!select || !container) return;
 
+    const taskName = select.value;
     const payload = collectTaskPayload(container);
-    payload.device_ip = unit.parent_ip;
 
     // 注入选中账号字段（只注入插件支持的字段）
     const account = getSelectedAccount();
@@ -808,10 +814,11 @@ async function submitUnitTask(unit) {
             payload.fa2_secret = account.twofa;
         }
     }
+    const sanitizedPayload = await sanitizePayloadForTask(taskName, payload);
 
     const taskData = buildTaskRequest({
-        task: select.value,
-        payload: payload,
+        task: taskName,
+        payload: sanitizedPayload,
         targets: [{ device_id: unit.parent_id, cloud_id: unit.cloud_id }],
         priority: $("unitTaskPriority")?.value || 50,
         maxRetries: $("unitTaskMaxRetries")?.value || 0,
@@ -820,7 +827,6 @@ async function submitUnitTask(unit) {
 
     const res = await apiSubmitTask(taskData);
     if (res.ok) {
-        const taskName = select.value;
         const taskObj = currentCatalog.find(t => t.task === taskName);
         const displayName = taskObj ? taskObj.display_name : taskName;
         
@@ -843,12 +849,12 @@ async function runBulkTasks() {
     for (const id of selectedUnits) {
         const [dId, cId] = id.split("-");
         const unit = currentUnitsById.get(id);
-        
-        const payload = {};
+
+        const rawPayload = {};
         if (unit) {
-            payload.device_ip = unit.parent_ip;
-            if (defaultPackage) payload.package = defaultPackage;
+            if (defaultPackage) rawPayload.package = defaultPackage;
         }
+        const payload = await sanitizePayloadForTask(plugin, rawPayload);
 
         const taskData = buildTaskRequest({
             task: plugin,

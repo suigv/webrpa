@@ -28,6 +28,13 @@ export async function getTaskCatalog() {
     return catalogPromise;
 }
 
+function getCatalogTask(taskName) {
+    if (!taskName || !Array.isArray(catalogCache)) {
+        return null;
+    }
+    return catalogCache.find(item => item.task === taskName) || null;
+}
+
 export function collectTaskPayload(container) {
     const payload = {};
     if (!container) return payload;
@@ -65,6 +72,26 @@ export function collectTaskPayload(container) {
         payload[key] = rawValue;
     });
     return payload;
+}
+
+export async function sanitizePayloadForTask(taskName, payload = {}) {
+    if (!taskName || !payload || typeof payload !== 'object') {
+        return {};
+    }
+
+    if (!catalogCache) {
+        await getTaskCatalog();
+    }
+
+    const task = getCatalogTask(taskName);
+    if (!task || !Array.isArray(task.inputs) || task.inputs.length === 0) {
+        return { ...payload };
+    }
+
+    const declaredKeys = new Set(task.inputs.map(item => item.name).filter(Boolean));
+    return Object.fromEntries(
+        Object.entries(payload).filter(([key]) => declaredKeys.has(key) || key.startsWith('_'))
+    );
 }
 
 export function buildTaskRequest({

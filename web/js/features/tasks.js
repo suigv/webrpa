@@ -1,7 +1,13 @@
 import { fetchJson } from '../utils/api.js';
 import { toast } from '../ui/toast.js';
 import { renderCommonFields } from '../utils/ui_utils.js';
-import { getTaskCatalog, apiSubmitTask, buildTaskRequest, collectTaskPayload } from './task_service.js';
+import {
+    getTaskCatalog,
+    apiSubmitTask,
+    buildTaskRequest,
+    collectTaskPayload,
+    sanitizePayloadForTask,
+} from './task_service.js';
 import { FetchSseClient } from '../utils/sse.js';
 
 const $ = (id) => document.getElementById(id);
@@ -429,9 +435,10 @@ async function submitTask() {
     if (btn) btn.disabled = true;
 
     try {
-        const payload = collectTaskPayload($('taskPayloadFields'));
+        const rawPayload = collectTaskPayload($('taskPayloadFields'));
         // 显式注入应用上下文
-        payload.app_id = appId;
+        rawPayload.app_id = appId;
+        const payload = await sanitizePayloadForTask(selectedTaskName, rawPayload);
 
         const taskData = buildTaskRequest({
             task: selectedTaskName,

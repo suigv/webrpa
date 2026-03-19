@@ -20,6 +20,7 @@
     - 设备初始化类插件已收敛为 `plugins/one_click_new_device/`；旧的 `mytos_device_setup`、重启、探针等样例插件已从插件库移除，避免目录里同时存在多条重叠能力链路。
     - `plugins/one_click_new_device/` 作为面向运营的“一键新机”插件，用户可在任务面板直接选择机型来源、地区模板、联系人/Google ID/截图等策略项。
     - `manifest.inputs` 已扩展 UI 元数据（`label` / `description` / `advanced` / `widget` / `options`），`/api/tasks/catalog` 会透传这些元数据，Web 任务面板现可按插件声明动态渲染下拉、复选框和数字输入，不再只支持文本框。
+    - Web 端插件提交入口已统一追加 manifest 白名单过滤，`one_click_new_device` 不再被设备页/任务页/账号页误注入 `device_ip`、`package`、`app_id` 或账号字段，避免严格模式下触发 `unknown input parameter(s)`。
   - **MYTOS API 新能力接入 (2026-03-19)**：
     - `AndroidApiClient` 与 `android.*` / `mytos.*` 动作已补齐新版 `task=snap` 截图、`modifydev?cmd=7` 指纹更新、`modifydev?cmd=17` 摇一摇开关。
     - `mytos.screenshot` 现兼容 `level=1/2/3`，可直接走新版截图接口；同时新增 `mytos.set_fingerprint` / `mytos.update_fingerprint` / `mytos.set_shake`。
