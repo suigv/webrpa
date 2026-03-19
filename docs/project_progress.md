@@ -54,6 +54,7 @@
       - **前端任务上下文与 AI 能力源修复**：任务提交前的 payload 白名单裁剪现在会显式保留 `app_id/app` 这类运行时上下文字段，避免应用选择器在前端被自己裁空；设备页 AI 对话框的可选动作也改为优先读取 `/api/engine/skills` 元数据渲染，并支持附加自定义状态 ID，降低动作列表/状态集合继续手写漂移的风险。
       - **后端前端兼容点审查**：当前确认仍存在少量为旧前端/旧交互模型保留的兼容入口，例如旧的 `/api/tasks/distill/{plugin_name}` 插件蒸馏路由，以及 RPC bootstrap 在 runtime target 缺少 `device_ip` 时回退读取 payload 的兜底逻辑；本轮先完成前端主路径对齐，兼容入口暂不贸然删除，避免影响存量调用。
       - **指标页旧蒸馏心智继续收口**：`metrics.js` 现不再把插件蒸馏结果路径写死为 `plugins/<name>_distilled/`，而是直接显示后端返回的 `output_dir`；同时会把 `visible_in_task_catalog=false` 的插件明确标成“内部”，避免隐藏任务在指标页继续伪装成普通可见目录任务。
+      - **连接参数取值规则局部收口**：新增 `engine/actions/_context_value_support.py`，把 `sdk_actions.py`、`android_api_actions.py`、`profile_actions.py` 中散落的 `params/payload/runtime.target/runtime` 取值逻辑统一收敛到共享 helper，同时保留各模块原有优先级顺序不变；额外补充定向测试，固定 SDK 风格、Android API 风格和 runtime target 优先的取值契约，减少后续为了兼容旧入口而在多个 action 文件里重复手写 `device_ip/api_port/sdk_port` 回退链。
       - Web 端新增共享任务表单 UI helper，任务主面板、单机执行面板和批量下发条统一复用“说明卡 + 字段渲染 + 高级参数展开”逻辑，减少前端重复实现继续漂移。
       - 收紧若干过度静默回退：WebSocket 事件轮询/广播、账号失败反馈持久化、浏览器 selector 轮询 fallback 现在都会保留可观测错误信息；浏览器 cookie 注入对不支持的 backend 会明确返回失败，而不再伪装成成功。
       - Native 状态兼容继续收口：`ui_state_actions` 和 `navigation_actions` 仍兼容读取 legacy `binding_id` 入口，但内部传递、路由探测与执行热路径统一只使用 `state_profile_id`，避免新逻辑继续向内层传播双字段。
@@ -321,8 +322,8 @@
 | App-level route decorators (`api/server.py`) | 5 |
 | Plugin count (`plugins/*/manifest.yaml`) | 1 |
 | SDK action bindings (`engine/actions/sdk_actions.py` + `engine/actions/sdk_action_catalog.py`) | 158 |
-| Test files (`tests/test_*.py`) | 70 |
-| Test functions (`def test_*`) | 387 |
+| Test files (`tests/test_*.py`) | 71 |
+| Test functions (`def test_*`) | 390 |
 <!-- AUTO_PROGRESS_SNAPSHOT:END -->
 
 ## 4. 维护说明

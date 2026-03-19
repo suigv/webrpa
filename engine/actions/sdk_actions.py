@@ -12,6 +12,7 @@ from engine.action_registry import ActionMetadata
 from engine.models.runtime import ActionResult, ExecutionContext
 from hardware_adapters.myt_client import MytSdkClient
 
+from ._context_value_support import resolve_context_value
 from .sdk_action_catalog import ACTION_BUILDERS, build_mytos_android_bindings
 
 SAVE_SHARED_METADATA = ActionMetadata(
@@ -64,18 +65,13 @@ def _sdk_business_support_module():
 def _from_payload_or_params(
     params: dict[str, Any], context: ExecutionContext, key: str, default: Any = None
 ) -> Any:
-    payload = context.payload if isinstance(context.payload, dict) else {}
-    runtime = context.runtime if isinstance(context.runtime, dict) else {}
-    runtime_target = runtime.get("target") if isinstance(runtime.get("target"), dict) else {}
-    if key in params:
-        return params[key]
-    if isinstance(payload, dict) and key in payload:
-        return payload[key]
-    if key in runtime_target:
-        return runtime_target[key]
-    if key in runtime:
-        return runtime[key]
-    return default
+    return resolve_context_value(
+        params,
+        context,
+        key,
+        default,
+        source_order=("params", "payload", "target", "runtime"),
+    )
 
 
 def _sdk_client(params: dict[str, Any], context: ExecutionContext) -> MytSdkClient | None:

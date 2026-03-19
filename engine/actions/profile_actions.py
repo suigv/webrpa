@@ -17,6 +17,8 @@ from engine.action_registry import ActionMetadata
 from engine.models.runtime import ActionResult, ExecutionContext
 from hardware_adapters.android_api_client import AndroidApiClient
 
+from ._context_value_support import resolve_context_value, runtime_target
+
 INVENTORY_PHONE_MODELS_METADATA = ActionMetadata(
     description="Fetch or read cached phone model inventory from MYT SDK.",
     params_schema={
@@ -144,18 +146,13 @@ def _err(code: str, message: str, data: dict[str, Any] | None = None) -> ActionR
     return ActionResult(ok=False, code=code, message=message, data=data or {})
 
 
-def _runtime_target(context: ExecutionContext) -> dict[str, Any]:
-    target = context.runtime.get("target")
-    return target if isinstance(target, dict) else {}
-
-
 def _probe_cloud_snapshot(
     context: ExecutionContext,
     *,
     device_id: int,
     cloud_id: int,
 ) -> dict[str, Any]:
-    target = _runtime_target(context)
+    target = runtime_target(context)
     device_ip = str(target.get("device_ip") or "").strip()
     rpa_port_raw = target.get("rpa_port")
     if device_ip and rpa_port_raw is not None:
@@ -192,24 +189,25 @@ def _source(params: dict[str, Any]) -> str:
 
 
 def _device_ip(params: dict[str, Any], context: ExecutionContext) -> str:
-    runtime_target_ip = _runtime_target(context).get("device_ip")
     return str(
-        params.get("device_ip")
-        or context.payload.get("device_ip")
-        or runtime_target_ip
-        or context.runtime.get("device_ip")
+        resolve_context_value(
+            params,
+            context,
+            "device_ip",
+            "",
+            source_order=("params", "payload", "target", "runtime"),
+        )
         or ""
     ).strip()
 
 
 def _sdk_port(params: dict[str, Any], context: ExecutionContext) -> int:
-    runtime_target_sdk_port = _runtime_target(context).get("sdk_port")
-    raw = (
-        params.get("sdk_port")
-        or context.payload.get("sdk_port")
-        or runtime_target_sdk_port
-        or context.runtime.get("sdk_port")
-        or 8000
+    raw = resolve_context_value(
+        params,
+        context,
+        "sdk_port",
+        8000,
+        source_order=("params", "payload", "target", "runtime"),
     )
     return int(raw)
 
@@ -218,12 +216,14 @@ def _api_client(params: dict[str, Any], context: ExecutionContext) -> AndroidApi
     device_ip = _device_ip(params, context)
     if not device_ip:
         return None
-    runtime_target_api_port = _runtime_target(context).get("api_port")
     api_port = int(
-        params.get("api_port")
-        or runtime_target_api_port
-        or context.runtime.get("api_port")
-        or 30001
+        resolve_context_value(
+            params,
+            context,
+            "api_port",
+            30001,
+            source_order=("params", "target", "runtime"),
+        )
     )
     return AndroidApiClient(
         device_ip=device_ip,
@@ -299,16 +299,18 @@ def selector_select_phone_model(params: dict[str, Any], context: ExecutionContex
 def selector_resolve_cloud_container(
     params: dict[str, Any], context: ExecutionContext
 ) -> ActionResult:
-    runtime_target_api_port = _runtime_target(context).get("api_port")
     result = resolve_cloud_container(
         device_ip=_device_ip(params, context),
         sdk_port=_sdk_port(params, context),
         cloud_id=int(params.get("cloud_id") or context.cloud_id or 0) or None,
         api_port=int(
-            params.get("api_port")
-            or runtime_target_api_port
-            or context.runtime.get("api_port")
-            or 0
+            resolve_context_value(
+                params,
+                context,
+                "api_port",
+                0,
+                source_order=("params", "target", "runtime"),
+            )
         )
         or None,
         timeout_seconds=float(params.get("timeout_seconds", 30.0)),
@@ -434,7 +436,7 @@ def profile_apply_env_bundle(params: dict[str, Any], context: ExecutionContext) 
 
 
 def profile_wait_cloud_available(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
-    target = _runtime_target(context)
+    target = runtime_target(context)
     device_id = int(params.get("device_id") or target.get("device_id") or context.device_id or 0)
     cloud_id = int(params.get("cloud_id") or target.get("cloud_id") or context.cloud_id or 0)
     if device_id < 1 or cloud_id < 1:

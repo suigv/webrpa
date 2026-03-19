@@ -13,18 +13,32 @@ from engine.action_registry import ActionMetadata
 from engine.models.runtime import ActionResult, ExecutionContext
 from hardware_adapters.android_api_client import AndroidApiClient
 
+from ._context_value_support import resolve_context_value
+
 
 def _api_client(params: dict[str, Any], context: ExecutionContext) -> AndroidApiClient | None:
     """从 params 或 context.runtime 构建 AndroidApiClient。"""
     device_ip = str(
-        params.get("device_ip")
-        or context.runtime.get("device_ip")
-        or context.payload.get("device_ip")
+        resolve_context_value(
+            params,
+            context,
+            "device_ip",
+            "",
+            source_order=("params", "runtime", "payload"),
+        )
         or ""
     ).strip()
     if not device_ip:
         return None
-    api_port = int(params.get("api_port") or context.runtime.get("api_port") or 30001)
+    api_port = int(
+        resolve_context_value(
+            params,
+            context,
+            "api_port",
+            30001,
+            source_order=("params", "runtime"),
+        )
+    )
     timeout = float(params.get("timeout_seconds", 30.0))
     return AndroidApiClient(device_ip=device_ip, api_port=api_port, timeout_seconds=timeout)
 
