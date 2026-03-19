@@ -12,6 +12,7 @@ def test_task_catalog_returns_input_metadata_for_new_device_plugin():
     plugin = next(item for item in tasks if item["task"] == "one_click_new_device")
 
     assert plugin["display_name"] == "一键新机"
+    assert plugin["description"]
     assert plugin["distillable"] is False
     inputs = plugin["inputs"]
     model_source = next(item for item in inputs if item["name"] == "model_source")

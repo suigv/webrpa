@@ -72,6 +72,7 @@
                 </select>
               </div>
               <div id="taskPluginHost"></div>
+              <div id="taskGuideCard" class="task-guide-card mt-4" style="display:none;"></div>
               <div id="taskPayloadFields" class="form-grid mt-6"></div>
               <button id="showMoreFields" class="btn btn-text text-muted mt-2 px-0">显示高级参数</button>
 
@@ -389,6 +390,11 @@
         <button id="bulkRunBtn" class="btn btn-primary">执行分发</button>
         <button id="clearSelection" class="btn btn-text text-muted">舍弃</button>
       </div>
+      <div id="bulkTaskConfig" class="dock-config" style="display: none;">
+        <div id="bulkTaskGuideCard" class="task-guide-card"></div>
+        <div id="bulkTaskFields" class="form-grid mt-4"></div>
+        <button id="showMoreBulkFields" class="btn btn-text text-muted mt-2 px-0" style="display:none;">显示高级参数</button>
+      </div>
     </div>
 
     <!-- 沉浸式任务报告 -->
@@ -456,6 +462,7 @@
                 </div>
                 <div id="unitAccountHint" class="text-muted" style="font-size:12px; margin-top:6px;"></div>
               </div>
+              <div id="unitTaskGuideCard" class="task-guide-card mb-4" style="display:none;"></div>
               <div id="unitPluginFields" class="form-grid mt-6"></div>
               <button id="showMoreUnitFields" class="btn btn-text text-muted mt-2 px-0">配置高级属性</button>
               

@@ -82,6 +82,80 @@ function normalizeInputs(task) {
     }));
 }
 
+function visibleGuideFields(task) {
+    return normalizeInputs(task).filter((field) => {
+        if (field.widget === 'hidden') return false;
+        if (field.system) return false;
+        if (SYSTEM_AUTO_FIELDS.includes(field.name)) return false;
+        return true;
+    });
+}
+
+function stringifyDefaultValue(value, options = []) {
+    if (value === '' || value === null || value === undefined) return '';
+    const matched = options.find((option) => String(option.value ?? '') === String(value));
+    if (matched?.label) return matched.label;
+    if (typeof value === 'boolean') return value ? '开启' : '关闭';
+    return String(value);
+}
+
+export function renderTaskGuide(container, task) {
+    if (!container) return;
+    container.replaceChildren();
+
+    if (!task) {
+        container.style.display = 'none';
+        return;
+    }
+
+    container.style.display = 'block';
+    const fields = visibleGuideFields(task);
+
+    const title = document.createElement('div');
+    title.className = 'task-guide-title';
+    title.textContent = `${task.display_name || task.task || '当前任务'} 说明`;
+
+    const description = document.createElement('div');
+    description.className = 'task-guide-text';
+    description.textContent = task.description || '该任务支持参数化执行，可按下方说明调整关键参数。';
+
+    container.append(title, description);
+
+    const defaultSummary = fields
+        .filter((field) => field.default !== '' && field.default !== null && field.default !== undefined)
+        .slice(0, 6)
+        .map((field) => `${field.label}: ${stringifyDefaultValue(field.default, field.options)}`);
+
+    if (defaultSummary.length > 0) {
+        const defaults = document.createElement('div');
+        defaults.className = 'task-guide-text';
+        defaults.style.marginTop = '8px';
+        defaults.textContent = `默认行为：${defaultSummary.join('，')}`;
+        container.appendChild(defaults);
+    }
+
+    if (fields.length > 0) {
+        const tips = document.createElement('div');
+        tips.className = 'task-guide-text';
+        tips.style.marginTop = '8px';
+        tips.textContent = '可调参数：';
+        container.appendChild(tips);
+
+        const tags = document.createElement('div');
+        tags.className = 'task-guide-tags';
+        fields.forEach((field) => {
+            const tag = document.createElement('span');
+            tag.className = 'task-guide-tag';
+            tag.textContent = field.label;
+            if (field.description) {
+                tag.title = field.description;
+            }
+            tags.appendChild(tag);
+        });
+        container.appendChild(tags);
+    }
+}
+
 function createTextLikeInput(field) {
     const input = document.createElement('input');
     input.dataset.payloadKey = field.name;
@@ -156,16 +230,15 @@ export function renderCommonFields(container, task, showOptional = false) {
     if (!container || !task) return;
     container.replaceChildren();
 
-    const fields = normalizeInputs(task).filter((field) => {
-        if (field.widget === 'hidden') return false;
-        if (field.system) return false;
-        if (SYSTEM_AUTO_FIELDS.includes(field.name)) return false;
-        return true;
-    });
+    const fields = visibleGuideFields(task);
 
     fields.forEach((field) => {
         const div = document.createElement('div');
-        div.className = `form-group ${field.required ? '' : 'field-optional'}`;
+        div.className = [
+            'form-group',
+            field.required ? '' : 'field-optional',
+            field.advanced ? 'field-advanced' : '',
+        ].filter(Boolean).join(' ');
         div.style.display = (field.required || showOptional || !field.advanced) ? 'flex' : 'none';
         div.style.flexDirection = 'column';
 

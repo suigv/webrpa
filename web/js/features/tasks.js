@@ -1,6 +1,6 @@
 import { fetchJson } from '../utils/api.js';
 import { toast } from '../ui/toast.js';
-import { renderCommonFields } from '../utils/ui_utils.js';
+import { renderCommonFields, renderTaskGuide } from '../utils/ui_utils.js';
 import {
     getTaskCatalog,
     apiSubmitTask,
@@ -684,17 +684,25 @@ function renderPluginSelector() {
 function renderFields() {
     const p = pluginCatalog.find(x => x.task === selectedTaskName);
     const container = $('taskPayloadFields');
+    renderTaskGuide($('taskGuideCard'), p);
     renderCommonFields(container, p, false);
 
     const showMoreFields = $('showMoreFields');
     if (showMoreFields && container) {
-        const optionalFields = container.querySelectorAll('.field-optional');
-        showMoreFields.style.display = optionalFields.length > 0 ? 'inline-flex' : 'none';
+        const advancedFields = container.querySelectorAll('.field-advanced');
+        advancedFields.forEach((element) => {
+            element.style.display = 'none';
+        });
+        showMoreFields.dataset.expanded = 'false';
+        showMoreFields.textContent = '显示高级参数';
+        showMoreFields.style.display = advancedFields.length > 0 ? 'inline-flex' : 'none';
         showMoreFields.onclick = () => {
-            const fields = container.querySelectorAll('.field-optional');
-            const isHidden = fields[0]?.style.display === 'none';
-            fields.forEach(el => el.style.display = isHidden ? 'flex' : 'none');
-            showMoreFields.textContent = isHidden ? '收起可选参数' : '显示高级参数';
+            const shouldExpand = showMoreFields.dataset.expanded !== 'true';
+            advancedFields.forEach((element) => {
+                element.style.display = shouldExpand ? 'flex' : 'none';
+            });
+            showMoreFields.dataset.expanded = shouldExpand ? 'true' : 'false';
+            showMoreFields.textContent = shouldExpand ? '收起高级参数' : '显示高级参数';
         };
     }
 }

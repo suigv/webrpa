@@ -4,7 +4,7 @@ name: one_click_new_device
 version: "1.0.0"
 display_name: "一键新机"
 category: "设备初始化"
-description: "Select a phone model, generate a randomized device profile, and apply a fresh MYTOS environment to the selected cloud machine"
+description: "为目标云机随机切换机型并重建环境画像，可调整机型来源、地区模板、随机种子、联系人、Google ID、摇一摇和截图等参数。"
 entry_script: script.yaml
 distillable: false
 distill_threshold: 3

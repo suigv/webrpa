@@ -168,6 +168,7 @@
 - `task`
 - `display_name`
 - `category`
+- `description`
 - `distillable`
 - `required`
 - `defaults`

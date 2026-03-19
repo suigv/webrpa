@@ -1,6 +1,6 @@
 import { authFetch, fetchJson } from '../utils/api.js';
 import { toast } from '../ui/toast.js';
-import { renderCommonFields } from '../utils/ui_utils.js';
+import { renderCommonFields, renderTaskGuide } from '../utils/ui_utils.js';
 import { sysLog, unitLog } from './logs.js';
 import {
     getTaskCatalog,
@@ -19,6 +19,11 @@ let currentUnitsById = new Map();
 let currentUnitDetail = null;
 let currentUnitScreenshotTimer = null;
 let unitControlInFlight = false;
+
+const UNIT_ADVANCED_COLLAPSED_TEXT = '配置高级属性';
+const UNIT_ADVANCED_EXPANDED_TEXT = '收起高级属性';
+const BULK_ADVANCED_COLLAPSED_TEXT = '显示高级参数';
+const BULK_ADVANCED_EXPANDED_TEXT = '收起高级参数';
 
 function clearElement(element) {
     if (element) {
@@ -58,6 +63,25 @@ function createDeviceStat(label, value, extraClass = '') {
 
     block.append(labelEl, valueEl);
     return block;
+}
+
+function summarizeTaskState(unit, isOnline) {
+    if (unit.current_task) return '执行中';
+    return isOnline ? '空闲待命' : '不可用';
+}
+
+function summarizeHealth(unit, isOnline) {
+    if (isOnline) {
+        if (typeof unit.latency_ms === 'number' && Number.isFinite(unit.latency_ms)) {
+            return `${unit.latency_ms} ms`;
+        }
+        return '已上线';
+    }
+    const reason = String(unit.availability_reason || '').trim();
+    if (!reason) return '等待回线';
+    if (reason.toLowerCase().includes('timed out')) return '连接超时';
+    if (reason.toLowerCase().includes('refused')) return '连接被拒绝';
+    return reason;
 }
 
 let unitAccounts = [];
@@ -107,6 +131,39 @@ function renderEmptyAccountSelect(select, label) {
     emptyOpt.value = '';
     emptyOpt.textContent = label;
     select.appendChild(emptyOpt);
+}
+
+function setAdvancedFieldVisibility(container, visible) {
+    if (!container) return 0;
+    const advancedFields = container.querySelectorAll('.field-advanced');
+    advancedFields.forEach((element) => {
+        element.style.display = visible ? 'flex' : 'none';
+    });
+    return advancedFields.length;
+}
+
+function syncAdvancedFieldToggle(container, button, collapsedText, expandedText) {
+    if (!button) return;
+    const advancedCount = setAdvancedFieldVisibility(container, false);
+    button.dataset.expanded = 'false';
+    button.textContent = collapsedText;
+    button.style.display = advancedCount > 0 ? 'inline-flex' : 'none';
+    if (advancedCount === 0) {
+        button.dataset.expanded = 'false';
+        button.textContent = collapsedText;
+    }
+    button.dataset.expandedText = expandedText;
+    button.dataset.collapsedText = collapsedText;
+}
+
+function toggleAdvancedFields(container, button) {
+    if (!container || !button) return;
+    const shouldExpand = button.dataset.expanded !== 'true';
+    setAdvancedFieldVisibility(container, shouldExpand);
+    button.dataset.expanded = shouldExpand ? 'true' : 'false';
+    button.textContent = shouldExpand
+        ? (button.dataset.expandedText || '收起高级参数')
+        : (button.dataset.collapsedText || '显示高级参数');
 }
 
 export function initDevices() {
@@ -171,16 +228,22 @@ export function initDevices() {
 
     const unitPluginSelect = $("unitPluginSelect");
     if (unitPluginSelect) unitPluginSelect.onchange = renderUnitPluginFields;
+    const bulkPluginSelect = $("bulkPluginSelect");
+    if (bulkPluginSelect) bulkPluginSelect.onchange = renderBulkPluginFields;
 
     const showMoreBtn = $('showMoreUnitFields');
     if (showMoreBtn) {
         showMoreBtn.onclick = () => {
             const container = $("unitPluginFields");
-            if(!container) return;
-            const fields = container.querySelectorAll('.field-optional');
-            const isHidden = fields[0]?.style.display === 'none';
-            fields.forEach(el => el.style.display = isHidden ? 'flex' : 'none');
-            showMoreBtn.textContent = isHidden ? '收起可选参数' : '配置高级属性';
+            toggleAdvancedFields(container, showMoreBtn);
+        };
+    }
+
+    const showMoreBulkBtn = $('showMoreBulkFields');
+    if (showMoreBulkBtn) {
+        showMoreBulkBtn.onclick = () => {
+            const container = $("bulkTaskFields");
+            toggleAdvancedFields(container, showMoreBulkBtn);
         };
     }
 
@@ -376,6 +439,8 @@ async function loadPluginCatalog() {
     const unitSelect = $("unitPluginSelect");
     if (select) renderGroupedSelect(select, currentCatalog);
     if (unitSelect) renderGroupedSelect(unitSelect, currentCatalog);
+    renderBulkPluginFields();
+    renderUnitPluginFields();
 }
 
 function renderGroupedSelect(select, tasks) {
@@ -503,7 +568,7 @@ function renderUnitCard(container, u) {
 
     const meta = document.createElement('div');
     meta.className = 'device-meta';
-    meta.append(createTextBlock('路由', `${u.parent_ip}:${u.rpa_port}`));
+    meta.append(createTextBlock('节点', `${u.parent_id}-${u.cloud_id}`));
 
     const stats = document.createElement('div');
     stats.className = 'device-meta-grid';
@@ -514,8 +579,8 @@ function renderUnitCard(container, u) {
             isOnline ? '在线' : '离线',
             isOnline ? 'status-online' : 'status-offline'
         ),
-        createDeviceStat('API', String(u.api_port || '-')),
-        createDeviceStat('控制', String(u.rpa_port || '-'))
+        createDeviceStat('任务', summarizeTaskState(u, isOnline)),
+        createDeviceStat(isOnline ? '质量' : '异常', summarizeHealth(u, isOnline))
     );
     meta.appendChild(stats);
 
@@ -561,18 +626,64 @@ function clearSelection() {
     selectedUnits.clear(); updateBar(); loadDevices();
 }
 
+function renderBulkPluginFields() {
+    const select = $("bulkPluginSelect");
+    const config = $("bulkTaskConfig");
+    const container = $("bulkTaskFields");
+    const guideCard = $("bulkTaskGuideCard");
+    const showMoreBtn = $('showMoreBulkFields');
+    if (!select || !config || !container || !guideCard) return;
+
+    const taskName = select.value;
+    const task = currentCatalog.find((item) => item.task === taskName);
+    if (!task) {
+        config.style.display = 'none';
+        renderTaskGuide(guideCard, null);
+        clearElement(container);
+        if (showMoreBtn) {
+            showMoreBtn.style.display = 'none';
+            showMoreBtn.dataset.expanded = 'false';
+            showMoreBtn.textContent = BULK_ADVANCED_COLLAPSED_TEXT;
+        }
+        return;
+    }
+
+    config.style.display = 'block';
+    renderTaskGuide(guideCard, task);
+    renderCommonFields(container, task, false);
+    syncAdvancedFieldToggle(
+        container,
+        showMoreBtn,
+        BULK_ADVANCED_COLLAPSED_TEXT,
+        BULK_ADVANCED_EXPANDED_TEXT
+    );
+}
+
 function renderUnitPluginFields() {
     const select = $("unitPluginSelect");
     const container = $("unitPluginFields");
     if (!select || !container) return;
     const taskName = select.value;
     const task = currentCatalog.find(t => t.task === taskName);
+    renderTaskGuide($("unitTaskGuideCard"), task);
+    if (!task) {
+        clearElement(container);
+        const showMoreBtn = $('showMoreUnitFields');
+        if (showMoreBtn) {
+            showMoreBtn.style.display = 'none';
+            showMoreBtn.dataset.expanded = 'false';
+            showMoreBtn.textContent = UNIT_ADVANCED_COLLAPSED_TEXT;
+        }
+        return;
+    }
     renderCommonFields(container, task, false);
     const showMoreBtn = $('showMoreUnitFields');
-    if (showMoreBtn) {
-        const optionalFields = container.querySelectorAll('.field-optional');
-        showMoreBtn.style.display = optionalFields.length > 0 ? 'inline-flex' : 'none';
-    }
+    syncAdvancedFieldToggle(
+        container,
+        showMoreBtn,
+        UNIT_ADVANCED_COLLAPSED_TEXT,
+        UNIT_ADVANCED_EXPANDED_TEXT
+    );
 }
 
 async function loadUnitScreenshot(unit) {
@@ -867,23 +978,29 @@ async function submitUnitTask(unit) {
 
 async function runBulkTasks() {
     const select = $("bulkPluginSelect");
-    if(!select) return;
+    const fieldContainer = $("bulkTaskFields");
+    if(!select || !fieldContainer) return;
     const plugin = select.value;
     const count = selectedUnits.size;
+    if (!plugin) {
+        toast.warn('请先选择任务');
+        return;
+    }
+    if (count === 0) {
+        toast.warn('请先选择节点');
+        return;
+    }
     if(!confirm(`即将对选中的 ${count} 个节点执行该操作，是否继续？`)) return;
 
+    const rawPayload = collectTaskPayload(fieldContainer);
     sysLog(`开始集群派发任务: ${plugin}, 目标数量: ${count}`);
     const defaultPackage = (localStorage.getItem("defaultPackage") || "").trim();
+    if (defaultPackage && !Object.prototype.hasOwnProperty.call(rawPayload, 'package')) {
+        rawPayload.package = defaultPackage;
+    }
+    const payload = await sanitizePayloadForTask(plugin, rawPayload);
     for (const id of selectedUnits) {
         const [dId, cId] = id.split("-");
-        const unit = currentUnitsById.get(id);
-
-        const rawPayload = {};
-        if (unit) {
-            if (defaultPackage) rawPayload.package = defaultPackage;
-        }
-        const payload = await sanitizePayloadForTask(plugin, rawPayload);
-
         const taskData = buildTaskRequest({
             task: plugin,
             payload: payload,

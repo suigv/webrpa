@@ -223,6 +223,7 @@ def task_catalog():
                 "task": manifest.name,
                 "display_name": manifest.display_name,
                 "category": manifest.category,
+                "description": manifest.description,
                 "distillable": bool(manifest.distillable),
                 "required": required,
                 "defaults": defaults,
