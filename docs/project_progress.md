@@ -50,6 +50,9 @@
       - **State action 转发壳去除**：`state_actions.py` 已移除一层对 `_state_detection_support.py` 的纯转发 wrapper，跟进把 DM 提取、follow/unread 目标提取、候选提取直接接到 support 实现，减少 support 层与 action 层之间的双处同步点；`android_api_actions.py` 中未使用的 `_ok()` helper 也一并清理。
       - **Agent Executor 规划失败出口收口**：`agent_executor.py` 中 planner 错误、fallback 空动作重试耗尽、非法动作选择这三条失败分支已统一复用类内 helper 生成 terminal trace 和失败结果，减少主循环里重复拼装同型 `failed_runtime_error` 终态的样板代码，保留原有 code/message/checkpoint 与 trace 契约不变。
       - **防回潮约束继续加固**：`AGENTS.md` 已进一步明确热点文件的“第二次重复即收口”规则，要求在 `agent_executor.py`、`task_execution.py` 及几类 action/support 大文件中，遇到同型 result/trace/event/参数归一化骨架时优先扩展局部 helper；同时禁止新增纯透传 wrapper 作为默认写法，避免后续修功能时再次把样板代码和空壳层写回热点文件。
+      - **前端任务/草稿契约对齐**：任务详情弹窗现已直接消费 `workflow_draft` 的进度、失败建议与 `continue/distill` 能力，前端不再只把草稿当作一条只读 message；同时 SSE 也会跟进刷新 `workflow_draft.updated` 事件，减少后端已切到 Workflow Draft 主链路而前端仍停留在旧插件蒸馏心智的错位。
+      - **前端任务上下文与 AI 能力源修复**：任务提交前的 payload 白名单裁剪现在会显式保留 `app_id/app` 这类运行时上下文字段，避免应用选择器在前端被自己裁空；设备页 AI 对话框的可选动作也改为优先读取 `/api/engine/skills` 元数据渲染，并支持附加自定义状态 ID，降低动作列表/状态集合继续手写漂移的风险。
+      - **后端前端兼容点审查**：当前确认仍存在少量为旧前端/旧交互模型保留的兼容入口，例如旧的 `/api/tasks/distill/{plugin_name}` 插件蒸馏路由，以及 RPC bootstrap 在 runtime target 缺少 `device_ip` 时回退读取 payload 的兜底逻辑；本轮先完成前端主路径对齐，兼容入口暂不贸然删除，避免影响存量调用。
       - Web 端新增共享任务表单 UI helper，任务主面板、单机执行面板和批量下发条统一复用“说明卡 + 字段渲染 + 高级参数展开”逻辑，减少前端重复实现继续漂移。
       - 收紧若干过度静默回退：WebSocket 事件轮询/广播、账号失败反馈持久化、浏览器 selector 轮询 fallback 现在都会保留可观测错误信息；浏览器 cookie 注入对不支持的 backend 会明确返回失败，而不再伪装成成功。
       - Native 状态兼容继续收口：`ui_state_actions` 和 `navigation_actions` 仍兼容读取 legacy `binding_id` 入口，但内部传递、路由探测与执行热路径统一只使用 `state_profile_id`，避免新逻辑继续向内层传播双字段。

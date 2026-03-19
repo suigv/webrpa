@@ -569,34 +569,17 @@
               <span class="checkmark"></span><span>未知</span>
             </label>
           </div>
-          <input type="hidden" id="unitAiStateIds">
+          <div class="form-group mt-3 mb-0">
+            <label>附加状态 ID（逗号分隔，可选）</label>
+            <input id="unitAiExtraStates" type="text" placeholder="例如：loading, login_entry, home_ready">
+          </div>
         </div>
 
         <div class="form-group mt-4">
           <label class="mb-2 display-block">允许 AI 使用的操作</label>
-          <div class="flex flex-wrap gap-3">
-            <label class="custom-checkbox inline-flex items-center gap-1">
-              <input type="checkbox" name="aiAction" value="ai.locate_point" checked>
-              <span class="checkmark"></span><span>视觉定位</span>
-            </label>
-            <label class="custom-checkbox inline-flex items-center gap-1">
-              <input type="checkbox" name="aiAction" value="ui.click" checked>
-              <span class="checkmark"></span><span>点击</span>
-            </label>
-            <label class="custom-checkbox inline-flex items-center gap-1">
-              <input type="checkbox" name="aiAction" value="ui.input_text" checked>
-              <span class="checkmark"></span><span>输入文字</span>
-            </label>
-            <label class="custom-checkbox inline-flex items-center gap-1">
-              <input type="checkbox" name="aiAction" value="ui.key_press" checked>
-              <span class="checkmark"></span><span>按键</span>
-            </label>
-            <label class="custom-checkbox inline-flex items-center gap-1">
-              <input type="checkbox" name="aiAction" value="ui.swipe" checked>
-              <span class="checkmark"></span><span>滑动</span>
-            </label>
+          <div class="flex flex-wrap gap-3" id="unitAiActionCheckboxes">
+            <span class="text-muted text-xs">正在加载动作能力...</span>
           </div>
-          <input type="hidden" id="unitAiActions">
         </div>
 
         <div class="divider mt-6 mb-4"></div>

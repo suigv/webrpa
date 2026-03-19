@@ -4,6 +4,7 @@ import { sysLog } from './logs.js';
 
 let catalogCache = null;
 let catalogPromise = null;
+const CONTEXT_PAYLOAD_KEYS = new Set(['app_id', 'app']);
 
 /**
  * 获取插件目录（单例缓存）
@@ -90,7 +91,12 @@ export async function sanitizePayloadForTask(taskName, payload = {}) {
 
     const declaredKeys = new Set(task.inputs.map(item => item.name).filter(Boolean));
     return Object.fromEntries(
-        Object.entries(payload).filter(([key]) => declaredKeys.has(key) || key.startsWith('_'))
+        Object.entries(payload).filter(
+            ([key]) =>
+                declaredKeys.has(key) ||
+                key.startsWith('_') ||
+                CONTEXT_PAYLOAD_KEYS.has(key)
+        )
     );
 }
 

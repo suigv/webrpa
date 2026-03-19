@@ -92,6 +92,154 @@ function createSummaryCard(title, text, badgeText = '', badgeVariant = 'default'
     return card;
 }
 
+function createSummaryActions(buttons) {
+    const row = document.createElement('div');
+    row.className = 'flex flex-wrap gap-2 mt-3';
+    buttons.forEach((button) => row.appendChild(button));
+    return row;
+}
+
+function createSummaryButton(text, onClick, { disabled = false, primary = false } = {}) {
+    const button = document.createElement('button');
+    button.className = primary ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm';
+    button.textContent = text;
+    button.disabled = disabled;
+    button.onclick = onClick;
+    return button;
+}
+
+function workflowDraftActionLabel(action) {
+    switch (String(action || '')) {
+        case 'continue_validation':
+            return '继续验证';
+        case 'distill':
+            return '生成草稿';
+        case 'review_distilled':
+            return '查看草稿';
+        case 'apply_suggestion':
+            return '应用建议';
+        default:
+            return '待处理';
+    }
+}
+
+function extractErrorText(response, fallback) {
+    if (!response) return fallback;
+    if (typeof response.data === 'string' && response.data.trim()) return response.data.trim();
+    if (response.data?.detail) return String(response.data.detail);
+    if (response.data?.message) return String(response.data.message);
+    if (response.data?.stderr) return String(response.data.stderr);
+    return fallback;
+}
+
+async function continueWorkflowDraft(draft, task) {
+    const draftId = String(draft?.draft_id || '').trim();
+    if (!draftId) return;
+    const displayName = String(draft?.display_name || task?.display_name || task?.task_name || '当前草稿');
+    const response = await fetchJson(`/api/tasks/drafts/${draftId}/continue`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ count: 1 }),
+        silentErrors: true,
+    });
+    if (!response.ok) {
+        toast.error(extractErrorText(response, '继续验证失败'));
+        return;
+    }
+    const [nextTask] = Array.isArray(response.data) ? response.data : [];
+    toast.success(`${displayName} 已创建新的验证任务`);
+    await loadTasks();
+    if (nextTask?.task_id) {
+        loadTaskDetail(nextTask.task_id);
+    } else if (task?.task_id) {
+        await refreshTaskSnapshot(task.task_id);
+    }
+}
+
+async function distillWorkflowDraft(draft, task) {
+    const draftId = String(draft?.draft_id || '').trim();
+    if (!draftId) return;
+    const displayName = String(draft?.display_name || task?.display_name || task?.task_name || '当前草稿');
+    const response = await fetchJson(`/api/tasks/drafts/${draftId}/distill`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ force: false }),
+        silentErrors: true,
+    });
+    if (!response.ok || response.data?.ok === false) {
+        toast.error(extractErrorText(response, '草稿蒸馏失败'));
+        return;
+    }
+    const pluginName = String(response.data?.plugin_name || '').trim();
+    toast.success(
+        pluginName
+            ? `${displayName} 已生成草稿 ${pluginName}`
+            : `${displayName} 已生成工作流草稿`
+    );
+    if (task?.task_id) {
+        await refreshTaskSnapshot(task.task_id);
+    }
+    await loadTasks();
+}
+
+function renderWorkflowDraftSummary(host, task) {
+    const draft = task?.workflow_draft;
+    if (!host || !draft || typeof draft !== 'object') return;
+
+    const progressText = `${draft.success_count || 0}/${draft.success_threshold || 0}`;
+    const nextAction = workflowDraftActionLabel(draft.next_action);
+    const message = String(draft.message || '').trim();
+    const overview = [
+        `状态：${draft.status || 'unknown'}`,
+        `进度：${progressText}`,
+        `下一步：${nextAction}`,
+        message ? `说明：${message}` : '',
+    ].filter(Boolean).join(' · ');
+
+    const overviewCard = createSummaryCard(
+        '工作流草稿',
+        overview,
+        draft.can_distill ? '可蒸馏' : `${progressText} 样本`,
+        draft.can_distill ? 'ok' : 'default'
+    );
+
+    const actionButtons = [];
+    if (draft.can_continue) {
+        actionButtons.push(
+            createSummaryButton('继续验证', () => {
+                void continueWorkflowDraft(draft, task);
+            })
+        );
+    }
+    if (draft.can_distill) {
+        actionButtons.push(
+            createSummaryButton(
+                '生成草稿',
+                () => {
+                    void distillWorkflowDraft(draft, task);
+                },
+                { primary: true }
+            )
+        );
+    }
+    if (actionButtons.length > 0) {
+        overviewCard.appendChild(createSummaryActions(actionButtons));
+    }
+    host.appendChild(overviewCard);
+
+    const failureAdvice = draft.latest_failure_advice;
+    if (failureAdvice?.summary) {
+        const adviceLines = [String(failureAdvice.summary)];
+        if (Array.isArray(failureAdvice.suggestions) && failureAdvice.suggestions.length > 0) {
+            adviceLines.push(`建议：${failureAdvice.suggestions.join('；')}`);
+        }
+        if (failureAdvice.suggested_prompt) {
+            adviceLines.push(`推荐提示词：${failureAdvice.suggested_prompt}`);
+        }
+        host.appendChild(createSummaryCard('失败建议', adviceLines.join(' ')));
+    }
+}
+
 function createReportDetailList(report) {
     const entries = [
         ['切换前机型', report.before_model],
@@ -204,11 +352,7 @@ function renderTaskSummary(task) {
         createSummaryCard(summary.title, summary.text, summary.badgeText, summary.badgeVariant)
     );
 
-    if (task.workflow_draft?.message) {
-        host.appendChild(
-            createSummaryCard('蒸馏状态', String(task.workflow_draft.message))
-        );
-    }
+    renderWorkflowDraftSummary(host, task);
 
     const targetResults = normalizeTargetResults(task);
     if (targetResults.length > 0) {
@@ -382,6 +526,7 @@ function startTaskEventStream(taskId) {
     // 监听所有自定义事件
     const eventTypes = [
         'task.created', 'task.started', 'task.completed', 'task.failed', 'task.cancelled', 'task.dispatch_result', 'task.action_result',
+        'workflow_draft.updated',
         'interpreter.step_start', 'interpreter.step_result',
         'action.executing', 'action.success', 'action.failed',
         'humanized.click', 'humanized.typing'
@@ -406,6 +551,8 @@ function startTaskEventStream(taskId) {
                 statusText.textContent = '🏁 执行结束';
                 refreshTaskSnapshot(taskId);
                 loadTasks();
+            } else if (type === 'workflow_draft.updated') {
+                refreshTaskSnapshot(taskId);
             }
         },
         onError: () => {
@@ -469,6 +616,11 @@ function appendEventToTimeline(type, data) {
         tagSpan.style.color = 'var(--info)';
         tagSpan.textContent = '[汇总] ';
         msgSpan.textContent = String(data.checkpoint || data.status || '已生成本轮执行结果');
+        line.append(tagSpan, msgSpan);
+    } else if (type === 'workflow_draft.updated') {
+        tagSpan.style.color = 'var(--primary)';
+        tagSpan.textContent = '[草稿] ';
+        msgSpan.textContent = String(data.message || '工作流草稿状态已更新');
         line.append(tagSpan, msgSpan);
     } else if (type === 'task.action_result') {
         tagSpan.style.color = data.ok ? 'var(--success)' : 'var(--warning, #f59e0b)';

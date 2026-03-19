@@ -3,6 +3,94 @@ import { toast } from '../ui/toast.js';
 import { apiSubmitTask, buildTaskRequest } from './task_service.js';
 
 const $ = (id) => document.getElementById(id);
+const DEFAULT_AI_ACTIONS = [
+    {
+        name: 'ai.locate_point',
+        label: '视觉定位',
+        description: 'Locate a specific point/UI element using AI description',
+    },
+    { name: 'ui.click', label: '点击', description: '点击屏幕坐标 (x, y)' },
+    { name: 'ui.input_text', label: '输入文字', description: '在当前焦点处输入文本' },
+    { name: 'ui.key_press', label: '按键', description: '向设备发送按键事件' },
+    { name: 'ui.swipe', label: '滑动', description: '执行屏幕滑动' },
+];
+const DEFAULT_AI_ACTION_SELECTION = new Set(DEFAULT_AI_ACTIONS.map((item) => item.name));
+
+function parseCommaSeparated(value) {
+    return String(value || '')
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean);
+}
+
+function uniqueStringList(values) {
+    return [...new Set((Array.isArray(values) ? values : []).map((item) => String(item || '').trim()).filter(Boolean))];
+}
+
+function isInteractiveSkill(name) {
+    return name === 'ai.locate_point' || name.startsWith('ui.') || name.startsWith('app.');
+}
+
+function prettifyActionLabel(name) {
+    const matched = DEFAULT_AI_ACTIONS.find((item) => item.name === name);
+    if (matched) return matched.label;
+    return String(name || '').replaceAll('.', ' / ');
+}
+
+function renderActionOptions(actions) {
+    const host = $('unitAiActionCheckboxes');
+    if (!host) return;
+    host.replaceChildren();
+
+    actions.forEach((action) => {
+        const label = document.createElement('label');
+        label.className = 'custom-checkbox inline-flex items-center gap-1';
+        if (action.description) {
+            label.title = action.description;
+        }
+
+        const input = document.createElement('input');
+        input.type = 'checkbox';
+        input.name = 'aiAction';
+        input.value = action.name;
+        input.checked = DEFAULT_AI_ACTION_SELECTION.has(action.name);
+
+        const checkmark = document.createElement('span');
+        checkmark.className = 'checkmark';
+
+        const text = document.createElement('span');
+        text.textContent = action.label;
+
+        label.append(input, checkmark, text);
+        host.appendChild(label);
+    });
+}
+
+async function loadAiActionOptions() {
+    try {
+        const response = await fetchJson('/api/engine/skills', { silentErrors: true });
+        if (!response.ok || !response.data || typeof response.data !== 'object') {
+            renderActionOptions(DEFAULT_AI_ACTIONS);
+            return;
+        }
+        const actions = Object.entries(response.data)
+            .filter(([name]) => isInteractiveSkill(String(name || '')))
+            .map(([name, metadata]) => ({
+                name: String(name || ''),
+                label: prettifyActionLabel(name),
+                description: String(metadata?.description || '').trim(),
+            }))
+            .sort((left, right) => {
+                const leftDefault = DEFAULT_AI_ACTION_SELECTION.has(left.name) ? 0 : 1;
+                const rightDefault = DEFAULT_AI_ACTION_SELECTION.has(right.name) ? 0 : 1;
+                if (leftDefault !== rightDefault) return leftDefault - rightDefault;
+                return left.name.localeCompare(right.name);
+            });
+        renderActionOptions(actions.length > 0 ? actions : DEFAULT_AI_ACTIONS);
+    } catch (_error) {
+        renderActionOptions(DEFAULT_AI_ACTIONS);
+    }
+}
 
 function renderEmptyAccountSelect(select, label) {
     if (!select) return;
@@ -79,12 +167,26 @@ function buildAiTaskPayload(unit) {
     const resolvedMaxSteps = Number.isFinite(maxStepsValue) && maxStepsValue > 0 ? maxStepsValue : 15;
     const resolvedStagnantLimit =
         Number.isFinite(stagnantLimitValue) && stagnantLimitValue > 0 ? stagnantLimitValue : 4;
+    const expectedStateIds = uniqueStringList([
+        ...readSelectedValues('input[name="aiState"]:checked'),
+        ...parseCommaSeparated($('unitAiExtraStates')?.value || ''),
+    ]);
+    const allowedActions = uniqueStringList(readSelectedValues('input[name="aiAction"]:checked'));
+
+    if (expectedStateIds.length === 0) {
+        toast.warn('请至少选择一个预期状态');
+        return null;
+    }
+    if (allowedActions.length === 0) {
+        toast.warn('请至少保留一个允许动作');
+        return null;
+    }
 
     const payload = {
         device_ip: unit.parent_ip,
         goal,
-        expected_state_ids: readSelectedValues('input[name="aiState"]:checked'),
-        allowed_actions: readSelectedValues('input[name="aiAction"]:checked'),
+        expected_state_ids: expectedStateIds,
+        allowed_actions: allowedActions,
         observation: {},
         max_steps: resolvedMaxSteps,
         stagnant_limit: resolvedStagnantLimit,
@@ -112,6 +214,8 @@ export function openUnitAiDialog(unit) {
     const modal = $('unitAiModal');
     if (modal) modal.style.display = 'flex';
     void loadAiDialogAccounts();
+    renderActionOptions(DEFAULT_AI_ACTIONS);
+    void loadAiActionOptions();
     const refreshBtn = $('unitAiAccountRefresh');
     if (refreshBtn) refreshBtn.onclick = () => {
         void loadAiDialogAccounts();
@@ -131,9 +235,8 @@ export function openUnitAiDialog(unit) {
     document.querySelectorAll('input[name="aiState"]').forEach((checkbox) => {
         checkbox.checked = ['home', 'account', 'password', 'two_factor'].includes(checkbox.value);
     });
-    document.querySelectorAll('input[name="aiAction"]').forEach((checkbox) => {
-        checkbox.checked = true;
-    });
+    const extraStatesInput = $('unitAiExtraStates');
+    if (extraStatesInput) extraStatesInput.value = '';
     const systemPromptInput = $('unitAiSystemPrompt');
     if (systemPromptInput) systemPromptInput.value = '';
     void loadDefaultAiSystemPrompt();
