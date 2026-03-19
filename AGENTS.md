@@ -126,6 +126,13 @@ Different devices use the same port numbers but different IPs — `(ip, port)` i
 - **Automatic App Discovery**: The system should dynamically map Android package names to app configurations by scanning `config/apps/*.yaml`. **Framework code (`engine/`, `core/`, `api/`) must never contain app-specific strings**: no hardcoded package names, app names, UI keywords, or locale strings.
 - Distillation tools must use generic XML feature extraction. State label inference must not match app-specific keywords.
 - `xml_filter`, `states`, and `selectors` in app config files are populated automatically by the distillation pipeline; `schemes` requires manual authoring.
+- Treat `app_id` as the canonical app-context field across frontend, API payloads, runtime normalization, and config lookup. `app` may remain as a compatibility alias only at ingestion boundaries; do not introduce new primary flows that depend on `app`.
+- When normalizing app context, prefer a single shared helper path. Do not duplicate `app_id/app/package -> app config` fallback chains across `runner`, `sdk_*` support modules, routes, or frontend form code.
+
+### Frontend / API Contract Layer
+- When frontend and backend both support a capability, keep one explicit primary contract and isolate compatibility routes/fields behind thin aliases. Do not let dashboards or forms keep calling legacy endpoints once a current endpoint exists.
+- For login / credential payloads, prefer canonical external field names such as `account`, `password`, and `twofa_secret`. Legacy aliases like `acc`, `pwd`, and `fa2_secret` may be accepted at compatibility boundaries, but new frontend work must not expand those aliases further.
+- Default values that affect task creation or runtime behavior must converge across request models, persistence, orchestration snapshots, and frontend display. Do not leave one layer defaulting to a historical value like `"volc"` while another has already moved to `"default"`.
 
 ## Pluginization Direction
 - New business workflows go to `plugins/`.
@@ -141,6 +148,8 @@ Different devices use the same port numbers but different IPs — `(ip, port)` i
 - Keep tests updated with each behavior change.
 - Structural convergence must stay incremental: prefer file-local helper extraction, duplicate branch collapse, and wrapper removal over cross-module rewrites or new abstraction layers.
 - Do not add pure pass-through wrappers unless they preserve an external compatibility contract that cannot be removed yet; if a wrapper is kept for compatibility, mark it as such and avoid building new logic on top of it.
+- If a compatibility alias or legacy route must be retained, keep the current implementation path and the compatibility path physically adjacent and backed by the same helper/service. Do not fork behavior between “new” and “legacy” entrypoints.
+- Before adding a fallback branch for a payload field, route, or default value, check whether the same compatibility already exists elsewhere. The second copy is the trigger to centralize it immediately rather than adding another inline branch.
 
 ## Definition of Done
 A change is done only if:
