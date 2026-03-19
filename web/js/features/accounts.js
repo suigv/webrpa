@@ -1,6 +1,11 @@
 import { fetchJson } from '../utils/api.js';
 import { toast } from '../ui/toast.js';
-import { apiSubmitTask, buildTaskRequest, sanitizePayloadForTask } from './task_service.js';
+import {
+    apiSubmitTask,
+    buildTaskRequest,
+    injectAccountPayload,
+    sanitizePayloadForTask,
+} from './task_service.js';
 
 const accountsInput = document.getElementById("accountsInput");
 const accountsPreview = document.getElementById("accountsPreview");
@@ -478,15 +483,11 @@ async function bulkDispatch() {
             break;
         }
         const account = accountRes.data.account;
-        const twofa = account.twofa || "";
-        const payload = await sanitizePayloadForTask(plugin.trim(), {
+        const rawPayload = await injectAccountPayload(plugin.trim(), {
             device_ip: u.deviceIp,
-            acc: account.account || '',
-            pwd: account.password || '',
-            two_factor_code: twofa,
-            fa2_secret: twofa,
             status_hint: 'runtime',
-        });
+        }, account);
+        const payload = await sanitizePayloadForTask(plugin.trim(), rawPayload);
         const taskData = buildTaskRequest({
             task: plugin.trim(),
             payload,

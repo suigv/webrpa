@@ -276,6 +276,12 @@
     - 补充任务存储与草稿续跑的默认值回归测试，锁住任务系统内部默认链的一致性。
 
 - 最近重点 (本会话)：
+  - **前端插件账号注入入口收口**：
+    - `web/js/features/task_service.js` 新增共享账号 payload 注入 helper，统一根据任务目录声明选择 canonical 字段（`account/password/twofa_secret`）或兼容字段（`acc/pwd/fa2_secret`），不再让多个前端入口各自拼接账号字段。
+    - 设备任务面板与账号页批量派发已改为复用同一 helper，减少旧凭据字段在前端继续扩散的概率。
+    - 对未知任务仍保留 legacy 注入回退，避免已有手工输入插件名的批量派发流程被这轮收敛直接打断。
+
+- 最近重点 (本会话)：
   - **ai_type 去硬编码重构**：
     - 删除框架层所有 `volc`/`part_time` 业务判断分支（`sdk_business_support.py`）。
     - 候选人评分权重（`has_media_bonus`、`keyword_bonuses`）移入 `nurture_keywords.yaml` 的 `candidate_scoring` 字段，框架通用读取。

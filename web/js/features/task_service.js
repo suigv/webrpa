@@ -5,6 +5,8 @@ import { sysLog } from './logs.js';
 let catalogCache = null;
 let catalogPromise = null;
 const CONTEXT_PAYLOAD_KEYS = new Set(['app_id', 'app']);
+const CANONICAL_ACCOUNT_KEYS = ['account', 'password', 'twofa_secret'];
+const LEGACY_ACCOUNT_KEYS = ['acc', 'pwd', 'fa2_secret'];
 
 /**
  * 获取插件目录（单例缓存）
@@ -98,6 +100,63 @@ export async function sanitizePayloadForTask(taskName, payload = {}) {
                 CONTEXT_PAYLOAD_KEYS.has(key)
         )
     );
+}
+
+function _setAccountFields(payload, account, declaredKeys, mode) {
+    if (!account || typeof account !== 'object') {
+        return payload;
+    }
+
+    const nextPayload = { ...payload };
+    const accountName = String(account.account || '').trim();
+    const password = String(account.password || '').trim();
+    const twofa = String(account.twofa || '').trim();
+    const canWrite = (key) => !declaredKeys || declaredKeys.has(key);
+
+    if (mode === 'canonical') {
+        if (accountName && canWrite('account')) nextPayload.account = accountName;
+        if (password && canWrite('password')) nextPayload.password = password;
+        if (twofa && canWrite('twofa_secret')) nextPayload.twofa_secret = twofa;
+    } else {
+        if (accountName && canWrite('acc')) nextPayload.acc = accountName;
+        if (password && canWrite('pwd')) nextPayload.pwd = password;
+        if (twofa && canWrite('fa2_secret')) nextPayload.fa2_secret = twofa;
+    }
+
+    if (twofa && canWrite('two_factor_code')) {
+        nextPayload.two_factor_code = twofa;
+    }
+    return nextPayload;
+}
+
+export async function injectAccountPayload(taskName, payload = {}, account = null) {
+    if (!taskName || !payload || typeof payload !== 'object' || !account || typeof account !== 'object') {
+        return { ...payload };
+    }
+
+    if (!catalogCache) {
+        await getTaskCatalog();
+    }
+
+    const task = getCatalogTask(taskName);
+    const declaredKeys = task && Array.isArray(task.inputs)
+        ? new Set(task.inputs.map((item) => item.name).filter(Boolean))
+        : null;
+
+    const prefersCanonical = declaredKeys
+        ? CANONICAL_ACCOUNT_KEYS.some((key) => declaredKeys.has(key))
+        : false;
+    const prefersLegacy = declaredKeys
+        ? LEGACY_ACCOUNT_KEYS.some((key) => declaredKeys.has(key))
+        : false;
+
+    if (prefersCanonical) {
+        return _setAccountFields(payload, account, declaredKeys, 'canonical');
+    }
+    if (prefersLegacy || !declaredKeys) {
+        return _setAccountFields(payload, account, declaredKeys, 'legacy');
+    }
+    return _setAccountFields(payload, account, declaredKeys, 'canonical');
 }
 
 export function buildTaskRequest({

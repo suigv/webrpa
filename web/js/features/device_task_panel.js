@@ -4,6 +4,7 @@ import {
     apiSubmitTask,
     buildTaskRequest,
     collectTaskPayload,
+    injectAccountPayload,
     sanitizePayloadForTask,
 } from './task_service.js';
 import { sysLog } from './logs.js';
@@ -54,15 +55,8 @@ export async function submitUnitPluginTask({
 }) {
     if (!taskName || !fieldsContainer || !unit) return { ok: false, reason: 'invalid_params' };
 
-    const payload = collectTaskPayload(fieldsContainer);
-    if (account) {
-        if (account.account) payload.acc = account.account;
-        if (account.password) payload.pwd = account.password;
-        if (account.twofa) {
-            payload.two_factor_code = account.twofa;
-            payload.fa2_secret = account.twofa;
-        }
-    }
+    const rawPayload = collectTaskPayload(fieldsContainer);
+    const payload = await injectAccountPayload(taskName, rawPayload, account);
 
     const sanitizedPayload = await sanitizePayloadForTask(taskName, payload);
     const taskData = buildTaskRequest({
