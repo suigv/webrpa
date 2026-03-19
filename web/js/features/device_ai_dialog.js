@@ -195,11 +195,11 @@ function buildAiTaskPayload(unit) {
     const aiAccountSelect = $('unitAiAccountSelect');
     if (aiAccountSelect && aiAccountSelect.value !== '') {
         const selectedOpt = aiAccountSelect.options[aiAccountSelect.selectedIndex];
-        if (selectedOpt.dataset.acc) payload.acc = selectedOpt.dataset.acc;
-        if (selectedOpt.dataset.pwd) payload.pwd = selectedOpt.dataset.pwd;
+        if (selectedOpt.dataset.acc) payload.account = selectedOpt.dataset.acc;
+        if (selectedOpt.dataset.pwd) payload.password = selectedOpt.dataset.pwd;
         if (selectedOpt.dataset.twofa) {
             payload.two_factor_code = selectedOpt.dataset.twofa;
-            payload.fa2_secret = selectedOpt.dataset.twofa;
+            payload.twofa_secret = selectedOpt.dataset.twofa;
         }
     }
 

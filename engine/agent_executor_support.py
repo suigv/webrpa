@@ -64,6 +64,15 @@ _HISTORY_DIGEST_WINDOW = 5
 _DYNAMIC_STEP_EXTENSION_MIN = 2
 _DYNAMIC_STEP_EXTENSION_CAP = 5
 _DYNAMIC_STEP_PROGRESS_WINDOW = 4
+_PLANNER_INPUT_ALIASES = (
+    ("acc", ("acc", "account")),
+    ("pwd", ("pwd", "password")),
+    ("two_factor_code", ("two_factor_code",)),
+    ("fa2_secret", ("fa2_secret", "twofa_secret")),
+    ("email", ("email",)),
+    ("phone", ("phone",)),
+    ("username", ("username",)),
+)
 
 
 def _timestamp() -> str:
@@ -468,20 +477,14 @@ def _stabilize_fallback_state_hint(
 
 
 def _planner_inputs(payload: Mapping[str, object]) -> dict[str, object]:
-    allowed_keys = (
-        "acc",
-        "pwd",
-        "two_factor_code",
-        "fa2_secret",
-        "email",
-        "phone",
-        "username",
-    )
-    return {
-        key: value
-        for key, value in payload.items()
-        if key in allowed_keys and value not in (None, "")
-    }
+    resolved: dict[str, object] = {}
+    for target_key, aliases in _PLANNER_INPUT_ALIASES:
+        for alias in aliases:
+            value = payload.get(alias)
+            if value not in (None, ""):
+                resolved[target_key] = value
+                break
+    return resolved
 
 
 def _planner_visible_inputs(planner_inputs: Mapping[str, object]) -> dict[str, object]:

@@ -1,4 +1,20 @@
-from engine.agent_executor_support import _rewrite_text_entry_locate_params
+from engine.agent_executor_support import _planner_inputs, _rewrite_text_entry_locate_params
+
+
+def test_planner_inputs_accepts_canonical_login_field_names() -> None:
+    payload = {
+        "account": "demo_user",
+        "password": "demo_pass",
+        "two_factor_code": "123456",
+        "twofa_secret": "secret-otp",
+    }
+
+    assert _planner_inputs(payload) == {
+        "acc": "demo_user",
+        "pwd": "demo_pass",
+        "two_factor_code": "123456",
+        "fa2_secret": "secret-otp",
+    }
 
 
 def test_rewrite_text_entry_locate_params_preserves_submit_intent_for_account_stage() -> None:

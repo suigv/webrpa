@@ -258,6 +258,12 @@
     - 补充新旧路由对不可蒸馏插件的一致性测试，锁住兼容别名与主入口的行为对齐。
 
 - 最近重点 (本会话)：
+  - **Agent Executor 登录字段命名对齐**：
+    - AI 对话框提交账号信息时改用更明确的 `account/password/twofa_secret` 外部字段名，不再把 `acc/pwd/fa2_secret` 当作前端主契约。
+    - `engine/agent_executor_support.py` 将这些外部字段统一归一化到现有内部 planner 输入键，旧别名仍兼容，但兼容逻辑集中到单一入口，避免继续在前端扩散历史命名。
+    - 补充归一化测试，锁住 canonical 字段与旧内部键空间之间的映射关系。
+
+- 最近重点 (本会话)：
   - **ai_type 去硬编码重构**：
     - 删除框架层所有 `volc`/`part_time` 业务判断分支（`sdk_business_support.py`）。
     - 候选人评分权重（`has_media_bonus`、`keyword_bonuses`）移入 `nurture_keywords.yaml` 的 `candidate_scoring` 字段，框架通用读取。
@@ -342,7 +348,7 @@
 | Plugin count (`plugins/*/manifest.yaml`) | 1 |
 | SDK action bindings (`engine/actions/sdk_actions.py` + `engine/actions/sdk_action_catalog.py`) | 158 |
 | Test files (`tests/test_*.py`) | 72 |
-| Test functions (`def test_*`) | 398 |
+| Test functions (`def test_*`) | 399 |
 <!-- AUTO_PROGRESS_SNAPSHOT:END -->
 
 ## 4. 维护说明
