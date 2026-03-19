@@ -131,7 +131,7 @@ def _normalize_native_state_profile_params(
     state_profile_id = _resolve_native_state_profile_id(params)
     normalized_params = dict(params)
     normalized_params["state_profile_id"] = state_profile_id
-    normalized_params["binding_id"] = state_profile_id
+    normalized_params.pop("binding_id", None)
     return state_profile_id, normalized_params
 
 

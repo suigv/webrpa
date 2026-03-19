@@ -573,7 +573,7 @@ def test_navigate_to_accepts_state_profile_id_alias(monkeypatch: pytest.MonkeyPa
     assert result.data["current_route"] == "feed"
     assert observed_params
     assert observed_params[0]["state_profile_id"] == "feed_profile"
-    assert observed_params[0]["binding_id"] == "feed_profile"
+    assert "binding_id" not in observed_params[0]
 
 
 def test_navigate_to_keeps_binding_id_route_compatibility(monkeypatch: pytest.MonkeyPatch):
@@ -581,7 +581,7 @@ def test_navigate_to_keeps_binding_id_route_compatibility(monkeypatch: pytest.Mo
     from engine.actions import ui_state_actions
 
     def ui_match_state(params: dict[str, object], _context: ExecutionContext) -> ActionResult:
-        if params.get("binding_id") == "feed_binding":
+        if params.get("state_profile_id") == "feed_binding":
             return ActionResult(ok=True, code="ok", data={"state": {"state_id": "available"}})
         return ActionResult(ok=False, code="no_match", data={"state": {"state_id": "unknown"}})
 

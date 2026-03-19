@@ -32,6 +32,8 @@
       - 新增 `core.device_control`，统一直连设备控制链路里的 RPC 目标校验、连接、分辨率发现、归一化坐标换算和截图字节校验；`/api/devices/*` 轻控制路由与 `ui_touch_actions` 现在复用同一套设备控制 helper，不再各自维护 `wm size` 解析和坐标缩放逻辑。
       - Web 端新增共享任务表单 UI helper，任务主面板、单机执行面板和批量下发条统一复用“说明卡 + 字段渲染 + 高级参数展开”逻辑，减少前端重复实现继续漂移。
       - 收紧若干过度静默回退：WebSocket 事件轮询/广播、账号失败反馈持久化、浏览器 selector 轮询 fallback 现在都会保留可观测错误信息；浏览器 cookie 注入对不支持的 backend 会明确返回失败，而不再伪装成成功。
+      - Native 状态兼容继续收口：`ui_state_actions` 和 `navigation_actions` 仍兼容读取 legacy `binding_id` 入口，但内部传递、路由探测与执行热路径统一只使用 `state_profile_id`，避免新逻辑继续向内层传播双字段。
+      - Planner 迁移继续推进：`StructuredPlanner` 现在直接调用 `engine.planners.plan_structured_step()`，不再反向依赖旧的 `_plan_next_step` dict 接口；`agent_executor_planning._plan_next_step` 已降级为薄兼容包装层，保留旧 trace/测试兼容的同时把 structured planner 主逻辑收口到 `planners.py`。
   - **MYTOS API 新能力接入 (2026-03-19)**：
     - `AndroidApiClient` 与 `android.*` / `mytos.*` 动作已补齐新版 `task=snap` 截图、`modifydev?cmd=7` 指纹更新、`modifydev?cmd=17` 摇一摇开关。
     - `mytos.screenshot` 现兼容 `level=1/2/3`，可直接走新版截图接口；同时新增 `mytos.set_fingerprint` / `mytos.update_fingerprint` / `mytos.set_shake`。

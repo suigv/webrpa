@@ -1,18 +1,16 @@
 from __future__ import annotations
 
-import json
 import logging
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from ai_services.llm_client import LLMRequest
 from ai_services.vlm_client import VLMClient
 from engine.models.runtime import ExecutionContext
 
+from . import planners as planner_module
 from .agent_executor_support import (
     _json_dict,
-    _planner_visible_inputs,
     _submit_compensation_query,
     _timestamp,
     _vlm_allowed_action_types,
@@ -102,140 +100,19 @@ class AgentExecutorPlanningMixin:
         history_digest: list[dict[str, object]] | None = None,
         reflection: dict[str, object] | None = None,
     ) -> dict[str, object]:
-        vlm_attempt: dict[str, object] | None = None
-        if fallback_enabled and self._wants_vlm(config.fallback_modalities):
-            vlm_plan = self._plan_next_step_vlm(
-                config=config,
-                step_index=step_index,
-                last_action=last_action,
-                fallback_reason=fallback_reason,
-                fallback_evidence=fallback_evidence,
-            )
-            if bool(vlm_plan.get("ok")):
-                if bool(vlm_plan.get("done")):
-                    return vlm_plan
-                action_name = str(vlm_plan.get("action") or "").strip()
-                if action_name and action_name in config.allowed_actions:
-                    return vlm_plan
-                vlm_attempt = {
-                    "ok": False,
-                    "code": "vlm_action_not_allowed" if action_name else "vlm_action_missing",
-                    "message": (
-                        "vlm selected action outside allowed set"
-                        if action_name
-                        else "vlm returned empty action"
-                    ),
-                    "action": action_name,
-                    "request": _json_dict(vlm_plan.get("request")),
-                    "response": _json_dict(vlm_plan.get("response")),
-                }
-            else:
-                vlm_attempt = {
-                    "ok": False,
-                    "code": str(vlm_plan.get("code") or "vlm_error"),
-                    "message": str(vlm_plan.get("message") or "vlm planning failed"),
-                    "request": _json_dict(vlm_plan.get("request")),
-                    "response": _json_dict(vlm_plan.get("response")),
-                }
-
-        prompt_payload: dict[str, object] = {
-            "goal": config.goal,
-            "step_index": step_index,
-            "allowed_actions": config.allowed_actions,
-            "observation": observation,
-            "fallback_evidence": fallback_evidence if fallback_enabled else {},
-            "last_action": last_action,
-            "response_contract": {
-                "done": "boolean",
-                "action": "string",
-                "params": "object",
-                "message": "string",
-                "extracted_data": "object (optional, populate with key findings when done=true)",
-            },
-        }
-        if history_digest:
-            prompt_payload["history_digest"] = history_digest
-        if reflection:
-            prompt_payload["reflection"] = reflection
-        if vlm_attempt is not None:
-            prompt_payload["vlm_attempt"] = vlm_attempt
-        visible_inputs = _planner_visible_inputs(config.planner_inputs)
-        if visible_inputs:
-            prompt_payload["payload"] = visible_inputs
-
-        request = LLMRequest(
-            prompt=json.dumps(prompt_payload, ensure_ascii=False),
-            system_prompt=(
-                config.system_prompt
-                or "Return JSON only. Prefer structured-state-first planning. Mark done=true only when the task goal is complete."
-            ),
-            response_format={"type": "json_object"},
-            planning={"mode": "structured_state_first"},
-            fallback_modalities=config.fallback_modalities if fallback_enabled else [],
-        )
-        planned_at = _timestamp()
-        response = llm_client.evaluate(request, runtime_config=config.llm_runtime)
-        response_trace = self._llm_response_trace(response)
-        if not bool(response.ok):
-            error = getattr(response, "error", None)
-            code = str(getattr(error, "code", "llm_error") or "llm_error")
-            message = str(getattr(error, "message", "llm planning failed") or "llm planning failed")
-            retryable = bool(getattr(error, "retryable", False))
-            return {
-                "ok": False,
-                "code": code,
-                "message": message,
-                "retryable": retryable,
-                "request": self._llm_request_trace(request, runtime_config=config.llm_runtime),
-                "response": response_trace,
-                "planned_at": planned_at,
-                "fallback_reason": fallback_reason,
-            }
-
-        output_text = str(getattr(response, "output_text", "") or "").strip()
-        if not output_text:
-            return {
-                "ok": False,
-                "code": "invalid_planner_response",
-                "message": "planner returned empty output",
-                "request": self._llm_request_trace(request, runtime_config=config.llm_runtime),
-                "response": response_trace,
-                "planned_at": planned_at,
-                "fallback_reason": fallback_reason,
-            }
-        try:
-            plan = json.loads(output_text)
-        except json.JSONDecodeError as exc:
-            return {
-                "ok": False,
-                "code": "invalid_planner_response",
-                "message": f"planner returned invalid JSON: {exc.msg}",
-                "request": self._llm_request_trace(request, runtime_config=config.llm_runtime),
-                "response": response_trace,
-                "planned_at": planned_at,
-                "fallback_reason": fallback_reason,
-            }
-        if not isinstance(plan, dict):
-            return {
-                "ok": False,
-                "code": "invalid_planner_response",
-                "message": "planner must return a JSON object",
-                "request": self._llm_request_trace(request, runtime_config=config.llm_runtime),
-                "response": response_trace,
-                "planned_at": planned_at,
-                "fallback_reason": fallback_reason,
-            }
-        return {str(key): value for key, value in plan.items()} | {
-            "ok": True,
-            "planner_structured_state": getattr(response, "structured_state", None),
-            "request_id": str(getattr(response, "request_id", "") or ""),
-            "provider": str(getattr(response, "provider", "") or ""),
-            "model": str(getattr(response, "model", "") or ""),
-            "request": self._llm_request_trace(request, runtime_config=config.llm_runtime),
-            "response": response_trace,
-            "planned_at": planned_at,
-            "fallback_reason": fallback_reason,
-        }
+        return planner_module.plan_structured_step(
+            runtime=self,
+            llm_client=llm_client,
+            config=config,
+            step_index=step_index,
+            observation=observation,
+            last_action=last_action,
+            fallback_enabled=fallback_enabled,
+            fallback_reason=fallback_reason,
+            fallback_evidence=fallback_evidence,
+            history_digest=history_digest,
+            reflection=reflection,
+        ).to_legacy_dict()
 
     def _plan_next_step_vlm(
         self,

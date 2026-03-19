@@ -117,7 +117,7 @@ def test_ui_match_state_normalizes_native_state_profile_params(monkeypatch):
     assert captured["state_profile_id"] == "feed_profile"
     assert captured["binding_id"] is None
     assert captured["action_params"]["state_profile_id"] == "feed_profile"
-    assert captured["action_params"]["binding_id"] == "feed_profile"
+    assert "binding_id" not in captured["action_params"]
 
 
 def test_ui_match_state_keeps_binding_id_entrypoint_compatibility(monkeypatch):
@@ -160,7 +160,7 @@ def test_ui_match_state_keeps_binding_id_entrypoint_compatibility(monkeypatch):
     assert captured["state_profile_id"] == "legacy_profile"
     assert captured["binding_id"] is None
     assert captured["action_params"]["state_profile_id"] == "legacy_profile"
-    assert captured["action_params"]["binding_id"] == "legacy_profile"
+    assert "binding_id" not in captured["action_params"]
 
 
 def test_detect_login_stage_uses_visible_japanese_login_entry_text(monkeypatch):

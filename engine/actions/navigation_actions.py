@@ -60,10 +60,7 @@ def _resolve_route_state_profile_id(raw: dict[str, object]) -> str:
 
 
 def _route_profile_identity(route: RouteDefinition) -> dict[str, str]:
-    return {
-        "state_profile_id": route.state_profile_id,
-        "binding_id": route.state_profile_id,
-    }
+    return {"state_profile_id": route.state_profile_id}
 
 
 def _build_routes(
