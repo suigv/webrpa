@@ -1,4 +1,4 @@
-import { authFetch, fetchJson } from '../utils/api.js';
+import { fetchJson } from '../utils/api.js';
 import { toast } from '../ui/toast.js';
 import { toggleAdvancedTaskFields } from '../utils/task_form_ui.js';
 import { sysLog, unitLog } from './logs.js';
@@ -8,16 +8,20 @@ import {
     submitUnitAiTask,
 } from './device_ai_dialog.js';
 import {
+    bindDeviceModalActions,
+    openDeviceDetail,
+} from './device_detail_modal.js';
+import {
     renderDeviceTaskForm,
     runBulkPluginTasks,
     submitUnitPluginTask,
 } from './device_task_panel.js';
+import { closeUnitDetail, openUnitDetail } from './device_unit_detail.js';
 import {
     getTaskCatalog,
     buildTaskRequest,
     apiSubmitTask,
 } from './task_service.js';
-import { store } from '../state/store.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -25,8 +29,6 @@ let selectedUnits = new Set();
 let currentCatalog = [];
 let currentUnitsById = new Map();
 let currentUnitDetail = null;
-let currentUnitScreenshotTimer = null;
-let unitControlInFlight = false;
 
 const UNIT_ADVANCED_COLLAPSED_TEXT = '配置高级属性';
 const UNIT_ADVANCED_EXPANDED_TEXT = '收起高级属性';
@@ -156,18 +158,12 @@ export function initDevices() {
     const accountRefreshBtn = $("unitAccountRefresh");
     if (accountRefreshBtn) accountRefreshBtn.onclick = loadUnitAccounts;
 
-    // 设备详情模态框绑定
-    const closeDeviceModalBtns = document.querySelectorAll(".close-device-modal-btn");
-    closeDeviceModalBtns.forEach(btn => btn.onclick = closeDeviceModal);
-    
-    const stopDeviceBtn = $("stopDeviceTasksBtn");
-    if (stopDeviceBtn) stopDeviceBtn.onclick = () => stopDeviceTasks(currentUnitDetail);
-
-    const enableDeviceBtn = $("enableDeviceBtn");
-    if (enableDeviceBtn) enableDeviceBtn.onclick = () => setDeviceOnlineStatus(currentUnitDetail, true);
-
-    const disableDeviceBtn = $("disableDeviceBtn");
-    if (disableDeviceBtn) disableDeviceBtn.onclick = () => setDeviceOnlineStatus(currentUnitDetail, false);
+    bindDeviceModalActions({
+        getCurrentUnit: () => currentUnitDetail,
+        onDeviceChanged: () => {
+            void loadDevices();
+        },
+    });
     
     // 系统状态模态框绑定 (全局)
     const showSysBtn = $("showSystemStatus") || $("apiStatus");
@@ -235,45 +231,6 @@ export function initDevices() {
     loadDevices();
     loadPluginCatalog();
     setInterval(loadDevices, 5000);
-}
-
-function showDeviceModal() {
-    const modal = $("deviceDetailModal");
-    if (modal) modal.style.display = "flex";
-}
-
-function closeDeviceModal() {
-    const modal = $("deviceDetailModal");
-    if (modal) modal.style.display = "none";
-}
-
-async function stopDeviceTasks(unit) {
-    if (!unit) return;
-    if (!confirm(`确定要停止云机 #${unit.parent_id}-${unit.cloud_id} 上正在运行的所有任务吗？`)) return;
-
-    const r = await fetchJson(`/api/tasks/device/${unit.parent_id}/stop`, { method: "POST" });
-    if (r.ok) {
-        toast.success(`已下发停止指令，取消了 ${r.data.cancelled_count} 个任务`);
-        closeDeviceModal();
-        loadDevices();
-    } else {
-        toast.error("停止任务失败");
-    }
-}
-
-async function setDeviceOnlineStatus(unit, online) {
-    if (!unit) return;
-    const action = online ? "上线" : "下线";
-    if (!confirm(`确定要将设备 #${unit.parent_id} ${action}吗？`)) return;
-    const endpoint = online ? "start" : "stop";
-    const r = await fetchJson(`/api/devices/${unit.parent_id}/${endpoint}`, { method: "POST" });
-    if (r.ok) {
-        toast.success(`设备 #${unit.parent_id} 已${action}`);
-        closeDeviceModal();
-        loadDevices();
-    } else {
-        toast.error(`设备${action}失败`);
-    }
 }
 
 function closeSystemModal() {
@@ -378,34 +335,6 @@ async function runGlobalBrowserDiag() {
         err.textContent = '请求失败，请检查 API 连通性';
         resultBox.appendChild(err);
     }
-}
-
-function openDeviceDetail(u) {
-    currentUnitDetail = u;
-    const content = $("deviceDetailContent");
-    clearElement(content);
-    
-    const unitId = `${u.parent_id}-${u.cloud_id}`;
-    $("deviceDetailTitle").textContent = `设备详情 - 云机 #${unitId}`;
-    
-    const grid = document.createElement("div");
-    grid.className = "form-grid columns-2 text-sm";
-    
-    grid.append(createTextBlock("设备 IP", u.parent_ip));
-    grid.append(createTextBlock("ADB 端口", u.rpa_port));
-    grid.append(createTextBlock("API 端口", u.api_port));
-    grid.append(createTextBlock("云机型号", u.machine_model_name || "标准型"));
-    grid.append(createTextBlock("AI 引擎", u.ai_type));
-    grid.append(createTextBlock("状态", u.availability_state, `color:${u.availability_state === 'available' ? 'var(--success)' : 'var(--error)'}`));
-    
-    if (u.current_task) {
-        const taskRow = createTextBlock("当前任务", u.current_task, "color:var(--text-primary); font-weight:600;");
-        taskRow.style.gridColumn = "1 / -1";
-        grid.append(taskRow);
-    }
-    
-    content.appendChild(grid);
-    showDeviceModal();
 }
 
 async function loadPluginCatalog() {
@@ -537,7 +466,11 @@ function renderUnitCard(container, u) {
     const infoBtn = document.createElement('button');
     infoBtn.className = 'btn btn-text text-primary p-0 ml-auto';
     infoBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>';
-    infoBtn.onclick = (e) => { e.stopPropagation(); openDeviceDetail(u); };
+    infoBtn.onclick = (e) => {
+        e.stopPropagation();
+        currentUnitDetail = u;
+        openDeviceDetail(u);
+    };
 
     header.append(title, badge, infoBtn);
 
@@ -575,7 +508,17 @@ function renderUnitCard(container, u) {
     controlBtn.disabled = !isOnline;
     controlBtn.onclick = (e) => {
         e.stopPropagation();
-        openUnitDetail(u);
+        openUnitDetail({
+            unit: u,
+            clearElement,
+            buildUnitLogTarget,
+            renderUnitPluginFields,
+            loadUnitAccounts,
+            submitUnitTask,
+            setCurrentUnit: (unit) => {
+                currentUnitDetail = unit;
+            },
+        });
     };
     
     actions.appendChild(controlBtn);
@@ -637,253 +580,15 @@ function renderUnitPluginFields() {
     });
 }
 
-async function loadUnitScreenshot(unit) {
-    const img = $("unitScreenshotImg");
-    const placeholder = $("unitScreenshotPlaceholder");
-    if (!img || !placeholder) return;
-    if (unit.availability_state !== "available") {
-        img.style.visibility = "hidden";
-        placeholder.textContent = "设备离线，无法获取截图";
-        placeholder.style.visibility = "visible";
-        return;
-    }
-    // 不隐藏当前图片，后台预加载新图，加载完成后无缝替换
-    try {
-        // API 端会从 config/devices.json 推导 device_ip，并按 cloud_id 推导 rpa_port。
-        const url = `/api/devices/${unit.parent_id}/${unit.cloud_id}/screenshot?t=${Date.now()}`;
-        const resp = await authFetch(url);
-        if (!resp.ok) {
-            let reason = `HTTP ${resp.status}`;
-            const body = await resp.json().catch(() => null);
-            if (body?.detail) reason = body.detail;
-            if (resp.status === 502) reason = `设备不可达 (${reason})`;
-            throw new Error(reason);
-        }
-        const blob = await resp.blob();
-        const newUrl = URL.createObjectURL(blob);
-        await new Promise((resolve, reject) => {
-            const tmp = new Image();
-            tmp.onload = () => {
-                const oldUrl = img.src;
-                img.src = newUrl;
-                img.style.visibility = "visible";
-                placeholder.style.visibility = "hidden";
-                if (oldUrl && oldUrl.startsWith('blob:')) URL.revokeObjectURL(oldUrl);
-                resolve();
-            };
-            tmp.onerror = () => {
-                URL.revokeObjectURL(newUrl);
-                reject(new Error('image decode failed'));
-            };
-            tmp.src = newUrl;
-        });
-    } catch (e) {
-        if (!img.src || !img.src.startsWith('blob:')) {
-            img.style.visibility = "hidden";
-            placeholder.textContent = `截图获取失败: ${e.message}`;
-            placeholder.style.visibility = "visible";
-        }
-        // 若已有图片则静默失败，保留上一张
-    }
-}
-
-function unitControlButtons() {
-    return Array.from(document.querySelectorAll('[data-unit-control]'));
-}
-
-function setUnitControlBusy(busy) {
-    unitControlInFlight = busy;
-    unitControlButtons().forEach((button) => {
-        button.disabled = busy;
-    });
-    const img = $("unitScreenshotImg");
-    if (img) {
-        img.style.cursor = busy ? 'wait' : 'crosshair';
-    }
-}
-
-function controlErrorDetail(response) {
-    const detail = response?.data?.detail;
-    if (typeof detail === 'string' && detail.trim()) return detail.trim();
-    return `HTTP ${response?.status || 0}`;
-}
-
-async function postUnitControl(unit, action, payload, successMessage = '') {
-    if (!unit || unit.availability_state !== "available") {
-        toast.error("设备离线，无法控制");
-        return false;
-    }
-    if (unitControlInFlight) return false;
-    setUnitControlBusy(true);
-    try {
-        const response = await fetchJson(`/api/devices/${unit.parent_id}/${unit.cloud_id}/${action}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-        });
-        if (!response.ok) {
-            toast.error(`控制失败: ${controlErrorDetail(response)}`);
-            return false;
-        }
-        if (successMessage) {
-            toast.success(successMessage);
-        }
-        await loadUnitScreenshot(unit);
-        return true;
-    } finally {
-        setUnitControlBusy(false);
-    }
-}
-
-async function handleScreenshotTap(event, unit) {
-    const img = $("unitScreenshotImg");
-    if (!img || !unit || !img.src || img.style.visibility === 'hidden') return;
-    const rect = img.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0) return;
-    const rx = Math.min(Math.max(event.clientX - rect.left, 0), rect.width);
-    const ry = Math.min(Math.max(event.clientY - rect.top, 0), rect.height);
-    const nx = Math.round((rx / rect.width) * 1000);
-    const ny = Math.round((ry / rect.height) * 1000);
-    await postUnitControl(unit, 'tap', { nx, ny }, `已点击 (${nx}, ${ny})`);
-}
-
-async function handleUnitTextSend(unit) {
-    const input = $("unitTextInput");
-    if (!input) return;
-    const text = typeof input.value === "string" ? input.value : "";
-    if (!text.trim()) {
-        toast.error("请输入要发送的文本");
-        input.focus();
-        return;
-    }
-    if (/[\r\n]/.test(text)) {
-        toast.error("轻控制仅支持单行文本");
-        input.focus();
-        return;
-    }
-    const ok = await postUnitControl(unit, "text", { text }, "已发送文本");
-    if (ok) {
-        input.value = "";
-    }
-}
-
-function bindUnitControls(unit) {
-    const refreshBtn = $("refreshScreenshot");
-    if (refreshBtn) refreshBtn.onclick = () => loadUnitScreenshot(unit);
-
-    const img = $("unitScreenshotImg");
-    if (img) {
-        img.onclick = (event) => {
-            void handleScreenshotTap(event, unit);
-        };
-    }
-
-    const keyActions = {
-        unitKeyBack: { action: 'key', payload: { key: 'back' }, message: '已发送返回' },
-        unitKeyHome: { action: 'key', payload: { key: 'home' }, message: '已发送 Home' },
-        unitKeyEnter: { action: 'key', payload: { key: 'enter' }, message: '已发送 Enter' },
-        unitKeyDelete: { action: 'key', payload: { key: 'delete' }, message: '已发送退格键' },
-        unitSwipeUp: {
-            action: 'swipe',
-            payload: { nx0: 500, ny0: 820, nx1: 500, ny1: 220, duration: 350 },
-            message: '已上滑',
-        },
-        unitSwipeDown: {
-            action: 'swipe',
-            payload: { nx0: 500, ny0: 220, nx1: 500, ny1: 820, duration: 350 },
-            message: '已下滑',
-        },
-        unitSwipeLeft: {
-            action: 'swipe',
-            payload: { nx0: 820, ny0: 500, nx1: 220, ny1: 500, duration: 350 },
-            message: '已左滑',
-        },
-        unitSwipeRight: {
-            action: 'swipe',
-            payload: { nx0: 220, ny0: 500, nx1: 820, ny1: 500, duration: 350 },
-            message: '已右滑',
-        },
-    };
-
-    Object.entries(keyActions).forEach(([id, config]) => {
-        const button = $(id);
-        if (!button) return;
-        button.onclick = () => {
-            void postUnitControl(unit, config.action, config.payload, config.message);
-        };
-    });
-
-    const textInput = $("unitTextInput");
-    if (textInput) {
-        textInput.onkeydown = (event) => {
-            if (event.key !== "Enter") return;
-            event.preventDefault();
-            void handleUnitTextSend(unit);
-        };
-    }
-
-    const sendTextBtn = $("unitSendText");
-    if (sendTextBtn) {
-        sendTextBtn.onclick = () => {
-            void handleUnitTextSend(unit);
-        };
-    }
-}
-
-function openUnitDetail(unit) {
-    document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
-    const view = $("unitDetailView");
-    if(view) view.style.display = "flex";
-    const title = $("detailUnitTitle");
-    if(title) title.textContent = `云机 #${unit.parent_id}-${unit.cloud_id}`;
-    currentUnitDetail = unit;
-    document.body.dataset.currentDeviceId = unit.parent_id;
-    document.body.dataset.currentCloudId = unit.cloud_id;
-    const logBox = $("unitLogBox");
-    clearElement(logBox);
-    store.setState({ currentUnitLogTarget: buildUnitLogTarget(unit) });
-    renderUnitPluginFields();
-    loadUnitAccounts();
-    const btn = $("submitSingleTask");
-    if(btn) btn.onclick = () => submitUnitTask(unit);
-    bindUnitControls(unit);
-    loadUnitScreenshot(unit);
-    if (currentUnitScreenshotTimer) {
-        clearInterval(currentUnitScreenshotTimer);
-    }
-    currentUnitScreenshotTimer = setInterval(() => {
-        if (currentUnitDetail !== unit) {
-            clearInterval(currentUnitScreenshotTimer);
-            currentUnitScreenshotTimer = null;
-            return;
-        }
-        loadUnitScreenshot(unit);
-    }, 1000);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-}
-
 export function closeDetail(restoreMainTab = true) {
-    const view = $("unitDetailView");
-    if(view) view.style.display = "none";
-    closeUnitAiDialog();
-    currentUnitDetail = null;
-    if (currentUnitScreenshotTimer) {
-        clearInterval(currentUnitScreenshotTimer);
-        currentUnitScreenshotTimer = null;
-    }
-    setUnitControlBusy(false);
-    const img = $("unitScreenshotImg");
-    if (img && img.src && img.src.startsWith('blob:')) {
-        URL.revokeObjectURL(img.src);
-        img.src = '';
-        img.style.visibility = 'hidden';
-    }
-    if (restoreMainTab) {
-        const tabMain = $("tab-main");
-        if(tabMain) tabMain.classList.add("active");
-        loadDevices();
-    }
-    store.setState({ currentUnitLogTarget: '' });
+    closeUnitDetail({
+        restoreMainTab,
+        closeUnitAiDialog,
+        loadDevices,
+        setCurrentUnit: (unit) => {
+            currentUnitDetail = unit;
+        },
+    });
 }
 
 async function submitUnitTask(unit) {
