@@ -130,6 +130,11 @@
   - **UI State 入口参数标准化**：`ui.match_state` / `ui.wait_until` / `ui.observe_transition` 在 native 模式下会先把 `state_profile_id` / `binding_id` 归一成一致的双字段后再创建 adapter，确保新旧入口在后续动作链里观察到的是同一份稳定参数。
   - **移除 Binding 工坊（历史链路下线）**：删除 Web 控制台中的 Binding Master 入口、`/api/binding/*` 路由、`engine/binding_distiller.py` 与 `tools/distill_binding.py`，正式收口到自动学习主链路（`agent_executor -> trace -> config/apps/*.yaml`），减少人工预热路径。该条记录描述的是旧 binding 工坊链路的下线，不代表当前仍存在独立 binding 子系统。
 
+- 最近重点 (2026-03-20)：
+  - **任务执行层结构冗余收敛**：
+    - **`TaskExecutionService` 转发方法清除**：删除 `_enqueue_retry`、`_enqueue_record`、`_delay_seconds`、`_iso_to_epoch` 四个只做单行转发的方法，将类内调用点改为直接调用模块级函数（`_enqueue_record(self._queue, record)`、`_enqueue_retry(self._queue, ...)`），行为不变，消除双层调用路径。
+    - **`RunnerLike` Protocol 重复定义消除**：`task_control.py` 中与 `task_execution.py` 完全相同的本地 `RunnerLike` 定义已删除，改为直接从 `core.task_execution` import；同时清理了随之变为无用的 `Protocol` import。
+
 - 最近重点 (2026-03-19)：
   - **Workflow Draft 控制面落地**：新增 `workflow_drafts` 持久化层与 `WorkflowDraftService`，把客户中文任务名、成功样本门槛、最近成功快照、失败建议和蒸馏状态从单次任务中抽离为稳定草稿对象。
   - **任务提交流程减负**：`POST /api/tasks/` 新增 `display_name` / `draft_id` / `success_threshold`，AI 任务首次成功后只提示“继续验证”，不再要求客户重复输入提示词。

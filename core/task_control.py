@@ -8,13 +8,13 @@ from collections.abc import Callable
 from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any
 
 from core.account_feedback import AccountFeedbackService
 from core.device_manager import get_device_manager
 from core.paths import task_db_path, traces_dir
 from core.task_events import TaskEventStore
-from core.task_execution import TaskExecutionService
+from core.task_execution import RunnerLike, TaskExecutionService
 from core.task_finalizer import AccountFeedbackLike, TaskAttemptFinalizer
 from core.task_metrics import TaskMetricsService, build_task_metrics_payload
 from core.task_queue import QueueBackend, create_task_queue
@@ -149,15 +149,6 @@ def _normalize_targets_and_devices(
         raise ValueError("either targets or devices must be provided")
     normalized_targets = normalize_dispatch_targets([], device_ids)
     return device_ids, normalized_targets
-
-
-class RunnerLike(Protocol):
-    def run(
-        self,
-        script_payload: dict[str, Any],
-        should_cancel: Any = None,
-        runtime: dict[str, Any] | None = None,
-    ) -> dict[str, Any]: ...
 
 
 class TaskController:

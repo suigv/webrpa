@@ -709,7 +709,7 @@ class TaskExecutionService:
 
     def enqueue_record(self, record: Any) -> None:
         """Public wrapper to enqueue a task record for execution."""
-        self._enqueue_record(record)
+        _enqueue_record(self._queue, record)
 
     def _work_loop(self) -> None:
         while not self._stop_event.is_set():
@@ -739,9 +739,6 @@ class TaskExecutionService:
             dispatch_runtime_resolver=self._dispatch_runtime_resolver,
         )
 
-    def _enqueue_retry(self, record: Any, should_enqueue: bool) -> None:
-        _enqueue_retry(self._queue, record, should_enqueue)
-
     def _recover_stale_running_tasks(self) -> None:
         stale_after_seconds = self._stale_running_seconds()
         stale_before = (datetime.now(UTC) - timedelta(seconds=stale_after_seconds)).isoformat()
@@ -761,20 +758,11 @@ class TaskExecutionService:
                 )
 
         for record in recovered:
-            self._enqueue_record(record)
+            _enqueue_record(self._queue, record)
 
     def _enqueue_pending_tasks(self) -> None:
         for record in self._store.list_pending_tasks():
-            self._enqueue_record(record)
-
-    def _enqueue_record(self, record: Any) -> None:
-        _enqueue_record(self._queue, record)
-
-    def _delay_seconds(self, next_retry_at: str) -> int:
-        return _delay_seconds(next_retry_at)
-
-    def _iso_to_epoch(self, timestamp: str) -> float:
-        return _iso_to_epoch(timestamp)
+            _enqueue_record(self._queue, record)
 
     @staticmethod
     def _stale_running_seconds() -> int:
@@ -967,7 +955,7 @@ class TaskExecutionService:
                 result=_trip_result(task_name, handle.breaker_trip),
                 payload=record.payload,
             )
-            self._enqueue_retry(outcome.retry_record, outcome.should_enqueue_retry)
+            _enqueue_retry(self._queue, outcome.retry_record, outcome.should_enqueue_retry)
             return
 
         if record.cancel_requested:
@@ -992,7 +980,7 @@ class TaskExecutionService:
         outcome = self._finalizer.finalize_exception_attempt(
             task_id=task_id, task_name=task_name, error=error
         )
-        self._enqueue_retry(outcome.retry_record, outcome.should_enqueue_retry)
+        _enqueue_retry(self._queue, outcome.retry_record, outcome.should_enqueue_retry)
 
     def _shutdown_processes(self) -> None:
         with self._active_lock:
