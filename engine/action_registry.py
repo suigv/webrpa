@@ -129,6 +129,19 @@ def register_defaults() -> None:
         input_text_with_shell_fallback,
     )
     from .actions.navigation_actions import navigate_to
+    from .actions.profile_actions import (
+        GENERATE_CONTACT_METADATA,
+        GENERATE_ENV_BUNDLE_METADATA,
+        GENERATE_FINGERPRINT_METADATA,
+        INVENTORY_PHONE_MODELS_METADATA,
+        SELECT_PHONE_MODEL_METADATA,
+        generator_generate_contact,
+        generator_generate_env_bundle,
+        generator_generate_fingerprint,
+        inventory_get_phone_models,
+        inventory_refresh_phone_models,
+        selector_select_phone_model,
+    )
     from .actions.sdk_actions import (
         LOAD_SHARED_REQUIRED_METADATA,
         SAVE_SHARED_METADATA,
@@ -285,6 +298,36 @@ def register_defaults() -> None:
     _registry.register("core.generate_totp", generate_totp)
     _registry.register("core.generate_dm_reply", generate_dm_reply)
     _registry.register("core.generate_quote_text", generate_quote_text)
+    _registry.register(
+        "inventory.get_phone_models",
+        inventory_get_phone_models,
+        metadata=INVENTORY_PHONE_MODELS_METADATA,
+    )
+    _registry.register(
+        "inventory.refresh_phone_models",
+        inventory_refresh_phone_models,
+        metadata=INVENTORY_PHONE_MODELS_METADATA,
+    )
+    _registry.register(
+        "selector.select_phone_model",
+        selector_select_phone_model,
+        metadata=SELECT_PHONE_MODEL_METADATA,
+    )
+    _registry.register(
+        "generator.generate_fingerprint",
+        generator_generate_fingerprint,
+        metadata=GENERATE_FINGERPRINT_METADATA,
+    )
+    _registry.register(
+        "generator.generate_contact",
+        generator_generate_contact,
+        metadata=GENERATE_CONTACT_METADATA,
+    )
+    _registry.register(
+        "generator.generate_env_bundle",
+        generator_generate_env_bundle,
+        metadata=GENERATE_ENV_BUNDLE_METADATA,
+    )
     _registry.register("core.detect_login_stage", detect_login_stage)
     _registry.register("core.wait_login_stage", wait_login_stage)
     _registry.register("core.extract_timeline_candidates", extract_timeline_candidates)

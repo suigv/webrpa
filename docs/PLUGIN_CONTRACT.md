@@ -73,6 +73,57 @@ plugins/<plugin_name>/
 
 > **说明**：如需跨页面导航，请使用 `ui.navigate_to`，并在 `params` 或 session defaults 提供 `routes` 与 `hops`（路由定义 + 跳转动作）。该动作基于 `ui.match_state` 校验到达状态，避免隐式硬编码路径。对 native/browser 状态观察，推荐使用 `state_profile_id`；运行时继续兼容旧参数名 `binding_id`。
 
+### 推荐编排模式：Inventory / Selector / Generator
+
+当插件需要处理“设备初始化 / 防封环境配置 / 随机资料注入”时，推荐遵循下面的职责分层：
+
+- `inventory.*`
+  - 负责“必须先从上游拉取”的数据，如在线机型、本地机型、国家码、镜像列表。
+  - 当前已提供：`inventory.get_phone_models` / `inventory.refresh_phone_models`
+- `selector.*`
+  - 负责对库存做筛选和确定性选择，避免把筛选逻辑散落在 YAML 中。
+  - 当前已提供：`selector.select_phone_model`
+- `generator.*`
+  - 负责本地可合成的数据，如指纹、联系人、环境包。
+  - 当前已提供：`generator.generate_fingerprint` / `generator.generate_contact` / `generator.generate_env_bundle`
+
+推荐脚本模式：
+
+```yaml
+steps:
+  - kind: action
+    action: selector.select_phone_model
+    save_as: selected_model
+    params:
+      source: online
+      device_ip: "${payload.device_ip}"
+      seed: "${payload.seed}"
+
+  - kind: action
+    action: generator.generate_env_bundle
+    save_as: env_bundle
+    params:
+      country_profile: jp_mobile
+      seed: "${payload.seed}"
+
+  - kind: action
+    action: sdk.switch_model
+    params:
+      name: "${payload.cloud_name}"
+      model_id: "${vars.selected_model.apply.model_id:-}"
+      localModel: "${vars.selected_model.apply.local_model:-}"
+
+  - kind: action
+    action: mytos.set_fingerprint
+    params:
+      data: "${vars.env_bundle.fingerprint}"
+```
+
+这样做的目的：
+- 先获取的数据与随机生成的数据边界清晰
+- API、插件、前端预热可共用同一套服务
+- `save_as` 后的输出结构稳定，便于后续动作直接消费
+
 ---
 
 ## 4. 失败处理策略 (`on_fail`)
@@ -92,3 +143,4 @@ plugins/<plugin_name>/
 - [ ] 步骤中引用的 `${payload.xxx}` 均在 `manifest` 中有对应声明。
 - [ ] 关键步骤配置了合理的 `on_fail` 策略。
 - [ ] 复杂跳转逻辑已通过 `max_transitions`（硬上限 500）压力测试。
+- [ ] 对“获取后选择”和“随机生成”两类数据，优先复用 `inventory.*` / `selector.*` / `generator.*`，避免在 YAML 中重复堆条件和随机规则。

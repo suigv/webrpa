@@ -1,0 +1,215 @@
+from __future__ import annotations
+
+from typing import Any, cast
+
+from core.device_profile_generator import (
+    generate_contact,
+    generate_env_bundle,
+    generate_fingerprint,
+)
+from core.device_profile_inventory import get_phone_models, refresh_phone_models
+from core.device_profile_selector import select_phone_model
+from engine.action_registry import ActionMetadata
+from engine.models.runtime import ActionResult, ExecutionContext
+
+INVENTORY_PHONE_MODELS_METADATA = ActionMetadata(
+    description="Fetch or read cached phone model inventory from MYT SDK.",
+    params_schema={
+        "type": "object",
+        "properties": {
+            "source": {"type": "string", "enum": ["online", "local"]},
+            "device_ip": {"type": "string"},
+            "sdk_port": {"type": "integer", "default": 8000},
+            "refresh": {"type": "boolean", "default": False},
+        },
+        "required": ["device_ip"],
+    },
+)
+
+SELECT_PHONE_MODEL_METADATA = ActionMetadata(
+    description="Deterministically select one phone model from inventory using filters and seed.",
+    params_schema={
+        "type": "object",
+        "properties": {
+            "source": {"type": "string", "enum": ["online", "local"]},
+            "device_ip": {"type": "string"},
+            "sdk_port": {"type": "integer", "default": 8000},
+            "refresh_inventory": {"type": "boolean", "default": False},
+            "seed": {"type": "string"},
+            "filters": {"type": "object"},
+            "items": {"type": "array"},
+        },
+    },
+)
+
+GENERATE_FINGERPRINT_METADATA = ActionMetadata(
+    description="Generate randomized anti-ban fingerprint payload for MYTOS modifydev cmd=7.",
+    params_schema={
+        "type": "object",
+        "properties": {
+            "country_profile": {"type": "string", "default": "jp_mobile"},
+            "seed": {"type": "string"},
+            "overrides": {"type": "object"},
+        },
+    },
+)
+
+GENERATE_CONTACT_METADATA = ActionMetadata(
+    description="Generate randomized contacts payload for MYTOS add_contact.",
+    params_schema={
+        "type": "object",
+        "properties": {
+            "country_profile": {"type": "string", "default": "jp_mobile"},
+            "seed": {"type": "string"},
+            "count": {"type": "integer", "default": 1},
+        },
+    },
+)
+
+GENERATE_ENV_BUNDLE_METADATA = ActionMetadata(
+    description="Generate a reusable environment bundle with language, fingerprint, Google ADID, and contacts.",
+    params_schema={
+        "type": "object",
+        "properties": {
+            "country_profile": {"type": "string", "default": "jp_mobile"},
+            "seed": {"type": "string"},
+            "contact_count": {"type": "integer", "default": 1},
+            "language": {"type": "string"},
+            "country": {"type": "string"},
+            "timezone": {"type": "string"},
+            "shake_enabled": {"type": "boolean", "default": False},
+            "fingerprint_overrides": {"type": "object"},
+        },
+    },
+)
+
+
+def _ok(data: dict[str, Any]) -> ActionResult:
+    return ActionResult(ok=True, code="ok", data=data)
+
+
+def _err(code: str, message: str, data: dict[str, Any] | None = None) -> ActionResult:
+    return ActionResult(ok=False, code=code, message=message, data=data or {})
+
+
+def _source(params: dict[str, Any]) -> str:
+    source = str(params.get("source") or "online").strip().lower()
+    return source if source in {"online", "local"} else "online"
+
+
+def _device_ip(params: dict[str, Any], context: ExecutionContext) -> str:
+    return str(
+        params.get("device_ip")
+        or context.payload.get("device_ip")
+        or context.runtime.get("device_ip")
+        or ""
+    ).strip()
+
+
+def _sdk_port(params: dict[str, Any], context: ExecutionContext) -> int:
+    raw = params.get("sdk_port") or context.payload.get("sdk_port") or 8000
+    return int(raw)
+
+
+def _result_to_action(result: dict[str, Any]) -> ActionResult:
+    if not result.get("ok"):
+        return _err(
+            str(result.get("code") or "action_failed"),
+            str(result.get("message") or "action failed"),
+            cast(dict[str, Any], result.get("data") or {}),
+        )
+    data = result.get("data")
+    if not isinstance(data, dict):
+        data = {"result": data}
+    return _ok(cast(dict[str, Any], data))
+
+
+def inventory_get_phone_models(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
+    device_ip = _device_ip(params, context)
+    if not device_ip:
+        return _err("invalid_params", "device_ip is required")
+    return _result_to_action(
+        get_phone_models(
+            cast(Any, _source(params)),
+            device_ip=device_ip,
+            sdk_port=_sdk_port(params, context),
+            refresh=bool(params.get("refresh", False)),
+            timeout_seconds=float(params.get("timeout_seconds", 30.0)),
+            retries=int(params.get("retries", 3)),
+        )
+    )
+
+
+def inventory_refresh_phone_models(
+    params: dict[str, Any], context: ExecutionContext
+) -> ActionResult:
+    device_ip = _device_ip(params, context)
+    if not device_ip:
+        return _err("invalid_params", "device_ip is required")
+    return _result_to_action(
+        refresh_phone_models(
+            cast(Any, _source(params)),
+            device_ip=device_ip,
+            sdk_port=_sdk_port(params, context),
+            timeout_seconds=float(params.get("timeout_seconds", 30.0)),
+            retries=int(params.get("retries", 3)),
+        )
+    )
+
+
+def selector_select_phone_model(
+    params: dict[str, Any], context: ExecutionContext
+) -> ActionResult:
+    items = params.get("items")
+    normalized_items = items if isinstance(items, list) else None
+    result = select_phone_model(
+        source=cast(Any, _source(params)),
+        device_ip=_device_ip(params, context),
+        sdk_port=_sdk_port(params, context),
+        refresh_inventory=bool(params.get("refresh_inventory", False)),
+        timeout_seconds=float(params.get("timeout_seconds", 30.0)),
+        retries=int(params.get("retries", 3)),
+        items=cast(list[dict[str, Any]] | None, normalized_items),
+        filters=cast(dict[str, Any] | None, params.get("filters")),
+        seed=str(params.get("seed") or "").strip() or None,
+    )
+    return _result_to_action(result)
+
+
+def generator_generate_fingerprint(
+    params: dict[str, Any], context: ExecutionContext
+) -> ActionResult:
+    _ = context
+    data = generate_fingerprint(
+        country_profile=str(params.get("country_profile") or "jp_mobile"),
+        seed=str(params.get("seed") or "").strip() or None,
+        overrides=cast(dict[str, Any] | None, params.get("overrides")),
+    )
+    return _ok(data)
+
+
+def generator_generate_contact(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
+    _ = context
+    data = generate_contact(
+        country_profile=str(params.get("country_profile") or "jp_mobile"),
+        seed=str(params.get("seed") or "").strip() or None,
+        count=int(params.get("count", 1)),
+    )
+    return _ok(data)
+
+
+def generator_generate_env_bundle(
+    params: dict[str, Any], context: ExecutionContext
+) -> ActionResult:
+    _ = context
+    data = generate_env_bundle(
+        country_profile=str(params.get("country_profile") or "jp_mobile"),
+        seed=str(params.get("seed") or "").strip() or None,
+        contact_count=int(params.get("contact_count", 1)),
+        language=str(params.get("language") or "").strip() or None,
+        country=str(params.get("country") or "").strip() or None,
+        timezone=str(params.get("timezone") or "").strip() or None,
+        shake_enabled=bool(params.get("shake_enabled", False)),
+        fingerprint_overrides=cast(dict[str, Any] | None, params.get("fingerprint_overrides")),
+    )
+    return _ok(data)

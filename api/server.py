@@ -13,6 +13,7 @@ from api.routes import config as config_route
 from api.routes import data as data_route
 from api.routes import devices as devices_route
 from api.routes import engine_routes
+from api.routes import profiles as profiles_route
 from api.routes import task_routes as tasks_route
 from api.routes import websocket as websocket_route
 from core.cloud_probe_service import get_cloud_probe_service
@@ -125,6 +126,7 @@ app.include_router(tasks_route.router, prefix="/api/tasks", tags=["tasks"])
 app.include_router(config_route.router, prefix="/api/config", tags=["config"])
 app.include_router(data_route.router, prefix="/api/data", tags=["data"])
 app.include_router(engine_routes.router, prefix="/api/engine", tags=["engine"])
+app.include_router(profiles_route.router, prefix="/api", tags=["profiles"])
 app.include_router(websocket_route.router)
 
 

@@ -53,6 +53,73 @@
 
 ---
 
+## 5) 库存 / 选择器 / 生成器（设备初始化辅助）
+
+这组接口用于承接“先获取再选择”与“本地随机生成”的两类能力，统一服务于插件编排、前端预热和设备初始化。
+
+### 5.1 Phone Model Inventory
+
+- `POST /api/inventory/phone-models/online/refresh?device_ip=...&sdk_port=8000`
+  - 直连 SDK 刷新在线机型库存并写入 `config/data/.../inventory/` 缓存。
+- `GET /api/inventory/phone-models/online?device_ip=...&sdk_port=8000&refresh=false`
+  - 读取在线机型库存；若本地无缓存则自动回源刷新。
+- `POST /api/inventory/phone-models/local/refresh?device_ip=...&sdk_port=8000`
+  - 刷新本地机型库存缓存。
+- `GET /api/inventory/phone-models/local?device_ip=...&sdk_port=8000&refresh=false`
+  - 读取本地机型库存。
+
+库存响应统一包含：
+- `source`：`online` 或 `local`
+- `device_ip` / `sdk_port`
+- `count`
+- `items`
+- `refreshed_at`
+- `from_cache`
+
+### 5.2 Phone Model Selector
+
+- `POST /api/selectors/phone-model`
+  - 按 `source + filters + seed` 确定性选择一个机型。
+  - 支持两种输入模式：
+    - 传 `device_ip` / `sdk_port`，由后端自动读取库存
+    - 直接传 `items`，对现有库存结果做本地选择
+
+常用请求字段：
+- `source`：`online` / `local`
+- `device_ip`
+- `sdk_port`
+- `refresh_inventory`
+- `seed`
+- `filters`
+
+`filters` 当前支持：
+- `name_contains`
+- `name_prefix`
+- `name_regex`
+- `ids`
+- `names`
+- 以及对 `status` / `sdk_ver` 等字段的精确匹配
+
+响应中的 `apply` 已按 `sdk.switch_model` 对齐：
+- `apply.model_id`
+- `apply.local_model`
+- `apply.model_name`
+
+### 5.3 Random Generators
+
+- `POST /api/generators/fingerprint`
+  - 生成 `modifydev?cmd=7` 可直接使用的指纹对象。
+- `POST /api/generators/contact`
+  - 生成 `mytos.add_contact` 可直接使用的联系人数组。
+- `POST /api/generators/env-bundle`
+  - 一次生成语言/国家/时区、指纹、Google ADID、联系人等环境包，适合插件中 `save_as` 后复用。
+
+当前内置国家配置：
+- `jp_mobile`
+- `us_mobile`
+
+---
+
 ## 6) 设备与云机（拓扑与探测）
 
 - `GET /api/devices/`：设备列表（包含云机端口映射信息）。

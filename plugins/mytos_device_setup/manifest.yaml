@@ -1,10 +1,10 @@
 api_version: v1
 kind: plugin
 name: mytos_device_setup
-version: "1.0.0"
+version: "1.1.0"
 display_name: "MYTOS 系统初始化"
 category: "账号与安全"
-description: "Bootstrap device-level MYTOS API settings with atomic actions"
+description: "Refresh/select phone model inventory, generate randomized anti-ban env bundle, and apply MYTOS init actions"
 entry_script: script.yaml
 distill_threshold: 3
 inputs:
@@ -15,21 +15,64 @@ inputs:
     type: integer
     required: false
     default: 8000
+  - name: api_port
+    type: integer
+    required: false
+    default: 30001
+  - name: cloud_name
+    type: string
+    required: true
   - name: package
     type: string
     required: true
-  - name: language
+  - name: model_source
     type: string
     required: false
-    default: "en"
-  - name: country
+    default: "online"
+  - name: model_seed
     type: string
     required: false
-    default: "US"
+    default: ""
+  - name: phone_model_name_contains
+    type: string
+    required: false
+    default: ""
+  - name: country_profile
+    type: string
+    required: false
+    default: "jp_mobile"
+  - name: env_seed
+    type: string
+    required: false
+    default: ""
+  - name: language_override
+    type: string
+    required: false
+    default: ""
+  - name: country_override
+    type: string
+    required: false
+    default: ""
+  - name: timezone_override
+    type: string
+    required: false
+    default: ""
+  - name: contact_count
+    type: integer
+    required: false
+    default: 1
   - name: enable_app_bootstart
     type: boolean
     required: false
     default: true
+  - name: enable_background_keepalive
+    type: boolean
+    required: false
+    default: true
+  - name: shake_enabled
+    type: boolean
+    required: false
+    default: false
   - name: allow_root
     type: boolean
     required: false

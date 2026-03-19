@@ -12,6 +12,11 @@
 - 已登记未来目标：设备接管页将从“轮询截图预览”演进到“截图预览 + WebRTC 实时接管”双模式，但当前仅作为规划项，尚未进入实现阶段。
 - 该目标的前置条件已明确：后端统一下发 WebRTC 访问参数、补齐 WebRTC 端口公式与 helper、发布 `web/webplayer` 静态资源、确认浏览器到设备的网络可达性，并补上访问控制/审计边界。
 - 最近重点 (2026-03-17):
+  - **Inventory / Selector / Generator 初始化能力落地 (2026-03-19)**：
+    - 新增 `core.device_profile_inventory`、`core.device_profile_selector`、`core.device_profile_generator` 三层服务，统一承接“先获取再选择”与“本地随机生成”两类场景。
+    - 新增 `inventory.get_phone_models` / `inventory.refresh_phone_models`、`selector.select_phone_model`、`generator.generate_fingerprint` / `generator.generate_contact` / `generator.generate_env_bundle` 动作，插件层可以直接 `save_as` 后复用，不再需要把机型筛选和随机规则硬编码进 YAML。
+    - 新增 `/api/inventory/phone-models/*`、`/api/selectors/phone-model`、`/api/generators/*` HTTP API；机型库存会缓存到 `config/data/.../inventory/`，默认按需获取，前端也可显式预热。
+    - `plugins/mytos_device_setup` 已升级为 `v1.1.0`，改为“机型选择 + 环境包生成 + MYTOS 应用”标准初始化链路，直接串联 `sdk.switch_model`、`mytos.set_fingerprint`、`mytos.set_google_id`、`mytos.add_contact`、`mytos.set_app_bootstart`、`mytos.background_keepalive` 等动作。
   - **MYTOS API 新能力接入 (2026-03-19)**：
     - `AndroidApiClient` 与 `android.*` / `mytos.*` 动作已补齐新版 `task=snap` 截图、`modifydev?cmd=7` 指纹更新、`modifydev?cmd=17` 摇一摇开关。
     - `mytos.screenshot` 现兼容 `level=1/2/3`，可直接走新版截图接口；同时新增 `mytos.set_fingerprint` / `mytos.update_fingerprint` / `mytos.set_shake`。
