@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import core.paths as paths
+from engine.actions._context_value_support import resolve_context_value
 from engine.models.runtime import ActionResult, ExecutionContext
 
 
@@ -68,6 +69,39 @@ def update_store(
         return store
 
 
+def _default_scope_value(scope: str, context: ExecutionContext | None) -> str:
+    if context is None:
+        return ""
+    if scope == "device":
+        return str(
+            resolve_context_value(
+                {},
+                context,
+                "device_ip",
+                "",
+                source_order=("payload",),
+            )
+            or ""
+        ).strip()
+    if scope == "task":
+        return str(getattr(context, "task_id", "") or "").strip()
+    if scope == "cloud":
+        cloud_target_label = str(getattr(context, "cloud_target_label", "") or "").strip()
+        if cloud_target_label:
+            return cloud_target_label
+        return str(
+            resolve_context_value(
+                {},
+                context,
+                "name",
+                "",
+                source_order=("payload",),
+            )
+            or ""
+        ).strip()
+    return ""
+
+
 def resolve_shared_key(params: dict[str, Any], context: ExecutionContext | None) -> str:
     key = str(params.get("key") or "").strip()
     if not key:
@@ -78,19 +112,9 @@ def resolve_shared_key(params: dict[str, Any], context: ExecutionContext | None)
         return key
 
     scope_value = str(params.get("scope_value") or "").strip()
-    payload = context.payload if context is not None and isinstance(context.payload, dict) else {}
 
     if not scope_value:
-        if scope == "device":
-            scope_value = str(payload.get("device_ip") or "").strip()
-        elif scope == "task":
-            scope_value = context.task_id if context is not None else ""
-        elif scope == "cloud":
-            scope_value = (
-                context.cloud_target_label
-                if context is not None
-                else str(payload.get("name") or "").strip()
-            )
+        scope_value = _default_scope_value(scope, context)
 
     if not scope_value:
         return key

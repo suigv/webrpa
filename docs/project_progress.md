@@ -241,6 +241,12 @@
 - 前端 AI 对话框已移除场景模板选择，仅在打开时自动填充默认提示词，用户仍可手动微调。
 
 - 最近重点 (本会话)：
+  - **共享存储作用域解析收敛**：
+    - `engine/actions/sdk_shared_store_support.py` 将 `device/task/cloud` 三类 shared key 默认作用域值解析收敛到单一 helper，移除散落在 `resolve_shared_key()` 内的分支拼装。
+    - 保持 `device -> payload.device_ip`、`task -> context.task_id`、`cloud -> context.cloud_target_label / payload.name` 的既有优先级不变，只把兼容入口集中，降低后续补丁继续把同类回退逻辑写散的概率。
+    - 补充 `tests/test_sdk_shared_store_support.py`，覆盖现有默认作用域契约以及缺少动态上下文字段时的安全降级，避免后续结构收敛误伤 shared store 键空间。
+
+- 最近重点 (本会话)：
   - **ai_type 去硬编码重构**：
     - 删除框架层所有 `volc`/`part_time` 业务判断分支（`sdk_business_support.py`）。
     - 候选人评分权重（`has_media_bonus`、`keyword_bonuses`）移入 `nurture_keywords.yaml` 的 `candidate_scoring` 字段，框架通用读取。
@@ -324,8 +330,8 @@
 | App-level route decorators (`api/server.py`) | 5 |
 | Plugin count (`plugins/*/manifest.yaml`) | 1 |
 | SDK action bindings (`engine/actions/sdk_actions.py` + `engine/actions/sdk_action_catalog.py`) | 158 |
-| Test files (`tests/test_*.py`) | 71 |
-| Test functions (`def test_*`) | 393 |
+| Test files (`tests/test_*.py`) | 72 |
+| Test functions (`def test_*`) | 395 |
 <!-- AUTO_PROGRESS_SNAPSHOT:END -->
 
 ## 4. 维护说明
