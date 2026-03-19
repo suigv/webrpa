@@ -223,11 +223,32 @@ def _args_batch_install_apps(params: dict[str, Any]) -> tuple[list[Any], dict[st
 
 
 def _args_mytos_screenshot(params: dict[str, Any]) -> tuple[list[Any], dict[str, Any]]:
-    return [
-        int(params.get("image_type", 0)),
-        int(params.get("quality", 80)),
-        params.get("save_path"),
-    ], {}
+    kwargs: dict[str, Any] = {"save_path": params.get("save_path")}
+    if params.get("level") is not None:
+        kwargs["level"] = int(params.get("level", 3))
+    else:
+        kwargs["image_type"] = int(params.get("image_type", 0))
+        kwargs["quality"] = int(params.get("quality", 80))
+    return [], kwargs
+
+
+def _args_set_fingerprint(params: dict[str, Any]) -> tuple[list[Any], dict[str, Any]]:
+    if "data" in params:
+        return [params.get("data")], {}
+    if "fingerprint" in params:
+        return [params.get("fingerprint")], {}
+    payload = {
+        key: value
+        for key, value in params.items()
+        if key not in {"device_ip", "api_port", "timeout_seconds"} and value is not None
+    }
+    return [payload], {}
+
+
+def _args_set_shake(params: dict[str, Any]) -> tuple[list[Any], dict[str, Any]]:
+    if "shake" in params:
+        return [], {"shake": params.get("shake")}
+    return [bool(params.get("enabled", True))], {}
 
 
 def _args_switch_adb_permission(params: dict[str, Any]) -> tuple[list[Any], dict[str, Any]]:
@@ -505,6 +526,7 @@ ACTION_BUILDERS: dict[
     "mytos.import_app_data": ("import_app_data", _args_import_app_data),
     "mytos.batch_install_apps": ("batch_install_apps", _args_batch_install_apps),
     "mytos.screenshot": ("mytos_screenshot", _args_mytos_screenshot),
+    "mytos.snap_screenshot": ("mytos_screenshot", _args_mytos_screenshot),
     "mytos.autoclick": ("auto_click", _args_auto_click),
     "mytos.touch_down": ("auto_click", _args_touch_action("down")),
     "mytos.touch_up": ("auto_click", _args_touch_action("up")),
@@ -540,6 +562,9 @@ ACTION_BUILDERS: dict[
     "mytos.get_app_bootstart_list": ("get_app_bootstart_list", None),
     "mytos.set_app_bootstart": ("set_app_bootstart", _args_set_app_bootstart),
     "mytos.set_language_country": ("set_language_country", _args_set_language_country),
+    "mytos.set_fingerprint": ("set_device_fingerprint", _args_set_fingerprint),
+    "mytos.update_fingerprint": ("set_device_fingerprint", _args_set_fingerprint),
+    "mytos.set_shake": ("set_shake", _args_set_shake),
     "mytos.get_webrtc_player_url": ("get_webrtc_player_url", _args_get_webrtc_url),
 }
 
@@ -578,12 +603,14 @@ def build_mytos_android_bindings() -> dict[
         android_set_app_bootstart,
         android_set_background_keepalive,
         android_set_clipboard,
+        android_set_fingerprint,
         android_set_google_id,
         android_set_key_block,
         android_set_language,
         android_set_proxy,
         android_set_proxy_filter,
         android_set_root_allowed_app,
+        android_set_shake,
         android_set_virtual_camera_source,
         android_stop_proxy,
         android_switch_adb,
@@ -610,6 +637,7 @@ def build_mytos_android_bindings() -> dict[
         "mytos.import_app_data": android_restore_app,
         "mytos.batch_install_apps": android_batch_install_apps,
         "mytos.screenshot": android_screenshot,
+        "mytos.snap_screenshot": android_screenshot,
         "mytos.autoclick": android_autoclick,
         "mytos.touch_down": android_autoclick,
         "mytos.touch_up": android_autoclick,
@@ -642,5 +670,8 @@ def build_mytos_android_bindings() -> dict[
         "mytos.get_app_bootstart_list": android_get_app_bootstart_list,
         "mytos.set_app_bootstart": android_set_app_bootstart,
         "mytos.set_language_country": android_set_language,
+        "mytos.set_fingerprint": android_set_fingerprint,
+        "mytos.update_fingerprint": android_set_fingerprint,
+        "mytos.set_shake": android_set_shake,
         "mytos.get_webrtc_player_url": android_get_webrtc_player_url,
     }

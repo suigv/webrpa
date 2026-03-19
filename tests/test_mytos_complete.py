@@ -75,18 +75,19 @@ def test_android_api_client_extended_paths(monkeypatch, tmp_path: Path):
     BaseHTTPClient = base_mod.BaseHTTPClient
     AndroidApiClient = mod.AndroidApiClient
 
-    called: list[tuple[str, str]] = []
+    called_json: list[tuple[str, str, dict]] = []
+    called_bytes: list[tuple[str, str, dict]] = []
 
     def fake_request_json(self, method, path, payload=None, query=None):
-        called.append((method, path))
+        called_json.append((method, path, query or {}))
         return {"ok": True, "data": {"path": path}}
 
     def fake_request_bytes(self, method, path, query=None):
-        called.append((method, path))
+        called_bytes.append((method, path, query or {}))
         return {"ok": True, "data": b"bin"}
 
     def fake_post_multipart(self, path, fields=None, files=None, query=None):
-        called.append(("POST", path))
+        called_json.append(("POST", path, query or {}))
         return {"ok": True, "data": {"path": path}}
 
     monkeypatch.setattr(BaseHTTPClient, "request_json", fake_request_json)
@@ -107,6 +108,7 @@ def test_android_api_client_extended_paths(monkeypatch, tmp_path: Path):
     assert client.restore_app("/tmp/demo.bak")["ok"] is True
     assert client.install_apks(["a.apk"])["ok"] is True
     assert client.screenshot()["ok"] is True
+    assert client.screenshot(level=3)["ok"] is True
     assert client.get_version()["ok"] is True
     assert client.get_container_info()["ok"] is True
     assert client.receive_sms()["ok"] is True
@@ -128,6 +130,8 @@ def test_android_api_client_extended_paths(monkeypatch, tmp_path: Path):
     assert client.set_root_allowed_app("com.demo", True)["ok"] is True
     assert client.get_boot_apps()["ok"] is True
     assert client.set_language_country("en", "US")["ok"] is True
+    assert client.set_device_fingerprint({"lac": "12345", "imei": "123"})["ok"] is True
+    assert client.set_shake(enabled=True)["ok"] is True
 
     # Verify correct 30001 paths per documentation
     expected_paths = {
@@ -151,7 +155,19 @@ def test_android_api_client_extended_paths(monkeypatch, tmp_path: Path):
         ("GET", "/addcontact"),
         ("GET", "/appbootstart"),
     }
-    assert expected_paths.issubset(set(called))
+    called_paths = {(method, path) for method, path, _ in called_json} | {
+        (method, path) for method, path, _ in called_bytes
+    }
+    assert expected_paths.issubset(called_paths)
+    assert ("GET", "/", {"task": "snap", "level": 3}) in called_bytes
+    assert ("GET", "/modifydev", {"cmd": 17, "shake": 1}) in called_json
+    fingerprint_call = next(
+        query
+        for method, path, query in called_json
+        if method == "GET" and path == "/modifydev" and query.get("cmd") == 7
+    )
+    assert '"lac": "12345"' in fingerprint_call["data"]
+    assert '"imei": "123"' in fingerprint_call["data"]
 
 
 def test_mytos_actions_registered(monkeypatch):
@@ -170,9 +186,12 @@ def test_mytos_actions_registered(monkeypatch):
         "mytos.get_clipboard",
         "mytos.set_clipboard",
         "mytos.screenshot",
+        "mytos.snap_screenshot",
         "mytos.download_file",
         "mytos.upload_file",
         "mytos.set_language_country",
+        "mytos.set_fingerprint",
+        "mytos.set_shake",
         "mytos.refresh_location",
         "mytos.get_google_id",
         "mytos.install_magisk",

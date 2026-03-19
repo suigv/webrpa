@@ -531,6 +531,12 @@ class MytRpc:
     def pressRecent(self) -> bool:
         return self.press_recent()
 
+    def press_delete(self) -> bool:
+        return self.key_press(67)
+
+    def pressDelete(self) -> bool:
+        return self.press_delete()
+
     def swipe(self, finger_id: int, x0: int, y0: int, x1: int, y1: int, elapse_ms: int):
         if self._rpc is None or self._handle <= 0:
             return False

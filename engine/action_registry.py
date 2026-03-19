@@ -383,8 +383,10 @@ def register_defaults() -> None:
         RESTORE_APP_METADATA,
         SCREENSHOT_METADATA,
         SET_CLIPBOARD_METADATA,
+        SET_FINGERPRINT_METADATA,
         SET_LANGUAGE_METADATA,
         SET_PROXY_METADATA,
+        SET_SHAKE_METADATA,
         android_add_contact,
         android_autoclick,
         android_backup_app,
@@ -409,12 +411,14 @@ def register_defaults() -> None:
         android_screenshot,
         android_set_background_keepalive,
         android_set_clipboard,
+        android_set_fingerprint,
         android_set_google_id,
         android_set_key_block,
         android_set_language,
         android_set_proxy,
         android_set_proxy_filter,
         android_set_root_allowed_app,
+        android_set_shake,
         android_stop_proxy,
         android_switch_adb,
         android_upload_file,
@@ -432,9 +436,17 @@ def register_defaults() -> None:
     _registry.register("android.stop_proxy", android_stop_proxy)
     _registry.register("android.set_proxy_filter", android_set_proxy_filter)
     _registry.register("android.screenshot", android_screenshot, metadata=SCREENSHOT_METADATA)
+    _registry.register("android.snap_screenshot", android_screenshot, metadata=SCREENSHOT_METADATA)
     _registry.register("android.download_file", android_download_file)
     _registry.register("android.upload_file", android_upload_file)
     _registry.register("android.set_language", android_set_language, metadata=SET_LANGUAGE_METADATA)
+    _registry.register(
+        "android.set_fingerprint", android_set_fingerprint, metadata=SET_FINGERPRINT_METADATA
+    )
+    _registry.register(
+        "android.update_fingerprint", android_set_fingerprint, metadata=SET_FINGERPRINT_METADATA
+    )
+    _registry.register("android.set_shake", android_set_shake, metadata=SET_SHAKE_METADATA)
     _registry.register("android.refresh_location", android_refresh_location)
     _registry.register("android.get_google_adid", android_get_google_adid)
     _registry.register("android.receive_sms", android_receive_sms, metadata=RECEIVE_SMS_METADATA)

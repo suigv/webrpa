@@ -66,7 +66,7 @@ class SwipeRequest(BaseModel):
 
 
 class KeyRequest(BaseModel):
-    key: Literal["back", "home", "enter", "recent"]
+    key: Literal["back", "home", "enter", "recent", "delete"]
 
 
 class TextRequest(BaseModel):
@@ -354,6 +354,7 @@ async def press_cloud_key(device_id: int, cloud_id: int, request: KeyRequest):
         "home": "pressHome",
         "enter": "pressEnter",
         "recent": "pressRecent",
+        "delete": "pressDelete",
     }
 
     def _press_key() -> dict[str, str]:

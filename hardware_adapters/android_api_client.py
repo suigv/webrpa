@@ -34,6 +34,50 @@ class AndroidApiClient:
             return self._invalid(f"{field_name} is required")
         return None
 
+    def _finalize_binary_response(
+        self,
+        result: dict[str, Any],
+        save_path: str = "",
+        *,
+        extra: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        if not result.get("ok"):
+            return result
+        payload = bytes(result.get("data", b""))
+        content_type = str(result.get("content_type", "")).lower()
+        parsed_json: dict[str, Any] | None = None
+        if "application/json" in content_type:
+            try:
+                candidate = json.loads(payload.decode("utf-8"))
+                if isinstance(candidate, dict):
+                    parsed_json = candidate
+            except Exception:
+                parsed_json = None
+        if parsed_json is not None:
+            data = parsed_json.get("data")
+            if not isinstance(data, dict):
+                data = {"result": data}
+            return {
+                "ok": False,
+                "code": parsed_json.get("code", "api_error"),
+                "message": parsed_json.get("message")
+                or parsed_json.get("msg")
+                or parsed_json.get("reason")
+                or parsed_json.get("error")
+                or "binary endpoint returned json error",
+                "data": data,
+            }
+        response_data: dict[str, Any] = {
+            "byte_length": len(payload),
+            "content_type": result.get("content_type", ""),
+        }
+        if extra:
+            response_data.update(extra)
+        if save_path.strip():
+            Path(save_path).write_bytes(payload)
+            response_data["saved"] = save_path
+        return {"ok": True, "data": response_data}
+
     # --- 剪贴板 ---
 
     def get_clipboard(self) -> dict[str, Any]:
@@ -88,19 +132,34 @@ class AndroidApiClient:
     # --- 截图 ---
 
     def screenshot(
-        self, image_type: int = 0, quality: int = 80, save_path: str = ""
+        self,
+        image_type: int = 0,
+        quality: int = 80,
+        save_path: str = "",
+        level: int | None = None,
     ) -> dict[str, Any]:
-        """GET /snapshot"""
+        """GET /snapshot or GET /?task=snap&level=."""
+        if level is not None:
+            return self.snap_screenshot(level=level, save_path=save_path)
         result = self.http.request_bytes(
             "GET", "/snapshot", query={"type": image_type, "quality": quality}
         )
-        if not result.get("ok"):
-            return result
-        payload = bytes(result.get("data", b""))
-        if save_path.strip():
-            Path(save_path).write_bytes(payload)
-            return {"ok": True, "data": {"saved": save_path, "byte_length": len(payload)}}
-        return {"ok": True, "data": {"byte_length": len(payload)}}
+        return self._finalize_binary_response(
+            result,
+            save_path=save_path,
+            extra={"source": "snapshot", "image_type": int(image_type), "quality": int(quality)},
+        )
+
+    def snap_screenshot(self, level: int = 3, save_path: str = "") -> dict[str, Any]:
+        """GET /?task=snap&level=1/2/3."""
+        if level not in {1, 2, 3}:
+            return self._invalid("level must be 1, 2, or 3")
+        result = self.http.request_bytes("GET", "/", query={"task": "snap", "level": int(level)})
+        return self._finalize_binary_response(
+            result,
+            save_path=save_path,
+            extra={"source": "task_snap", "level": int(level)},
+        )
 
     # --- 文件操作 ---
 
@@ -147,6 +206,27 @@ class AndroidApiClient:
         return self.http.get(
             "/modifydev", query={"cmd": 13, "language": language, "country": country}
         )
+
+    def set_device_fingerprint(self, data: dict[str, Any] | str) -> dict[str, Any]:
+        """GET /modifydev?cmd=7&data=<urlencoded-json>."""
+        if isinstance(data, str):
+            payload = data.strip()
+            if not payload:
+                return self._invalid("data is required")
+        else:
+            if not data:
+                return self._invalid("data is required")
+            payload = json.dumps(data, ensure_ascii=False)
+        return self.http.get("/modifydev", query={"cmd": 7, "data": payload})
+
+    def set_shake(
+        self, enabled: bool | None = None, shake: int | str | None = None
+    ) -> dict[str, Any]:
+        """GET /modifydev?cmd=17&shake=1/0."""
+        shake_value = (1 if enabled else 0) if shake is None else int(str(shake).strip())
+        if shake_value not in {0, 1}:
+            return self._invalid("shake must be 0 or 1")
+        return self.http.get("/modifydev", query={"cmd": 17, "shake": shake_value})
 
     def refresh_location(self) -> dict[str, Any]:
         """GET /task"""

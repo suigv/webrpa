@@ -681,7 +681,7 @@ function bindUnitControls(unit) {
         unitKeyBack: { action: 'key', payload: { key: 'back' }, message: '已发送返回' },
         unitKeyHome: { action: 'key', payload: { key: 'home' }, message: '已发送 Home' },
         unitKeyEnter: { action: 'key', payload: { key: 'enter' }, message: '已发送 Enter' },
-        unitKeyRecent: { action: 'key', payload: { key: 'recent' }, message: '已发送任务键' },
+        unitKeyDelete: { action: 'key', payload: { key: 'delete' }, message: '已发送退格键' },
         unitSwipeUp: {
             action: 'swipe',
             payload: { nx0: 500, ny0: 820, nx1: 500, ny1: 220, duration: 350 },

@@ -279,6 +279,10 @@ class _FakeRpcControl:
         self.key_calls.append("recent")
         return True
 
+    def pressDelete(self) -> bool:
+        self.key_calls.append("delete")
+        return True
+
     def sendText(self, text: str) -> bool:
         self.text_calls.append(text)
         return True
@@ -341,6 +345,24 @@ def test_api_device_key_endpoint_routes_to_rpc_key(monkeypatch: MonkeyPatch):
     payload = cast(dict[str, object], response.json())
     assert payload["ok"] is True
     assert fake_rpc.key_calls == ["home"]
+    assert fake_rpc.closed == 1
+
+
+def test_api_device_key_endpoint_supports_delete(monkeypatch: MonkeyPatch):
+    _disable_lifespan(monkeypatch)
+    fake_rpc = _FakeRpcControl()
+    monkeypatch.setattr(
+        devices_route, "_validate_device_target", lambda *_args: ("10.0.0.11", 30002)
+    )
+    monkeypatch.setattr(devices_route, "_connect_rpc", lambda *_args: fake_rpc)
+
+    with TestClient(app) as client:
+        response = client.post("/api/devices/1/1/key", json={"key": "delete"})
+
+    assert response.status_code == 200
+    payload = cast(dict[str, object], response.json())
+    assert payload["ok"] is True
+    assert fake_rpc.key_calls == ["delete"]
     assert fake_rpc.closed == 1
 
 

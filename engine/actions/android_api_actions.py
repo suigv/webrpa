@@ -190,6 +190,10 @@ SCREENSHOT_METADATA = ActionMetadata(
         "properties": {
             "image_type": {"type": "integer", "description": "图片类型：0 为截图，1 为 XML"},
             "quality": {"type": "integer", "description": "图片质量 (1-100)"},
+            "level": {
+                "type": "integer",
+                "description": "新版 task=snap 截图分辨率级别：1 低、2 中、3 原始",
+            },
             "save_path": {"type": "string", "description": "服务端保存路径"},
             "device_ip": {"type": "string", "description": "设备 IP"},
         },
@@ -208,13 +212,74 @@ def android_screenshot(params: dict[str, Any], context: ExecutionContext) -> Act
     client = _api_client(params, context)
     if client is None:
         return _err("invalid_params", "device_ip is required")
+    level = params.get("level")
     image_type = params.get("image_type")
     if image_type is None:
         image_type = params.get("type", 0)
     image_type = int(image_type)
     quality = int(params.get("quality", 80))
     save_path = str(params.get("save_path") or "").strip()
+    if level is not None:
+        return _from_api(client.screenshot(level=int(level), save_path=save_path))
     return _from_api(client.screenshot(image_type=image_type, quality=quality, save_path=save_path))
+
+
+SET_FINGERPRINT_METADATA = ActionMetadata(
+    description="更新安卓设备指纹信息（modifydev cmd=7）。",
+    params_schema={
+        "type": "object",
+        "properties": {
+            "data": {"type": "object", "description": "指纹信息对象；也支持直接传 JSON 字符串"},
+            "fingerprint": {
+                "type": "object",
+                "description": "data 的别名；若未提供则会收集其余非运行时字段作为指纹内容",
+            },
+            "device_ip": {"type": "string", "description": "设备 IP"},
+        },
+    },
+)
+
+
+def android_set_fingerprint(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
+    client = _api_client(params, context)
+    if client is None:
+        return _err("invalid_params", "device_ip is required")
+    payload = params.get("data")
+    if payload is None:
+        payload = params.get("fingerprint")
+    if payload is None:
+        payload = {
+            key: value
+            for key, value in params.items()
+            if key not in {"device_ip", "api_port", "timeout_seconds"} and value is not None
+        }
+    if isinstance(payload, dict) and not payload:
+        return _err("invalid_params", "data is required")
+    if isinstance(payload, str) and not payload.strip():
+        return _err("invalid_params", "data is required")
+    return _from_api(client.set_device_fingerprint(payload))
+
+
+SET_SHAKE_METADATA = ActionMetadata(
+    description="设置设备摇一摇功能状态（modifydev cmd=17）。",
+    params_schema={
+        "type": "object",
+        "properties": {
+            "enabled": {"type": "boolean", "description": "是否启用摇一摇"},
+            "shake": {"type": "integer", "description": "兼容原始参数：1 启用，0 禁用"},
+            "device_ip": {"type": "string", "description": "设备 IP"},
+        },
+    },
+)
+
+
+def android_set_shake(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
+    client = _api_client(params, context)
+    if client is None:
+        return _err("invalid_params", "device_ip is required")
+    if "shake" in params:
+        return _from_api(client.set_shake(shake=params.get("shake")))
+    return _from_api(client.set_shake(enabled=bool(params.get("enabled", True))))
 
 
 # ------------------------------------------------------------------ #

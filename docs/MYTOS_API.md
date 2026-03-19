@@ -12,6 +12,11 @@
 
 本地调用说明：使用 `hardware_adapters/android_api_client.py` 的 `AndroidApiClient` 或 `mytos.*` 动作。
 
+当前已在项目内封装的新增能力：
+- `AndroidApiClient.screenshot(level=1|2|3)` / `android.screenshot(level=...)` / `mytos.screenshot(level=...)`：走 `task=snap` 新截图接口。
+- `AndroidApiClient.set_device_fingerprint(...)` / `android.set_fingerprint` / `mytos.set_fingerprint`：封装 `modifydev?cmd=7`。
+- `AndroidApiClient.set_shake(...)` / `android.set_shake` / `mytos.set_shake`：封装 `modifydev?cmd=17`。
+
 ## 1. 下载文件
 
 功能说明：从设备下载指定文件到本地计算机

@@ -89,6 +89,20 @@ def test_sdk_action_invocation_maps_to_client(monkeypatch):
         def ip_geolocation(self, ip: str = "", language: str = ""):
             return {"ok": True, "data": {"ip": ip, "language": language}}
 
+        def screenshot(
+            self, image_type: int = 0, quality: int = 80, save_path: str = "", level=None
+        ):
+            return {
+                "ok": True,
+                "data": {"level": level, "image_type": image_type, "quality": quality},
+            }
+
+        def set_device_fingerprint(self, data):
+            return {"ok": True, "data": {"fingerprint": data}}
+
+        def set_shake(self, enabled: bool | None = None, shake=None):
+            return {"ok": True, "data": {"enabled": enabled, "shake": shake}}
+
     sdk_mod = importlib.import_module("engine.actions.sdk_actions")
     android_mod = importlib.import_module("engine.actions.android_api_actions")
     monkeypatch.setattr(sdk_mod, "MytSdkClient", FakeSdkClient)
@@ -111,6 +125,16 @@ def test_sdk_action_invocation_maps_to_client(monkeypatch):
 
     res3 = reg.resolve("mytos.ip_geolocation")({"ip": "23.247.138.215"}, ctx)
     assert res3.ok is True
+
+    res4 = reg.resolve("mytos.screenshot")({"level": 3}, ctx)
+    assert res4.ok is True
+    assert res4.data["level"] == 3
+
+    res5 = reg.resolve("mytos.set_fingerprint")({"data": {"imei": "123"}}, ctx)
+    assert res5.ok is True
+
+    res6 = reg.resolve("mytos.set_shake")({"enabled": False}, ctx)
+    assert res6.ok is True
 
 
 def test_save_shared_preserves_valid_json_across_repeated_updates(monkeypatch, tmp_path):

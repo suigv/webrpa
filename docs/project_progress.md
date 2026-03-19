@@ -8,10 +8,13 @@
 
 - 阶段：**Web Console Productization & Navigation Engine Hardening**
 - 核心状态：API、任务系统、插件执行、账号池全面可用；Web 控制台完成产品化改造；导航引擎具备自愈与锚点机制；AI 执行引擎接入托管链路。
-- 设备接管页当前已支持“截图预览 + 轻控制”：点击截图触发轻触，并提供返回/Home/Enter/任务键、固定方向滑动以及单行文本发送，所有控制仍经由项目 API 转发，不要求浏览器直连设备。
+- 设备接管页当前已支持“截图预览 + 轻控制”：点击截图触发轻触，并提供返回/Home/Enter/退格键、固定方向滑动以及单行文本发送，所有控制仍经由项目 API 转发，不要求浏览器直连设备。
 - 已登记未来目标：设备接管页将从“轮询截图预览”演进到“截图预览 + WebRTC 实时接管”双模式，但当前仅作为规划项，尚未进入实现阶段。
 - 该目标的前置条件已明确：后端统一下发 WebRTC 访问参数、补齐 WebRTC 端口公式与 helper、发布 `web/webplayer` 静态资源、确认浏览器到设备的网络可达性，并补上访问控制/审计边界。
 - 最近重点 (2026-03-17):
+  - **MYTOS API 新能力接入 (2026-03-19)**：
+    - `AndroidApiClient` 与 `android.*` / `mytos.*` 动作已补齐新版 `task=snap` 截图、`modifydev?cmd=7` 指纹更新、`modifydev?cmd=17` 摇一摇开关。
+    - `mytos.screenshot` 现兼容 `level=1/2/3`，可直接走新版截图接口；同时新增 `mytos.set_fingerprint` / `mytos.update_fingerprint` / `mytos.set_shake`。
   - **执行器热点继续拆分 (2026-03-18)**：
     - **`agent_executor` 主循环瘦身**：将类型定义、通用辅助、规划链路、trace/证据链分别下沉到 `engine/agent_executor_types.py`、`engine/agent_executor_support.py`、`engine/agent_executor_planning.py`、`engine/agent_executor_trace.py`，`engine/agent_executor.py` 收口为更薄的运行时编排层。
     - **兼容面显式保留**：保留 `engine.agent_executor.time` monkeypatch 入口以及 `_build_history_digest` 等现有导出路径，确保现有测试与外部调用不因内部拆分而断裂。
