@@ -324,35 +324,20 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
             reflection = _json_dict(planned_step["reflection"])
 
             if plan["ok"] is False:
-                self._append_trace(
-                    trace_context,
-                    self._terminal_trace_record(
-                        status="failed_runtime_error",
-                        sequence=step_index,
-                        step_index=step_index,
-                        observation=observation_state
-                        if isinstance(observation_state, dict)
-                        else {},
-                        observation_ok=bool(last_observation.get("ok")),
-                        observation_modality=observation_modality,
-                        observed_state_ids=observed_state_ids,
-                        fallback_reason=str(plan.get("fallback_reason") or ""),
-                        fallback_evidence=fallback_evidence,
-                        code=str(plan.get("code") or "planner_error"),
-                        message=str(plan.get("message") or "planner failed"),
-                        observed_at=observed_at,
-                        planner=plan,
-                    ),
-                )
-                return self._result(
-                    ok=False,
-                    status="failed_runtime_error",
-                    checkpoint="planning",
+                return self._planning_failure(
+                    trace_context=trace_context,
+                    step_index=step_index,
+                    history=history,
+                    observation_state=observation_state,
+                    observation_ok=bool(last_observation.get("ok")),
+                    observation_modality=observation_modality,
+                    observed_state_ids=observed_state_ids,
+                    fallback_reason=str(plan.get("fallback_reason") or ""),
+                    fallback_evidence=fallback_evidence,
+                    observed_at=observed_at,
+                    plan=plan,
                     code=str(plan.get("code") or "planner_error"),
                     message=str(plan.get("message") or "planner failed"),
-                    step_count=step_index - 1,
-                    history=history,
-                    planner=plan,
                 )
 
             if bool(plan.get("done")):
@@ -443,72 +428,40 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
                     )
                     step_index += 1
                     continue
-                self._append_trace(
-                    trace_context,
-                    self._terminal_trace_record(
-                        status="failed_runtime_error",
-                        sequence=step_index,
-                        step_index=step_index,
-                        observation=observation_state
-                        if isinstance(observation_state, dict)
-                        else {},
-                        observation_ok=bool(last_observation.get("ok")),
-                        observation_modality=observation_modality,
-                        observed_state_ids=observed_state_ids,
-                        fallback_reason=str(plan.get("fallback_reason") or ""),
-                        fallback_evidence=fallback_evidence,
-                        code="planner_empty_action_retry_exhausted",
-                        message=(
-                            "planner returned empty action during fallback observation too many times"
-                        ),
-                        observed_at=observed_at,
-                        planner=plan,
-                    ),
-                )
-                return self._result(
-                    ok=False,
-                    status="failed_runtime_error",
-                    checkpoint="planning",
+                return self._planning_failure(
+                    trace_context=trace_context,
+                    step_index=step_index,
+                    history=history,
+                    observation_state=observation_state,
+                    observation_ok=bool(last_observation.get("ok")),
+                    observation_modality=observation_modality,
+                    observed_state_ids=observed_state_ids,
+                    fallback_reason=str(plan.get("fallback_reason") or ""),
+                    fallback_evidence=fallback_evidence,
+                    observed_at=observed_at,
+                    plan=plan,
                     code="planner_empty_action_retry_exhausted",
                     message=(
                         "planner returned empty action during fallback observation too many times"
                     ),
-                    step_count=step_index - 1,
-                    history=history,
-                    planner=plan,
                 )
 
             empty_action_defer_count = 0
             if action_name not in config.allowed_actions:
-                self._append_trace(
-                    trace_context,
-                    self._terminal_trace_record(
-                        status="failed_runtime_error",
-                        sequence=step_index,
-                        step_index=step_index,
-                        observation=observation_state
-                        if isinstance(observation_state, dict)
-                        else {},
-                        observation_ok=bool(last_observation.get("ok")),
-                        observation_modality=observation_modality,
-                        observed_state_ids=observed_state_ids,
-                        fallback_reason=str(plan.get("fallback_reason") or ""),
-                        fallback_evidence=fallback_evidence,
-                        code="invalid_action_selection",
-                        message=f"planner selected action outside allowed set: {action_name or '<empty>'}",
-                        observed_at=observed_at,
-                        planner=plan,
-                    ),
-                )
-                return self._result(
-                    ok=False,
-                    status="failed_runtime_error",
-                    checkpoint="planning",
+                return self._planning_failure(
+                    trace_context=trace_context,
+                    step_index=step_index,
+                    history=history,
+                    observation_state=observation_state,
+                    observation_ok=bool(last_observation.get("ok")),
+                    observation_modality=observation_modality,
+                    observed_state_ids=observed_state_ids,
+                    fallback_reason=str(plan.get("fallback_reason") or ""),
+                    fallback_evidence=fallback_evidence,
+                    observed_at=observed_at,
+                    plan=plan,
                     code="invalid_action_selection",
                     message=f"planner selected action outside allowed set: {action_name or '<empty>'}",
-                    step_count=step_index - 1,
-                    history=history,
-                    planner=plan,
                 )
 
             if context.emit_event:
@@ -1014,6 +967,52 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
             message="task cancelled by user",
             step_count=step_index,
             history=history,
+        )
+
+    def _planning_failure(
+        self,
+        *,
+        trace_context: dict[str, object],
+        step_index: int,
+        history: list[dict[str, object]],
+        observation_state: object,
+        observation_ok: bool,
+        observation_modality: str,
+        observed_state_ids: list[str],
+        fallback_reason: str,
+        fallback_evidence: dict[str, object],
+        observed_at: str,
+        plan: dict[str, Any],
+        code: str,
+        message: str,
+    ) -> dict[str, Any]:
+        self._append_trace(
+            trace_context,
+            self._terminal_trace_record(
+                status="failed_runtime_error",
+                sequence=step_index,
+                step_index=step_index,
+                observation=observation_state if isinstance(observation_state, dict) else {},
+                observation_ok=observation_ok,
+                observation_modality=observation_modality,
+                observed_state_ids=observed_state_ids,
+                fallback_reason=fallback_reason,
+                fallback_evidence=fallback_evidence,
+                code=code,
+                message=message,
+                observed_at=observed_at,
+                planner=plan,
+            ),
+        )
+        return self._result(
+            ok=False,
+            status="failed_runtime_error",
+            checkpoint="planning",
+            code=code,
+            message=message,
+            step_count=step_index - 1,
+            history=history,
+            planner=plan,
         )
 
     def _result(self, *, ok: bool, status: str, checkpoint: str, **extra: object) -> dict[str, Any]:
