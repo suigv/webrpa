@@ -137,12 +137,14 @@ def register_defaults() -> None:
         INVENTORY_PHONE_MODELS_METADATA,
         SELECT_CLOUD_CONTAINER_METADATA,
         SELECT_PHONE_MODEL_METADATA,
+        WAIT_CLOUD_AVAILABLE_METADATA,
         generator_generate_contact,
         generator_generate_env_bundle,
         generator_generate_fingerprint,
         inventory_get_phone_models,
         inventory_refresh_phone_models,
         profile_apply_env_bundle,
+        profile_wait_cloud_available,
         selector_resolve_cloud_container,
         selector_select_phone_model,
     )
@@ -341,6 +343,11 @@ def register_defaults() -> None:
         "profile.apply_env_bundle",
         profile_apply_env_bundle,
         metadata=APPLY_ENV_BUNDLE_METADATA,
+    )
+    _registry.register(
+        "profile.wait_cloud_available",
+        profile_wait_cloud_available,
+        metadata=WAIT_CLOUD_AVAILABLE_METADATA,
     )
     _registry.register("core.detect_login_stage", detect_login_stage)
     _registry.register("core.wait_login_stage", wait_login_stage)

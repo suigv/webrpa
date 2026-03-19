@@ -40,6 +40,16 @@ steps:
       localModel: "${vars.selected_model.apply.local_model:-}"
       countryCode: "${vars.env_bundle.country}"
 
+  - label: 等待云机重启回线
+    kind: action
+    action: profile.wait_cloud_available
+    save_as: availability_wait
+    params:
+      timeout_ms: 240000
+      transition_timeout_ms: 45000
+      poll_interval_ms: 1000
+      require_cycle: true
+
   - label: 应用环境包
     kind: action
     action: profile.apply_env_bundle

@@ -121,6 +121,33 @@ def test_select_phone_model_is_deterministic():
     assert first["data"]["apply"]["model_id"] == "m-2"
 
 
+def test_select_phone_model_falls_back_to_local_when_online_inventory_empty(monkeypatch):
+    import core.device_profile_inventory as inventory_module
+    import core.device_profile_selector as selector_module
+
+    class _OnlineEmptySdkClient(_FakeSdkClient):
+        def list_phone_models_online(self):
+            return {"ok": True, "data": {"data": {"list": []}}}
+
+    monkeypatch.setattr(inventory_module, "MytSdkClient", _OnlineEmptySdkClient)
+    monkeypatch.setattr(selector_module, "get_phone_models", inventory_module.get_phone_models)
+
+    result = select_phone_model(
+        source="online",
+        device_ip="192.168.1.214",
+        sdk_port=8000,
+        refresh_inventory=True,
+        filters={"status": "ready", "name_contains": "PixelLocal"},
+        seed="device-7-cloud-2",
+    )
+
+    assert result["ok"] is True
+    assert result["data"]["requested_source"] == "online"
+    assert result["data"]["source"] == "local"
+    assert result["data"]["fallback_used"] is True
+    assert result["data"]["apply"]["local_model"].startswith("PixelLocal")
+
+
 def test_generate_env_bundle_jp_profile_has_expected_shape():
     result = generate_env_bundle(country_profile="jp_mobile", seed="jp-seed", contact_count=2)
 

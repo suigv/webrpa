@@ -77,7 +77,7 @@ class Interpreter:
         context.emit_event = emit_event
         # Merge script-level vars (with interpolation from payload)
         if script.vars:
-            interp_ctx = {"payload": payload, "vars": context.vars}
+            interp_ctx = {"payload": self._payload_scope(context), "vars": context.vars}
             context.vars.update(interpolate_params(script.vars, interp_ctx))
 
         label_map = self._build_label_map(script.steps)
@@ -170,7 +170,7 @@ class Interpreter:
         registry: Any,
         label_map: dict[str, int],
     ) -> None:
-        interp_ctx = {"payload": context.payload, "vars": context.vars}
+        interp_ctx = {"payload": self._payload_scope(context), "vars": context.vars}
         params = interpolate_params(step.params, interp_ctx)
 
         result = self._run_with_on_fail(
@@ -205,6 +205,12 @@ class Interpreter:
                     "message": result.message,
                 }
             )
+
+    @staticmethod
+    def _payload_scope(context: ExecutionContext) -> dict[str, Any]:
+        payload_scope = dict(context.session_defaults)
+        payload_scope.update(context.payload)
+        return payload_scope
 
     def _exec_if(
         self,

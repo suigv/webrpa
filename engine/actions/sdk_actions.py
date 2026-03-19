@@ -65,10 +65,16 @@ def _from_payload_or_params(
     params: dict[str, Any], context: ExecutionContext, key: str, default: Any = None
 ) -> Any:
     payload = context.payload if isinstance(context.payload, dict) else {}
+    runtime = context.runtime if isinstance(context.runtime, dict) else {}
+    runtime_target = runtime.get("target") if isinstance(runtime.get("target"), dict) else {}
     if key in params:
         return params[key]
     if isinstance(payload, dict) and key in payload:
         return payload[key]
+    if key in runtime_target:
+        return runtime_target[key]
+    if key in runtime:
+        return runtime[key]
     return default
 
 

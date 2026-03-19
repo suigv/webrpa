@@ -58,6 +58,7 @@ class ProcessTaskHandle:
     current_target: tuple[int, int] | None = None
     target_trip_sent: bool = False
     breaker_trip: TargetCircuitBreakerTrip | None = None
+    tolerate_target_unavailable: bool = False
 
 
 @dataclass(frozen=True)
@@ -105,12 +106,19 @@ def _trip_result(task_name: str, trip: TargetCircuitBreakerTrip) -> dict[str, An
     }
 
 
+def _tolerate_target_unavailable(task_name: str, payload: dict[str, Any]) -> bool:
+    return bool(payload.get("_allow_target_unavailable_during_execution")) or (
+        task_name == "one_click_new_device"
+    )
+
+
 class ActiveTargetCircuitBreaker:
     def __init__(
         self,
         *,
         task_id: str,
         target: dict[str, Any],
+        enabled: bool = True,
         emit_event: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> None:
         self._task_id = task_id
@@ -120,6 +128,8 @@ class ActiveTargetCircuitBreaker:
         self._trip: TargetCircuitBreakerTrip | None = None
         self._trip_lock = threading.Lock()
         self._unsubscribe: Callable[[], None] | None = None
+        if not enabled:
+            return
         if self._device_id < 1 or self._cloud_id < 1:
             return
 
@@ -331,6 +341,7 @@ def _execute_task(
         return
 
     task_name = str(record.payload.get("task") or "anonymous")
+    tolerate_target_unavailable = _tolerate_target_unavailable(task_name, record.payload)
     result: dict[str, Any]
     try:
         target_results: list[dict[str, Any]] = []
@@ -377,6 +388,7 @@ def _execute_task(
             local_breaker = ActiveTargetCircuitBreaker(
                 task_id=task_id,
                 target=prepared.target,
+                enabled=not tolerate_target_unavailable,
                 emit_event=emit_event,
             )
             single_result: dict[str, Any] = {
@@ -721,6 +733,7 @@ class TaskExecutionService:
             handle.cancel_signaled_at is not None
             or handle.current_target is None
             or handle.target_trip_sent
+            or handle.tolerate_target_unavailable
         ):
             return
         device_id, cloud_id = handle.current_target
@@ -763,6 +776,13 @@ class TaskExecutionService:
                 logger.warning("task %s already active; skipping duplicate spawn", task_id)
                 return
         try:
+            record = self._store.get_task(task_id)
+            task_name = str(record.payload.get("task") or "anonymous") if record is not None else ""
+            tolerate_target_unavailable = (
+                _tolerate_target_unavailable(task_name, record.payload)
+                if record is not None
+                else False
+            )
             ctx = multiprocessing.get_context("spawn")
             cancel_event = ctx.Event()
             control_queue = ctx.Queue()
@@ -781,6 +801,7 @@ class TaskExecutionService:
                 control_queue=control_queue,
                 status_queue=status_queue,
                 started_at=time.monotonic(),
+                tolerate_target_unavailable=tolerate_target_unavailable,
             )
             with self._active_lock:
                 self._active[task_id] = handle

@@ -1,3 +1,7 @@
+from core.task_execution import ActiveTargetCircuitBreaker
+from engine.models.manifest import InputType, PluginInput
+from engine.models.runtime import ActionResult
+from engine.models.workflow import ActionStep, WorkflowScript
 from engine.parser import parse_script
 from engine.runner import Runner
 
@@ -25,3 +29,55 @@ def test_one_click_new_device_actions_are_allowed():
     script = parse_script(plugin.script_path)
 
     assert runner._validate_script_actions(script) is None
+
+
+def test_interpreter_interpolates_plugin_input_defaults(monkeypatch):
+    import engine.interpreter as interpreter_module
+
+    seen: dict[str, object] = {}
+
+    def _fake_dispatch_action(action, params, context, registry=None):
+        _ = (action, context, registry)
+        seen.update(params)
+        return ActionResult(ok=True, code="ok", data={"params": params})
+
+    monkeypatch.setattr(interpreter_module, "dispatch_action", _fake_dispatch_action)
+
+    script = WorkflowScript(
+        version="v1",
+        workflow="defaults_probe",
+        steps=[
+            ActionStep(
+                kind="action",
+                action="profile.apply_env_bundle",
+                params={
+                    "text_value": "${payload.optional_text}",
+                    "bool_value": "${payload.optional_flag}",
+                },
+            )
+        ],
+    )
+
+    result = interpreter_module.Interpreter().execute(
+        script,
+        payload={},
+        plugin_inputs=[
+            PluginInput(name="optional_text", type=InputType.string, default=""),
+            PluginInput(name="optional_flag", type=InputType.boolean, default=False),
+        ],
+    )
+
+    assert result["ok"] is True
+    assert seen["text_value"] == ""
+    assert seen["bool_value"] is False
+
+
+def test_target_circuit_breaker_can_be_disabled():
+    breaker = ActiveTargetCircuitBreaker(
+        task_id="task-1",
+        target={"device_id": 1, "cloud_id": 12},
+        enabled=False,
+    )
+
+    assert breaker.should_cancel() is False
+    assert breaker.trip() is None

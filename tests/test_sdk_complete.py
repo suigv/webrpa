@@ -1,5 +1,7 @@
 import importlib
 
+from engine.models.runtime import ExecutionContext
+
 
 def _load_myt_client_module():
     for name in ("hardware_adapters.myt_client", "hardware_adapters.myt_client"):
@@ -67,6 +69,42 @@ def test_sdk_required_field_validation():
     assert sdk.backup_model("android-01", "")["ok"] is False
     assert sdk.switch_model("android-01", "")["ok"] is False
     assert sdk.set_auth_password("abc", "xyz")["ok"] is False
+
+
+def test_sdk_action_binding_uses_runtime_target_endpoint(monkeypatch):
+    sdk_actions_module = importlib.import_module("engine.actions.sdk_actions")
+
+    seen: dict[str, object] = {}
+
+    class _FakeSdkClient:
+        def __init__(self, device_ip, sdk_port=8000, timeout_seconds=30.0, retries=3):
+            seen["device_ip"] = device_ip
+            seen["sdk_port"] = sdk_port
+            seen["timeout_seconds"] = timeout_seconds
+            seen["retries"] = retries
+
+        def switch_model(self, name, model_id="", **kwargs):
+            seen["name"] = name
+            seen["model_id"] = model_id
+            seen["kwargs"] = kwargs
+            return {"ok": True, "data": {"name": name, "model_id": model_id, "kwargs": kwargs}}
+
+    monkeypatch.setattr(sdk_actions_module, "MytSdkClient", _FakeSdkClient)
+
+    handler = sdk_actions_module.get_sdk_action_bindings()["sdk.switch_model"]
+    result = handler(
+        {"name": "android-12", "model_id": "229"},
+        ExecutionContext(
+            payload={},
+            runtime={"target": {"device_ip": "192.168.1.214", "sdk_port": 8000}},
+        ),
+    )
+
+    assert result.ok is True
+    assert seen["device_ip"] == "192.168.1.214"
+    assert seen["sdk_port"] == 8000
+    assert seen["name"] == "android-12"
+    assert seen["model_id"] == "229"
 
 
 def test_sdk_documented_endpoint_calls(monkeypatch):

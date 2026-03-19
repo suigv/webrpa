@@ -17,6 +17,7 @@ def test_profile_actions_are_registered_and_callable(monkeypatch):
     assert reg.has("selector.resolve_cloud_container")
     assert reg.has("generator.generate_env_bundle")
     assert reg.has("profile.apply_env_bundle")
+    assert reg.has("profile.wait_cloud_available")
 
     monkeypatch.setattr(
         profile_actions_module,
@@ -211,3 +212,56 @@ def test_profile_apply_env_bundle_uses_runtime_target_endpoint(monkeypatch):
     assert result.ok is True
     assert seen["device_ip"] == "192.168.1.214"
     assert seen["api_port"] == 30201
+
+
+def test_profile_wait_cloud_available_waits_for_reboot_cycle(monkeypatch):
+    profile_actions_module = importlib.import_module("engine.actions.profile_actions")
+
+    snapshots = iter(
+        [
+            {
+                "device_id": 1,
+                "cloud_id": 2,
+                "availability_state": "available",
+                "availability_reason": "ok",
+                "stale": False,
+            },
+            {
+                "device_id": 1,
+                "cloud_id": 2,
+                "availability_state": "unavailable",
+                "availability_reason": "restarting",
+                "stale": False,
+            },
+            {
+                "device_id": 1,
+                "cloud_id": 2,
+                "availability_state": "available",
+                "availability_reason": "ok",
+                "stale": False,
+            },
+        ]
+    )
+
+    class _FakeManager:
+        def get_cloud_probe_snapshot(self, device_id, cloud_id):
+            snapshot = next(snapshots)
+            assert snapshot["device_id"] == device_id
+            assert snapshot["cloud_id"] == cloud_id
+            return snapshot
+
+    monkeypatch.setattr(profile_actions_module, "get_device_manager", lambda: _FakeManager())
+    monkeypatch.setattr(profile_actions_module.time, "sleep", lambda _seconds: None)
+
+    result = profile_actions_module.profile_wait_cloud_available(
+        {
+            "timeout_ms": 5000,
+            "transition_timeout_ms": 2000,
+            "poll_interval_ms": 200,
+            "require_cycle": True,
+        },
+        ExecutionContext(payload={}, runtime={"target": {"device_id": 1, "cloud_id": 2}}),
+    )
+
+    assert result.ok is True
+    assert result.data["transition_observed"] is True

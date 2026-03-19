@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import socket
+import time
+from datetime import UTC, datetime
 from typing import Any, cast
 
+from core.device_manager import get_device_manager
 from core.device_profile_generator import (
     generate_contact,
     generate_env_bundle,
@@ -116,6 +120,21 @@ APPLY_ENV_BUNDLE_METADATA = ActionMetadata(
     },
 )
 
+WAIT_CLOUD_AVAILABLE_METADATA = ActionMetadata(
+    description="Wait for the current cloud target to return available after a reboot-like operation.",
+    params_schema={
+        "type": "object",
+        "properties": {
+            "device_id": {"type": "integer"},
+            "cloud_id": {"type": "integer"},
+            "timeout_ms": {"type": "integer", "default": 180000},
+            "transition_timeout_ms": {"type": "integer", "default": 30000},
+            "poll_interval_ms": {"type": "integer", "default": 1000},
+            "require_cycle": {"type": "boolean", "default": True},
+        },
+    },
+)
+
 
 def _ok(data: dict[str, Any]) -> ActionResult:
     return ActionResult(ok=True, code="ok", data=data)
@@ -125,16 +144,55 @@ def _err(code: str, message: str, data: dict[str, Any] | None = None) -> ActionR
     return ActionResult(ok=False, code=code, message=message, data=data or {})
 
 
+def _runtime_target(context: ExecutionContext) -> dict[str, Any]:
+    target = context.runtime.get("target")
+    return target if isinstance(target, dict) else {}
+
+
+def _probe_cloud_snapshot(
+    context: ExecutionContext,
+    *,
+    device_id: int,
+    cloud_id: int,
+) -> dict[str, Any]:
+    target = _runtime_target(context)
+    device_ip = str(target.get("device_ip") or "").strip()
+    rpa_port_raw = target.get("rpa_port")
+    if device_ip and rpa_port_raw is not None:
+        checked_at = datetime.now(UTC).isoformat()
+        try:
+            started = time.monotonic()
+            with socket.create_connection((device_ip, int(rpa_port_raw)), timeout=0.8):
+                latency_ms = int((time.monotonic() - started) * 1000)
+            return {
+                "device_id": device_id,
+                "cloud_id": cloud_id,
+                "availability_state": "available",
+                "availability_reason": "ok",
+                "last_checked_at": checked_at,
+                "latency_ms": latency_ms,
+                "stale": False,
+            }
+        except Exception as exc:
+            return {
+                "device_id": device_id,
+                "cloud_id": cloud_id,
+                "availability_state": "unavailable",
+                "availability_reason": str(exc),
+                "last_checked_at": checked_at,
+                "latency_ms": None,
+                "stale": False,
+            }
+    return get_device_manager().get_cloud_probe_snapshot(device_id, cloud_id)
+
+
 def _source(params: dict[str, Any]) -> str:
     source = str(params.get("source") or "online").strip().lower()
     return source if source in {"online", "local"} else "online"
 
 
 def _device_ip(params: dict[str, Any], context: ExecutionContext) -> str:
-    runtime_target = context.runtime.get("target")
-    runtime_target_ip = (
-        runtime_target.get("device_ip") if isinstance(runtime_target, dict) else None
-    )
+    runtime_target_ip = _runtime_target(context).get("device_ip")
     return str(
         params.get("device_ip")
         or context.payload.get("device_ip")
@@ -145,10 +203,7 @@ def _device_ip(params: dict[str, Any], context: ExecutionContext) -> str:
 
 
 def _sdk_port(params: dict[str, Any], context: ExecutionContext) -> int:
-    runtime_target = context.runtime.get("target")
-    runtime_target_sdk_port = (
-        runtime_target.get("sdk_port") if isinstance(runtime_target, dict) else None
-    )
+    runtime_target_sdk_port = _runtime_target(context).get("sdk_port")
     raw = (
         params.get("sdk_port")
         or context.payload.get("sdk_port")
@@ -163,10 +218,7 @@ def _api_client(params: dict[str, Any], context: ExecutionContext) -> AndroidApi
     device_ip = _device_ip(params, context)
     if not device_ip:
         return None
-    runtime_target = context.runtime.get("target")
-    runtime_target_api_port = (
-        runtime_target.get("api_port") if isinstance(runtime_target, dict) else None
-    )
+    runtime_target_api_port = _runtime_target(context).get("api_port")
     api_port = int(
         params.get("api_port")
         or runtime_target_api_port
@@ -247,10 +299,7 @@ def selector_select_phone_model(params: dict[str, Any], context: ExecutionContex
 def selector_resolve_cloud_container(
     params: dict[str, Any], context: ExecutionContext
 ) -> ActionResult:
-    runtime_target = context.runtime.get("target")
-    runtime_target_api_port = (
-        runtime_target.get("api_port") if isinstance(runtime_target, dict) else None
-    )
+    runtime_target_api_port = _runtime_target(context).get("api_port")
     result = resolve_cloud_container(
         device_ip=_device_ip(params, context),
         sdk_port=_sdk_port(params, context),
@@ -382,3 +431,63 @@ def profile_apply_env_bundle(params: dict[str, Any], context: ExecutionContext) 
         result_data["screenshot"] = screenshot_data if isinstance(screenshot_data, dict) else {}
         result_data["applied"] = applied
     return _ok(result_data)
+
+
+def profile_wait_cloud_available(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
+    target = _runtime_target(context)
+    device_id = int(params.get("device_id") or target.get("device_id") or context.device_id or 0)
+    cloud_id = int(params.get("cloud_id") or target.get("cloud_id") or context.cloud_id or 0)
+    if device_id < 1 or cloud_id < 1:
+        return _err("invalid_params", "device_id and cloud_id are required")
+
+    timeout_ms = max(1000, int(params.get("timeout_ms") or 180000))
+    transition_timeout_ms = max(0, int(params.get("transition_timeout_ms") or 30000))
+    poll_interval_ms = max(200, int(params.get("poll_interval_ms") or 1000))
+    require_cycle = bool(params.get("require_cycle", True))
+
+    started = time.monotonic()
+    phase = "wait_transition" if require_cycle else "wait_available"
+    transition_observed = False
+    last_snapshot = _probe_cloud_snapshot(context, device_id=device_id, cloud_id=cloud_id)
+
+    while True:
+        context.check_cancelled()
+        elapsed_ms = int((time.monotonic() - started) * 1000)
+        snapshot = _probe_cloud_snapshot(context, device_id=device_id, cloud_id=cloud_id)
+        state = str(snapshot.get("availability_state") or "unknown")
+        stale = bool(snapshot.get("stale", False))
+        last_snapshot = snapshot
+
+        if phase == "wait_transition":
+            if state != "available" or stale:
+                transition_observed = True
+                phase = "wait_available"
+            elif elapsed_ms >= transition_timeout_ms:
+                phase = "wait_available"
+
+        if phase == "wait_available" and state == "available" and not stale:
+            return _ok(
+                {
+                    "device_id": device_id,
+                    "cloud_id": cloud_id,
+                    "transition_observed": transition_observed,
+                    "waited_ms": elapsed_ms,
+                    "snapshot": snapshot,
+                }
+            )
+
+        if elapsed_ms >= timeout_ms:
+            return _err(
+                "target_wait_timeout",
+                "cloud target did not become available before timeout",
+                {
+                    "device_id": device_id,
+                    "cloud_id": cloud_id,
+                    "phase": phase,
+                    "transition_observed": transition_observed,
+                    "waited_ms": elapsed_ms,
+                    "snapshot": last_snapshot,
+                },
+            )
+
+        time.sleep(poll_interval_ms / 1000.0)

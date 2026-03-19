@@ -86,6 +86,36 @@ def _pick_index(seed: str, count: int) -> int:
     return int(digest[:16], 16) % count
 
 
+def _alternate_source(source: PhoneModelSource) -> PhoneModelSource:
+    return "local" if source == "online" else "online"
+
+
+def _load_source_items(
+    *,
+    source: PhoneModelSource,
+    device_ip: str,
+    sdk_port: int,
+    refresh_inventory: bool,
+    timeout_seconds: float,
+    retries: int,
+) -> tuple[list[dict[str, Any]] | None, dict[str, Any] | None]:
+    inventory = get_phone_models(
+        source,
+        device_ip=device_ip,
+        sdk_port=sdk_port,
+        refresh=refresh_inventory,
+        timeout_seconds=timeout_seconds,
+        retries=retries,
+    )
+    if not inventory.get("ok"):
+        return None, inventory
+    inventory_data = inventory.get("data")
+    loaded_items = inventory_data.get("items") if isinstance(inventory_data, dict) else None
+    if not isinstance(loaded_items, list):
+        loaded_items = []
+    return [item for item in loaded_items if isinstance(item, dict)], None
+
+
 def select_phone_model(
     *,
     source: PhoneModelSource = "online",
@@ -98,24 +128,89 @@ def select_phone_model(
     filters: dict[str, Any] | None = None,
     seed: str | None = None,
 ) -> dict[str, Any]:
+    requested_source = source
+    inventory_attempts: list[dict[str, Any]] = []
+
     if items is None:
-        inventory = get_phone_models(
-            source,
+        primary_items, primary_error = _load_source_items(
+            source=source,
             device_ip=device_ip,
             sdk_port=sdk_port,
-            refresh=refresh_inventory,
+            refresh_inventory=refresh_inventory,
             timeout_seconds=timeout_seconds,
             retries=retries,
         )
-        if not inventory.get("ok"):
-            return inventory
-        inventory_data = inventory.get("data")
-        loaded_items = inventory_data.get("items") if isinstance(inventory_data, dict) else None
-        if not isinstance(loaded_items, list):
-            loaded_items = []
-        items = [item for item in loaded_items if isinstance(item, dict)]
-    sorted_items = _sorted_items(items)
+        if primary_error is None:
+            items = primary_items or []
+        inventory_attempts.append(
+            {
+                "source": source,
+                "ok": primary_error is None,
+                "count": len(items or []) if primary_error is None else 0,
+                "message": "" if primary_error is None else str(primary_error.get("message") or ""),
+                "code": "" if primary_error is None else str(primary_error.get("code") or ""),
+            }
+        )
+        if primary_error is not None or not items:
+            fallback_source = _alternate_source(source)
+            fallback_items, fallback_error = _load_source_items(
+                source=fallback_source,
+                device_ip=device_ip,
+                sdk_port=sdk_port,
+                refresh_inventory=refresh_inventory,
+                timeout_seconds=timeout_seconds,
+                retries=retries,
+            )
+            inventory_attempts.append(
+                {
+                    "source": fallback_source,
+                    "ok": fallback_error is None,
+                    "count": len(fallback_items or []) if fallback_error is None else 0,
+                    "message": ""
+                    if fallback_error is None
+                    else str(fallback_error.get("message") or ""),
+                    "code": "" if fallback_error is None else str(fallback_error.get("code") or ""),
+                }
+            )
+            if fallback_error is None and fallback_items:
+                source = fallback_source
+                items = fallback_items
+            elif primary_error is not None:
+                return primary_error
+
+    sorted_items = _sorted_items(items or [])
     candidates = _filter_phone_models(sorted_items, filters)
+    if not candidates and items is None:
+        items = []
+    if not candidates and source == requested_source and items is not None:
+        fallback_source = _alternate_source(source)
+        fallback_items, fallback_error = _load_source_items(
+            source=fallback_source,
+            device_ip=device_ip,
+            sdk_port=sdk_port,
+            refresh_inventory=refresh_inventory,
+            timeout_seconds=timeout_seconds,
+            retries=retries,
+        )
+        inventory_attempts.append(
+            {
+                "source": fallback_source,
+                "ok": fallback_error is None,
+                "count": len(fallback_items or []) if fallback_error is None else 0,
+                "message": ""
+                if fallback_error is None
+                else str(fallback_error.get("message") or ""),
+                "code": "" if fallback_error is None else str(fallback_error.get("code") or ""),
+            }
+        )
+        if fallback_error is None and fallback_items:
+            fallback_sorted = _sorted_items(fallback_items)
+            fallback_candidates = _filter_phone_models(fallback_sorted, filters)
+            if fallback_candidates:
+                source = fallback_source
+                items = fallback_items
+                candidates = fallback_candidates
+
     if not candidates:
         return {
             "ok": False,
@@ -123,8 +218,10 @@ def select_phone_model(
             "message": "no phone model matched the selector filters",
             "data": {
                 "source": source,
+                "requested_source": requested_source,
                 "filters": filters or {},
                 "candidate_count": 0,
+                "inventory_attempts": inventory_attempts,
             },
         }
 
@@ -142,10 +239,13 @@ def select_phone_model(
         "code": "ok",
         "data": {
             "source": source,
+            "requested_source": requested_source,
+            "fallback_used": source != requested_source,
             "seed": seed_used,
             "candidate_count": len(candidates),
             "selected_index": selected_index,
             "filters": filters or {},
+            "inventory_attempts": inventory_attempts,
             "selected": selected,
             "apply": apply,
         },
