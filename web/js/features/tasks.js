@@ -16,6 +16,7 @@ let pluginCatalog = [];
 let selectedTaskName = '';
 let currentEventStream = null;
 let taskSubmissionListenerBound = false;
+const submittedTaskMonitors = new Map();
 
 function clearElement(element) {
     if (element) {
@@ -91,6 +92,44 @@ function createSummaryCard(title, text, badgeText = '', badgeVariant = 'default'
     return card;
 }
 
+function createReportDetailList(report) {
+    const entries = [
+        ['切换前机型', report.before_model],
+        ['选中机型', report.selected_model],
+        ['切换后机型', report.after_model],
+        ['机型来源', report.model_source],
+        ['地区', report.generated_country],
+        ['语言', report.generated_language],
+        ['时区', report.generated_timezone],
+        ['联系人数量', Array.isArray(report.contact_count) ? report.contact_count.length : report.contact_count],
+        ['写入 Google ID', report.google_id_written],
+        ['写入联系人', report.contacts_written],
+        ['完成截图', report.screenshot_taken],
+        ['选择器降级', report.selector_fallback_used],
+    ].filter(([, value]) => value !== undefined && value !== null && value !== '');
+
+    if (entries.length === 0) return null;
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'task-summary-list';
+    entries.forEach(([labelText, value]) => {
+        const row = document.createElement('div');
+        row.className = 'task-summary-target';
+
+        const label = document.createElement('div');
+        label.className = 'task-summary-title';
+        label.textContent = labelText;
+
+        const valueEl = document.createElement('div');
+        valueEl.className = 'task-summary-target-message';
+        valueEl.textContent = String(value);
+
+        row.append(label, valueEl);
+        wrapper.appendChild(row);
+    });
+    return wrapper;
+}
+
 function normalizeTargetResults(task) {
     const rawTargets = Array.isArray(task?.result?.targets) ? task.result.targets : [];
     return rawTargets.map((entry) => {
@@ -101,7 +140,10 @@ function normalizeTargetResults(task) {
         const message = String(
             result?.message || result?.error || result?.status || task?.error || '未返回详细信息'
         );
-        return { label, ok, message };
+        const report = result?.data?.report && typeof result.data.report === 'object'
+            ? result.data.report
+            : null;
+        return { label, ok, message, report };
     });
 }
 
@@ -193,6 +235,10 @@ function renderTaskSummary(task) {
 
             header.append(label, badge);
             row.append(header, message);
+            const reportDetails = item.report ? createReportDetailList(item.report) : null;
+            if (reportDetails) {
+                row.appendChild(reportDetails);
+            }
             wrapper.appendChild(row);
         });
         host.appendChild(wrapper);
@@ -208,9 +254,12 @@ function renderTaskSnapshot(task) {
 
     const title = $('taskModalTitle');
     if (title) {
+        const prefix = ['completed', 'failed', 'cancelled'].includes(task.status)
+            ? '任务汇总'
+            : '任务执行中';
         title.textContent = finalName
-            ? `任务追踪 - ${finalName}`
-            : '任务追踪';
+            ? `${prefix} - ${finalName}`
+            : prefix;
     }
 
     const infoBox = $('taskInfoContent');
@@ -242,8 +291,44 @@ async function refreshTaskSnapshot(taskId) {
 
 function handleTaskSubmitted(event) {
     const taskId = event?.detail?.taskId;
+    const displayName = event?.detail?.displayName || event?.detail?.taskName || '任务';
     if (!taskId) return;
-    loadTaskDetail(taskId);
+    trackSubmittedTask(taskId, displayName);
+}
+
+function trackSubmittedTask(taskId, displayName) {
+    if (submittedTaskMonitors.has(taskId)) return;
+
+    const client = new FetchSseClient(`/api/tasks/${taskId}/events`, {
+        onEvent: (type, raw) => {
+            if (type === 'message') return;
+            let data;
+            try {
+                data = raw ? JSON.parse(raw) : {};
+            } catch {
+                data = { raw };
+            }
+            if (!['task.completed', 'task.failed', 'task.cancelled'].includes(type)) return;
+            client.close();
+            submittedTaskMonitors.delete(taskId);
+            loadTaskDetail(taskId);
+            if (type === 'task.completed') {
+                toast.success(`${displayName} 已完成，已生成任务汇总`);
+            } else if (type === 'task.failed') {
+                toast.warn(`${displayName} 执行失败，已弹出结果汇总`);
+            } else {
+                toast.info(`${displayName} 已结束，已弹出结果汇总`);
+            }
+        },
+        onError: async () => {
+            const snapshot = await refreshTaskSnapshot(taskId);
+            if (!snapshot || !['completed', 'failed', 'cancelled'].includes(snapshot.status)) return;
+            client.close();
+            submittedTaskMonitors.delete(taskId);
+            loadTaskDetail(taskId);
+        },
+    });
+    submittedTaskMonitors.set(taskId, client);
 }
 
 export function initTasks() {
@@ -456,7 +541,9 @@ function renderTasksList(tasks) {
 
         const detailBtn = document.createElement('button');
         detailBtn.className = 'btn btn-secondary btn-sm';
-        detailBtn.textContent = '追踪轨迹';
+        detailBtn.textContent = ['completed', 'failed', 'cancelled'].includes(t.status)
+            ? '查看报告'
+            : '查看进度';
         detailBtn.onclick = () => loadTaskDetail(t.task_id);
         buttonGroup.appendChild(detailBtn);
 

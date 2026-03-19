@@ -27,7 +27,7 @@ from engine.models.workflow import (
     WaitUntilStep,
     WorkflowScript,
 )
-from engine.parser import interpolate_params
+from engine.parser import interpolate, interpolate_params
 from engine.ui_state_browser_service import BrowserUIStateService
 
 logger = logging.getLogger(__name__)
@@ -97,7 +97,7 @@ class Interpreter:
                 elif isinstance(step, GotoStep):
                     self._exec_goto(step, context, label_map)
                 elif isinstance(step, StopStep):
-                    return self._exec_stop(step, script.workflow)
+                    return self._exec_stop(step, script.workflow, context)
 
                 # Only auto-advance if no jump occurred
                 if not context.jumped:
@@ -385,14 +385,24 @@ class Interpreter:
     ) -> None:
         self._jump_to(step.target, context, label_map)
 
-    def _exec_stop(self, step: StopStep, workflow: str) -> dict[str, Any]:
-        return {
+    def _exec_stop(
+        self,
+        step: StopStep,
+        workflow: str,
+        context: ExecutionContext,
+    ) -> dict[str, Any]:
+        interp_ctx = {"payload": self._payload_scope(context), "vars": context.vars}
+        result_payload = interpolate_params(step.result, interp_ctx)
+        stop_result = {
             "ok": step.status == "success",
             "workflow": workflow,
             "status": step.status,
-            "message": step.message,
+            "message": interpolate(step.message, interp_ctx),
             "timestamp": datetime.now(UTC).isoformat(),
         }
+        if isinstance(result_payload, dict) and result_payload:
+            stop_result["data"] = result_payload
+        return stop_result
 
     # ---- Helpers ----
 

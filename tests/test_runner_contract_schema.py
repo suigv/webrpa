@@ -1,7 +1,7 @@
 from core.task_execution import ActiveTargetCircuitBreaker
 from engine.models.manifest import InputType, PluginInput
 from engine.models.runtime import ActionResult
-from engine.models.workflow import ActionStep, WorkflowScript
+from engine.models.workflow import ActionStep, StopStep, WorkflowScript
 from engine.parser import parse_script
 from engine.runner import Runner
 
@@ -81,3 +81,47 @@ def test_target_circuit_breaker_can_be_disabled():
 
     assert breaker.should_cancel() is False
     assert breaker.trip() is None
+
+
+def test_interpreter_stop_step_can_return_interpolated_result(monkeypatch):
+    import engine.interpreter as interpreter_module
+
+    seen: dict[str, object] = {}
+
+    def _fake_dispatch_action(action, params, context, registry=None):
+        _ = (action, context, registry)
+        seen.update(params)
+        return ActionResult(ok=True, code="ok", data={"current_model": "PKA110"})
+
+    monkeypatch.setattr(interpreter_module, "dispatch_action", _fake_dispatch_action)
+    script = WorkflowScript(
+        version="v1",
+        workflow="summary_probe",
+        steps=[
+            ActionStep(
+                kind="action",
+                action="profile.apply_env_bundle",
+                params={"model_name": "PKA110"},
+                save_as="after_model",
+            ),
+            StopStep(
+                kind="stop",
+                status="success",
+                message="switched to ${vars.after_model.current_model}",
+                result={
+                    "report": {
+                        "after_model": "${vars.after_model.current_model}",
+                        "payload_echo": "${payload.seed}",
+                    }
+                },
+            ),
+        ],
+    )
+
+    result = interpreter_module.Interpreter().execute(script, payload={"seed": "seed-001"})
+
+    assert seen["model_name"] == "PKA110"
+    assert result["ok"] is True
+    assert result["message"] == "switched to PKA110"
+    assert result["data"]["report"]["after_model"] == "PKA110"
+    assert result["data"]["report"]["payload_echo"] == "seed-001"

@@ -94,6 +94,7 @@ class StopStep(BaseModel):
     kind: Literal["stop"]
     status: Literal["success", "failed"] = "success"
     message: str = ""
+    result: dict[str, Any] = Field(default_factory=dict)
     timeout_ms: int | None = None
     on_fail: OnFail | None = None
 

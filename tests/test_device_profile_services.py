@@ -121,6 +121,46 @@ def test_select_phone_model_is_deterministic():
     assert first["data"]["apply"]["model_id"] == "m-2"
 
 
+def test_select_phone_model_can_exclude_current_model():
+    items = [
+        {"source": "online", "id": "m-1", "name": "CurrentModel", "status": "online"},
+        {"source": "online", "id": "m-2", "name": "NextModel", "status": "online"},
+    ]
+
+    result = select_phone_model(
+        source="online",
+        items=items,
+        filters={"status": "online", "exclude_names": ["CurrentModel"]},
+        seed="fixed-seed",
+    )
+
+    assert result["ok"] is True
+    assert result["data"]["selected"]["name"] == "NextModel"
+    assert result["data"]["apply"]["model_name"] == "NextModel"
+
+
+def test_select_phone_model_without_seed_is_randomized(monkeypatch):
+    import core.device_profile_selector as selector_module
+
+    calls = iter(["x1", "c"])
+    monkeypatch.setattr(selector_module.secrets, "token_hex", lambda _: next(calls))
+
+    items = [
+        {"source": "online", "id": "m-1", "name": "ModelA", "status": "online"},
+        {"source": "online", "id": "m-2", "name": "ModelB", "status": "online"},
+        {"source": "online", "id": "m-3", "name": "ModelC", "status": "online"},
+    ]
+
+    first = select_phone_model(source="online", items=items, filters={"status": "online"})
+    second = select_phone_model(source="online", items=items, filters={"status": "online"})
+
+    assert first["ok"] is True
+    assert second["ok"] is True
+    assert first["data"]["seed"] == "x1"
+    assert second["data"]["seed"] == "c"
+    assert first["data"]["selected_index"] != second["data"]["selected_index"]
+
+
 def test_select_phone_model_falls_back_to_local_when_online_inventory_empty(monkeypatch):
     import core.device_profile_inventory as inventory_module
     import core.device_profile_selector as selector_module

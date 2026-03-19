@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import re
+import secrets
 from contextlib import suppress
 from typing import Any
 
@@ -42,6 +42,8 @@ def _filter_phone_models(
     filtered: list[dict[str, Any]] = []
     ids = filters.get("ids")
     names = filters.get("names")
+    exclude_ids = filters.get("exclude_ids")
+    exclude_names = filters.get("exclude_names")
     name_contains = str(filters.get("name_contains") or "").strip().lower()
     name_prefix = str(filters.get("name_prefix") or "").strip().lower()
     name_regex = str(filters.get("name_regex") or "").strip()
@@ -53,6 +55,10 @@ def _filter_phone_models(
             continue
         if names and not _match_exact(name, names):
             continue
+        if exclude_ids and _match_exact(item.get("id"), exclude_ids):
+            continue
+        if exclude_names and _match_exact(name, exclude_names):
+            continue
         if name_contains and name_contains not in name.lower():
             continue
         if name_prefix and not name.lower().startswith(name_prefix):
@@ -62,7 +68,15 @@ def _filter_phone_models(
 
         exact_failed = False
         for key, expected in filters.items():
-            if key in {"ids", "names", "name_contains", "name_prefix", "name_regex"}:
+            if key in {
+                "ids",
+                "names",
+                "exclude_ids",
+                "exclude_names",
+                "name_contains",
+                "name_prefix",
+                "name_regex",
+            }:
                 continue
             if not _match_exact(item.get(key), expected):
                 exact_failed = True
@@ -77,8 +91,8 @@ def _seed_text(seed: str | None, candidates: list[dict[str, Any]]) -> str:
     base = str(seed or "").strip()
     if base:
         return base
-    stable = [{"id": item.get("id"), "name": item.get("name")} for item in candidates]
-    return json.dumps(stable, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    _ = candidates
+    return secrets.token_hex(16)
 
 
 def _pick_index(seed: str, count: int) -> int:

@@ -57,7 +57,7 @@ inputs:
     required: false
     default: ""
     label: "随机种子"
-    description: "可选。填入后同一节点可重复得到稳定机型和环境组合。"
+    description: "可选。填入后同一节点可重复得到稳定机型和环境组合；留空时系统自动随机，并默认避开当前机型。"
     placeholder: "留空则自动随机"
     advanced: true
   - name: contact_count

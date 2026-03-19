@@ -17,6 +17,8 @@ steps:
       seed: "${payload.seed}"
       filters:
         name_contains: "${payload.phone_model_name_contains}"
+        exclude_names:
+          - "${vars.cloud_container.selected.modelPath}"
 
   - label: 生成环境包
     kind: action
@@ -66,7 +68,28 @@ steps:
       take_screenshot: "${payload.take_screenshot}"
       screenshot_level: 2
 
+  - label: 读取切换后机型
+    kind: action
+    action: selector.resolve_cloud_container
+    save_as: final_cloud_container
+    params: {}
+
   - label: 新机完成
     kind: stop
     status: success
     message: "One click new device completed"
+    result:
+      report:
+        title: "一键新机完成"
+        before_model: "${vars.cloud_container.selected.modelPath}"
+        selected_model: "${vars.selected_model.apply.model_name}"
+        after_model: "${vars.final_cloud_container.selected.modelPath}"
+        model_source: "${vars.selected_model.source}"
+        selector_fallback_used: "${vars.selected_model.fallback_used}"
+        generated_language: "${vars.env_bundle.language}"
+        generated_country: "${vars.env_bundle.country}"
+        generated_timezone: "${vars.env_bundle.timezone}"
+        contact_count: "${payload.contact_count}"
+        google_id_written: "${payload.set_google_id}"
+        contacts_written: "${payload.write_contacts}"
+        screenshot_taken: "${payload.take_screenshot}"
