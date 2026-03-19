@@ -296,7 +296,7 @@ function startTaskEventStream(taskId) {
 
     // 监听所有自定义事件
     const eventTypes = [
-        'task.created', 'task.started', 'task.completed', 'task.failed', 'task.cancelled', 'task.dispatch_result',
+        'task.created', 'task.started', 'task.completed', 'task.failed', 'task.cancelled', 'task.dispatch_result', 'task.action_result',
         'interpreter.step_start', 'interpreter.step_result',
         'action.executing', 'action.success', 'action.failed',
         'humanized.click', 'humanized.typing'
@@ -384,6 +384,15 @@ function appendEventToTimeline(type, data) {
         tagSpan.style.color = 'var(--info)';
         tagSpan.textContent = '[汇总] ';
         msgSpan.textContent = String(data.checkpoint || data.status || '已生成本轮执行结果');
+        line.append(tagSpan, msgSpan);
+    } else if (type === 'task.action_result') {
+        tagSpan.style.color = data.ok ? 'var(--success)' : 'var(--warning, #f59e0b)';
+        tagSpan.textContent = `[步骤 ${data.step ?? '?'}] `;
+        const label = String(data.label || '未命名步骤');
+        const message = String(data.message || '').trim();
+        msgSpan.textContent = message
+            ? `${label}: ${message}`
+            : `${label}: ${data.ok ? '成功' : '失败'}`;
         line.append(tagSpan, msgSpan);
     } else {
         msgSpan.textContent = `${type}: ${JSON.stringify(data)}`;
