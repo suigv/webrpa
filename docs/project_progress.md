@@ -41,6 +41,7 @@
       - Selector / 状态识别 support 模块补齐恢复性日志：`_ui_selector_support.py` 与 `_state_detection_support.py` 现在会对 selector 清理失败、节点方法回退、XML 解析失败、截断 XML 回补等路径输出 debug 日志，不再静默吞掉根因。
       - 新增 `tests/test_state_detection_support.py`，固定 XML 属性扫描回退、候选提取解析失败以及 bounds 解析失败的日志与返回契约，防止后续再次退回“无声 fallback”。
       - Native state 兼容入口继续收口：`binding_id -> state_profile_id` 的解析与 identity 组装已统一下沉到 `engine/ui_state_native_bindings.py`，`ui_state_actions`、`navigation_actions` 与 `NativeUIStateAdapter` 不再各自维护一套兼容分支；内部统一走 `state_profile_id`，仅在结构化结果边界保留 legacy alias。
+      - 任务熔断器补齐启动窗口保护：`ActiveTargetCircuitBreaker` 与子进程目标监控现在只认“目标启动后的新 probe 快照”，不再因为任务启动前缓存的一次 `unavailable/timed out` 快照而在起跑瞬间误熔断；针对该行为已补充单测，覆盖启动前旧快照忽略与启动后新快照生效两条路径。
   - **MYTOS API 新能力接入 (2026-03-19)**：
     - `AndroidApiClient` 与 `android.*` / `mytos.*` 动作已补齐新版 `task=snap` 截图、`modifydev?cmd=7` 指纹更新、`modifydev?cmd=17` 摇一摇开关。
     - `mytos.screenshot` 现兼容 `level=1/2/3`，可直接走新版截图接口；同时新增 `mytos.set_fingerprint` / `mytos.update_fingerprint` / `mytos.set_shake`。

@@ -56,6 +56,7 @@ class ProcessTaskHandle:
     cancel_signaled_at: float | None = None
     terminate_sent_at: float | None = None
     current_target: tuple[int, int] | None = None
+    current_target_started_at_epoch: float | None = None
     target_trip_sent: bool = False
     breaker_trip: TargetCircuitBreakerTrip | None = None
     tolerate_target_unavailable: bool = False
@@ -73,10 +74,15 @@ def _build_target_trip(
     device_id: int,
     cloud_id: int,
     snapshot: dict[str, Any],
+    min_last_checked_at_epoch: float | None = None,
 ) -> TargetCircuitBreakerTrip | None:
     state = str(snapshot.get("availability_state") or "unknown")
     if state != "unavailable" or bool(snapshot.get("stale", False)):
         return None
+    if min_last_checked_at_epoch is not None:
+        last_checked_at_epoch = _snapshot_last_checked_at_epoch(snapshot)
+        if last_checked_at_epoch is None or last_checked_at_epoch < min_last_checked_at_epoch:
+            return None
     reason = str(snapshot.get("availability_reason") or "unknown")
     message = f"target became unavailable during execution: device={device_id}, cloud={cloud_id}, reason={reason}"
     return TargetCircuitBreakerTrip(
@@ -92,6 +98,22 @@ def _build_target_trip(
             "stale": bool(snapshot.get("stale", False)),
         },
     )
+
+
+def _snapshot_last_checked_at_epoch(snapshot: dict[str, Any]) -> float | None:
+    raw = snapshot.get("last_checked_at")
+    if raw is None:
+        return None
+    try:
+        text = str(raw).strip()
+        if not text:
+            return None
+        parsed = datetime.fromisoformat(text)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=UTC)
+        return parsed.timestamp()
+    except Exception:
+        return None
 
 
 def _trip_result(task_name: str, trip: TargetCircuitBreakerTrip) -> dict[str, Any]:
@@ -128,6 +150,7 @@ class ActiveTargetCircuitBreaker:
         self._trip: TargetCircuitBreakerTrip | None = None
         self._trip_lock = threading.Lock()
         self._unsubscribe: Callable[[], None] | None = None
+        self._activated_at_epoch = time.time()
         if not enabled:
             return
         if self._device_id < 1 or self._cloud_id < 1:
@@ -143,11 +166,13 @@ class ActiveTargetCircuitBreaker:
         self._unsubscribe = manager.subscribe_cloud_probe(
             self._device_id, self._cloud_id, self._handle_probe_update
         )
-        self._handle_probe_update(manager.get_cloud_probe_snapshot(self._device_id, self._cloud_id))
 
     def _handle_probe_update(self, snapshot: dict[str, Any]) -> None:
         trip = _build_target_trip(
-            device_id=self._device_id, cloud_id=self._cloud_id, snapshot=snapshot
+            device_id=self._device_id,
+            cloud_id=self._cloud_id,
+            snapshot=snapshot,
+            min_last_checked_at_epoch=self._activated_at_epoch,
         )
         if trip is None:
             return
@@ -723,9 +748,11 @@ class TaskExecutionService:
                 cloud_id = int(message.get("cloud_id", 0) or 0)
                 if device_id > 0 and cloud_id > 0:
                     handle.current_target = (device_id, cloud_id)
+                    handle.current_target_started_at_epoch = time.time()
                     handle.target_trip_sent = False
             elif message_type == "target_finished":
                 handle.current_target = None
+                handle.current_target_started_at_epoch = None
                 handle.target_trip_sent = False
 
     def _maybe_trip_process_target(self, handle: ProcessTaskHandle, now: float) -> None:
@@ -738,7 +765,12 @@ class TaskExecutionService:
             return
         device_id, cloud_id = handle.current_target
         snapshot = get_device_manager().get_cloud_probe_snapshot(device_id, cloud_id)
-        trip = _build_target_trip(device_id=device_id, cloud_id=cloud_id, snapshot=snapshot)
+        trip = _build_target_trip(
+            device_id=device_id,
+            cloud_id=cloud_id,
+            snapshot=snapshot,
+            min_last_checked_at_epoch=handle.current_target_started_at_epoch,
+        )
         if trip is None:
             return
         if handle.control_queue is not None:

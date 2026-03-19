@@ -1,4 +1,6 @@
-from core.task_execution import ActiveTargetCircuitBreaker
+from datetime import UTC, datetime, timedelta
+
+from core.task_execution import ActiveTargetCircuitBreaker, _build_target_trip
 from engine.models.manifest import InputType, PluginInput
 from engine.models.runtime import ActionResult
 from engine.models.workflow import ActionStep, StopStep, WorkflowScript
@@ -81,6 +83,47 @@ def test_target_circuit_breaker_can_be_disabled():
 
     assert breaker.should_cancel() is False
     assert breaker.trip() is None
+
+
+def test_build_target_trip_ignores_probe_snapshot_before_activation():
+    before_activation = datetime.now(UTC) - timedelta(seconds=2)
+    snapshot = {
+        "availability_state": "unavailable",
+        "availability_reason": "timed out",
+        "last_checked_at": before_activation.isoformat(),
+        "latency_ms": 803,
+        "stale": False,
+    }
+
+    trip = _build_target_trip(
+        device_id=1,
+        cloud_id=1,
+        snapshot=snapshot,
+        min_last_checked_at_epoch=datetime.now(UTC).timestamp(),
+    )
+
+    assert trip is None
+
+
+def test_build_target_trip_accepts_probe_snapshot_after_activation():
+    after_activation = datetime.now(UTC) + timedelta(seconds=1)
+    snapshot = {
+        "availability_state": "unavailable",
+        "availability_reason": "timed out",
+        "last_checked_at": after_activation.isoformat(),
+        "latency_ms": 803,
+        "stale": False,
+    }
+
+    trip = _build_target_trip(
+        device_id=1,
+        cloud_id=1,
+        snapshot=snapshot,
+        min_last_checked_at_epoch=datetime.now(UTC).timestamp(),
+    )
+
+    assert trip is not None
+    assert trip.code == "target_unavailable"
 
 
 def test_interpreter_stop_step_can_return_interpolated_result(monkeypatch):
