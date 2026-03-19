@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any
 
 from engine.models.runtime import ActionResult, ExecutionContext
+
+logger = logging.getLogger(__name__)
 
 
 def _to_int(value: Any, default: int = 0) -> int:
@@ -11,6 +14,14 @@ def _to_int(value: Any, default: int = 0) -> int:
         return int(value)
     except Exception:
         return default
+
+
+def _log_recoverable(message: str, *, exc: Exception | None = None, **details: object) -> None:
+    parts = [f"{key}={value!r}" for key, value in details.items() if value is not None]
+    if exc is not None:
+        parts.append(f"exc={exc!r}")
+    suffix = f" ({', '.join(parts)})" if parts else ""
+    logger.debug("%s%s", message, suffix)
 
 
 @dataclass
@@ -201,7 +212,8 @@ class RpcNode:
         if callable(attr):
             try:
                 return attr()
-            except Exception:
+            except Exception as exc:
+                _log_recoverable("rpc node callable failed", exc=exc, method=name)
                 return default
         if attr is not None:
             return attr
@@ -271,7 +283,8 @@ class RpcNode:
         if callable(method):
             try:
                 return method(index)
-            except Exception:
+            except Exception as exc:
+                _log_recoverable("rpc node child lookup failed", exc=exc, index=index)
                 return None
         children = self._method("children", [])
         if isinstance(children, list) and 0 <= index < len(children):
@@ -294,14 +307,16 @@ class RpcNode:
         if callable(method):
             try:
                 return bool(method())
-            except Exception:
+            except Exception as exc:
+                _log_recoverable("rpc node click via Click_events failed", exc=exc)
                 return False
         method = getattr(self.node, "click", None)
         if callable(method):
             try:
                 method()
                 return True
-            except Exception:
+            except Exception as exc:
+                _log_recoverable("rpc node click via click() failed", exc=exc)
                 return False
         return False
 
@@ -312,7 +327,8 @@ class RpcNode:
         if callable(method):
             try:
                 return bool(method())
-            except Exception:
+            except Exception as exc:
+                _log_recoverable("rpc node long click failed", exc=exc)
                 return False
         return False
 
@@ -394,8 +410,35 @@ def _free_nodes_handle(rpc: Any, handle: int | None) -> bool:
         return False
     try:
         return bool(method(resolved))
-    except Exception:
+    except Exception as exc:
+        _log_recoverable("free_nodes failed", exc=exc, handle=resolved)
         return False
+
+
+def _cleanup_selector(
+    selector: MytSelector | None,
+    *,
+    close_rpc: Any | None = None,
+    close_connection: bool = True,
+) -> None:
+    if selector is None:
+        return
+    if hasattr(selector, "clear_selector"):
+        try:
+            selector.clear_selector()
+        except Exception as exc:
+            _log_recoverable("selector clear failed during cleanup", exc=exc)
+    if hasattr(selector, "free_selector"):
+        try:
+            selector.free_selector()
+        except Exception as exc:
+            _log_recoverable("selector free failed during cleanup", exc=exc)
+    rpc = getattr(selector, "rpc", None)
+    if close_connection and callable(close_rpc) and rpc is not None:
+        try:
+            close_rpc(rpc)
+        except Exception as exc:
+            _log_recoverable("rpc close failed during selector cleanup", exc=exc)
 
 
 def _release_tracked_node_handles(context: ExecutionContext, selector: MytSelector | None) -> bool:
@@ -439,15 +482,8 @@ def create_selector(
         selector_cls = MytSelector
 
     previous = context.vars.get("selector")
-    if previous and hasattr(previous, "clear_selector"):
-        try:
-            previous.clear_selector()
-            if hasattr(previous, "free_selector"):
-                previous.free_selector()
-        except Exception:
-            pass
-        if hasattr(previous, "rpc"):
-            close_rpc(previous.rpc)
+    if isinstance(previous, MytSelector):
+        _cleanup_selector(previous, close_rpc=close_rpc)
     rpc, err = get_rpc(params, context)
     if err:
         return err
@@ -663,12 +699,7 @@ def selector_click_one(
             return ActionResult(ok=False, code="click_failed", message="node click failed")
         return ActionResult(ok=True, code="ok")
     finally:
-        try:
-            _ = selector.clear_selector()
-            _ = selector.free_selector()
-        except Exception:
-            pass
-        close_rpc(rpc)
+        _cleanup_selector(selector, close_rpc=close_rpc)
 
 
 def selector_exec_all(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
@@ -940,14 +971,9 @@ def release_selector_context(context: ExecutionContext, *, close_rpc: Any) -> bo
     selector = context.vars.get("selector")
     if not isinstance(selector, MytSelector):
         return False
-    released_nodes = _release_tracked_node_handles(context, selector)
+    _release_tracked_node_handles(context, selector)
     context.vars.pop("selector", None)
-    try:
-        _ = selector.clear_selector()
-        _ = selector.free_selector()
-    except Exception:
-        return released_nodes
-    close_rpc(selector.rpc)
+    _cleanup_selector(selector, close_rpc=close_rpc)
     return True
 
 

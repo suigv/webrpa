@@ -1,11 +1,22 @@
 from __future__ import annotations
 
+import logging
 import re
 import xml.etree.ElementTree as ET
 from collections.abc import Iterable
 from typing import Any
 
 from engine.models.runtime import ActionResult, ExecutionContext
+
+logger = logging.getLogger(__name__)
+
+
+def _log_recoverable(message: str, *, exc: Exception | None = None, **details: object) -> None:
+    parts = [f"{key}={value!r}" for key, value in details.items() if value is not None]
+    if exc is not None:
+        parts.append(f"exc={exc!r}")
+    suffix = f" ({', '.join(parts)})" if parts else ""
+    logger.debug("%s%s", message, suffix)
 
 
 def _coerce_text_list(raw: Iterable[str] | str | None) -> list[str]:
@@ -64,7 +75,12 @@ def build_xml_match_index(xml_text: str) -> dict[str, tuple[str, ...]] | None:
 
     try:
         root = ET.fromstring(raw)
-    except Exception:
+    except Exception as exc:
+        _log_recoverable(
+            "xml match index parse failed, falling back to attribute scan",
+            exc=exc,
+            xml_size=len(raw),
+        )
         attr_pattern = re.compile(r'(resource-id|text|content-desc)="([^"]*)"')
         current_resource_id = ""
         for attr_name, attr_value in attr_pattern.findall(raw):
@@ -119,7 +135,8 @@ def parse_bounds(raw: str) -> dict[str, int]:
         left, top = [int(part) for part in left_top.split(",", 1)]
         right, bottom = [int(part) for part in right_bottom.split(",", 1)]
         return {"left": left, "top": top, "right": right, "bottom": bottom}
-    except Exception:
+    except Exception as exc:
+        _log_recoverable("failed to parse bounds", exc=exc, raw=raw)
         return {"left": 0, "top": 0, "right": 0, "bottom": 0}
 
 
@@ -197,7 +214,8 @@ def extract_candidates_from_xml(
         return []
     try:
         root = ET.fromstring(xml_text)
-    except Exception:
+    except Exception as exc:
+        _log_recoverable("candidate extraction XML parse failed", exc=exc, xml_size=len(xml_text))
         return []
 
     fallback_resource_id_set = {item for item in _coerce_text_list(fallback_resource_ids) if item}
@@ -287,6 +305,11 @@ def dump_xml_for_candidates(rpc: Any, timeout_ms: int = 2500) -> str:
 
     # 2. 完整性检查：如果 XML 不为空但未闭合（不包含 </hierarchy>），说明被截断了
     if xml_text and "</hierarchy>" not in xml_text:
+        _log_recoverable(
+            "xml dump appears truncated, retrying standard dump",
+            timeout_ms=timeout_ms,
+            xml_size=len(str(xml_text)),
+        )
         # 尝试使用标准模式补齐（虽然没有超时保护，但在 Ex 已预热的情况下通常能很快返回）
         full_xml = rpc.dump_node_xml(False)
         if full_xml and "</hierarchy>" in full_xml:
@@ -295,6 +318,7 @@ def dump_xml_for_candidates(rpc: Any, timeout_ms: int = 2500) -> str:
     if xml_text:
         return xml_text
 
+    _log_recoverable("extended xml dump empty, retrying standard dump", timeout_ms=timeout_ms)
     fallback = rpc.dump_node_xml(False)
     return str(fallback or "")
 
@@ -320,7 +344,8 @@ def extract_last_dm_message_from_xml(
         return None
     try:
         root = ET.fromstring(xml_text)
-    except Exception:
+    except Exception as exc:
+        _log_recoverable("inbound dm XML parse failed", exc=exc, xml_size=len(xml_text))
         return None
 
     separator_tokens = _coerce_text_list(separator_tokens)
@@ -364,7 +389,8 @@ def extract_last_outbound_dm_message_from_xml(
         return None
     try:
         root = ET.fromstring(xml_text)
-    except Exception:
+    except Exception as exc:
+        _log_recoverable("outbound dm XML parse failed", exc=exc, xml_size=len(xml_text))
         return None
 
     separator_tokens = _coerce_text_list(separator_tokens)
@@ -408,7 +434,8 @@ def extract_follow_targets_from_xml(
         return []
     try:
         root = ET.fromstring(xml_text)
-    except Exception:
+    except Exception as exc:
+        _log_recoverable("follow target XML parse failed", exc=exc, xml_size=len(xml_text))
         return []
 
     button_text_set = {text.lower() for text in _coerce_text_list(button_texts) if text}
@@ -451,7 +478,8 @@ def extract_unread_dm_targets_from_xml(
         return []
     try:
         root = ET.fromstring(xml_text)
-    except Exception:
+    except Exception as exc:
+        _log_recoverable("unread dm XML parse failed", exc=exc, xml_size=len(xml_text))
         return []
 
     marker_set = [marker.lower() for marker in _coerce_text_list(markers) if marker]

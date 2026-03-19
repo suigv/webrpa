@@ -1,13 +1,16 @@
 import { authFetch, fetchJson } from '../utils/api.js';
 import { toast } from '../ui/toast.js';
-import { renderTaskFormPanel, toggleAdvancedTaskFields } from '../utils/task_form_ui.js';
+import { toggleAdvancedTaskFields } from '../utils/task_form_ui.js';
 import { sysLog, unitLog } from './logs.js';
 import {
+    renderDeviceTaskForm,
+    runBulkPluginTasks,
+    submitUnitPluginTask,
+} from './device_task_panel.js';
+import {
     getTaskCatalog,
-    apiSubmitTask,
     buildTaskRequest,
-    collectTaskPayload,
-    sanitizePayloadForTask,
+    apiSubmitTask,
 } from './task_service.js';
 import { store } from '../state/store.js';
 
@@ -602,23 +605,10 @@ function renderBulkPluginFields() {
     if (!select || !config || !container || !guideCard) return;
 
     const taskName = select.value;
-    const task = currentCatalog.find((item) => item.task === taskName);
-    if (!task) {
-        config.style.display = 'none';
-        renderTaskFormPanel({
-            task: null,
-            guideCard,
-            fieldsContainer: container,
-            toggleButton: showMoreBtn,
-            collapsedText: BULK_ADVANCED_COLLAPSED_TEXT,
-            expandedText: BULK_ADVANCED_EXPANDED_TEXT,
-        });
-        return;
-    }
-
-    config.style.display = 'block';
-    renderTaskFormPanel({
-        task,
+    renderDeviceTaskForm({
+        catalog: currentCatalog,
+        taskName,
+        configContainer: config,
         guideCard,
         fieldsContainer: container,
         toggleButton: showMoreBtn,
@@ -631,10 +621,9 @@ function renderUnitPluginFields() {
     const select = $("unitPluginSelect");
     const container = $("unitPluginFields");
     if (!select || !container) return;
-    const taskName = select.value;
-    const task = currentCatalog.find(t => t.task === taskName);
-    renderTaskFormPanel({
-        task,
+    renderDeviceTaskForm({
+        catalog: currentCatalog,
+        taskName: select.value,
         guideCard: $("unitTaskGuideCard"),
         fieldsContainer: container,
         toggleButton: $('showMoreUnitFields'),
@@ -896,77 +885,40 @@ async function submitUnitTask(unit) {
     const select = $("unitPluginSelect");
     const container = $("unitPluginFields");
     if(!select || !container) return;
-
-    const taskName = select.value;
-    const payload = collectTaskPayload(container);
-
-    // 注入选中账号字段（只注入插件支持的字段）
-    const account = getSelectedAccount();
-    if (account) {
-        if (account.account) payload.acc = account.account;
-        if (account.password) payload.pwd = account.password;
-        if (account.twofa) {
-            payload.two_factor_code = account.twofa;
-            payload.fa2_secret = account.twofa;
-        }
-    }
-    const sanitizedPayload = await sanitizePayloadForTask(taskName, payload);
-
-    const taskData = buildTaskRequest({
-        task: taskName,
-        payload: sanitizedPayload,
-        targets: [{ device_id: unit.parent_id, cloud_id: unit.cloud_id }],
+    await submitUnitPluginTask({
+        catalog: currentCatalog,
+        unit,
+        taskName: select.value,
+        fieldsContainer: container,
+        account: getSelectedAccount(),
         priority: $("unitTaskPriority")?.value || 50,
         maxRetries: $("unitTaskMaxRetries")?.value || 0,
         runAt: $("unitTaskRunAt")?.value || null,
+        onStarted: ({ displayName }) => {
+            unitLog(`>>> 业务已启动: ${displayName}`);
+            unitLog(`>>> 正在建立连接并同步运行环境...`);
+        },
+        onFailed: () => {
+            unitLog(`❌ 任务部署失败，请检查网络或设备状态`, "error");
+        },
     });
-
-    const res = await apiSubmitTask(taskData);
-    if (res.ok) {
-        const taskObj = currentCatalog.find(t => t.task === taskName);
-        const displayName = taskObj ? taskObj.display_name : taskName;
-        
-        unitLog(`>>> 业务已启动: ${displayName}`);
-        unitLog(`>>> 正在建立连接并同步运行环境...`);
-    } else {
-        unitLog(`❌ 任务部署失败，请检查网络或设备状态`, "error");
-    }
 }
 
 async function runBulkTasks() {
     const select = $("bulkPluginSelect");
     const fieldContainer = $("bulkTaskFields");
     if(!select || !fieldContainer) return;
-    const plugin = select.value;
-    const count = selectedUnits.size;
-    if (!plugin) {
-        toast.warn('请先选择任务');
-        return;
-    }
-    if (count === 0) {
-        toast.warn('请先选择节点');
-        return;
-    }
-    if(!confirm(`即将对选中的 ${count} 个节点执行该操作，是否继续？`)) return;
-
-    const rawPayload = collectTaskPayload(fieldContainer);
-    sysLog(`开始集群派发任务: ${plugin}, 目标数量: ${count}`);
     const defaultPackage = (localStorage.getItem("defaultPackage") || "").trim();
-    if (defaultPackage && !Object.prototype.hasOwnProperty.call(rawPayload, 'package')) {
-        rawPayload.package = defaultPackage;
+    const result = await runBulkPluginTasks({
+        catalog: currentCatalog,
+        taskName: select.value,
+        fieldsContainer: fieldContainer,
+        selectedUnitIds: Array.from(selectedUnits),
+        defaultPackage,
+    });
+    if (result.ok) {
+        clearSelection();
     }
-    const payload = await sanitizePayloadForTask(plugin, rawPayload);
-    for (const id of selectedUnits) {
-        const [dId, cId] = id.split("-");
-        const taskData = buildTaskRequest({
-            task: plugin,
-            payload: payload,
-            targets: [{ device_id: parseInt(dId, 10), cloud_id: parseInt(cId, 10) }],
-        });
-        await apiSubmitTask(taskData, { notify: false, log: false, openReport: false });
-    }
-    toast.success("集群任务分发完成");
-    clearSelection();
 }
 
 async function initializeAllDevices() {

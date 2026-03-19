@@ -34,6 +34,9 @@
       - 收紧若干过度静默回退：WebSocket 事件轮询/广播、账号失败反馈持久化、浏览器 selector 轮询 fallback 现在都会保留可观测错误信息；浏览器 cookie 注入对不支持的 backend 会明确返回失败，而不再伪装成成功。
       - Native 状态兼容继续收口：`ui_state_actions` 和 `navigation_actions` 仍兼容读取 legacy `binding_id` 入口，但内部传递、路由探测与执行热路径统一只使用 `state_profile_id`，避免新逻辑继续向内层传播双字段。
       - Planner 迁移继续推进：`StructuredPlanner` 现在直接调用 `engine.planners.plan_structured_step()`，不再反向依赖旧的 `_plan_next_step` dict 接口；`agent_executor_planning._plan_next_step` 已降级为薄兼容包装层，保留旧 trace/测试兼容的同时把 structured planner 主逻辑收口到 `planners.py`。
+      - 设备页继续瘦身：新增 `web/js/features/device_task_panel.js`，把单机任务表单渲染、单机提交和批量分发从 `devices.js` 中拆出；设备页主文件继续聚焦设备列表、接管和详情展示，避免任务编排逻辑反复堆积。
+      - Selector / 状态识别 support 模块补齐恢复性日志：`_ui_selector_support.py` 与 `_state_detection_support.py` 现在会对 selector 清理失败、节点方法回退、XML 解析失败、截断 XML 回补等路径输出 debug 日志，不再静默吞掉根因。
+      - 新增 `tests/test_state_detection_support.py`，固定 XML 属性扫描回退、候选提取解析失败以及 bounds 解析失败的日志与返回契约，防止后续再次退回“无声 fallback”。
   - **MYTOS API 新能力接入 (2026-03-19)**：
     - `AndroidApiClient` 与 `android.*` / `mytos.*` 动作已补齐新版 `task=snap` 截图、`modifydev?cmd=7` 指纹更新、`modifydev?cmd=17` 摇一摇开关。
     - `mytos.screenshot` 现兼容 `level=1/2/3`，可直接走新版截图接口；同时新增 `mytos.set_fingerprint` / `mytos.update_fingerprint` / `mytos.set_shake`。
