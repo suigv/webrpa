@@ -126,6 +126,63 @@ def _legacy_distill_threshold_payload(
     }
 
 
+async def _distill_plugin_response(plugin_name: str, force: bool) -> dict[str, Any]:
+    import subprocess
+    import sys
+
+    from core.paths import project_root
+
+    plugin_name = _validate_plugin_name(plugin_name)
+    loader = _plugin_loader(refresh=True)
+    entry = loader.get(plugin_name)
+    if entry is None:
+        raise HTTPException(status_code=404, detail=f"plugin not found: {plugin_name}")
+
+    distillability_payload = _legacy_distillability_payload(plugin_name)
+    if distillability_payload is not None:
+        return distillability_payload
+
+    controller = get_task_controller()
+    rows = await run_sync(controller.plugin_success_counts)
+    stat = next((r for r in rows if r["task_name"] == plugin_name), None)
+    completed = int(stat["completed"]) if stat else 0
+    threshold = int(entry.manifest.distill_threshold or 3)
+
+    threshold_payload = _legacy_distill_threshold_payload(
+        plugin_name=plugin_name,
+        completed=completed,
+        threshold=threshold,
+        force=force,
+    )
+    if threshold_payload is not None:
+        return threshold_payload
+
+    repo_root = project_root()
+    script = repo_root / "tools" / "distill_multi_run.py"
+    plugins_root = (repo_root / "plugins").resolve()
+    output_dir = (plugins_root / f"{plugin_name}_distilled").resolve()
+    if plugins_root not in output_dir.parents:
+        raise HTTPException(status_code=400, detail="invalid output_dir")
+    cmd = [sys.executable, str(script), "--plugin", plugin_name, "--output-dir", str(output_dir)]
+    if force:
+        cmd.append("--force")
+
+    def _run():
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        return result.returncode, result.stdout, result.stderr
+
+    code, stdout, stderr = await run_sync(_run)
+    return {
+        "ok": code == 0,
+        "plugin_name": plugin_name,
+        "output_dir": str(output_dir),
+        "completed_runs": completed,
+        "threshold": threshold,
+        "stdout": stdout,
+        "stderr": stderr,
+    }
+
+
 @router.post("/", response_model=TaskResponse)
 async def create_task(
     request: TaskRequest,
@@ -446,63 +503,15 @@ async def distill_workflow_draft(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.post("/plugins/{plugin_name}/distill")
+async def distill_plugin_current(plugin_name: str, force: bool = False):
+    return await _distill_plugin_response(plugin_name, force)
+
+
 @router.post("/distill/{plugin_name}")
 async def distill_plugin(plugin_name: str, force: bool = False):
     """Legacy compatibility endpoint for plugin-name-based distillation."""
-    import subprocess
-    import sys
-
-    from core.paths import project_root
-
-    plugin_name = _validate_plugin_name(plugin_name)
-    loader = _plugin_loader(refresh=True)
-    entry = loader.get(plugin_name)
-    if entry is None:
-        raise HTTPException(status_code=404, detail=f"plugin not found: {plugin_name}")
-
-    distillability_payload = _legacy_distillability_payload(plugin_name)
-    if distillability_payload is not None:
-        return distillability_payload
-
-    controller = get_task_controller()
-    rows = await run_sync(controller.plugin_success_counts)
-    stat = next((r for r in rows if r["task_name"] == plugin_name), None)
-    completed = int(stat["completed"]) if stat else 0
-    threshold = int(entry.manifest.distill_threshold or 3)
-
-    threshold_payload = _legacy_distill_threshold_payload(
-        plugin_name=plugin_name,
-        completed=completed,
-        threshold=threshold,
-        force=force,
-    )
-    if threshold_payload is not None:
-        return threshold_payload
-
-    repo_root = project_root()
-    script = repo_root / "tools" / "distill_multi_run.py"
-    plugins_root = (repo_root / "plugins").resolve()
-    output_dir = (plugins_root / f"{plugin_name}_distilled").resolve()
-    if plugins_root not in output_dir.parents:
-        raise HTTPException(status_code=400, detail="invalid output_dir")
-    cmd = [sys.executable, str(script), "--plugin", plugin_name, "--output-dir", str(output_dir)]
-    if force:
-        cmd.append("--force")
-
-    def _run():
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-        return result.returncode, result.stdout, result.stderr
-
-    code, stdout, stderr = await run_sync(_run)
-    return {
-        "ok": code == 0,
-        "plugin_name": plugin_name,
-        "output_dir": str(output_dir),
-        "completed_runs": completed,
-        "threshold": threshold,
-        "stdout": stdout,
-        "stderr": stderr,
-    }
+    return await _distill_plugin_response(plugin_name, force)
 
 
 @router.get("/metrics", response_model=TaskMetricsResponse)

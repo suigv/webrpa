@@ -252,6 +252,12 @@
     - 新增现代控制器入口与不支持订阅时的显式失败测试，保留旧测试替身路径不变，避免后续再把兼容分支直接塞回应用启动主流程。
 
 - 最近重点 (本会话)：
+  - **前后端蒸馏入口对齐**：
+    - `api/routes/task_routes.py` 新增明确的当前插件蒸馏入口 `/api/tasks/plugins/{plugin_name}/distill`，并把旧 `/api/tasks/distill/{plugin_name}` 收敛为兼容别名，共用同一后端处理函数。
+    - 指标页蒸馏按钮已切换到新入口，避免前端继续把 legacy route 当成主契约；同时保留旧路由，降低已有外部调用或脚本的迁移风险。
+    - 补充新旧路由对不可蒸馏插件的一致性测试，锁住兼容别名与主入口的行为对齐。
+
+- 最近重点 (本会话)：
   - **ai_type 去硬编码重构**：
     - 删除框架层所有 `volc`/`part_time` 业务判断分支（`sdk_business_support.py`）。
     - 候选人评分权重（`has_media_bonus`、`keyword_bonuses`）移入 `nurture_keywords.yaml` 的 `candidate_scoring` 字段，框架通用读取。
@@ -331,12 +337,12 @@
 
 | Metric | Value |
 |---|---:|
-| API route decorators (`api/routes`) | 56 |
+| API route decorators (`api/routes`) | 57 |
 | App-level route decorators (`api/server.py`) | 5 |
 | Plugin count (`plugins/*/manifest.yaml`) | 1 |
 | SDK action bindings (`engine/actions/sdk_actions.py` + `engine/actions/sdk_action_catalog.py`) | 158 |
 | Test files (`tests/test_*.py`) | 72 |
-| Test functions (`def test_*`) | 397 |
+| Test functions (`def test_*`) | 398 |
 <!-- AUTO_PROGRESS_SNAPSHOT:END -->
 
 ## 4. 维护说明

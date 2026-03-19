@@ -163,7 +163,7 @@ function renderPluginStats(plugins) {
             const plugin = String(p.task_name || '');
             button.disabled = true;
             button.textContent = '蒸馏中...';
-            const r = await fetchJson(`/api/tasks/distill/${plugin}`, { method: 'POST' });
+            const r = await fetchJson(`/api/tasks/plugins/${plugin}/distill`, { method: 'POST' });
             if (r.ok && r.data?.ok) {
                 const outputDir = String(r.data?.output_dir || '').trim();
                 toast.success(

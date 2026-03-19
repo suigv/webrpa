@@ -42,6 +42,16 @@ def test_distill_endpoint_rejects_non_distillable_plugin():
     assert payload["code"] == "distillation_not_supported"
 
 
+def test_current_distill_endpoint_rejects_non_distillable_plugin():
+    client = TestClient(app)
+    response = client.post("/api/tasks/plugins/one_click_new_device/distill")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is False
+    assert payload["code"] == "distillation_not_supported"
+
+
 def test_legacy_distill_threshold_payload_only_blocks_below_threshold():
     blocked = task_routes._legacy_distill_threshold_payload(
         plugin_name="demo_plugin",
