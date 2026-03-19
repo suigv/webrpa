@@ -555,7 +555,7 @@ class TaskController:
         payload = dict(snapshot.get("payload") or {})
         devices = [int(item) for item in snapshot.get("devices") or []]
         targets = snapshot.get("targets")
-        ai_type = str(snapshot.get("ai_type") or "volc")
+        ai_type = str(snapshot.get("ai_type") or "default")
         max_retries = int(snapshot.get("max_retries") or 0)
         retry_backoff_seconds = int(snapshot.get("retry_backoff_seconds") or 2)
         priority = int(snapshot.get("priority") or 50)

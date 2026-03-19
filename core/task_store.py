@@ -128,7 +128,7 @@ class TaskStore(BaseStore):
         payload: dict[str, Any],
         devices: list[int],
         targets: list[dict[str, int]] | None = None,
-        ai_type: str = "volc",
+        ai_type: str = "default",
         max_retries: int = 0,
         retry_backoff_seconds: int = 2,
         priority: int = 50,

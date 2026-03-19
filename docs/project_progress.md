@@ -270,6 +270,12 @@
     - `models/task.py` 将 `TaskRequest.ai_type` 默认值从历史 `"volc"` 对齐为 `"default"`；前端设备卡片的缺省展示文案也同步对齐，避免新旧默认值混用。
 
 - 最近重点 (本会话)：
+  - **任务系统内部 AI 默认值收口**：
+    - `core/task_store.py` 的 `create_task()` 默认 `ai_type` 已从历史 `"volc"` 对齐为 `"default"`，避免请求层与持久化层默认值分叉。
+    - `core/task_control.py` 在工作流草稿续跑时，若历史快照未携带 `ai_type`，现在也统一回退到 `"default"`，不再单独保留旧值。
+    - 补充任务存储与草稿续跑的默认值回归测试，锁住任务系统内部默认链的一致性。
+
+- 最近重点 (本会话)：
   - **ai_type 去硬编码重构**：
     - 删除框架层所有 `volc`/`part_time` 业务判断分支（`sdk_business_support.py`）。
     - 候选人评分权重（`has_media_bonus`、`keyword_bonuses`）移入 `nurture_keywords.yaml` 的 `candidate_scoring` 字段，框架通用读取。
@@ -353,8 +359,8 @@
 | App-level route decorators (`api/server.py`) | 5 |
 | Plugin count (`plugins/*/manifest.yaml`) | 1 |
 | SDK action bindings (`engine/actions/sdk_actions.py` + `engine/actions/sdk_action_catalog.py`) | 158 |
-| Test files (`tests/test_*.py`) | 74 |
-| Test functions (`def test_*`) | 402 |
+| Test files (`tests/test_*.py`) | 75 |
+| Test functions (`def test_*`) | 404 |
 <!-- AUTO_PROGRESS_SNAPSHOT:END -->
 
 ## 4. 维护说明
