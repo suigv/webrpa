@@ -534,6 +534,11 @@ function renderUnitPluginFields() {
     const taskName = select.value;
     const task = currentCatalog.find(t => t.task === taskName);
     renderCommonFields(container, task, false);
+    const showMoreBtn = $('showMoreUnitFields');
+    if (showMoreBtn) {
+        const optionalFields = container.querySelectorAll('.field-optional');
+        showMoreBtn.style.display = optionalFields.length > 0 ? 'inline-flex' : 'none';
+    }
 }
 
 async function loadUnitScreenshot(unit) {

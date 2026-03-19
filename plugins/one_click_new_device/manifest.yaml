@@ -1,0 +1,126 @@
+api_version: v1
+kind: plugin
+name: one_click_new_device
+version: "1.0.0"
+display_name: "一键新机"
+category: "设备初始化"
+description: "Select a phone model, generate a randomized device profile, and apply a fresh MYTOS environment to the selected cloud machine"
+entry_script: script.yaml
+distill_threshold: 3
+inputs:
+  - name: model_source
+    type: string
+    required: false
+    default: "online"
+    label: "机型来源"
+    description: "在线机型会先拉库存再选择，本地机型使用已导入到设备的机型库。"
+    widget: select
+    options:
+      - value: "online"
+        label: "在线机型"
+        description: "适合从上游 50 套在线机型中随机选择。"
+      - value: "local"
+        label: "本地机型"
+        description: "适合使用当前设备本地已导入的机型。"
+  - name: country_profile
+    type: string
+    required: false
+    default: "jp_mobile"
+    label: "地区模板"
+    description: "用于生成语言、国家、时区、运营商、号码段等随机画像。"
+    widget: select
+    options:
+      - value: "jp_mobile"
+        label: "日本"
+        description: "生成日语、Asia/Tokyo、440 MCC 等日本移动环境。"
+      - value: "us_mobile"
+        label: "美国"
+        description: "生成英语、美国时区与美国运营商环境。"
+  - name: phone_model_name_contains
+    type: string
+    required: false
+    default: ""
+    label: "机型关键词"
+    description: "可选。只在机型名称中筛选包含该关键词的候选，如 Pixel / Samsung。"
+    placeholder: "例如 Pixel / Samsung"
+    advanced: true
+  - name: refresh_inventory
+    type: boolean
+    required: false
+    default: true
+    label: "刷新机型库存"
+    description: "执行前重新获取机型列表，适合上游机型经常变化的场景。"
+    widget: checkbox
+    advanced: true
+  - name: seed
+    type: string
+    required: false
+    default: ""
+    label: "随机种子"
+    description: "可选。填入后同一节点可重复得到稳定机型和环境组合。"
+    placeholder: "留空则自动随机"
+    advanced: true
+  - name: contact_count
+    type: integer
+    required: false
+    default: 3
+    label: "联系人数量"
+    description: "生成联系人数量，建议 1 到 5。"
+    widget: number
+    advanced: true
+  - name: set_google_id
+    type: boolean
+    required: false
+    default: true
+    label: "写入 Google ID"
+    description: "写入随机 Google ADID。"
+    widget: checkbox
+    advanced: true
+  - name: write_contacts
+    type: boolean
+    required: false
+    default: true
+    label: "写入联系人"
+    description: "为设备注入随机联系人，增强环境完整性。"
+    widget: checkbox
+    advanced: true
+  - name: enable_shake
+    type: boolean
+    required: false
+    default: false
+    label: "启用摇一摇"
+    description: "按需开启摇一摇能力，默认关闭。"
+    widget: checkbox
+    advanced: true
+  - name: take_screenshot
+    type: boolean
+    required: false
+    default: true
+    label: "完成后截图"
+    description: "执行完成后抓取一张设备截图作为验收结果。"
+    widget: checkbox
+    advanced: true
+  - name: language_override
+    type: string
+    required: false
+    default: ""
+    label: "语言覆盖"
+    description: "可选。覆盖地区模板默认语言，例如 ja / en。"
+    placeholder: "例如 ja / en"
+    advanced: true
+  - name: country_override
+    type: string
+    required: false
+    default: ""
+    label: "国家覆盖"
+    description: "可选。覆盖地区模板默认国家，例如 JP / US。"
+    placeholder: "例如 JP / US"
+    advanced: true
+  - name: timezone_override
+    type: string
+    required: false
+    default: ""
+    label: "时区覆盖"
+    description: "可选。覆盖地区模板默认时区，例如 Asia/Tokyo。"
+    placeholder: "例如 Asia/Tokyo"
+    advanced: true

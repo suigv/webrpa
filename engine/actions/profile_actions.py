@@ -8,9 +8,10 @@ from core.device_profile_generator import (
     generate_fingerprint,
 )
 from core.device_profile_inventory import get_phone_models, refresh_phone_models
-from core.device_profile_selector import select_phone_model
+from core.device_profile_selector import resolve_cloud_container, select_phone_model
 from engine.action_registry import ActionMetadata
 from engine.models.runtime import ActionResult, ExecutionContext
+from hardware_adapters.android_api_client import AndroidApiClient
 
 INVENTORY_PHONE_MODELS_METADATA = ActionMetadata(
     description="Fetch or read cached phone model inventory from MYT SDK.",
@@ -38,6 +39,19 @@ SELECT_PHONE_MODEL_METADATA = ActionMetadata(
             "seed": {"type": "string"},
             "filters": {"type": "object"},
             "items": {"type": "array"},
+        },
+    },
+)
+
+SELECT_CLOUD_CONTAINER_METADATA = ActionMetadata(
+    description="Resolve current runtime cloud target to the MYT SDK container name.",
+    params_schema={
+        "type": "object",
+        "properties": {
+            "device_ip": {"type": "string"},
+            "sdk_port": {"type": "integer", "default": 8000},
+            "cloud_id": {"type": "integer"},
+            "api_port": {"type": "integer"},
         },
     },
 )
@@ -83,6 +97,25 @@ GENERATE_ENV_BUNDLE_METADATA = ActionMetadata(
     },
 )
 
+APPLY_ENV_BUNDLE_METADATA = ActionMetadata(
+    description="Apply language, fingerprint, Google ADID, contacts, shake, and optional screenshot to the current MYTOS cloud machine.",
+    params_schema={
+        "type": "object",
+        "properties": {
+            "language": {"type": "string"},
+            "country": {"type": "string"},
+            "fingerprint": {"type": "object"},
+            "google_adid": {"type": "string"},
+            "contacts": {"type": "array"},
+            "set_google_id": {"type": "boolean", "default": True},
+            "write_contacts": {"type": "boolean", "default": True},
+            "shake_enabled": {"type": "boolean", "default": False},
+            "take_screenshot": {"type": "boolean", "default": False},
+            "screenshot_level": {"type": "integer", "default": 2},
+        },
+    },
+)
+
 
 def _ok(data: dict[str, Any]) -> ActionResult:
     return ActionResult(ok=True, code="ok", data=data)
@@ -109,6 +142,19 @@ def _device_ip(params: dict[str, Any], context: ExecutionContext) -> str:
 def _sdk_port(params: dict[str, Any], context: ExecutionContext) -> int:
     raw = params.get("sdk_port") or context.payload.get("sdk_port") or 8000
     return int(raw)
+
+
+def _api_client(params: dict[str, Any], context: ExecutionContext) -> AndroidApiClient | None:
+    device_ip = _device_ip(params, context)
+    if not device_ip:
+        return None
+    api_port = int(params.get("api_port") or context.runtime.get("api_port") or 30001)
+    return AndroidApiClient(
+        device_ip=device_ip,
+        api_port=api_port,
+        timeout_seconds=float(params.get("timeout_seconds", 30.0)),
+        retries=int(params.get("retries", 3)),
+    )
 
 
 def _result_to_action(result: dict[str, Any]) -> ActionResult:
@@ -176,6 +222,20 @@ def selector_select_phone_model(
     return _result_to_action(result)
 
 
+def selector_resolve_cloud_container(
+    params: dict[str, Any], context: ExecutionContext
+) -> ActionResult:
+    result = resolve_cloud_container(
+        device_ip=_device_ip(params, context),
+        sdk_port=_sdk_port(params, context),
+        cloud_id=int(params.get("cloud_id") or context.cloud_id or 0) or None,
+        api_port=int(params.get("api_port") or context.runtime.get("api_port") or 0) or None,
+        timeout_seconds=float(params.get("timeout_seconds", 30.0)),
+        retries=int(params.get("retries", 3)),
+    )
+    return _result_to_action(result)
+
+
 def generator_generate_fingerprint(
     params: dict[str, Any], context: ExecutionContext
 ) -> ActionResult:
@@ -213,3 +273,80 @@ def generator_generate_env_bundle(
         fingerprint_overrides=cast(dict[str, Any] | None, params.get("fingerprint_overrides")),
     )
     return _ok(data)
+
+
+def profile_apply_env_bundle(
+    params: dict[str, Any], context: ExecutionContext
+) -> ActionResult:
+    client = _api_client(params, context)
+    if client is None:
+        return _err("invalid_params", "device_ip is required")
+
+    language = str(params.get("language") or "").strip()
+    country = str(params.get("country") or "").strip()
+    fingerprint = params.get("fingerprint")
+    google_adid = str(params.get("google_adid") or "").strip()
+    contacts = params.get("contacts")
+    set_google_id = bool(params.get("set_google_id", True))
+    write_contacts = bool(params.get("write_contacts", True))
+    shake_enabled = bool(params.get("shake_enabled", False))
+    take_screenshot = bool(params.get("take_screenshot", False))
+    screenshot_level = int(params.get("screenshot_level", 2))
+
+    if not language or not country:
+        return _err("invalid_params", "language and country are required")
+    if not isinstance(fingerprint, dict) or not fingerprint:
+        return _err("invalid_params", "fingerprint is required")
+
+    applied: list[str] = []
+
+    def _call(step_name: str, result: dict[str, Any]) -> ActionResult | None:
+        if result.get("ok"):
+            applied.append(step_name)
+            return None
+        message = str(result.get("message") or result.get("reason") or result.get("error") or "")
+        data = result.get("data") if isinstance(result.get("data"), dict) else {}
+        return _err(
+            str(result.get("code") or "api_error"),
+            message or f"{step_name} failed",
+            {"applied": applied, "step": step_name, **cast(dict[str, Any], data)},
+        )
+
+    failed = _call("set_language_country", client.set_language_country(language, country))
+    if failed is not None:
+        return failed
+    failed = _call("set_device_fingerprint", client.set_device_fingerprint(fingerprint))
+    if failed is not None:
+        return failed
+    if set_google_id and google_adid:
+        failed = _call("set_google_id", client.set_google_id(google_adid))
+        if failed is not None:
+            return failed
+    if write_contacts and isinstance(contacts, list) and contacts:
+        failed = _call("add_contact", client.add_contact(contacts=cast(list[dict[str, str]], contacts)))
+        if failed is not None:
+            return failed
+    failed = _call("set_shake", client.set_shake(enabled=shake_enabled))
+    if failed is not None:
+        return failed
+
+    result_data: dict[str, Any] = {"applied": applied}
+    if take_screenshot:
+        screenshot_result = client.screenshot(level=screenshot_level)
+        if not screenshot_result.get("ok"):
+            message = str(
+                screenshot_result.get("message")
+                or screenshot_result.get("reason")
+                or screenshot_result.get("error")
+                or ""
+            )
+            return _err(
+                str(screenshot_result.get("code") or "api_error"),
+                message or "screenshot failed",
+                {"applied": applied, "step": "screenshot"},
+            )
+        applied.append("screenshot")
+        screenshot_data = screenshot_result.get("data")
+        result_data["screenshot"] = screenshot_data if isinstance(screenshot_data, dict) else {}
+        result_data["applied"] = applied
+    return _ok(result_data)

@@ -1,0 +1,62 @@
+version: "v1"
+workflow: one_click_new_device
+steps:
+  - label: 解析当前目标容器
+    kind: action
+    action: selector.resolve_cloud_container
+    save_as: cloud_container
+    params: {}
+
+  - label: 选择机型
+    kind: action
+    action: selector.select_phone_model
+    save_as: selected_model
+    params:
+      source: "${payload.model_source}"
+      refresh_inventory: "${payload.refresh_inventory}"
+      seed: "${payload.seed}"
+      filters:
+        name_contains: "${payload.phone_model_name_contains}"
+
+  - label: 生成环境包
+    kind: action
+    action: generator.generate_env_bundle
+    save_as: env_bundle
+    params:
+      country_profile: "${payload.country_profile}"
+      seed: "${payload.seed}"
+      contact_count: "${payload.contact_count}"
+      language: "${payload.language_override}"
+      country: "${payload.country_override}"
+      timezone: "${payload.timezone_override}"
+      shake_enabled: "${payload.enable_shake}"
+
+  - label: 切换机型
+    kind: action
+    action: sdk.switch_model
+    params:
+      name: "${vars.cloud_container.container_name}"
+      model_id: "${vars.selected_model.apply.model_id:-}"
+      localModel: "${vars.selected_model.apply.local_model:-}"
+      countryCode: "${vars.env_bundle.country}"
+
+  - label: 应用环境包
+    kind: action
+    action: profile.apply_env_bundle
+    save_as: applied_env
+    params:
+      language: "${vars.env_bundle.language}"
+      country: "${vars.env_bundle.country}"
+      fingerprint: "${vars.env_bundle.fingerprint}"
+      google_adid: "${vars.env_bundle.google_adid}"
+      contacts: "${vars.env_bundle.contacts}"
+      set_google_id: "${payload.set_google_id}"
+      write_contacts: "${payload.write_contacts}"
+      shake_enabled: "${payload.enable_shake}"
+      take_screenshot: "${payload.take_screenshot}"
+      screenshot_level: 2
+
+  - label: 新机完成
+    kind: stop
+    status: success
+    message: "One click new device completed"

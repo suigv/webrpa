@@ -13,11 +13,32 @@ class InputType(StrEnum):
     boolean = "boolean"
 
 
+class InputWidget(StrEnum):
+    text = "text"
+    number = "number"
+    checkbox = "checkbox"
+    select = "select"
+    hidden = "hidden"
+
+
+class PluginInputOption(BaseModel):
+    value: Any
+    label: str
+    description: str | None = None
+
+
 class PluginInput(BaseModel):
     name: str
     type: InputType
     required: bool = True
     default: Any = None
+    label: str | None = None
+    description: str | None = None
+    placeholder: str | None = None
+    advanced: bool = False
+    system: bool = False
+    widget: InputWidget | None = None
+    options: list[PluginInputOption] = Field(default_factory=list)
 
 
 class PluginManifest(BaseModel):

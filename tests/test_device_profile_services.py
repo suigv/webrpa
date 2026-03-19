@@ -2,7 +2,7 @@ import json
 
 from core.device_profile_generator import generate_env_bundle
 from core.device_profile_inventory import get_phone_models, refresh_phone_models
-from core.device_profile_selector import select_phone_model
+from core.device_profile_selector import resolve_cloud_container, select_phone_model
 
 
 class _FakeSdkClient:
@@ -47,6 +47,17 @@ class _FakeSdkClient:
                 "list": [
                     {"modelName": "PixelLocal01", "status": "ready"},
                     {"modelName": "PixelLocal02", "status": "ready"},
+                ]
+            },
+        }
+
+    def list_androids(self):
+        return {
+            "ok": True,
+            "data": {
+                "list": [
+                    {"name": "android-01", "indexNum": 1, "status": "running"},
+                    {"name": "android-02", "indexNum": 2, "status": "running"},
                 ]
             },
         }
@@ -125,3 +136,18 @@ def test_generate_env_bundle_jp_profile_has_expected_shape():
 
     # Keep payload JSON-safe for direct API / plugin consumption.
     json.dumps(result, ensure_ascii=False)
+
+
+def test_resolve_cloud_container_prefers_cloud_index(monkeypatch):
+    import core.device_profile_selector as selector_module
+
+    monkeypatch.setattr(selector_module, "MytSdkClient", _FakeSdkClient)
+
+    result = resolve_cloud_container(
+        device_ip="192.168.1.214",
+        sdk_port=8000,
+        cloud_id=2,
+    )
+
+    assert result["ok"] is True
+    assert result["data"]["container_name"] == "android-02"

@@ -14,7 +14,9 @@ def test_profile_actions_are_registered_and_callable(monkeypatch):
     assert reg.has("inventory.get_phone_models")
     assert reg.has("inventory.refresh_phone_models")
     assert reg.has("selector.select_phone_model")
+    assert reg.has("selector.resolve_cloud_container")
     assert reg.has("generator.generate_env_bundle")
+    assert reg.has("profile.apply_env_bundle")
 
     monkeypatch.setattr(
         profile_actions_module,
@@ -71,6 +73,46 @@ def test_profile_actions_are_registered_and_callable(monkeypatch):
             },
         },
     )
+    monkeypatch.setattr(
+        profile_actions_module,
+        "resolve_cloud_container",
+        lambda **kwargs: {
+            "ok": True,
+            "data": {
+                "container_name": "android-02",
+                "cloud_id": kwargs.get("cloud_id"),
+                "selected": {"name": "android-02", "indexNum": 2},
+                "candidate_count": 1,
+            },
+        },
+    )
+
+    class _FakeAndroidClient:
+        def __init__(self, *args, **kwargs):
+            _ = (args, kwargs)
+
+        def set_language_country(self, language, country):
+            return {"ok": True, "data": {"language": language, "country": country}}
+
+        def set_device_fingerprint(self, data):
+            return {"ok": True, "data": {"fingerprint": data}}
+
+        def set_google_id(self, adid):
+            return {"ok": True, "data": {"adid": adid}}
+
+        def add_contact(self, contacts=None, **kwargs):
+            _ = kwargs
+            return {"ok": True, "data": {"count": len(contacts or [])}}
+
+        def set_shake(self, enabled=None, **kwargs):
+            _ = kwargs
+            return {"ok": True, "data": {"enabled": enabled}}
+
+        def screenshot(self, level=2, **kwargs):
+            _ = kwargs
+            return {"ok": True, "data": {"level": level}}
+
+    monkeypatch.setattr(profile_actions_module, "AndroidApiClient", _FakeAndroidClient)
 
     ctx = ExecutionContext(payload={"device_ip": "192.168.1.214", "sdk_port": 8000})
 
@@ -79,8 +121,25 @@ def test_profile_actions_are_registered_and_callable(monkeypatch):
         {"source": "online", "filters": {"name_contains": "Pixel"}},
         ctx,
     )
+    container_res = reg.resolve("selector.resolve_cloud_container")({}, ExecutionContext(
+        payload={"device_ip": "192.168.1.214", "sdk_port": 8000},
+        runtime={"api_port": 30101, "cloud_id": 2},
+    ))
     generator_res = reg.resolve("generator.generate_env_bundle")(
         {"country_profile": "jp_mobile", "seed": "bundle-seed"},
+        ctx,
+    )
+    apply_res = reg.resolve("profile.apply_env_bundle")(
+        {
+            "language": "ja",
+            "country": "JP",
+            "fingerprint": {"imei": "123456789012345"},
+            "google_adid": "8b15e5c7-8481-40ca-9ec8-4122f1c47fb6",
+            "contacts": [{"user": "Sato Yui", "tel": "09012345678"}],
+            "set_google_id": True,
+            "write_contacts": True,
+            "take_screenshot": True,
+        },
         ctx,
     )
 
@@ -88,5 +147,9 @@ def test_profile_actions_are_registered_and_callable(monkeypatch):
     assert inventory_res.data["count"] == 1
     assert selector_res.ok is True
     assert selector_res.data["apply"]["model_id"] == "m-1"
+    assert container_res.ok is True
+    assert container_res.data["container_name"] == "android-02"
     assert generator_res.ok is True
     assert generator_res.data["country"] == "JP"
+    assert apply_res.ok is True
+    assert "screenshot" in apply_res.data

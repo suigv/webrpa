@@ -130,16 +130,20 @@ def register_defaults() -> None:
     )
     from .actions.navigation_actions import navigate_to
     from .actions.profile_actions import (
+        APPLY_ENV_BUNDLE_METADATA,
         GENERATE_CONTACT_METADATA,
         GENERATE_ENV_BUNDLE_METADATA,
         GENERATE_FINGERPRINT_METADATA,
         INVENTORY_PHONE_MODELS_METADATA,
+        SELECT_CLOUD_CONTAINER_METADATA,
         SELECT_PHONE_MODEL_METADATA,
         generator_generate_contact,
         generator_generate_env_bundle,
         generator_generate_fingerprint,
         inventory_get_phone_models,
         inventory_refresh_phone_models,
+        profile_apply_env_bundle,
+        selector_resolve_cloud_container,
         selector_select_phone_model,
     )
     from .actions.sdk_actions import (
@@ -314,6 +318,11 @@ def register_defaults() -> None:
         metadata=SELECT_PHONE_MODEL_METADATA,
     )
     _registry.register(
+        "selector.resolve_cloud_container",
+        selector_resolve_cloud_container,
+        metadata=SELECT_CLOUD_CONTAINER_METADATA,
+    )
+    _registry.register(
         "generator.generate_fingerprint",
         generator_generate_fingerprint,
         metadata=GENERATE_FINGERPRINT_METADATA,
@@ -327,6 +336,11 @@ def register_defaults() -> None:
         "generator.generate_env_bundle",
         generator_generate_env_bundle,
         metadata=GENERATE_ENV_BUNDLE_METADATA,
+    )
+    _registry.register(
+        "profile.apply_env_bundle",
+        profile_apply_env_bundle,
+        metadata=APPLY_ENV_BUNDLE_METADATA,
     )
     _registry.register("core.detect_login_stage", detect_login_stage)
     _registry.register("core.wait_login_stage", wait_login_stage)

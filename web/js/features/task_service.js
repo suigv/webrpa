@@ -32,7 +32,37 @@ export function collectTaskPayload(container) {
     const payload = {};
     if (!container) return payload;
     container.querySelectorAll('[data-payload-key]').forEach(input => {
-        payload[input.dataset.payloadKey] = input.value;
+        const key = input.dataset.payloadKey;
+        const type = input.dataset.payloadType || 'string';
+        if (!key) return;
+
+        if (type === 'boolean') {
+            payload[key] = Boolean(input.checked);
+            return;
+        }
+
+        const rawValue = typeof input.value === 'string' ? input.value.trim() : input.value;
+        if (rawValue === '' || rawValue === null || rawValue === undefined) {
+            return;
+        }
+
+        if (type === 'integer') {
+            const parsed = Number.parseInt(rawValue, 10);
+            if (!Number.isNaN(parsed)) {
+                payload[key] = parsed;
+            }
+            return;
+        }
+
+        if (type === 'number') {
+            const parsed = Number(rawValue);
+            if (!Number.isNaN(parsed)) {
+                payload[key] = parsed;
+            }
+            return;
+        }
+
+        payload[key] = rawValue;
     });
     return payload;
 }

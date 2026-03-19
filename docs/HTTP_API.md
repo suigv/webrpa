@@ -164,6 +164,24 @@
 - `GET /api/tasks/catalog/apps`：已发现的 app 配置列表（来自 `config/apps/*.yaml`）。
 - `GET /api/tasks/prompt_templates`：默认提示词列表（当前收敛为单一默认模板，来自 `engine/prompt_templates.py`）。
 
+`GET /api/tasks/catalog` 当前返回：
+- `task`
+- `display_name`
+- `category`
+- `required`
+- `defaults`
+- `example_payload`
+- `inputs`
+
+其中 `inputs` 会携带插件 `manifest.yaml` 中声明的 UI 元数据：
+- `name` / `type` / `required` / `default`
+- `label` / `description` / `placeholder`
+- `advanced` / `system`
+- `widget`
+- `options`
+
+前端任务面板会基于这些元数据自动渲染下拉、复选框和数字输入，而不再把所有字段都退化成普通文本框。
+
 ### 7.3 指标
 - `GET /api/tasks/metrics`：JSON 指标。
 - `GET /api/tasks/metrics/prometheus`：Prometheus 抓取格式。

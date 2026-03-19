@@ -406,6 +406,8 @@ function renderFields() {
 
     const showMoreFields = $('showMoreFields');
     if (showMoreFields && container) {
+        const optionalFields = container.querySelectorAll('.field-optional');
+        showMoreFields.style.display = optionalFields.length > 0 ? 'inline-flex' : 'none';
         showMoreFields.onclick = () => {
             const fields = container.querySelectorAll('.field-optional');
             const isHidden = fields[0]?.style.display === 'none';

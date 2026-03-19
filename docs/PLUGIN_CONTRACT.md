@@ -41,10 +41,25 @@ plugins/<plugin_name>/
 | `type` | string | `string` | `integer` | `number` | `boolean` |
 | `required` | bool | 是否必填（默认 `true`） |
 | `default` | any | 默认值 |
+| `label` | string | 前端展示名称（可选） |
+| `description` | string | 字段说明（可选） |
+| `placeholder` | string | 前端占位提示（可选） |
+| `advanced` | bool | 是否归入“高级参数”区域（默认 `false`） |
+| `system` | bool | 是否由系统注入、默认不在 UI 渲染（默认 `false`） |
+| `widget` | string | 推荐控件：`text` / `number` / `checkbox` / `select` / `hidden` |
+| `options` | list[Option] | 下拉候选项，适用于 `select` |
+
+### Option
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `value` | any | 真实提交值 |
+| `label` | string | 用户可见名称 |
+| `description` | string | 选项说明（可选） |
 
 ### 运行时验证策略
 - **严格模式**：由 `MYT_STRICT_PLUGIN_UNKNOWN_INPUTS=1` 控制。若开启，插件将拒绝任何未在 `manifest.yaml` 中声明的输入参数（`task` 和 `_` 前缀参数除外）。
 - **验证失败**：返回 `status=failed_config_error`, `checkpoint=dispatch`。
+- **目录接口透传**：`GET /api/tasks/catalog` 会把 `inputs` 元数据原样透传给前端，任务面板可据此渲染文本框、数字框、复选框和下拉框。
 
 ---
 

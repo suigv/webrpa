@@ -3,9 +3,11 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from contextlib import suppress
 from typing import Any
 
 from core.device_profile_inventory import PhoneModelSource, get_phone_models
+from hardware_adapters.myt_client import MytSdkClient
 
 
 def _normalize_text(value: Any) -> str:
@@ -146,5 +148,125 @@ def select_phone_model(
             "filters": filters or {},
             "selected": selected,
             "apply": apply,
+        },
+    }
+
+
+def _extract_android_list(result: dict[str, Any]) -> list[dict[str, Any]]:
+    data = result.get("data")
+    containers: list[Any] = []
+    if isinstance(data, list):
+        containers.append(data)
+    if isinstance(data, dict):
+        containers.extend([data.get("list"), data.get("items"), data.get("rows"), data.get("data")])
+        nested = data.get("data")
+        if isinstance(nested, dict):
+            containers.extend([nested.get("list"), nested.get("items"), nested.get("rows")])
+    for candidate in containers:
+        if isinstance(candidate, list):
+            return [item for item in candidate if isinstance(item, dict)]
+    return []
+
+
+def _extract_ports(candidate: Any) -> set[int]:
+    ports: set[int] = set()
+    if isinstance(candidate, dict):
+        for key in ("hostPort", "containerPort", "port", "host_port", "container_port"):
+            value = candidate.get(key)
+            if isinstance(value, (int, float, str)) and str(value).strip():
+                with suppress(ValueError):
+                    ports.add(int(str(value)))
+        for value in candidate.values():
+            ports.update(_extract_ports(value))
+    elif isinstance(candidate, list):
+        for item in candidate:
+            ports.update(_extract_ports(item))
+    elif isinstance(candidate, (int, float, str)) and str(candidate).strip().isdigit():
+        ports.add(int(str(candidate)))
+    return ports
+
+
+def resolve_cloud_container(
+    *,
+    device_ip: str,
+    sdk_port: int = 8000,
+    cloud_id: int | None = None,
+    api_port: int | None = None,
+    timeout_seconds: float = 30.0,
+    retries: int = 3,
+) -> dict[str, Any]:
+    client = MytSdkClient(
+        device_ip=device_ip,
+        sdk_port=int(sdk_port),
+        timeout_seconds=float(timeout_seconds),
+        retries=int(retries),
+    )
+    result = client.list_androids()
+    if not result.get("ok"):
+        return {
+            "ok": False,
+            "code": str(result.get("code") or "container_list_failed"),
+            "message": str(result.get("message") or result.get("error") or "failed to list androids"),
+            "data": {},
+        }
+    items = _extract_android_list(result)
+    scored: list[tuple[int, dict[str, Any]]] = []
+    for item in items:
+        name = str(item.get("name") or "").strip()
+        if not name:
+            continue
+        score = 0
+        index_num_raw = item.get("indexNum") or item.get("index_num")
+        try:
+            index_num = int(index_num_raw) if index_num_raw is not None else None
+        except (TypeError, ValueError):
+            index_num = None
+        ports = _extract_ports(item.get("portBindings")) | _extract_ports(item.get("portMappings"))
+        ports |= _extract_ports(item.get("ports"))
+        if api_port is not None and int(api_port) in ports:
+            score += 100
+        if cloud_id is not None and index_num == int(cloud_id):
+            score += 50
+        if api_port is not None:
+            for key in ("apiPort", "api_port"):
+                value = item.get(key)
+                if value is not None and str(value).strip():
+                    try:
+                        if int(str(value)) == int(api_port):
+                            score += 100
+                    except ValueError:
+                        pass
+        if score > 0:
+            scored.append((score, item))
+    if not scored:
+        return {
+            "ok": False,
+            "code": "container_not_found",
+            "message": "failed to resolve cloud container from current target",
+            "data": {
+                "device_ip": device_ip,
+                "sdk_port": int(sdk_port),
+                "cloud_id": cloud_id,
+                "api_port": api_port,
+            },
+        }
+    scored.sort(
+        key=lambda item: (
+            -item[0],
+            str(item[1].get("name") or "").lower(),
+        )
+    )
+    selected = dict(scored[0][1])
+    return {
+        "ok": True,
+        "code": "ok",
+        "data": {
+            "device_ip": device_ip,
+            "sdk_port": int(sdk_port),
+            "cloud_id": cloud_id,
+            "api_port": api_port,
+            "container_name": str(selected.get("name") or ""),
+            "selected": selected,
+            "candidate_count": len(scored),
         },
     }

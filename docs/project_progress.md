@@ -15,8 +15,11 @@
   - **Inventory / Selector / Generator 初始化能力落地 (2026-03-19)**：
     - 新增 `core.device_profile_inventory`、`core.device_profile_selector`、`core.device_profile_generator` 三层服务，统一承接“先获取再选择”与“本地随机生成”两类场景。
     - 新增 `inventory.get_phone_models` / `inventory.refresh_phone_models`、`selector.select_phone_model`、`generator.generate_fingerprint` / `generator.generate_contact` / `generator.generate_env_bundle` 动作，插件层可以直接 `save_as` 后复用，不再需要把机型筛选和随机规则硬编码进 YAML。
+    - 新增 `selector.resolve_cloud_container` 与 `profile.apply_env_bundle` 动作，插件可从当前 runtime target 自动反查 SDK 容器名，并把语言、指纹、Google ID、联系人、摇一摇、截图等一组环境写入收敛成一次复用动作。
     - 新增 `/api/inventory/phone-models/*`、`/api/selectors/phone-model`、`/api/generators/*` HTTP API；机型库存会缓存到 `config/data/.../inventory/`，默认按需获取，前端也可显式预热。
     - `plugins/mytos_device_setup` 已升级为 `v1.1.0`，改为“机型选择 + 环境包生成 + MYTOS 应用”标准初始化链路，直接串联 `sdk.switch_model`、`mytos.set_fingerprint`、`mytos.set_google_id`、`mytos.add_contact`、`mytos.set_app_bootstart`、`mytos.background_keepalive` 等动作。
+    - 新增 `plugins/one_click_new_device/`，作为面向运营的“一键新机”插件；用户可在任务面板直接选择机型来源、地区模板、联系人/Google ID/截图等策略项。
+    - `manifest.inputs` 已扩展 UI 元数据（`label` / `description` / `advanced` / `widget` / `options`），`/api/tasks/catalog` 会透传这些元数据，Web 任务面板现可按插件声明动态渲染下拉、复选框和数字输入，不再只支持文本框。
   - **MYTOS API 新能力接入 (2026-03-19)**：
     - `AndroidApiClient` 与 `android.*` / `mytos.*` 动作已补齐新版 `task=snap` 截图、`modifydev?cmd=7` 指纹更新、`modifydev?cmd=17` 摇一摇开关。
     - `mytos.screenshot` 现兼容 `level=1/2/3`，可直接走新版截图接口；同时新增 `mytos.set_fingerprint` / `mytos.update_fingerprint` / `mytos.set_shake`。

@@ -170,8 +170,41 @@ def task_catalog():
             if not item.required and item.default is not None
         }
         example_payload = dict(defaults)
-        for field in required:
-            example_payload.setdefault(field, f"<{field}>")
+        rendered_inputs: list[dict[str, object]] = []
+        for item in manifest.inputs:
+            option_payloads = [
+                {
+                    "value": option.value,
+                    "label": option.label,
+                    "description": option.description,
+                }
+                for option in item.options
+            ]
+            if item.default is not None:
+                example_value = item.default
+            elif option_payloads:
+                example_value = option_payloads[0]["value"] if item.required else None
+            elif item.required:
+                example_value = f"<{item.name}>"
+            else:
+                example_value = None
+            if example_value is not None:
+                example_payload.setdefault(item.name, example_value)
+            rendered_inputs.append(
+                {
+                    "name": item.name,
+                    "type": item.type.value,
+                    "required": item.required,
+                    "default": item.default,
+                    "label": item.label or item.name,
+                    "description": item.description,
+                    "placeholder": item.placeholder,
+                    "advanced": item.advanced,
+                    "system": item.system,
+                    "widget": item.widget.value if item.widget is not None else None,
+                    "options": option_payloads,
+                }
+            )
         catalog.append(
             {
                 "task": manifest.name,
@@ -180,6 +213,7 @@ def task_catalog():
                 "required": required,
                 "defaults": defaults,
                 "example_payload": example_payload,
+                "inputs": rendered_inputs,
             }
         )
     return {"tasks": catalog}
