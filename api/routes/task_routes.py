@@ -35,6 +35,12 @@ router = APIRouter()
 _PLUGIN_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 
 
+def _plugin_loader(*, refresh: bool = False):
+    from engine.plugin_loader import get_shared_plugin_loader
+
+    return get_shared_plugin_loader(refresh=refresh)
+
+
 def _validate_plugin_name(name: str) -> str:
     raw = str(name or "").strip()
     if not raw:
@@ -47,9 +53,7 @@ def _validate_plugin_name(name: str) -> str:
 
 
 def _distill_threshold_for(task_name: str) -> int:
-    from engine.plugin_loader import get_shared_plugin_loader
-
-    loader = get_shared_plugin_loader()
+    loader = _plugin_loader()
     entry = loader.get(task_name)
     if entry is None:
         return 3
@@ -60,9 +64,7 @@ def _distill_threshold_for(task_name: str) -> int:
 
 
 def _plugin_distillable(task_name: str) -> bool:
-    from engine.plugin_loader import get_shared_plugin_loader
-
-    loader = get_shared_plugin_loader()
+    loader = _plugin_loader()
     entry = loader.get(task_name)
     if entry is None:
         return True
@@ -73,9 +75,7 @@ def _plugin_distillable(task_name: str) -> bool:
 
 
 def _plugin_visible_in_task_catalog(task_name: str) -> bool:
-    from engine.plugin_loader import get_shared_plugin_loader
-
-    loader = get_shared_plugin_loader()
+    loader = _plugin_loader()
     entry = loader.get(task_name)
     if entry is None:
         return True
@@ -93,6 +93,37 @@ def _task_response_for(controller: Any, record: Any) -> TaskResponse:
 def _task_detail_response_for(controller: Any, record: Any) -> TaskDetailResponse:
     workflow_draft = controller.workflow_draft_summary_for_task(record)
     return to_task_detail_response(record, workflow_draft=workflow_draft)
+
+
+def _legacy_distillability_payload(plugin_name: str) -> dict[str, Any] | None:
+    if _plugin_distillable(plugin_name):
+        return None
+    return {
+        "ok": False,
+        "code": "distillation_not_supported",
+        "message": (
+            f"插件 {plugin_name} 不支持蒸馏；它属于初始化/编排类流程，应保留为参数化插件。"
+        ),
+        "plugin_name": plugin_name,
+    }
+
+
+def _legacy_distill_threshold_payload(
+    *,
+    plugin_name: str,
+    completed: int,
+    threshold: int,
+    force: bool,
+) -> dict[str, Any] | None:
+    if force or completed >= threshold:
+        return None
+    return {
+        "ok": False,
+        "code": "threshold_not_met",
+        "message": f"插件 {plugin_name} 成功次数 {completed} 未达到蒸馏门槛 {threshold}",
+        "completed": completed,
+        "threshold": threshold,
+    }
 
 
 @router.post("/", response_model=TaskResponse)
@@ -417,39 +448,36 @@ async def distill_workflow_draft(
 
 @router.post("/distill/{plugin_name}")
 async def distill_plugin(plugin_name: str, force: bool = False):
-    """触发指定插件的多轮蒸馏，生成 YAML 插件草稿。"""
+    """Legacy compatibility endpoint for plugin-name-based distillation."""
     import subprocess
     import sys
 
     from core.paths import project_root
-    from engine.plugin_loader import get_shared_plugin_loader
 
     plugin_name = _validate_plugin_name(plugin_name)
-    loader = get_shared_plugin_loader(refresh=True)
+    loader = _plugin_loader(refresh=True)
     entry = loader.get(plugin_name)
     if entry is None:
         raise HTTPException(status_code=404, detail=f"plugin not found: {plugin_name}")
-    if not bool(entry.manifest.distillable):
-        return {
-            "ok": False,
-            "code": "distillation_not_supported",
-            "message": f"插件 {plugin_name} 不支持蒸馏；它属于初始化/编排类流程，应保留为参数化插件。",
-            "plugin_name": plugin_name,
-        }
+
+    distillability_payload = _legacy_distillability_payload(plugin_name)
+    if distillability_payload is not None:
+        return distillability_payload
+
     controller = get_task_controller()
     rows = await run_sync(controller.plugin_success_counts)
     stat = next((r for r in rows if r["task_name"] == plugin_name), None)
     completed = int(stat["completed"]) if stat else 0
     threshold = int(entry.manifest.distill_threshold or 3)
 
-    if not force and completed < threshold:
-        return {
-            "ok": False,
-            "code": "threshold_not_met",
-            "message": f"插件 {plugin_name} 成功次数 {completed} 未达到蒸馏门槛 {threshold}",
-            "completed": completed,
-            "threshold": threshold,
-        }
+    threshold_payload = _legacy_distill_threshold_payload(
+        plugin_name=plugin_name,
+        completed=completed,
+        threshold=threshold,
+        force=force,
+    )
+    if threshold_payload is not None:
+        return threshold_payload
 
     repo_root = project_root()
     script = repo_root / "tools" / "distill_multi_run.py"

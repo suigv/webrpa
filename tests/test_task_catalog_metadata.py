@@ -1,5 +1,6 @@
 from fastapi.testclient import TestClient
 
+from api.routes import task_routes
 from api.server import app
 
 
@@ -39,3 +40,22 @@ def test_distill_endpoint_rejects_non_distillable_plugin():
     payload = response.json()
     assert payload["ok"] is False
     assert payload["code"] == "distillation_not_supported"
+
+
+def test_legacy_distill_threshold_payload_only_blocks_below_threshold():
+    blocked = task_routes._legacy_distill_threshold_payload(
+        plugin_name="demo_plugin",
+        completed=1,
+        threshold=3,
+        force=False,
+    )
+    assert blocked is not None
+    assert blocked["code"] == "threshold_not_met"
+
+    allowed = task_routes._legacy_distill_threshold_payload(
+        plugin_name="demo_plugin",
+        completed=3,
+        threshold=3,
+        force=False,
+    )
+    assert allowed is None
