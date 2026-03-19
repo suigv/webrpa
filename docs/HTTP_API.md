@@ -168,6 +168,7 @@
 - `task`
 - `display_name`
 - `category`
+- `distillable`
 - `required`
 - `defaults`
 - `example_payload`
@@ -185,7 +186,7 @@
 ### 7.3 指标
 - `GET /api/tasks/metrics`：JSON 指标。
 - `GET /api/tasks/metrics/prometheus`：Prometheus 抓取格式。
-- `GET /api/tasks/metrics/plugins`：按插件聚合的成功次数与蒸馏进度。
+- `GET /api/tasks/metrics/plugins`：按插件聚合的成功次数与蒸馏进度；返回中包含 `distillable`，用于区分“不支持蒸馏”和“尚未达到蒸馏门槛”。
 
 ### 7.4 Workflow Draft
 - `GET /api/tasks/drafts`：列出 workflow drafts（按更新时间倒序）。
@@ -205,6 +206,10 @@ Workflow draft 约束：
 
 ### 7.5 既有插件蒸馏
 - `POST /api/tasks/distill/{plugin_name}`：触发插件蒸馏（受 `distill_threshold` 与目录边界约束）。
+
+说明：
+- 当插件 `manifest.yaml` 声明 `distillable: false` 时，该接口会直接返回 `code=distillation_not_supported`。
+- 这类插件通常属于设备初始化、环境编排、随机化或运维流程，不应把一次 AI / API 运行样本固化成蒸馏模板。
 
 ---
 

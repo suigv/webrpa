@@ -59,6 +59,19 @@ def _distill_threshold_for(task_name: str) -> int:
         return 3
 
 
+def _plugin_distillable(task_name: str) -> bool:
+    from engine.plugin_loader import get_shared_plugin_loader
+
+    loader = get_shared_plugin_loader()
+    entry = loader.get(task_name)
+    if entry is None:
+        return True
+    try:
+        return bool(entry.manifest.distillable)
+    except Exception:
+        return True
+
+
 def _task_response_for(controller: Any, record: Any) -> TaskResponse:
     workflow_draft = controller.workflow_draft_summary_for_task(record)
     return to_task_response(record, workflow_draft=workflow_draft)
@@ -210,6 +223,7 @@ def task_catalog():
                 "task": manifest.name,
                 "display_name": manifest.display_name,
                 "category": manifest.category,
+                "distillable": bool(manifest.distillable),
                 "required": required,
                 "defaults": defaults,
                 "example_payload": example_payload,
@@ -269,8 +283,9 @@ async def plugin_success_metrics():
         result.append(
             {
                 **r,
+                "distillable": _plugin_distillable(name),
                 "distill_threshold": threshold,
-                "distill_ready": completed >= threshold,
+                "distill_ready": _plugin_distillable(name) and completed >= threshold,
                 "distill_remaining": max(0, threshold - completed),
             }
         )
@@ -341,6 +356,13 @@ async def distill_plugin(plugin_name: str, force: bool = False):
     entry = loader.get(plugin_name)
     if entry is None:
         raise HTTPException(status_code=404, detail=f"plugin not found: {plugin_name}")
+    if not bool(entry.manifest.distillable):
+        return {
+            "ok": False,
+            "code": "distillation_not_supported",
+            "message": f"插件 {plugin_name} 不支持蒸馏；它属于初始化/编排类流程，应保留为参数化插件。",
+            "plugin_name": plugin_name,
+        }
     controller = get_task_controller()
     rows = await run_sync(controller.plugin_success_counts)
     stat = next((r for r in rows if r["task_name"] == plugin_name), None)

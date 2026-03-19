@@ -25,6 +25,7 @@
     - 机型选择新增来源降级：当首选在线/本地库存为空、接口异常或筛选后无候选时，选择器会自动尝试另一来源，并把 `requested_source/source/fallback_used/inventory_attempts` 写回结果，避免一键新机因单侧库存波动直接失败。
     - Web 前端任务弹窗已升级为“提交即拉起、终态自动总结”的任务报告面板；执行完成后左侧会展示汇总结论和目标级结果明细。设备卡片也恢复展示云机机型、状态和控制端口等关键信息，不再只在详情弹窗中可见。
     - `one_click_new_device` 现会默认避开当前机型：当用户不填 `seed` 时，机会从库存中自动随机；插件同时会把切换前机型、选中机型、切换后机型以及环境写入结果汇总，前端弹窗在任务结束后展示报告而不是仅显示运行追踪。
+    - 插件契约新增 `distillable`：设备初始化、环境编排、随机化、运维类插件可显式声明 `distillable: false`，目录/指标接口会透出该标记，蒸馏接口也会直接拒绝这类插件；`one_click_new_device` 已按不可蒸馏处理。
   - **MYTOS API 新能力接入 (2026-03-19)**：
     - `AndroidApiClient` 与 `android.*` / `mytos.*` 动作已补齐新版 `task=snap` 截图、`modifydev?cmd=7` 指纹更新、`modifydev?cmd=17` 摇一摇开关。
     - `mytos.screenshot` 现兼容 `level=1/2/3`，可直接走新版截图接口；同时新增 `mytos.set_fingerprint` / `mytos.update_fingerprint` / `mytos.set_shake`。

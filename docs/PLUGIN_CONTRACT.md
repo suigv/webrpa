@@ -32,6 +32,7 @@ plugins/<plugin_name>/
 | `category` | string | 插件分类（默认 `其他`） |
 | `description` | string | 插件功能描述（用于 AI 发现） |
 | `inputs` | list[Input] | 输入参数声明 |
+| `distillable` | bool | 是否适合进入“AI 执行后蒸馏”链路（默认 `true`） |
 | `expected_output` | object | (可选) 预期输出结果的结构化说明 |
 
 ### 输入参数 (Input)
@@ -60,7 +61,28 @@ plugins/<plugin_name>/
 - **严格模式**：由 `MYT_STRICT_PLUGIN_UNKNOWN_INPUTS=1` 控制。若开启，插件将拒绝任何未在 `manifest.yaml` 中声明的输入参数（`task` 和 `_` 前缀参数除外）。
 - **验证失败**：返回 `status=failed_config_error`, `checkpoint=dispatch`。
 - **目录接口透传**：`GET /api/tasks/catalog` 会把 `inputs` 元数据原样透传给前端，任务面板可据此渲染文本框、数字框、复选框和下拉框。
+- **蒸馏适用性**：`distillable: false` 的插件会在目录与指标接口中明确标记为“不可蒸馏”；`POST /api/tasks/distill/{plugin_name}` 会直接拒绝这类插件。
 - **前端提交约束**：Web 端派发插件任务时，会按 `inputs` 白名单过滤 payload，只提交 `manifest.yaml` 已声明字段；`device_ip`、`package`、`app_id`、账号注入字段等系统侧上下文不再默认混入插件入参。
+
+### 哪些插件不适合蒸馏
+
+以下类型应显式设置 `distillable: false`：
+
+- 设备初始化、环境重置、运维编排类插件
+- 主要依赖 SDK / HTTP API，而不是稳定 UI 路径的插件
+- 含有随机生成、库存选择、重启回线、状态探测的插件
+- 每次执行结果天然应该不同的插件
+
+典型例子：
+
+- `one_click_new_device`
+- 指纹更新 / 代理切换 / 联系人注入 / 清缓存 / 重置环境
+
+原因：
+
+- 这类任务的价值在于“参数化编排”，不是“复刻一次 AI 操作轨迹”
+- 蒸馏会错误固化随机结果、库存状态或某次环境快照
+- 即使执行成功，也不应把一次运行样本当作可复用的业务 YAML 模板
 
 ---
 

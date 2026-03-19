@@ -6,6 +6,7 @@ display_name: "一键新机"
 category: "设备初始化"
 description: "Select a phone model, generate a randomized device profile, and apply a fresh MYTOS environment to the selected cloud machine"
 entry_script: script.yaml
+distillable: false
 distill_threshold: 3
 inputs:
   - name: model_source

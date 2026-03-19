@@ -220,4 +220,14 @@ MYT_LOAD_DOTENV=1 MYT_TASK_QUEUE_BACKEND=redis uv run uvicorn api.server:app --p
 
 ## 附：蒸馏门槛 (Distillation Threshold)
 
-每个插件可在 `plugins/<plugin>/manifest.yaml` 中声明 `distill_threshold`（默认 `3`），用于决定 `POST /api/tasks/distill/{plugin_name}` 的触发门槛。
+每个插件可在 `plugins/<plugin>/manifest.yaml` 中声明：
+
+- `distillable`：是否允许进入蒸馏链路，默认 `true`
+- `distill_threshold`：达到多少次成功后才允许蒸馏，默认 `3`
+
+推荐规则：
+
+- 业务 UI 流程插件：保留 `distillable: true`
+- 设备初始化、环境编排、随机化、运维类插件：设置 `distillable: false`
+
+例如 `one_click_new_device` 这类任务，目标是“重置并随机化一台设备环境”，不是“沉淀一条可复刻的 AI 操作路径”，因此应明确标记为不可蒸馏。

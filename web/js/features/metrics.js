@@ -117,9 +117,10 @@ function renderPluginStats(plugins) {
     }
 
     plugins.forEach(p => {
+        const distillable = p.distillable !== false;
         const successRate = ((p.success_rate || 0) * 100).toFixed(1);
         const remaining = p.distill_remaining || 0;
-        const ready = p.distill_ready;
+        const ready = distillable && p.distill_ready;
         const completed = p.completed || 0;
         const threshold = p.distill_threshold || 3;
         const progress = Math.min(100, (completed / threshold) * 100).toFixed(0);
@@ -138,7 +139,11 @@ function renderPluginStats(plugins) {
 
         const meta = document.createElement('span');
         meta.className = ready ? 'text-success' : 'text-muted';
-        meta.textContent = `${ready ? '✅ 可蒸馏' : `还差 ${remaining} 次`} · 成功率 ${successRate}% · ${completed}/${threshold}`;
+        if (!distillable) {
+            meta.textContent = `不支持蒸馏 · 成功率 ${successRate}%`;
+        } else {
+            meta.textContent = `${ready ? '✅ 可蒸馏' : `还差 ${remaining} 次`} · 成功率 ${successRate}% · ${completed}/${threshold}`;
+        }
 
         const button = document.createElement('button');
         button.className = 'btn btn-secondary btn-sm';
@@ -166,7 +171,7 @@ function renderPluginStats(plugins) {
         const barWrap = document.createElement('div');
         barWrap.className = 'w-full bg-bg-sidebar rounded-full h-1.5 overflow-hidden';
         const bar = document.createElement('div');
-        bar.className = `h-full ${ready ? 'bg-success' : 'bg-primary'}`;
+        bar.className = `h-full ${!distillable ? 'bg-bg-panel' : (ready ? 'bg-success' : 'bg-primary')}`;
         bar.style.width = `${progress}%`;
         barWrap.appendChild(bar);
 
