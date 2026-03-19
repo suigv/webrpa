@@ -8,6 +8,7 @@ import time
 import jwt
 import pytest
 from starlette.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 from api.server import app
 
@@ -52,9 +53,8 @@ def test_ws_rejects_without_token_when_auth_enabled(monkeypatch):
     monkeypatch.setenv("MYT_JWT_SECRET", secret)
     client = TestClient(app)
 
-    with pytest.raises(Exception):
-        with client.websocket_connect("/ws/logs"):
-            pass
+    with pytest.raises(WebSocketDisconnect), client.websocket_connect("/ws/logs"):
+        pass
 
 
 def test_ws_accepts_bearer_token_via_subprotocol(monkeypatch):

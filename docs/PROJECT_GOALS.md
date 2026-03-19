@@ -24,7 +24,7 @@ This document defines the north-star goals, scope boundaries, and success criter
 - All operational workflows target supported application script tasks.
 - Initial workflow list should be explicit and small (3-5 critical flows).
 - Representative workflows are the current plugin library under `plugins/` (source of truth).
-  - Current list: `device_reboot`, `device_soft_reset`, `hezi_sdk_probe`, `mytos_device_setup`.
+  - Current list: `one_click_new_device`.
 
 ## Non-Goals (Near Term)
 - Building a new general-purpose workflow language.

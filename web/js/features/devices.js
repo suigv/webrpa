@@ -865,7 +865,7 @@ async function initializeAllDevices() {
     const onlineUnits = Array.from(currentUnitsById.values()).filter(u => u.availability_state === "available");
     if(onlineUnits.length === 0) return toast.warn("当前没有在线的云机");
     
-    const bulkWarning = `【全局高危操作！！】\n\n即将对所有 ${onlineUnits.length} 个在线节点执行系统初始化！\n\n该操作将导致所有已登录账号被迫退出！\n\n若确定执行，请在下方输入“确认”：`;
+    const bulkWarning = `【全局高危操作！！】\n\n即将对所有 ${onlineUnits.length} 个在线节点执行一键新机！\n\n该操作会切换机型并重写设备环境画像，可能导致已登录账号失效。\n\n若确定执行，请在下方输入“确认”：`;
     const input = prompt(bulkWarning);
     
     if (input !== "确认") {
@@ -873,25 +873,24 @@ async function initializeAllDevices() {
         return;
     }
 
-    const pkg = prompt("请输入要初始化的包名（例如 com.example.app）", (localStorage.getItem("defaultPackage") || ""));
-    if (!pkg || !pkg.trim()) return;
-    localStorage.setItem("defaultPackage", pkg.trim());
-    
-    sysLog(`开始全量设备初始化, 目标数量: ${onlineUnits.length}`);
+    const seed = prompt("可选：请输入统一随机种子（留空则每台设备自动随机）", "");
+
+    sysLog(`开始全量一键新机, 目标数量: ${onlineUnits.length}`);
     for (const u of onlineUnits) {
         const taskData = buildTaskRequest({
-            task: 'mytos_device_setup',
+            task: 'one_click_new_device',
             payload: {
-                device_ip: u.parent_ip,
-                package: pkg.trim(),
-                language: "en",
-                country: "US"
+                country_profile: "jp_mobile",
+                model_source: "online",
+                refresh_inventory: true,
+                take_screenshot: true,
+                seed: seed || "",
             },
             targets: [{ device_id: u.parent_id, cloud_id: u.cloud_id }],
         });
         await apiSubmitTask(taskData, { notify: false, log: false });
     }
-    toast.success("全量初始化指令已分发");
+    toast.success("全量一键新机指令已分发");
 }
 
 async function loadAiDialogAccounts() {

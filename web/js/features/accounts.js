@@ -463,7 +463,7 @@ async function bulkDispatch() {
 
     if (onlineUnits.length === 0) return toast.warn("当前无在线云机");
 
-    const plugin = prompt("请输入要派发的插件名称（如 device_reboot）", (localStorage.getItem("bulkDispatchPlugin") || ""));
+    const plugin = prompt("请输入要派发的插件名称（如 one_click_new_device）", (localStorage.getItem("bulkDispatchPlugin") || ""));
     if (!plugin || !plugin.trim()) return;
     localStorage.setItem("bulkDispatchPlugin", plugin.trim());
 

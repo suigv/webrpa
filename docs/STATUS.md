@@ -29,17 +29,14 @@ This document provides a concise "done vs not-done" view tied to the goal and ro
 ## Workflow Coverage (Ops Scope)
 Source of truth: current `plugins/` library (representative workflows).
 
-- Implemented (Unverified): `device_reboot`, `device_soft_reset` (软件复位), `hezi_sdk_probe`, `mytos_device_setup`.
+- Implemented (Unverified): `one_click_new_device`.
 
 ## Distillation Thresholds (Current Plugins)
 Complexity is defined by branching or step count > 10. Successes are cumulative.
 
 | Workflow | Steps | Branching | Complexity | Successes Needed |
 |---|---:|---|---|---:|
-| device_reboot | 2 | no | simple | 3 |
-| device_soft_reset | 4 | no | simple | 3 |
-| hezi_sdk_probe | 3 | no | simple | 3 |
-| mytos_device_setup | 5 | no | simple | 3 |
+| one_click_new_device | 6 | no | simple | 3 |
 
 ## Evidence Anchors (Current)
 - `.sisyphus/evidence/task-1-db-characterization.txt`
