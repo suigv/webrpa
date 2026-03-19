@@ -35,8 +35,10 @@
       - Native 状态兼容继续收口：`ui_state_actions` 和 `navigation_actions` 仍兼容读取 legacy `binding_id` 入口，但内部传递、路由探测与执行热路径统一只使用 `state_profile_id`，避免新逻辑继续向内层传播双字段。
       - Planner 迁移继续推进：`StructuredPlanner` 现在直接调用 `engine.planners.plan_structured_step()`，不再反向依赖旧的 `_plan_next_step` dict 接口；`agent_executor_planning._plan_next_step` 已降级为薄兼容包装层，保留旧 trace/测试兼容的同时把 structured planner 主逻辑收口到 `planners.py`。
       - 设备页继续瘦身：新增 `web/js/features/device_task_panel.js`，把单机任务表单渲染、单机提交和批量分发从 `devices.js` 中拆出；设备页主文件继续聚焦设备列表、接管和详情展示，避免任务编排逻辑反复堆积。
+      - 设备页 AI 对话弹窗也已独立：新增 `web/js/features/device_ai_dialog.js`，统一承接默认提示词加载、账号注入和 `agent_executor` 任务下发，`devices.js` 不再继续堆放 AI 对话表单读写与 payload 组装逻辑。
       - Selector / 状态识别 support 模块补齐恢复性日志：`_ui_selector_support.py` 与 `_state_detection_support.py` 现在会对 selector 清理失败、节点方法回退、XML 解析失败、截断 XML 回补等路径输出 debug 日志，不再静默吞掉根因。
       - 新增 `tests/test_state_detection_support.py`，固定 XML 属性扫描回退、候选提取解析失败以及 bounds 解析失败的日志与返回契约，防止后续再次退回“无声 fallback”。
+      - Native state 兼容入口继续收口：`binding_id -> state_profile_id` 的解析与 identity 组装已统一下沉到 `engine/ui_state_native_bindings.py`，`ui_state_actions`、`navigation_actions` 与 `NativeUIStateAdapter` 不再各自维护一套兼容分支；内部统一走 `state_profile_id`，仅在结构化结果边界保留 legacy alias。
   - **MYTOS API 新能力接入 (2026-03-19)**：
     - `AndroidApiClient` 与 `android.*` / `mytos.*` 动作已补齐新版 `task=snap` 截图、`modifydev?cmd=7` 指纹更新、`modifydev?cmd=17` 摇一摇开关。
     - `mytos.screenshot` 现兼容 `level=1/2/3`，可直接走新版截图接口；同时新增 `mytos.set_fingerprint` / `mytos.update_fingerprint` / `mytos.set_shake`。

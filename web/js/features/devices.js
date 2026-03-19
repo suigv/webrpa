@@ -3,6 +3,11 @@ import { toast } from '../ui/toast.js';
 import { toggleAdvancedTaskFields } from '../utils/task_form_ui.js';
 import { sysLog, unitLog } from './logs.js';
 import {
+    closeUnitAiDialog,
+    openUnitAiDialog,
+    submitUnitAiTask,
+} from './device_ai_dialog.js';
+import {
     renderDeviceTaskForm,
     runBulkPluginTasks,
     submitUnitPluginTask,
@@ -185,7 +190,7 @@ export function initDevices() {
     if (openAiBtn) openAiBtn.onclick = () => openUnitAiDialog(currentUnitDetail);
     if (closeAiBtn) closeAiBtn.onclick = closeUnitAiDialog;
     if (cancelAiBtn) cancelAiBtn.onclick = closeUnitAiDialog;
-    if (submitAiBtn) submitAiBtn.onclick = submitUnitAiTask;
+    if (submitAiBtn) submitAiBtn.onclick = submitCurrentUnitAiTask;
 
     if (toggleAiAdvancedBtn) {
         toggleAiAdvancedBtn.onclick = () => {
@@ -953,153 +958,15 @@ async function initializeAllDevices() {
     toast.success("全量一键新机指令已分发");
 }
 
-async function loadAiDialogAccounts() {
-    const select = $("unitAiAccountSelect");
-    if (!select) return;
-    try {
-        const r = await fetchJson("/api/data/accounts/parsed");
-        if (!r.ok) {
-            renderEmptyAccountSelect(select, '-- 账号加载失败 --');
-            return;
-        }
-        const accounts = (r.data?.accounts || []).filter(a => a.status === 'ready');
-        select.replaceChildren();
-        const emptyOpt = document.createElement('option');
-        emptyOpt.value = '';
-        emptyOpt.textContent = `-- 不绑定账号 (${accounts.length} 个就绪) --`;
-        select.appendChild(emptyOpt);
-        accounts.forEach((a, i) => {
-            const opt = document.createElement('option');
-            opt.value = String(i);
-            opt.textContent = a.account;
-            opt.dataset.acc = a.account || '';
-            opt.dataset.pwd = a.password || '';
-            opt.dataset.twofa = a.twofa || '';
-            select.appendChild(opt);
-        });
-    } catch (e) {
-        console.error("加载 AI 对话账号失败:", e);
-        renderEmptyAccountSelect(select, '-- 账号加载失败 --');
-    }
-}
-
-async function loadDefaultAiSystemPrompt() {
-    const systemPrompt = $("unitAiSystemPrompt");
-    if (!systemPrompt) return;
-    try {
-        const r = await fetchJson("/api/tasks/prompt_templates", { silentErrors: true });
-        if (!r.ok) throw new Error(`HTTP error! status: ${r.status}`);
-        const [defaultTemplate] = Array.isArray(r.data?.templates) ? r.data.templates : [];
-        if (defaultTemplate?.content) {
-            systemPrompt.value = defaultTemplate.content;
-        }
-    } catch (e) {
-        console.error("加载默认提示词失败:", e);
-    }
-}
-
-function openUnitAiDialog(unit) {
-    if (!unit) return;
-    const modal = $("unitAiModal");
-    if (modal) modal.style.display = "flex";
-    loadAiDialogAccounts();
-    const refreshBtn = $("unitAiAccountRefresh");
-    if (refreshBtn) refreshBtn.onclick = loadAiDialogAccounts;
-
-    const title = $("unitAiModalTitle");
-    if (title) title.textContent = `AI 对话 - 云机 #${unit.parent_id}-${unit.cloud_id}`;
-
-    const goalInput = $("unitAiGoal");
-    if (goalInput) goalInput.value = "";
-
-    const profileInput = $("unitAiProfile");
-    if (profileInput) profileInput.value = "";
-
-    const maxStepsInput = $("unitAiMaxSteps");
-    if (maxStepsInput) maxStepsInput.value = "15";
-
-    const stagnantLimitInput = $("unitAiStagnantLimit");
-    if (stagnantLimitInput) stagnantLimitInput.value = "4";
-
-    // 重置勾选框为默认值
-    document.querySelectorAll('input[name="aiState"]').forEach(cb => {
-        cb.checked = ['home','account','password','two_factor'].includes(cb.value);
-    });
-    document.querySelectorAll('input[name="aiAction"]').forEach(cb => {
-        cb.checked = true;
-    });
-
-    const systemPromptInput = $("unitAiSystemPrompt");
-    if (systemPromptInput) systemPromptInput.value = "";
-    loadDefaultAiSystemPrompt();
-
-    const useVlm = $("unitAiUseVlm");
-    if (useVlm) useVlm.checked = false;
-}
-
-function closeUnitAiDialog() {
-    const modal = $("unitAiModal");
-    if (modal) modal.style.display = "none";
-    const advanced = $("unitAiAdvanced");
-    if (advanced) advanced.style.display = "none";
-}
-
-async function submitUnitAiTask() {
+async function submitCurrentUnitAiTask() {
     if (!currentUnitDetail) return;
-
-    const goal = String($("unitAiGoal")?.value || "").trim();
-    if (!goal) {
-        toast.warn("请填写任务描述");
-        return;
-    }
-
-    const expectedStateIds = Array.from(document.querySelectorAll('input[name="aiState"]:checked')).map(cb => cb.value);
-    const allowedActions = Array.from(document.querySelectorAll('input[name="aiAction"]:checked')).map(cb => cb.value);
-    const systemPrompt = String($("unitAiSystemPrompt")?.value || "").trim();
-    const profileName = String($("unitAiProfile")?.value || "").trim();
-    const useVlm = $("unitAiUseVlm")?.checked || false;
-    const maxStepsValue = Number.parseInt(String($("unitAiMaxSteps")?.value || "").trim(), 10);
-    const stagnantLimitValue = Number.parseInt(String($("unitAiStagnantLimit")?.value || "").trim(), 10);
-    const resolvedMaxSteps = Number.isFinite(maxStepsValue) && maxStepsValue > 0 ? maxStepsValue : 15;
-    const resolvedStagnantLimit =
-        Number.isFinite(stagnantLimitValue) && stagnantLimitValue > 0 ? stagnantLimitValue : 4;
-
-    const payload = {
-        device_ip: currentUnitDetail.parent_ip,
-        goal,
-        expected_state_ids: expectedStateIds,
-        allowed_actions: allowedActions,
-        observation: {}
-    };
-
-    // 注入选中账号
-    const aiAccountSelect = $("unitAiAccountSelect");
-    if (aiAccountSelect && aiAccountSelect.value !== '') {
-        const selectedOpt = aiAccountSelect.options[aiAccountSelect.selectedIndex];
-        if (selectedOpt.dataset.acc) payload.acc = selectedOpt.dataset.acc;
-        if (selectedOpt.dataset.pwd) payload.pwd = selectedOpt.dataset.pwd;
-        if (selectedOpt.dataset.twofa) {
-            payload.two_factor_code = selectedOpt.dataset.twofa;
-            payload.fa2_secret = selectedOpt.dataset.twofa;
-        }
-    }
-
-    if (systemPrompt) payload.system_prompt = systemPrompt;
-    if (profileName) payload._runtime_profile = profileName;
-    if (useVlm) payload.fallback_modalities = ["vlm"];
-    payload.max_steps = resolvedMaxSteps;
-    payload.stagnant_limit = resolvedStagnantLimit;
-    const taskData = buildTaskRequest({
-        task: "agent_executor",
-        payload,
-        targets: [{ device_id: currentUnitDetail.parent_id, cloud_id: currentUnitDetail.cloud_id }],
+    await submitUnitAiTask(currentUnitDetail, {
+        onSuccess: () => {
+            unitLog(">>> AI 对话任务已下发");
+            closeUnitAiDialog();
+        },
+        onFailure: () => {
+            unitLog("❌ AI 对话任务提交失败", "error");
+        },
     });
-
-    const res = await apiSubmitTask(taskData);
-    if (res.ok) {
-        unitLog(">>> AI 对话任务已下发");
-        closeUnitAiDialog();
-    } else {
-        unitLog("❌ AI 对话任务提交失败", "error");
-    }
 }

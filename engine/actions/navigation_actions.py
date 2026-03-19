@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from engine.actions import ui_state_actions
 from engine.models.runtime import ActionResult, ExecutionContext
+from engine.ui_state_native_bindings import normalize_native_state_profile_id
 
 
 @dataclass(frozen=True)
@@ -56,7 +57,10 @@ def _common_params(params: dict[str, object], context: ExecutionContext) -> dict
 
 
 def _resolve_route_state_profile_id(raw: dict[str, object]) -> str:
-    return str(raw.get("state_profile_id") or raw.get("binding_id") or "").strip()
+    return normalize_native_state_profile_id(
+        str(raw.get("state_profile_id") or "").strip() or None,
+        binding_id=str(raw.get("binding_id") or "").strip() or None,
+    )
 
 
 def _route_profile_identity(route: RouteDefinition) -> dict[str, str]:

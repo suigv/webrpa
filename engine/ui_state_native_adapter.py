@@ -17,13 +17,15 @@ from engine.models.ui_state import (
 from engine.ui_state_helpers import build_error_result, build_timing, build_transition
 from engine.ui_state_native_bindings import (
     NativeStateProfile,
+    build_native_state_identity_details,
     is_presence_style_profile,
+    normalize_native_state_profile_id,
     resolve_native_state_profile,
 )
 
 
 def resolve_native_state_binding(binding_id: str) -> NativeStateProfile:
-    return resolve_native_state_profile(binding_id)
+    return resolve_native_state_profile(normalize_native_state_profile_id(binding_id=binding_id))
 
 
 class NativeUIStateAdapter:
@@ -37,8 +39,12 @@ class NativeUIStateAdapter:
         self._state_profile: NativeStateProfile
         self._action_params: dict[str, object]
         self._action_params = dict(action_params or {})
-        resolved_profile_id = str(state_profile_id or binding_id or "login_stage").strip()
-        self._state_profile = resolve_native_state_profile(resolved_profile_id or "login_stage")
+        resolved_profile_id = normalize_native_state_profile_id(
+            state_profile_id,
+            binding_id=binding_id,
+            default="login_stage",
+        )
+        self._state_profile = resolve_native_state_profile(resolved_profile_id)
 
     def match_state(
         self,
@@ -427,12 +433,10 @@ class NativeUIStateAdapter:
         return raw_details
 
     def _profile_identity_details(self) -> dict[str, str]:
-        return {
-            "state_profile_id": self._state_profile.state_profile_id,
-            "binding_id": self._state_profile.binding_id,
-            "state_profile_name": self._state_profile.display_name,
-            "binding_name": self._state_profile.display_name,
-        }
+        return build_native_state_identity_details(
+            self._state_profile,
+            include_legacy_aliases=True,
+        )
 
     def _is_observed_presence_state(self, state_id: str, expected_state_ids: Sequence[str]) -> bool:
         return (

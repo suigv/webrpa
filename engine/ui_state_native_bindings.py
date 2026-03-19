@@ -19,10 +19,6 @@ class NativeStateProfile:
     match_action: Callable[[dict[str, object], ExecutionContext], ActionResult]
     wait_action: Callable[[dict[str, object], ExecutionContext], ActionResult] | None = None
 
-    @property
-    def binding_id(self) -> str:
-        return self.state_profile_id
-
     def __init__(
         self,
         state_profile_id: str | None = None,
@@ -36,7 +32,10 @@ class NativeStateProfile:
         match_action: Callable[[dict[str, object], ExecutionContext], ActionResult],
         wait_action: Callable[[dict[str, object], ExecutionContext], ActionResult] | None = None,
     ) -> None:
-        resolved_profile_id = str(state_profile_id or binding_id or "").strip()
+        resolved_profile_id = normalize_native_state_profile_id(
+            state_profile_id,
+            binding_id=binding_id,
+        )
         if not resolved_profile_id:
             raise ValueError("state_profile_id is required")
         object.__setattr__(self, "state_profile_id", resolved_profile_id)
@@ -50,6 +49,33 @@ class NativeStateProfile:
 
 
 NativeStateBinding = NativeStateProfile
+
+
+def normalize_native_state_profile_id(
+    state_profile_id: str | None = None,
+    *,
+    binding_id: str | None = None,
+    default: str = "",
+) -> str:
+    resolved = str(state_profile_id or binding_id or default).strip()
+    if resolved:
+        return resolved
+    return str(default).strip()
+
+
+def build_native_state_identity_details(
+    profile: NativeStateProfile,
+    *,
+    include_legacy_aliases: bool = False,
+) -> dict[str, str]:
+    details = {
+        "state_profile_id": profile.state_profile_id,
+        "state_profile_name": profile.display_name,
+    }
+    if include_legacy_aliases:
+        details["binding_id"] = profile.state_profile_id
+        details["binding_name"] = profile.display_name
+    return details
 
 
 def normalize_supported_state(state_id: str, supported_state_ids: Sequence[str]) -> str:
@@ -221,7 +247,9 @@ def list_native_state_profiles() -> tuple[str, ...]:
 
 
 def resolve_native_state_binding(binding_id: str) -> NativeStateProfile:
-    return resolve_native_state_profile(binding_id)
+    return resolve_native_state_profile(
+        normalize_native_state_profile_id(binding_id=binding_id)
+    )
 
 
 def list_native_state_bindings() -> tuple[str, ...]:

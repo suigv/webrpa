@@ -5,6 +5,7 @@ from collections.abc import Sequence
 from engine.models.runtime import ActionResult, ExecutionContext
 from engine.ui_state_browser_service import BrowserUIStateService
 from engine.ui_state_native_adapter import NativeUIStateAdapter
+from engine.ui_state_native_bindings import normalize_native_state_profile_id
 from engine.ui_state_service import UIStateService
 
 
@@ -119,10 +120,11 @@ def _coerce_state_ids(raw: object) -> tuple[str, ...]:
 
 
 def _resolve_native_state_profile_id(params: dict[str, object]) -> str:
-    state_profile_id = str(
-        params.get("state_profile_id") or params.get("binding_id") or "login_stage"
-    ).strip()
-    return state_profile_id or "login_stage"
+    return normalize_native_state_profile_id(
+        str(params.get("state_profile_id") or "").strip() or None,
+        binding_id=str(params.get("binding_id") or "").strip() or None,
+        default="login_stage",
+    )
 
 
 def _normalize_native_state_profile_params(
