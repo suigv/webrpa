@@ -136,6 +136,19 @@ def test_rpc_bootstrap_runtime_target_prevents_payload_target_port_mixing() -> N
     assert rpa_port == 30202
 
 
+def test_rpc_bootstrap_merges_legacy_payload_device_ip_into_runtime_target() -> None:
+    ExecutionContext = _load_execution_context()
+    ctx = ExecutionContext(
+        payload={"device_ip": "192.168.1.214"},
+        runtime={"target": {"device_id": 2, "cloud_id": 3}},
+    )
+
+    device_ip, rpa_port = _rpc_bootstrap.resolve_connection_params({}, ctx)
+
+    assert device_ip == "192.168.1.214"
+    assert rpa_port == 30202
+
+
 def test_ui_and_state_bootstrap_wrappers_share_connect_timeout_contract(
     monkeypatch: MonkeyPatch,
 ) -> None:

@@ -58,6 +58,18 @@ def _normalize_runtime_target(context: Any) -> dict[str, Any]:
     return {}
 
 
+def _merge_legacy_payload_device_ip(
+    target: dict[str, Any],
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    """Compatibility shim for older callers that still pass device_ip in payload."""
+    if not target or not payload or "device_ip" in target or not payload.get("device_ip"):
+        return target
+    merged_target = dict(target)
+    merged_target["device_ip"] = payload.get("device_ip")
+    return merged_target
+
+
 def _pick_connection_source(
     params: dict[str, Any],
     session_defaults: dict[str, Any],
@@ -93,11 +105,7 @@ def _pick_connection_source(
 
 def resolve_connection_params(params: dict[str, Any], context: Any) -> tuple[str, int]:
     payload: dict[str, Any] = dict(getattr(context, "payload", {}) or {})
-    target = _normalize_runtime_target(context)
-    if target and payload and "device_ip" not in target and payload.get("device_ip"):
-        merged_target = dict(target)
-        merged_target["device_ip"] = payload.get("device_ip")
-        target = merged_target
+    target = _merge_legacy_payload_device_ip(_normalize_runtime_target(context), payload)
     session_defaults = getattr(context, "session_defaults", {})
     session_defaults = session_defaults if isinstance(session_defaults, dict) else {}
     source = _pick_connection_source(params, session_defaults, target, payload)

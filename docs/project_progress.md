@@ -56,6 +56,7 @@
       - **指标页旧蒸馏心智继续收口**：`metrics.js` 现不再把插件蒸馏结果路径写死为 `plugins/<name>_distilled/`，而是直接显示后端返回的 `output_dir`；同时会把 `visible_in_task_catalog=false` 的插件明确标成“内部”，避免隐藏任务在指标页继续伪装成普通可见目录任务。
       - **连接参数取值规则局部收口**：新增 `engine/actions/_context_value_support.py`，把 `sdk_actions.py`、`android_api_actions.py`、`profile_actions.py` 中散落的 `params/payload/runtime.target/runtime` 取值逻辑统一收敛到共享 helper，同时保留各模块原有优先级顺序不变；额外补充定向测试，固定 SDK 风格、Android API 风格和 runtime target 优先的取值契约，减少后续为了兼容旧入口而在多个 action 文件里重复手写 `device_ip/api_port/sdk_port` 回退链。
       - **旧插件蒸馏兼容口显式化**：`task_routes.py` 中保留的 `/api/tasks/distill/{plugin_name}` legacy 路由，已把“不支持蒸馏”和“未达到门槛”这两段兼容返回骨架下沉为私有 helper，并补充定向测试固定返回契约；现阶段仍保留旧入口以兼容指标页/存量调用，但兼容逻辑不再直接堆在路由体里。
+      - **`device_ip` payload 兼容链显式化**：`_rpc_bootstrap.py` 和 `interpreter.py` 里原本内联的 payload `device_ip` 回退已改成具名 legacy helper，并补充回归测试固定“runtime.target 缺少 `device_ip` 时仍兼容读取 payload”的现有语义；本轮不删除兼容，只把兼容边界从隐式条件收口成可见契约，方便后续继续缩小依赖面。
       - Web 端新增共享任务表单 UI helper，任务主面板、单机执行面板和批量下发条统一复用“说明卡 + 字段渲染 + 高级参数展开”逻辑，减少前端重复实现继续漂移。
       - 收紧若干过度静默回退：WebSocket 事件轮询/广播、账号失败反馈持久化、浏览器 selector 轮询 fallback 现在都会保留可观测错误信息；浏览器 cookie 注入对不支持的 backend 会明确返回失败，而不再伪装成成功。
       - Native 状态兼容继续收口：`ui_state_actions` 和 `navigation_actions` 仍兼容读取 legacy `binding_id` 入口，但内部传递、路由探测与执行热路径统一只使用 `state_profile_id`，避免新逻辑继续向内层传播双字段。
@@ -324,7 +325,7 @@
 | Plugin count (`plugins/*/manifest.yaml`) | 1 |
 | SDK action bindings (`engine/actions/sdk_actions.py` + `engine/actions/sdk_action_catalog.py`) | 158 |
 | Test files (`tests/test_*.py`) | 71 |
-| Test functions (`def test_*`) | 391 |
+| Test functions (`def test_*`) | 393 |
 <!-- AUTO_PROGRESS_SNAPSHOT:END -->
 
 ## 4. 维护说明

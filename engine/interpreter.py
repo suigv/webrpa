@@ -529,7 +529,7 @@ class Interpreter:
                 defaults[plugin_input.name] = plugin_input.default
 
         connection_defaults = {
-            "device_ip": target.get("device_ip") or payload_dict.get("device_ip"),
+            "device_ip": self._legacy_device_ip_default(target, payload_dict),
             "rpa_port": target.get("rpa_port") or payload_dict.get("rpa_port"),
             "cloud_index": target.get("cloud_id") or payload_dict.get("cloud_index"),
             "device_index": target.get("device_id") or payload_dict.get("device_index"),
@@ -540,3 +540,11 @@ class Interpreter:
                 defaults[key] = value
 
         return defaults
+
+    def _legacy_device_ip_default(
+        self,
+        target: dict[str, Any],
+        payload_dict: dict[str, Any],
+    ) -> Any:
+        """Compatibility fallback while some callers still submit device_ip in payload."""
+        return target.get("device_ip") or payload_dict.get("device_ip")

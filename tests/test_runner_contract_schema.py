@@ -78,6 +78,20 @@ def test_interpreter_interpolates_plugin_input_defaults(monkeypatch):
     assert seen["bool_value"] is False
 
 
+def test_interpreter_session_defaults_keep_legacy_payload_device_ip_fallback():
+    import engine.interpreter as interpreter_module
+
+    defaults = interpreter_module.Interpreter()._build_session_defaults(
+        payload={"device_ip": "192.168.1.214"},
+        plugin_inputs=[],
+        runtime={"target": {"device_id": 2, "cloud_id": 3}},
+    )
+
+    assert defaults["device_ip"] == "192.168.1.214"
+    assert defaults["cloud_index"] == 3
+    assert defaults["device_index"] == 2
+
+
 def test_target_circuit_breaker_can_be_disabled():
     breaker = ActiveTargetCircuitBreaker(
         task_id="task-1",
