@@ -3,6 +3,15 @@ import { toast } from '../ui/toast.js';
 
 const $ = (id) => document.getElementById(id);
 
+function extractErrorText(response, fallback) {
+    if (!response) return fallback;
+    if (typeof response.data === 'string' && response.data.trim()) return response.data.trim();
+    if (response.data?.detail) return String(response.data.detail);
+    if (response.data?.message) return String(response.data.message);
+    if (response.data?.stderr) return String(response.data.stderr);
+    return fallback;
+}
+
 export function initMetrics() {
     const viewPromBtn = $("viewPrometheusRaw");
     if (viewPromBtn) viewPromBtn.onclick = togglePrometheusPreview;
@@ -118,6 +127,7 @@ function renderPluginStats(plugins) {
 
     plugins.forEach(p => {
         const distillable = p.distillable !== false;
+        const visibleInCatalog = p.visible_in_task_catalog !== false;
         const successRate = ((p.success_rate || 0) * 100).toFixed(1);
         const remaining = p.distill_remaining || 0;
         const ready = distillable && p.distill_ready;
@@ -132,7 +142,7 @@ function renderPluginStats(plugins) {
 
         const name = document.createElement('span');
         name.className = 'font-mono font-bold';
-        name.textContent = String(p.task_name || '');
+        name.textContent = String(p.task_name || '') + (visibleInCatalog ? '' : ' · 内部');
 
         const right = document.createElement('div');
         right.className = 'flex items-center gap-2';
@@ -140,9 +150,9 @@ function renderPluginStats(plugins) {
         const meta = document.createElement('span');
         meta.className = ready ? 'text-success' : 'text-muted';
         if (!distillable) {
-            meta.textContent = `不支持蒸馏 · 成功率 ${successRate}%`;
+            meta.textContent = `${visibleInCatalog ? '不支持蒸馏' : '内部任务'} · 成功率 ${successRate}%`;
         } else {
-            meta.textContent = `${ready ? '✅ 可蒸馏' : `还差 ${remaining} 次`} · 成功率 ${successRate}% · ${completed}/${threshold}`;
+            meta.textContent = `${ready ? '✅ 可蒸馏' : `还差 ${remaining} 次`} · ${visibleInCatalog ? '目录任务' : '内部任务'} · 成功率 ${successRate}% · ${completed}/${threshold}`;
         }
 
         const button = document.createElement('button');
@@ -155,11 +165,15 @@ function renderPluginStats(plugins) {
             button.textContent = '蒸馏中...';
             const r = await fetchJson(`/api/tasks/distill/${plugin}`, { method: 'POST' });
             if (r.ok && r.data?.ok) {
-                toast.success(`${plugin} 蒸馏完成，草稿已生成至 plugins/${plugin}_distilled/`);
+                const outputDir = String(r.data?.output_dir || '').trim();
+                toast.success(
+                    outputDir
+                        ? `${plugin} 蒸馏完成，草稿已生成至 ${outputDir}`
+                        : `${plugin} 蒸馏完成`
+                );
                 button.textContent = '蒸馏';
             } else {
-                const msg = r.data?.message || r.data?.stderr || '蒸馏失败';
-                toast.error(msg);
+                toast.error(extractErrorText(r, '蒸馏失败'));
                 button.disabled = !ready;
                 button.textContent = '蒸馏';
             }
