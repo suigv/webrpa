@@ -46,6 +46,20 @@ def _cleanup_stale_browser_profiles() -> None:
         logging.info(f"Cleaned up {cleaned} stale browser profile(s) from {base_dir}")
 
 
+def _subscribe_task_events(controller: object, observer: object) -> None:
+    subscribe_events = getattr(controller, "subscribe_events", None)
+    if callable(subscribe_events):
+        subscribe_events(observer)
+        return
+
+    # Backwards-compat for older controller shapes / test fakes.
+    events = getattr(controller, "_events", None)
+    legacy_subscribe = getattr(events, "subscribe", None) if events is not None else None
+    if not callable(legacy_subscribe):
+        raise RuntimeError("Task controller does not support event subscription")
+    legacy_subscribe(observer)
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     # 注册 WebSocket 日志广播桥接
@@ -60,16 +74,7 @@ async def lifespan(_app: FastAPI):
     controller = get_task_controller()
     loop = asyncio.get_running_loop()
     observer = get_event_broadcaster(loop)
-    subscribe_events = getattr(controller, "subscribe_events", None)
-    if callable(subscribe_events):
-        subscribe_events(observer)
-    else:
-        # Backwards-compat for older controller shapes / test fakes.
-        events = getattr(controller, "_events", None)
-        legacy_subscribe = getattr(events, "subscribe", None) if events is not None else None
-        if not callable(legacy_subscribe):
-            raise RuntimeError("Task controller does not support event subscription")
-        legacy_subscribe(observer)
+    _subscribe_task_events(controller, observer)
     start_db_event_poller(loop)
 
     # 清理残留的 browser profile 目录（超过 1 小时未修改的视为泄露）
@@ -112,6 +117,7 @@ def _frontend_url() -> str | None:
 def _protect_openapi_enabled() -> bool:
     raw = os.environ.get("MYT_AUTH_PROTECT_OPENAPI", "0").strip().lower()
     return raw in {"1", "true", "yes", "on"}
+
 
 app.add_middleware(
     CORSMiddleware,

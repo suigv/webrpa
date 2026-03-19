@@ -247,6 +247,11 @@
     - 补充 `tests/test_sdk_shared_store_support.py`，覆盖现有默认作用域契约以及缺少动态上下文字段时的安全降级，避免后续结构收敛误伤 shared store 键空间。
 
 - 最近重点 (本会话)：
+  - **API 生命周期订阅兼容分支收敛**：
+    - `api/server.py` 将任务事件订阅的现代 `subscribe_events()` 路径与旧 `_events.subscribe()` 兼容路径抽成 `_subscribe_task_events()`，让 `lifespan()` 回到只负责启动顺序编排。
+    - 新增现代控制器入口与不支持订阅时的显式失败测试，保留旧测试替身路径不变，避免后续再把兼容分支直接塞回应用启动主流程。
+
+- 最近重点 (本会话)：
   - **ai_type 去硬编码重构**：
     - 删除框架层所有 `volc`/`part_time` 业务判断分支（`sdk_business_support.py`）。
     - 候选人评分权重（`has_media_bonus`、`keyword_bonuses`）移入 `nurture_keywords.yaml` 的 `candidate_scoring` 字段，框架通用读取。
@@ -331,7 +336,7 @@
 | Plugin count (`plugins/*/manifest.yaml`) | 1 |
 | SDK action bindings (`engine/actions/sdk_actions.py` + `engine/actions/sdk_action_catalog.py`) | 158 |
 | Test files (`tests/test_*.py`) | 72 |
-| Test functions (`def test_*`) | 395 |
+| Test functions (`def test_*`) | 397 |
 <!-- AUTO_PROGRESS_SNAPSHOT:END -->
 
 ## 4. 维护说明

@@ -3,6 +3,7 @@
 from contextlib import asynccontextmanager
 from typing import cast
 
+import pytest
 from _pytest.monkeypatch import MonkeyPatch
 from fastapi.testclient import TestClient
 
@@ -61,6 +62,14 @@ class _FakeController:
 
     def stop(self) -> None:
         self.stopped += 1
+
+
+class _ModernFakeController:
+    def __init__(self) -> None:
+        self.subscribers: list[object] = []
+
+    def subscribe_events(self, callback: object) -> None:
+        self.subscribers.append(callback)
 
 
 class _FakeDiscovery:
@@ -437,3 +446,17 @@ def test_api_lifespan_wires_cloud_probe_service(monkeypatch: MonkeyPatch):
     assert fake_probe.started == 1
     assert fake_probe.stopped == 1
     assert len(fake_controller._events.subscribers) == 1
+
+
+def test_subscribe_task_events_prefers_modern_controller_hook() -> None:
+    controller = _ModernFakeController()
+    observer = object()
+
+    server._subscribe_task_events(controller, observer)
+
+    assert controller.subscribers == [observer]
+
+
+def test_subscribe_task_events_rejects_unsupported_controller() -> None:
+    with pytest.raises(RuntimeError, match="does not support event subscription"):
+        server._subscribe_task_events(object(), object())
