@@ -49,6 +49,7 @@
       - **任务取消原因语义对齐**：`TaskAttemptFinalizer.finalize_result_attempt()` 在“结果路径里遇到 cancel_requested”时，`task.cancelled` 事件原因已从误导性的 `user_exception_path` 收敛回 `user`；同时补充回归测试，固定 forced-cancel 与 result-path cancel 两条取消出口的 reason 契约。
       - **State action 转发壳去除**：`state_actions.py` 已移除一层对 `_state_detection_support.py` 的纯转发 wrapper，跟进把 DM 提取、follow/unread 目标提取、候选提取直接接到 support 实现，减少 support 层与 action 层之间的双处同步点；`android_api_actions.py` 中未使用的 `_ok()` helper 也一并清理。
       - **Agent Executor 规划失败出口收口**：`agent_executor.py` 中 planner 错误、fallback 空动作重试耗尽、非法动作选择这三条失败分支已统一复用类内 helper 生成 terminal trace 和失败结果，减少主循环里重复拼装同型 `failed_runtime_error` 终态的样板代码，保留原有 code/message/checkpoint 与 trace 契约不变。
+      - **防回潮约束继续加固**：`AGENTS.md` 已进一步明确热点文件的“第二次重复即收口”规则，要求在 `agent_executor.py`、`task_execution.py` 及几类 action/support 大文件中，遇到同型 result/trace/event/参数归一化骨架时优先扩展局部 helper；同时禁止新增纯透传 wrapper 作为默认写法，避免后续修功能时再次把样板代码和空壳层写回热点文件。
       - Web 端新增共享任务表单 UI helper，任务主面板、单机执行面板和批量下发条统一复用“说明卡 + 字段渲染 + 高级参数展开”逻辑，减少前端重复实现继续漂移。
       - 收紧若干过度静默回退：WebSocket 事件轮询/广播、账号失败反馈持久化、浏览器 selector 轮询 fallback 现在都会保留可观测错误信息；浏览器 cookie 注入对不支持的 backend 会明确返回失败，而不再伪装成成功。
       - Native 状态兼容继续收口：`ui_state_actions` 和 `navigation_actions` 仍兼容读取 legacy `binding_id` 入口，但内部传递、路由探测与执行热路径统一只使用 `state_profile_id`，避免新逻辑继续向内层传播双字段。

@@ -73,8 +73,10 @@ MYT_ENABLE_RPC=0 ./.venv/bin/python -m uvicorn api.server:app --host 127.0.0.1 -
 - Keep action modules capability-focused; when one file starts mixing connection lifecycle, parameter policy, fallback strategy, and a mini-subsystem, split it before adding more features.
 - Prefer shared helpers for RPC/session/bootstrap wiring; do not duplicate connection patterns across action modules.
 - When extending an already-large action/support file, first check whether the new branch is only repeating an existing pattern such as client bootstrap, `_from_api` wrapping, alias parameter parsing, bounds normalization, XML node filtering, or fallback chains. If yes, reuse or extend a file-local helper before adding more copy-pasted branches.
+- In hotspot files, the second occurrence of the same result/trace/event/parameter-normalization skeleton is the trigger to converge it locally. Do not wait until four or five copies accumulate before extracting a helper.
 - Do not reintroduce alias-style duplicate actions in large files by copying full handler bodies. For pairs such as `backup/export`, `restore/import`, zero-arg wrappers, or repeated package-scoped handlers, keep one shared helper path and make aliases thin wrappers.
 - Treat repeated “fix-forward” additions inside hotspots such as `engine/actions/android_api_actions.py`, `engine/actions/_ui_selector_support.py`, `engine/actions/_state_detection_support.py`, `engine/agent_executor.py`, and `core/task_execution.py` as an architecture smell. Before adding logic there, explicitly check whether the change belongs in a local helper or an already-extracted companion module.
+- In hotspots such as `engine/agent_executor.py` and `core/task_execution.py`, do not append new behavior directly into the main orchestration flow when the new branch mostly repeats an existing terminal-result, trace, cancellation, or event-emission shape. Extend a nearby helper or extract one first.
 
 ### Orchestration Boundary
 - `core/task_control.py` is orchestration glue, not a home for business policy.
@@ -137,6 +139,8 @@ Different devices use the same port numbers but different IPs — `(ip, port)` i
 - Do not mix refactor + feature + formatting in one change.
 - **Documentation Self-Healing**: After completing functional changes or adding new features (e.g., new Actions, API endpoints, or Plugins), the agent **MUST** automatically update relevant documentation (e.g., `docs/`, `ActionMetadata`, or `project_progress.md`) to reflect the changes.
 - Keep tests updated with each behavior change.
+- Structural convergence must stay incremental: prefer file-local helper extraction, duplicate branch collapse, and wrapper removal over cross-module rewrites or new abstraction layers.
+- Do not add pure pass-through wrappers unless they preserve an external compatibility contract that cannot be removed yet; if a wrapper is kept for compatibility, mark it as such and avoid building new logic on top of it.
 
 ## Definition of Done
 A change is done only if:
