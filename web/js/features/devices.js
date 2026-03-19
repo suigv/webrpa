@@ -276,7 +276,7 @@ function renderUnitCard(container, u) {
 
     const badge = document.createElement('span');
     badge.className = 'badge badge-sm';
-    badge.textContent = u.ai_type || "volc";
+    badge.textContent = u.ai_type || "default";
 
     const infoBtn = document.createElement('button');
     infoBtn.className = 'btn btn-text text-primary p-0 ml-auto';

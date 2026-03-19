@@ -6,7 +6,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
-from core.app_config import resolve_app_payload
+from core.app_config import resolve_app_id, resolve_app_payload
 from engine.action_registry import get_registry
 from engine.agent_executor import AgentExecutorRuntime
 from engine.interpreter import Interpreter
@@ -52,7 +52,7 @@ class Runner:
         runtime: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         # Resolve App Context (App-Awareness)
-        app_id = str(script_payload.get("app_id") or script_payload.get("app") or "default")
+        app_id = resolve_app_id(script_payload)
         enhanced_payload = resolve_app_payload(app_id, script_payload)
 
         plan = self._parser.parse(enhanced_payload)

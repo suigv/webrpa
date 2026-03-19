@@ -67,7 +67,7 @@ class TaskRequest(BaseModel):
     display_name: str | None = Field(default=None, min_length=1, max_length=120)
     draft_id: str | None = Field(default=None, min_length=1, max_length=64)
     success_threshold: int | None = Field(default=None, ge=1, le=20)
-    ai_type: str = "volc"
+    ai_type: str = "default"
     idempotency_key: str | None = Field(default=None, min_length=1, max_length=128)
     max_retries: int = Field(default=0, ge=0, le=20)
     retry_backoff_seconds: int = Field(default=2, ge=0, le=3600)

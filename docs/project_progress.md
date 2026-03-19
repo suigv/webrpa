@@ -264,6 +264,12 @@
     - 补充归一化测试，锁住 canonical 字段与旧内部键空间之间的映射关系。
 
 - 最近重点 (本会话)：
+  - **App 上下文与 AI 类型默认值对齐**：
+    - `core.app_config.py` 新增共享 app 解析 helper，统一 `app_id` 为主字段、`app` 为兼容别名，并让 `runner` 与 `sdk_*` 配置读取链共用同一顺序。
+    - `resolve_app_payload()` 现在会把归一化后的 `app_id` 写回 payload，并在旧 `app` 与 canonical 值相同的情况下去掉冗余别名，减少运行时继续携带双字段。
+    - `models/task.py` 将 `TaskRequest.ai_type` 默认值从历史 `"volc"` 对齐为 `"default"`；前端设备卡片的缺省展示文案也同步对齐，避免新旧默认值混用。
+
+- 最近重点 (本会话)：
   - **ai_type 去硬编码重构**：
     - 删除框架层所有 `volc`/`part_time` 业务判断分支（`sdk_business_support.py`）。
     - 候选人评分权重（`has_media_bonus`、`keyword_bonuses`）移入 `nurture_keywords.yaml` 的 `candidate_scoring` 字段，框架通用读取。
@@ -347,8 +353,8 @@
 | App-level route decorators (`api/server.py`) | 5 |
 | Plugin count (`plugins/*/manifest.yaml`) | 1 |
 | SDK action bindings (`engine/actions/sdk_actions.py` + `engine/actions/sdk_action_catalog.py`) | 158 |
-| Test files (`tests/test_*.py`) | 72 |
-| Test functions (`def test_*`) | 399 |
+| Test files (`tests/test_*.py`) | 74 |
+| Test functions (`def test_*`) | 402 |
 <!-- AUTO_PROGRESS_SNAPSHOT:END -->
 
 ## 4. 维护说明

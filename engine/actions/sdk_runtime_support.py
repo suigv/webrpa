@@ -8,25 +8,14 @@ from typing import Any
 
 import pyotp
 
+from core.app_config import resolve_app_id
 from engine.models.runtime import ActionResult, ExecutionContext
 
 
 def _resolve_app(params: dict[str, Any], payload: dict[str, Any]) -> str:
-    """从 params.app > payload.app > payload.package 顺序推断 app 配置名，默认 DEFAULT_APP_NAME。"""
-    app = str(params.get("app") or payload.get("app") or "").strip().lower()
-    if app:
-        return app
-    package = str(payload.get("package") or "").strip()
-    if package:
-        from engine.actions.sdk_config_support import app_from_package
-
-        mapped = app_from_package(package)
-        if mapped:
-            return mapped
-    default_app = (
-        str(os.getenv("MYT_DEFAULT_APP", "default") or "default").strip().lower() or "default"
-    )
-    return default_app
+    """从 params.app_id/app > payload.app_id/app > payload.package 顺序推断 app 配置名。"""
+    default_app = str(os.getenv("MYT_DEFAULT_APP", "default") or "default").strip().lower()
+    return resolve_app_id(payload, params=params, default_app=default_app)
 
 
 def extract_cloud_status_payload(result: dict[str, Any]) -> tuple[str, Any]:

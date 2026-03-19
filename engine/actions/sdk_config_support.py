@@ -7,7 +7,7 @@ from typing import Any
 
 import yaml
 
-from core.app_config import AppConfigManager
+from core.app_config import AppConfigManager, resolve_app_id
 from core.data_store import write_json_atomic
 from core.paths import data_dir, project_root
 
@@ -31,16 +31,8 @@ def app_from_package(package: str) -> str:
 
 
 def resolve_app(params: dict[str, Any], payload: dict[str, Any]) -> str:
-    """从 params.app > payload.app > payload.package 顺序推断 app 名，默认 DEFAULT_APP_NAME。"""
-    app = str(params.get("app") or payload.get("app") or "").strip().lower()
-    if app:
-        return app
-    package = str(payload.get("package") or "").strip()
-    if package:
-        mapped = app_from_package(package)
-        if mapped:
-            return mapped
-    return DEFAULT_APP_NAME
+    """从 params.app_id/app > payload.app_id/app > payload.package 顺序推断 app 名。"""
+    return resolve_app_id(payload, params=params, default_app=DEFAULT_APP_NAME)
 
 
 def app_config_path(app: str) -> Path:

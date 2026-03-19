@@ -38,12 +38,42 @@ def get_app_config(app_id: str) -> dict[str, Any]:
     return _read_yaml_dict(_app_config_path(app_key))
 
 
+def resolve_app_id(
+    payload: dict[str, Any] | None = None,
+    *,
+    params: dict[str, Any] | None = None,
+    default_app: str = "default",
+) -> str:
+    sources = (
+        params if isinstance(params, dict) else {},
+        payload if isinstance(payload, dict) else {},
+    )
+    for source in sources:
+        for key in ("app_id", "app"):
+            raw = str(source.get(key) or "").strip().lower()
+            if raw:
+                return raw
+
+    payload_dict = payload if isinstance(payload, dict) else {}
+    package = str(payload_dict.get("package") or "").strip()
+    if package:
+        mapped = AppConfigManager.find_app_by_package(package)
+        if mapped:
+            return mapped
+
+    return str(default_app or "default").strip().lower() or "default"
+
+
 def resolve_app_payload(app_id: str, current_payload: dict[str, Any]) -> dict[str, Any]:
     config = get_app_config(app_id)
-    if not config:
-        return current_payload
-
     resolved = dict(current_payload)
+    if app_id:
+        resolved["app_id"] = app_id
+    if "app" in resolved and resolved.get("app") == app_id:
+        resolved.pop("app", None)
+    if not config:
+        return resolved
+
     if not resolved.get("package") and config.get("package_name"):
         resolved["package"] = config["package_name"]
     if config.get("states"):
