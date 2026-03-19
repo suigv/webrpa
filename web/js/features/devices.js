@@ -11,6 +11,9 @@ import {
     bindDeviceModalActions,
     openDeviceDetail,
 } from './device_detail_modal.js';
+import { getSelectedUnitAccount, loadUnitAccounts } from './device_accounts.js';
+import { loadDevicePluginCatalog } from './device_plugin_catalog.js';
+import { bindSystemStatusModal } from './device_system_modal.js';
 import {
     renderDeviceTaskForm,
     runBulkPluginTasks,
@@ -18,7 +21,6 @@ import {
 } from './device_task_panel.js';
 import { closeUnitDetail, openUnitDetail } from './device_unit_detail.js';
 import {
-    getTaskCatalog,
     buildTaskRequest,
     apiSubmitTask,
 } from './task_service.js';
@@ -94,55 +96,6 @@ function summarizeHealth(unit, isOnline) {
     return reason;
 }
 
-let unitAccounts = [];
-
-async function loadUnitAccounts() {
-    const select = $("unitAccountSelect");
-    const hint = $("unitAccountHint");
-    if (!select) return;
-    try {
-        const r = await fetchJson("/api/data/accounts/parsed");
-        if (!r.ok) {
-            unitAccounts = [];
-            renderEmptyAccountSelect(select, '-- 账号加载失败 --');
-            if (hint) hint.textContent = '加载账号失败';
-            return;
-        }
-        unitAccounts = (r.data?.accounts || []).filter(a => a.status === 'ready');
-        select.replaceChildren();
-        const emptyOpt = document.createElement('option');
-        emptyOpt.value = '';
-        emptyOpt.textContent = `-- 不绑定账号 (${unitAccounts.length} 个就绪) --`;
-        select.appendChild(emptyOpt);
-        unitAccounts.forEach((a, i) => {
-            const opt = document.createElement('option');
-            opt.value = String(i);
-            opt.textContent = a.account;
-            select.appendChild(opt);
-        });
-        if (hint) hint.textContent = `账号池共 ${unitAccounts.length} 个就绪账号`;
-    } catch (e) {
-        unitAccounts = [];
-        renderEmptyAccountSelect(select, '-- 账号加载失败 --');
-        if (hint) hint.textContent = '加载账号失败';
-    }
-}
-
-function getSelectedAccount() {
-    const select = $("unitAccountSelect");
-    if (!select || select.value === '') return null;
-    return unitAccounts[parseInt(select.value)] || null;
-}
-
-function renderEmptyAccountSelect(select, label) {
-    if (!select) return;
-    select.replaceChildren();
-    const emptyOpt = document.createElement('option');
-    emptyOpt.value = '';
-    emptyOpt.textContent = label;
-    select.appendChild(emptyOpt);
-}
-
 export function initDevices() {
     const clearBtn = $("clearSelection");
     const closeBtn = $("closeDetail");
@@ -164,19 +117,7 @@ export function initDevices() {
             void loadDevices();
         },
     });
-    
-    // 系统状态模态框绑定 (全局)
-    const showSysBtn = $("showSystemStatus") || $("apiStatus");
-    if (showSysBtn) {
-        showSysBtn.style.cursor = "pointer";
-        showSysBtn.onclick = openSystemStatusModal;
-    }
-    
-    const closeSystemModalBtns = document.querySelectorAll(".close-system-modal-btn");
-    closeSystemModalBtns.forEach(btn => btn.onclick = closeSystemModal);
-    
-    const globalBrowserDiagBtn = $("runGlobalBrowserDiag");
-    if (globalBrowserDiagBtn) globalBrowserDiagBtn.onclick = runGlobalBrowserDiag;
+    bindSystemStatusModal();
 
     if (clearBtn) clearBtn.onclick = clearSelection;
     if (closeBtn) closeBtn.onclick = closeDetail;
@@ -229,143 +170,17 @@ export function initDevices() {
     }
 
     loadDevices();
-    loadPluginCatalog();
+    void loadPluginCatalog();
     setInterval(loadDevices, 5000);
 }
 
-function closeSystemModal() {
-    const modal = $("systemStatusModal");
-    if (modal) modal.style.display = "none";
-}
-
-function createStatusRow(labelText, initialValueText = '-') {
-    const row = document.createElement('div');
-    const labelSpan = document.createElement('span');
-    labelSpan.className = 'text-muted';
-    labelSpan.textContent = `${labelText}: `;
-    const valueSpan = document.createElement('span');
-    valueSpan.textContent = initialValueText;
-    row.append(labelSpan, valueSpan);
-    return { row, valueSpan };
-}
-
-async function openSystemStatusModal() {
-    const modal = $("systemStatusModal");
-    if (modal) modal.style.display = "flex";
-    
-    const coreStatus = $("coreServicesStatus");
-    clearElement(coreStatus);
-    clearElement($("browserDiagResult"));
-    
-    const baseUrl = location.origin || '(unknown)';
-    const apiRow = createStatusRow("API 地址", baseUrl);
-    const healthRow = createStatusRow("API 健康", "检测中...");
-    const rpcRow = createStatusRow("RPC", "检测中...");
-    const pluginRow = createStatusRow("已加载插件", "检测中...");
-    coreStatus.append(apiRow.row, healthRow.row, rpcRow.row, pluginRow.row);
-
-    try {
-        const r = await fetchJson("/health", { silentErrors: true });
-        if (!r.ok || !r.data) {
-            healthRow.valueSpan.textContent = "不可用";
-            healthRow.valueSpan.style.color = "var(--warn)";
-            rpcRow.valueSpan.textContent = "未知";
-            rpcRow.valueSpan.style.color = "var(--warn)";
-            pluginRow.valueSpan.textContent = "未知";
-            pluginRow.valueSpan.style.color = "var(--warn)";
-            return;
-        }
-
-        healthRow.valueSpan.textContent = "OK";
-        healthRow.valueSpan.style.color = "var(--success)";
-
-        if (r.data.rpc_enabled) {
-            rpcRow.valueSpan.textContent = "已启用";
-            rpcRow.valueSpan.style.color = "var(--success)";
-        } else {
-            rpcRow.valueSpan.textContent = "已禁用";
-            rpcRow.valueSpan.style.color = "var(--warn)";
-        }
-
-        const loadedPlugins = r.data?.plugins?.loaded;
-        if (Array.isArray(loadedPlugins)) {
-            pluginRow.valueSpan.textContent = `${loadedPlugins.length} 个`;
-        } else {
-            pluginRow.valueSpan.textContent = "未知";
-        }
-    } catch (e) {
-        healthRow.valueSpan.textContent = "检测失败";
-        healthRow.valueSpan.style.color = "var(--warn)";
-        rpcRow.valueSpan.textContent = "未知";
-        rpcRow.valueSpan.style.color = "var(--warn)";
-        pluginRow.valueSpan.textContent = "未知";
-        pluginRow.valueSpan.style.color = "var(--warn)";
-    }
-}
-
-async function runGlobalBrowserDiag() {
-    const resultBox = $("browserDiagResult");
-    resultBox.replaceChildren();
-    const loading = document.createElement('div');
-    loading.className = 'text-xs text-muted';
-    loading.textContent = '正在探测服务端浏览器环境...';
-    resultBox.appendChild(loading);
-    
-    const r = await fetchJson("/api/diagnostics/browser");
-    if (r.ok) {
-        const d = r.data;
-        const wrap = document.createElement('div');
-        wrap.className = 'bg-black text-green-400 p-4 rounded font-mono text-xs overflow-auto max-h-64 mt-2';
-        const pre = document.createElement('pre');
-        pre.style.margin = '0';
-        const lines = [];
-        lines.push(`> Browser Ready: ${d.ready ? 'YES' : 'NO'}`);
-        if (d.error) lines.push(`> Error: ${d.error}`);
-        lines.push(`> DrissionPage: ${d.drissionpage_importable ? 'OK' : 'FAIL'}`);
-        lines.push(`> Chromium Binary: ${d.chromium_binary_found ? 'FOUND' : 'NOT FOUND'}`);
-        if (d.chromium_binary_path) lines.push(`> Path: ${d.chromium_binary_path}`);
-        pre.textContent = lines.join('\n');
-        wrap.appendChild(pre);
-        resultBox.replaceChildren(wrap);
-    } else {
-        toast.error("诊断请求失败");
-        resultBox.replaceChildren();
-        const err = document.createElement('div');
-        err.className = 'text-error text-xs';
-        err.textContent = '请求失败，请检查 API 连通性';
-        resultBox.appendChild(err);
-    }
-}
-
 async function loadPluginCatalog() {
-    currentCatalog = await getTaskCatalog();
-    const select = $("bulkPluginSelect");
-    const unitSelect = $("unitPluginSelect");
-    if (select) renderGroupedSelect(select, currentCatalog);
-    if (unitSelect) renderGroupedSelect(unitSelect, currentCatalog);
+    currentCatalog = await loadDevicePluginCatalog({
+        bulkSelect: $("bulkPluginSelect"),
+        unitSelect: $("unitPluginSelect"),
+    });
     renderBulkPluginFields();
     renderUnitPluginFields();
-}
-
-function renderGroupedSelect(select, tasks) {
-    const grouped = {};
-    tasks.forEach(t => {
-        const cat = t.category || "其它";
-        if (!grouped[cat]) grouped[cat] = [];
-        grouped[cat].push(t);
-    });
-    clearElement(select);
-    Object.keys(grouped).forEach(cat => {
-        const groupEl = document.createElement("optgroup");
-        groupEl.label = cat;
-        grouped[cat].forEach(t => {
-            const opt = document.createElement("option");
-            opt.value = t.task;
-            opt.textContent = t.display_name || t.task;
-            groupEl.appendChild(opt);
-        });
-        select.appendChild(groupEl);
-    });
 }
 
 export async function loadDevices() {
@@ -600,7 +415,7 @@ async function submitUnitTask(unit) {
         unit,
         taskName: select.value,
         fieldsContainer: container,
-        account: getSelectedAccount(),
+        account: getSelectedUnitAccount(),
         priority: $("unitTaskPriority")?.value || 50,
         maxRetries: $("unitTaskMaxRetries")?.value || 0,
         runAt: $("unitTaskRunAt")?.value || null,
