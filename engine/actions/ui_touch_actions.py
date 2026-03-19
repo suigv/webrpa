@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import re
 import time
 from typing import Any
 
+from core.device_control import discover_device_resolution
 from core.device_manager import get_device_manager
 from engine.action_registry import ActionMetadata
 from engine.actions import _rpc_bootstrap
@@ -127,20 +127,7 @@ def _discover_physical_resolution(
     rpc: MytRpc, device_id: int
 ) -> tuple[int, int] | tuple[None, None]:
     try:
-        output, ok = rpc.exec_cmd("wm size")
-        if not ok or not output:
-            return None, None
-        override_match = re.search(r"Override size:\s*(\d+)x(\d+)", str(output))
-        if override_match:
-            w, h = int(override_match.group(1)), int(override_match.group(2))
-            get_device_manager().update_device_resolution(device_id, w, h)
-            return w, h
-        physical_match = re.search(r"Physical size:\s*(\d+)x(\d+)", str(output))
-        if physical_match:
-            w, h = int(physical_match.group(1)), int(physical_match.group(2))
-            get_device_manager().update_device_resolution(device_id, w, h)
-            return w, h
-        return None, None
+        return discover_device_resolution(rpc, device_id=device_id)
     except Exception:
         return None, None
 

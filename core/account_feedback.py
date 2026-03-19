@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Callable
 from typing import Any
 
 from core.data_store import read_lines, write_lines
+
+logger = logging.getLogger(__name__)
 
 
 class AccountFeedbackService:
@@ -34,6 +37,7 @@ class AccountFeedbackService:
                 try:
                     item = json.loads(line)
                 except Exception:
+                    logger.debug("account feedback skipped malformed line", exc_info=True)
                     updated.append(line)
                     continue
                 if item.get("account") != account_name:
@@ -46,6 +50,9 @@ class AccountFeedbackService:
             if found:
                 self._write_account_lines("accounts", updated)
         except Exception:
+            logger.warning(
+                "account feedback persistence failed for %s", account_name, exc_info=True
+            )
             return
 
     def _account_name_from_payload(self, payload: dict[str, Any]) -> str | None:
@@ -57,6 +64,7 @@ class AccountFeedbackService:
         try:
             creds = json.loads(ref)
         except Exception:
+            logger.debug("account feedback ignored invalid credentials_ref payload", exc_info=True)
             return None
         if not isinstance(creds, dict):
             return None

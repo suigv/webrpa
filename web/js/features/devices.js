@@ -1,6 +1,6 @@
 import { authFetch, fetchJson } from '../utils/api.js';
 import { toast } from '../ui/toast.js';
-import { renderCommonFields, renderTaskGuide } from '../utils/ui_utils.js';
+import { renderTaskFormPanel, toggleAdvancedTaskFields } from '../utils/task_form_ui.js';
 import { sysLog, unitLog } from './logs.js';
 import {
     getTaskCatalog,
@@ -133,39 +133,6 @@ function renderEmptyAccountSelect(select, label) {
     select.appendChild(emptyOpt);
 }
 
-function setAdvancedFieldVisibility(container, visible) {
-    if (!container) return 0;
-    const advancedFields = container.querySelectorAll('.field-advanced');
-    advancedFields.forEach((element) => {
-        element.style.display = visible ? 'flex' : 'none';
-    });
-    return advancedFields.length;
-}
-
-function syncAdvancedFieldToggle(container, button, collapsedText, expandedText) {
-    if (!button) return;
-    const advancedCount = setAdvancedFieldVisibility(container, false);
-    button.dataset.expanded = 'false';
-    button.textContent = collapsedText;
-    button.style.display = advancedCount > 0 ? 'inline-flex' : 'none';
-    if (advancedCount === 0) {
-        button.dataset.expanded = 'false';
-        button.textContent = collapsedText;
-    }
-    button.dataset.expandedText = expandedText;
-    button.dataset.collapsedText = collapsedText;
-}
-
-function toggleAdvancedFields(container, button) {
-    if (!container || !button) return;
-    const shouldExpand = button.dataset.expanded !== 'true';
-    setAdvancedFieldVisibility(container, shouldExpand);
-    button.dataset.expanded = shouldExpand ? 'true' : 'false';
-    button.textContent = shouldExpand
-        ? (button.dataset.expandedText || '收起高级参数')
-        : (button.dataset.collapsedText || '显示高级参数');
-}
-
 export function initDevices() {
     const clearBtn = $("clearSelection");
     const closeBtn = $("closeDetail");
@@ -235,7 +202,7 @@ export function initDevices() {
     if (showMoreBtn) {
         showMoreBtn.onclick = () => {
             const container = $("unitPluginFields");
-            toggleAdvancedFields(container, showMoreBtn);
+            toggleAdvancedTaskFields(container, showMoreBtn);
         };
     }
 
@@ -243,7 +210,7 @@ export function initDevices() {
     if (showMoreBulkBtn) {
         showMoreBulkBtn.onclick = () => {
             const container = $("bulkTaskFields");
-            toggleAdvancedFields(container, showMoreBulkBtn);
+            toggleAdvancedTaskFields(container, showMoreBulkBtn);
         };
     }
 
@@ -638,25 +605,26 @@ function renderBulkPluginFields() {
     const task = currentCatalog.find((item) => item.task === taskName);
     if (!task) {
         config.style.display = 'none';
-        renderTaskGuide(guideCard, null);
-        clearElement(container);
-        if (showMoreBtn) {
-            showMoreBtn.style.display = 'none';
-            showMoreBtn.dataset.expanded = 'false';
-            showMoreBtn.textContent = BULK_ADVANCED_COLLAPSED_TEXT;
-        }
+        renderTaskFormPanel({
+            task: null,
+            guideCard,
+            fieldsContainer: container,
+            toggleButton: showMoreBtn,
+            collapsedText: BULK_ADVANCED_COLLAPSED_TEXT,
+            expandedText: BULK_ADVANCED_EXPANDED_TEXT,
+        });
         return;
     }
 
     config.style.display = 'block';
-    renderTaskGuide(guideCard, task);
-    renderCommonFields(container, task, false);
-    syncAdvancedFieldToggle(
-        container,
-        showMoreBtn,
-        BULK_ADVANCED_COLLAPSED_TEXT,
-        BULK_ADVANCED_EXPANDED_TEXT
-    );
+    renderTaskFormPanel({
+        task,
+        guideCard,
+        fieldsContainer: container,
+        toggleButton: showMoreBtn,
+        collapsedText: BULK_ADVANCED_COLLAPSED_TEXT,
+        expandedText: BULK_ADVANCED_EXPANDED_TEXT,
+    });
 }
 
 function renderUnitPluginFields() {
@@ -665,25 +633,14 @@ function renderUnitPluginFields() {
     if (!select || !container) return;
     const taskName = select.value;
     const task = currentCatalog.find(t => t.task === taskName);
-    renderTaskGuide($("unitTaskGuideCard"), task);
-    if (!task) {
-        clearElement(container);
-        const showMoreBtn = $('showMoreUnitFields');
-        if (showMoreBtn) {
-            showMoreBtn.style.display = 'none';
-            showMoreBtn.dataset.expanded = 'false';
-            showMoreBtn.textContent = UNIT_ADVANCED_COLLAPSED_TEXT;
-        }
-        return;
-    }
-    renderCommonFields(container, task, false);
-    const showMoreBtn = $('showMoreUnitFields');
-    syncAdvancedFieldToggle(
-        container,
-        showMoreBtn,
-        UNIT_ADVANCED_COLLAPSED_TEXT,
-        UNIT_ADVANCED_EXPANDED_TEXT
-    );
+    renderTaskFormPanel({
+        task,
+        guideCard: $("unitTaskGuideCard"),
+        fieldsContainer: container,
+        toggleButton: $('showMoreUnitFields'),
+        collapsedText: UNIT_ADVANCED_COLLAPSED_TEXT,
+        expandedText: UNIT_ADVANCED_EXPANDED_TEXT,
+    });
 }
 
 async function loadUnitScreenshot(unit) {

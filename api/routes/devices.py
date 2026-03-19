@@ -1,7 +1,5 @@
 # pyright: reportAttributeAccessIssue=false, reportDeprecated=false, reportUnknownArgumentType=false, reportUnknownVariableType=false, reportUnusedCallResult=false, reportAny=false, reportExplicitAny=false
 
-import re
-from contextlib import suppress
 from typing import Any, Literal, cast
 
 from anyio import to_thread as _to_thread
@@ -9,16 +7,19 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel, Field, model_validator
 
-from core.config_loader import (
-    ConfigLoader,
-    get_cloud_machines_per_device,
-    get_device_ip,
-    get_total_devices,
+from core.config_loader import ConfigLoader
+from core.device_control import (
+    CloudNotFoundError,
+    DeviceNotFoundError,
+    RpcDisabledError,
+    capture_compressed_image_bytes,
+    close_rpc,
+    connect_rpc,
+    resolve_rpc_point,
+    validate_rpc_target,
 )
 from core.device_manager import get_device_manager
 from core.lan_discovery import LanDeviceDiscovery
-from core.port_calc import calculate_ports
-from engine.actions._rpc_bootstrap import is_rpc_enabled
 from models.device import CloudMachineInfo, DeviceInfo, DeviceStatus, DeviceStatusResponse
 
 to_thread = cast(Any, _to_thread)
@@ -82,63 +83,16 @@ class TextRequest(BaseModel):
 
 
 def _validate_device_target(device_id: int, cloud_id: int) -> tuple[str, int]:
-    if not is_rpc_enabled():
-        raise HTTPException(status_code=503, detail="RPC is disabled (MYT_ENABLE_RPC=0)")
-
-    total_devices = get_total_devices()
-    if device_id < 1 or device_id > total_devices:
-        raise HTTPException(status_code=404, detail="device not found")
-
-    cloud_machines_per_device = get_cloud_machines_per_device()
-    if cloud_id < 1 or cloud_id > cloud_machines_per_device:
-        raise HTTPException(status_code=404, detail="cloud not found")
-
-    device_ip = get_device_ip(device_id)
-    _api_port, rpa_port = calculate_ports(device_id, cloud_id, cloud_machines_per_device)
-    return device_ip, rpa_port
+    try:
+        return validate_rpc_target(device_id, cloud_id)
+    except RpcDisabledError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except (DeviceNotFoundError, CloudNotFoundError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 def _connect_rpc(device_ip: str, rpa_port: int):
-    from hardware_adapters.mytRpc import MytRpc
-
-    rpc = MytRpc()
-    connected = rpc.init(device_ip, rpa_port, 5)
-    if not connected:
-        raise RuntimeError(f"RPC connect failed ({device_ip}:{rpa_port})")
-    return rpc
-
-
-def _parse_wm_size(output: str) -> tuple[int, int] | None:
-    override_match = re.search(r"Override size:\s*(\d+)x(\d+)", output)
-    if override_match:
-        return int(override_match.group(1)), int(override_match.group(2))
-    physical_match = re.search(r"Physical size:\s*(\d+)x(\d+)", output)
-    if physical_match:
-        return int(physical_match.group(1)), int(physical_match.group(2))
-    return None
-
-
-def _discover_device_resolution(rpc: Any) -> tuple[int, int]:
-    output, ok = rpc.exec_cmd("wm size")
-    if not ok or not output:
-        raise RuntimeError("failed to discover device resolution")
-    parsed = _parse_wm_size(str(output))
-    if parsed is None:
-        raise RuntimeError(f"failed to parse device resolution: {output}")
-    return parsed
-
-
-def _resolve_point(
-    x: int | None, y: int | None, nx: int | None, ny: int | None, rpc: Any
-) -> tuple[int, int]:
-    if x is not None and y is not None:
-        return int(x), int(y)
-    if nx is None or ny is None:
-        raise RuntimeError("missing coordinates")
-    width, height = _discover_device_resolution(rpc)
-    px = int(round(float(nx) * float(width) / 1000.0))
-    py = int(round(float(ny) * float(height) / 1000.0))
-    return px, py
+    return connect_rpc(device_ip, rpa_port)
 
 
 def _to_device_info(info: dict[str, object]) -> DeviceInfo:
@@ -270,17 +224,9 @@ async def get_cloud_screenshot(device_id: int, cloud_id: int):
     def _take_screenshot() -> bytes:
         rpc = _connect_rpc(device_ip, rpa_port)
         try:
-            payload = rpc.take_capture_compress(0, 80)
-            if payload is None:
-                raise RuntimeError(f"take_capture_compress returned None ({device_ip}:{rpa_port})")
-            # 验证返回的是有效图片（JPEG/PNG magic bytes），而非错误字符串
-            if len(payload) < 4 or (payload[:2] != b"\xff\xd8" and payload[:4] != b"\x89PNG"):
-                text = payload[:200].decode("utf-8", errors="replace")
-                raise RuntimeError(f"invalid image data: {text}")
-            return bytes(payload)
+            return capture_compressed_image_bytes(rpc)
         finally:
-            with suppress(Exception):
-                rpc.close()
+            close_rpc(rpc)
 
     try:
         image_bytes = await to_thread.run_sync(_take_screenshot)
@@ -298,14 +244,20 @@ async def tap_cloud_screen(device_id: int, cloud_id: int, request: TapRequest):
     def _tap() -> dict[str, object]:
         rpc = _connect_rpc(device_ip, rpa_port)
         try:
-            x, y = _resolve_point(request.x, request.y, request.nx, request.ny, rpc)
+            x, y = resolve_rpc_point(
+                x=request.x,
+                y=request.y,
+                nx=request.nx,
+                ny=request.ny,
+                rpc=rpc,
+                device_id=device_id,
+            )
             ok = rpc.touchClick(int(request.finger_id), x, y)
             if not ok:
                 raise RuntimeError("touchClick failed")
             return {"x": x, "y": y, "finger_id": int(request.finger_id)}
         finally:
-            with suppress(Exception):
-                rpc.close()
+            close_rpc(rpc)
 
     try:
         result = await to_thread.run_sync(_tap)
@@ -321,8 +273,22 @@ async def swipe_cloud_screen(device_id: int, cloud_id: int, request: SwipeReques
     def _swipe() -> dict[str, object]:
         rpc = _connect_rpc(device_ip, rpa_port)
         try:
-            x0, y0 = _resolve_point(request.x0, request.y0, request.nx0, request.ny0, rpc)
-            x1, y1 = _resolve_point(request.x1, request.y1, request.nx1, request.ny1, rpc)
+            x0, y0 = resolve_rpc_point(
+                x=request.x0,
+                y=request.y0,
+                nx=request.nx0,
+                ny=request.ny0,
+                rpc=rpc,
+                device_id=device_id,
+            )
+            x1, y1 = resolve_rpc_point(
+                x=request.x1,
+                y=request.y1,
+                nx=request.nx1,
+                ny=request.ny1,
+                rpc=rpc,
+                device_id=device_id,
+            )
             raw_result = rpc.swipe(int(request.finger_id), x0, y0, x1, y1, int(request.duration))
             ok = bool(raw_result)
             if not ok:
@@ -336,8 +302,7 @@ async def swipe_cloud_screen(device_id: int, cloud_id: int, request: SwipeReques
                 "finger_id": int(request.finger_id),
             }
         finally:
-            with suppress(Exception):
-                rpc.close()
+            close_rpc(rpc)
 
     try:
         result = await to_thread.run_sync(_swipe)
@@ -369,8 +334,7 @@ async def press_cloud_key(device_id: int, cloud_id: int, request: KeyRequest):
                 raise RuntimeError(f"{request.key} key press failed")
             return {"key": request.key}
         finally:
-            with suppress(Exception):
-                rpc.close()
+            close_rpc(rpc)
 
     try:
         result = await to_thread.run_sync(_press_key)
@@ -391,8 +355,7 @@ async def send_cloud_text(device_id: int, cloud_id: int, request: TextRequest):
                 raise RuntimeError("text input failed")
             return {"text": request.text}
         finally:
-            with suppress(Exception):
-                rpc.close()
+            close_rpc(rpc)
 
     try:
         result = await to_thread.run_sync(_send_text)

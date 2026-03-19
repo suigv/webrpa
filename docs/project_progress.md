@@ -28,6 +28,10 @@
     - 插件契约新增 `distillable`：设备初始化、环境编排、随机化、运维类插件可显式声明 `distillable: false`，目录/指标接口会透出该标记，蒸馏接口也会直接拒绝这类插件；`one_click_new_device` 已按不可蒸馏处理。
     - Web 任务面板与单机执行面板新增“任务说明卡”：选中插件后会直接显示任务用途、默认行为和可调参数标签；`/api/tasks/catalog` 也同步透出插件 `description`，便于客户理解像“一键新机”这类任务可以改哪些参数。
     - Web 设备页进一步补齐参数化体验：单机执行面板的“配置高级属性”现在只控制 manifest 中声明为 `advanced` 的字段，切换任务后会自动复位展开状态；底部批量分发条也新增任务说明卡、参数表单和高级参数展开，批量下发不再只能发空 payload。
+    - **冗余与回退治理 (2026-03-19)**：
+      - 新增 `core.device_control`，统一直连设备控制链路里的 RPC 目标校验、连接、分辨率发现、归一化坐标换算和截图字节校验；`/api/devices/*` 轻控制路由与 `ui_touch_actions` 现在复用同一套设备控制 helper，不再各自维护 `wm size` 解析和坐标缩放逻辑。
+      - Web 端新增共享任务表单 UI helper，任务主面板、单机执行面板和批量下发条统一复用“说明卡 + 字段渲染 + 高级参数展开”逻辑，减少前端重复实现继续漂移。
+      - 收紧若干过度静默回退：WebSocket 事件轮询/广播、账号失败反馈持久化、浏览器 selector 轮询 fallback 现在都会保留可观测错误信息；浏览器 cookie 注入对不支持的 backend 会明确返回失败，而不再伪装成成功。
   - **MYTOS API 新能力接入 (2026-03-19)**：
     - `AndroidApiClient` 与 `android.*` / `mytos.*` 动作已补齐新版 `task=snap` 截图、`modifydev?cmd=7` 指纹更新、`modifydev?cmd=17` 摇一摇开关。
     - `mytos.screenshot` 现兼容 `level=1/2/3`，可直接走新版截图接口；同时新增 `mytos.set_fingerprint` / `mytos.update_fingerprint` / `mytos.set_shake`。

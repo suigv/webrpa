@@ -41,13 +41,16 @@ def browser_input(params: dict[str, Any], context: ExecutionContext) -> ActionRe
     text = str(params.get("text", ""))
     if isinstance(selectors, str):
         selectors = [selectors]
+    last_error = ""
     for sel in selectors:
         try:
             browser.input(sel, text)
             return ActionResult(ok=True, code="ok", message=f"input to {sel}")
-        except Exception:
+        except Exception as exc:
+            last_error = str(exc)
             continue
-    return ActionResult(ok=False, code="input_failed", message="no selector matched")
+    message = "no selector matched" if not last_error else f"no selector matched: {last_error}"
+    return ActionResult(ok=False, code="input_failed", message=message)
 
 
 def browser_click(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
@@ -55,13 +58,16 @@ def browser_click(params: dict[str, Any], context: ExecutionContext) -> ActionRe
     selectors = params.get("selectors", [])
     if isinstance(selectors, str):
         selectors = [selectors]
+    last_error = ""
     for sel in selectors:
         try:
             browser.click(sel)
             return ActionResult(ok=True, code="ok", message=f"clicked {sel}")
-        except Exception:
+        except Exception as exc:
+            last_error = str(exc)
             continue
-    return ActionResult(ok=False, code="click_failed", message="no selector matched")
+    message = "no selector matched" if not last_error else f"no selector matched: {last_error}"
+    return ActionResult(ok=False, code="click_failed", message=message)
 
 
 def browser_exists(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
@@ -69,13 +75,16 @@ def browser_exists(params: dict[str, Any], context: ExecutionContext) -> ActionR
     selectors = params.get("selectors", [])
     if isinstance(selectors, str):
         selectors = [selectors]
+    last_error = ""
     for sel in selectors:
         try:
             if browser.exists(sel):
                 return ActionResult(ok=True, code="ok", data={"selector": sel})
-        except Exception:
+        except Exception as exc:
+            last_error = str(exc)
             continue
-    return ActionResult(ok=False, code="not_found", message="element not found")
+    message = "element not found" if not last_error else f"element not found: {last_error}"
+    return ActionResult(ok=False, code="not_found", message=message)
 
 
 def browser_check_html(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
@@ -123,7 +132,17 @@ def browser_add_cookies(params: dict[str, Any], context: ExecutionContext) -> Ac
         if hasattr(browser._page, "set"):
             browser._page.set.cookies(cookies)
         elif hasattr(browser._page, "cookies"):  # Playwright style
-            pass  # Implement fallback if necessary
+            return ActionResult(
+                ok=False,
+                code="cookie_backend_unsupported",
+                message="current browser backend does not support cookie injection here",
+            )
+        else:
+            return ActionResult(
+                ok=False,
+                code="cookie_backend_missing",
+                message="browser backend does not expose a cookie api",
+            )
         return ActionResult(ok=True, code="ok", message=f"added {len(cookies)} cookies")
     except Exception as exc:
         return ActionResult(ok=False, code="cookie_error", message=str(exc))

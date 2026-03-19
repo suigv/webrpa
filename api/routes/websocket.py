@@ -83,7 +83,7 @@ def start_db_event_poller(loop: asyncio.AbstractEventLoop) -> None:
                     if loop.is_running():
                         asyncio.run_coroutine_threadsafe(_broadcast(json_str), loop)
             except Exception:
-                pass
+                logger.warning("ws db event poller iteration failed", exc_info=True)
             _db_poll_stop_event.wait(timeout=0.5)
 
     _db_poll_thread = threading.Thread(target=_poll_loop, name="ws-db-event-poller", daemon=True)
@@ -119,6 +119,7 @@ async def _broadcast(log_json: str):
     try:
         log_data = json.loads(log_json)
     except Exception:
+        logger.debug("ws broadcast received invalid json payload", exc_info=True)
         return
 
     for ws, context in list(_clients.items()):
@@ -134,8 +135,7 @@ async def _broadcast(log_json: str):
 
             await ws.send_text(log_json)
         except Exception:
-            # Client disconnected or send failed
-            pass
+            logger.debug("ws client send failed", exc_info=True)
 
 
 def _cleanup_clients():

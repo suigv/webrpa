@@ -1,6 +1,6 @@
 import { fetchJson } from '../utils/api.js';
 import { toast } from '../ui/toast.js';
-import { renderCommonFields, renderTaskGuide } from '../utils/ui_utils.js';
+import { renderTaskFormPanel, toggleAdvancedTaskFields } from '../utils/task_form_ui.js';
 import {
     getTaskCatalog,
     apiSubmitTask,
@@ -684,25 +684,18 @@ function renderPluginSelector() {
 function renderFields() {
     const p = pluginCatalog.find(x => x.task === selectedTaskName);
     const container = $('taskPayloadFields');
-    renderTaskGuide($('taskGuideCard'), p);
-    renderCommonFields(container, p, false);
-
     const showMoreFields = $('showMoreFields');
+    renderTaskFormPanel({
+        task: p || null,
+        guideCard: $('taskGuideCard'),
+        fieldsContainer: container,
+        toggleButton: showMoreFields,
+        collapsedText: '显示高级参数',
+        expandedText: '收起高级参数',
+    });
     if (showMoreFields && container) {
-        const advancedFields = container.querySelectorAll('.field-advanced');
-        advancedFields.forEach((element) => {
-            element.style.display = 'none';
-        });
-        showMoreFields.dataset.expanded = 'false';
-        showMoreFields.textContent = '显示高级参数';
-        showMoreFields.style.display = advancedFields.length > 0 ? 'inline-flex' : 'none';
         showMoreFields.onclick = () => {
-            const shouldExpand = showMoreFields.dataset.expanded !== 'true';
-            advancedFields.forEach((element) => {
-                element.style.display = shouldExpand ? 'flex' : 'none';
-            });
-            showMoreFields.dataset.expanded = shouldExpand ? 'true' : 'false';
-            showMoreFields.textContent = shouldExpand ? '收起高级参数' : '显示高级参数';
+            toggleAdvancedTaskFields(container, showMoreFields);
         };
     }
 }
