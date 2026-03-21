@@ -1,2 +1,161 @@
 version: v1
 package_name: com.twitter.android
+activity_name: com.twitter.android.StartActivity
+app_launch_timeout: 15
+
+schemes:
+  home: "twitter://timeline"
+  notifications: "twitter://mentions"
+  trends: "twitter://trends"
+  search: "https://twitter.com/search?q={query}"
+  search_latest: "https://twitter.com/search?q={query}&f=live"
+  profile: "twitter://user?screen_name={screen_name}"
+  followers: "https://twitter.com/{screen_name}/followers"
+  following: "https://twitter.com/{screen_name}/following"
+  edit_profile: "https://twitter.com/settings/profile"
+  compose: "twitter://post"
+  dm_list: "twitter://messages"
+  dm_compose: "twitter://messages/compose?recipient_id={recipient_id}&text={text}"
+  login_flow: "twitter://onboarding/task?flow_token=login"
+  settings: "twitter://settings"
+
+states:
+  home:
+    - selector_key: home_tab
+  search_results:
+    - selector_key: tweet_row
+  dm_list:
+    - selector_key: nav_dm
+  profile:
+    - selector_key: nick_name
+  edit_profile:
+    - selector_key: edit_name_field
+  followers_list:
+    - selector_key: tweet_row
+
+selectors:
+  login_entry_btn:
+    text: "ログイン"
+    class_name: "android.widget.TextView"
+  input_user:
+    id: "com.twitter.android:id/ocf_text_input_edit"
+    class_name: "android.widget.EditText"
+  btn_next:
+    id: "com.twitter.android:id/cta_button"
+  input_password:
+    id: "com.twitter.android:id/password_edit_text"
+    class_name: "android.widget.EditText"
+  btn_login:
+    text: "ログイン"
+    id: "com.twitter.android:id/cta_button"
+  input_2fa:
+    id: "com.twitter.android:id/ocf_text_input_edit"
+    class_name: "android.widget.EditText"
+
+  home_tab:
+    desc_contain: "ホーム"
+  tweet_row:
+    id: "com.twitter.android:id/row"
+
+  popup_not_now:
+    text: "今はしない"
+  popup_deny:
+    text: "許可しない"
+  popup_allow:
+    text: "許可"
+
+  nick_name:
+    id: "com.twitter.android:id/name"
+  user_bio:
+    id: "com.twitter.android:id/user_bio"
+  user_name:
+    id: "com.twitter.android:id/user_name"
+  edit_name_field:
+    id: "com.twitter.android:id/edit_name"
+  edit_bio_field:
+    id: "com.twitter.android:id/edit_bio"
+  edit_website_field:
+    id: "com.twitter.android:id/edit_web_url"
+  save_profile:
+    id: "com.twitter.android:id/save"
+
+  nav_dm:
+    id: "com.twitter.android:id/x_chat"
+    desc_contain: "メッセージ"
+  dm_input:
+    class_name: "android.widget.EditText"
+    text_hint: "メッセージを作成"
+  dm_send_btn:
+    desc: "送信"
+  dm_create_pin:
+    text: "暗証番号を作成"
+  dm_enter_pin:
+    text: "暗証番号を入力"
+
+nurture_keywords:
+  part_time:
+    core:
+      - "PayPay (全員 OR 全プレ) -filter:links min_faves:20"
+      - "PayPay (突発 OR 抽選) -filter:links min_faves:20"
+      - "現金 (配布 OR プレゼント) -filter:links min_faves:20"
+      - "paypay 配布"
+      - "paypay あげます"
+    action:
+      - "PayPay (リプ OR コメント) -filter:links min_faves:20"
+      - "PayPay (早い者勝ち OR 即渡し) -filter:links min_faves:10"
+      - "PayPay 通知オン -filter:links min_faves:20"
+      - "paypay フォロー RT"
+    derivative:
+      - "PayPay (ハズレなし OR 確定) -filter:links min_faves:20"
+      - "PayPay (生活費 OR 救済) -filter:links min_faves:20"
+      - "PayPay (在庫 OR 残高) filter:images min_faves:20"
+      - "PayPay 実績 filter:images min_faves:20"
+    target:
+      - "#PayPay懸賞 min_faves:10"
+      - "#ペイペイ懸賞 min_faves:10"
+    blacklist:
+      - "業者"
+      - "ビジネス"
+      - "スカウト"
+      - "募集"
+
+  volc:
+    core:
+      - "#ナースコス filter:images min_faves:20"
+      - "#彼シャツ filter:images"
+    action:
+      - "#バニーガール filter:images min_faves:10"
+    derivative:
+      - "#黒スト filter:images min_faves:10"
+      - "#お風呂上がり filter:images"
+    target:
+      - "#太もも filter:images min_faves:10"
+    blacklist:
+      - "業者"
+      - "ママ活"
+      - "パパ活"
+      - "ビジネス"
+      - "スカウト"
+      - "募集"
+
+quote_texts:
+  volc:
+    - "最高です"
+    - "可愛すぎます"
+    - "エロすぎ💕 "
+    - "保存しました"
+    - "フォローしました！"
+    - "DMしてもいい？"
+    - "仲良くしてください"
+    - "返信待ってます🥺"
+    - "に追加💕"
+    - "もっと見たい"
+  part_time:
+    - "参加します！🙇\u200d♂️"
+    - "応募します！"
+    - "参加させてください！✨"
+    - "当たりますように🙏️"
+    - "ご縁がありますように✨"
+    - "当選しますように🔥"
+    - "頼みます！🔥"
+    - "お願いします！🍀"
