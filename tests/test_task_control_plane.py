@@ -289,6 +289,10 @@ def test_cleanup_runtime_artifacts_route_clears_hidden_task_artifacts(
         event_store=events,
     )
     override_task_controller_for_tests(controller)
+    monkeypatch.setattr(
+        "core.task_control._task_visible_in_catalog",
+        lambda task_name, plugin_loader: task_name != "one_click_new_device",
+    )
 
     hidden_task_id = "hidden-task"
     visible_task_id = "visible-task"

@@ -1,5 +1,7 @@
 import importlib
 
+from engine.models.runtime import ActionResult
+
 
 def _load_ui_actions_module():
     for name in ("engine.actions.ui_actions", "engine.actions.ui_actions"):
@@ -76,6 +78,13 @@ def test_app_grant_and_dismiss(monkeypatch):
     ui_actions = _load_ui_actions_module()
     ExecutionContext = _load_execution_context()
     monkeypatch.setattr(ui_actions, "MytRpc", FakeRpcOK)
+    import engine.actions.ui_app_actions as ui_app_actions
+
+    monkeypatch.setattr(
+        ui_app_actions,
+        "app_grant_permissions",
+        lambda params, context: ActionResult(ok=True, code="ok", data={"params": params}),
+    )
     ctx = ExecutionContext(
         payload={"device_ip": "192.168.1.2", "cloud_index": 1, "cloud_machines_per_device": 2}
     )
