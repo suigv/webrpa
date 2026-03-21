@@ -10,6 +10,12 @@ distillable: false
 visible_in_task_catalog: true
 distill_threshold: 3
 inputs:
+  - name: app_id
+    type: string
+    required: false
+    default: ""
+    label: "应用 ID"
+    advanced: true
   - name: timeout_ms
     type: integer
     required: false
