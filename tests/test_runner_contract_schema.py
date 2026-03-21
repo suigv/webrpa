@@ -108,6 +108,33 @@ def test_tolerate_target_unavailable_uses_plugin_manifest_default():
     assert _tolerate_target_unavailable("device_reboot", {}) is True
 
 
+def test_runner_does_not_inject_default_app_id_into_plugin_without_declared_input(monkeypatch):
+    runner = Runner()
+    seen: dict[str, object] = {}
+
+    def _fake_run_yaml_plugin(
+        task_name,
+        payload,
+        plugin,
+        should_cancel=None,
+        runtime=None,
+        emit_event=None,
+        *,
+        validate_payload=True,
+    ):
+        _ = (plugin, should_cancel, runtime, emit_event, validate_payload)
+        seen.update(payload)
+        return {"ok": True, "task": task_name, "status": "completed"}
+
+    monkeypatch.setattr(runner, "_run_yaml_plugin", _fake_run_yaml_plugin)
+
+    result = runner.run({"task": "device_reboot", "timeout_ms": 120000})
+
+    assert result["ok"] is True
+    assert seen["timeout_ms"] == 120000
+    assert "app_id" not in seen
+
+
 def test_build_target_trip_ignores_probe_snapshot_before_activation():
     before_activation = datetime.now(UTC) - timedelta(seconds=2)
     snapshot = {

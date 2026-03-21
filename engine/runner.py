@@ -51,11 +51,7 @@ class Runner:
         should_cancel: Callable[[], bool] | None = None,
         runtime: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        # Resolve App Context (App-Awareness)
-        app_id = resolve_app_id(script_payload)
-        enhanced_payload = resolve_app_payload(app_id, script_payload)
-
-        plan = self._parser.parse(enhanced_payload)
+        plan = self._parser.parse(script_payload)
         task_name = str(plan.get("task") or "")
         emit_event = runtime.get("emit_event") if runtime else None
 
@@ -70,6 +66,8 @@ class Runner:
             }
 
         if task_name == self._agent_executor_runtime.task_name:
+            app_id = resolve_app_id(script_payload)
+            enhanced_payload = resolve_app_payload(app_id, script_payload)
             return self._agent_executor_runtime.run(
                 enhanced_payload, should_cancel=should_cancel, runtime=runtime
             )
@@ -77,8 +75,18 @@ class Runner:
         # Try YAML plugin first
         plugin = self._plugin_loader.get(task_name)
         if plugin is not None:
+            payload_error = self._validate_plugin_payload(script_payload, plugin.manifest.inputs)
+            if payload_error is not None:
+                return self._dispatch_error(task_name=task_name, **payload_error)
+            enhanced_payload = self._resolve_plugin_payload(script_payload, plugin.manifest.inputs)
             return self._run_yaml_plugin(
-                task_name, enhanced_payload, plugin, should_cancel, runtime, emit_event
+                task_name,
+                enhanced_payload,
+                plugin,
+                should_cancel,
+                runtime,
+                emit_event,
+                validate_payload=False,
             )
 
         # Unknown named task
@@ -91,6 +99,8 @@ class Runner:
 
         # Anonymous script execution
         if plan.get("steps"):
+            app_id = resolve_app_id(script_payload)
+            enhanced_payload = resolve_app_payload(app_id, script_payload)
             return self._run_anonymous_script(
                 task_name, enhanced_payload, plan, should_cancel, runtime, emit_event
             )
@@ -153,12 +163,15 @@ class Runner:
         should_cancel: Callable[[], bool] | None = None,
         runtime: dict[str, Any] | None = None,
         emit_event: Callable[[str, dict[str, Any]], None] | None = None,
+        *,
+        validate_payload: bool = True,
     ) -> dict[str, Any]:
         try:
             script = parse_script(plugin.script_path)
-            payload_error = self._validate_plugin_payload(payload, plugin.manifest.inputs)
-            if payload_error is not None:
-                return self._dispatch_error(task_name=task_name, **payload_error)
+            if validate_payload:
+                payload_error = self._validate_plugin_payload(payload, plugin.manifest.inputs)
+                if payload_error is not None:
+                    return self._dispatch_error(task_name=task_name, **payload_error)
 
             action_error = self._validate_script_actions(script)
             if action_error is not None:
@@ -182,6 +195,31 @@ class Runner:
                 code="plugin_dispatch_error",
                 message=str(exc),
             )
+
+    def _resolve_plugin_payload(
+        self,
+        payload: dict[str, Any],
+        inputs: list[PluginInput],
+    ) -> dict[str, Any]:
+        declared_inputs = {plugin_input.name for plugin_input in inputs}
+        app_id = self._resolve_plugin_app_id(payload, inputs)
+        enhanced_payload = resolve_app_payload(app_id, payload) if app_id else dict(payload)
+        if "app_id" not in declared_inputs:
+            enhanced_payload.pop("app_id", None)
+        return enhanced_payload
+
+    @staticmethod
+    def _resolve_plugin_app_id(payload: dict[str, Any], inputs: list[PluginInput]) -> str:
+        resolved = resolve_app_id(payload, default_app="")
+        if resolved:
+            return resolved
+        for plugin_input in inputs:
+            if plugin_input.name != "app_id":
+                continue
+            raw = str(plugin_input.default or "").strip().lower()
+            if raw:
+                return raw
+        return ""
 
     def _dispatch_error(self, task_name: str, code: str, message: str) -> dict[str, Any]:
         return {
