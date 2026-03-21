@@ -1,0 +1,58 @@
+version: "v1"
+workflow: x_scrape_blogger
+steps:
+  - label: 解析当前目标容器
+    kind: action
+    action: selector.resolve_cloud_container
+    save_as: cloud_container
+    params: {}
+
+  - label: 确保 X App 已启动
+    kind: action
+    action: app.ensure_running
+    params:
+      device_ip: "${vars.cloud_container.device_ip}"
+      cloud_index: "${vars.cloud_container.cloud_index}"
+      app_id: "${payload.app_id:-x}"
+
+  - label: 加载搜索 Scheme
+    kind: action
+    action: core.load_ui_scheme
+    save_as: search_scheme
+    params:
+      device_ip: "${vars.cloud_container.device_ip}"
+      cloud_index: "${vars.cloud_container.cloud_index}"
+      app_id: "${payload.app_id:-x}"
+      key: search
+      args:
+        query: "${payload.keyword}"
+        latest: "1"
+
+  - label: 跳转搜索页
+    kind: action
+    action: device.exec
+    params:
+      device_ip: "${vars.cloud_container.device_ip}"
+      cloud_index: "${vars.cloud_container.cloud_index}"
+      command: "am start -a android.intent.action.VIEW -d \"${vars.search_scheme.url}\" &"
+
+  - label: 采集博主候选
+    kind: action
+    action: core.collect_blogger_candidates
+    save_as: scrape_result
+    params:
+      device_ip: "${vars.cloud_container.device_ip}"
+      cloud_index: "${vars.cloud_container.cloud_index}"
+      app_id: "${payload.app_id:-x}"
+      keyword: "${payload.keyword}"
+      max_collect: "${payload.max_collect:-10}"
+      max_swipes: "${payload.max_swipes:-5}"
+
+  - label: 保存博主候选列表
+    kind: action
+    action: core.save_blogger_candidates
+    params:
+      device_ip: "${vars.cloud_container.device_ip}"
+      cloud_index: "${vars.cloud_container.cloud_index}"
+      candidates: "${vars.scrape_result.candidates}"
+      shared_key: "${payload.shared_key:-blogger_candidates}"

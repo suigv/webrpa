@@ -1,0 +1,71 @@
+version: "v1"
+workflow: x_home_interaction
+steps:
+  - label: 解析当前目标容器
+    kind: action
+    action: selector.resolve_cloud_container
+    save_as: cloud_container
+    params: {}
+
+  - label: 强制停止 X App
+    kind: action
+    action: app.stop
+    params:
+      device_ip: "${vars.cloud_container.device_ip}"
+      cloud_index: "${vars.cloud_container.cloud_index}"
+      app_id: "${payload.app_id:-x}"
+
+  - label: 重新启动 X App
+    kind: action
+    action: app.open
+    params:
+      device_ip: "${vars.cloud_container.device_ip}"
+      cloud_index: "${vars.cloud_container.cloud_index}"
+      app_id: "${payload.app_id:-x}"
+
+  - label: 等待主页加载
+    kind: action
+    action: ui.wait_until
+    params:
+      device_ip: "${vars.cloud_container.device_ip}"
+      cloud_index: "${vars.cloud_container.cloud_index}"
+      app_id: "${payload.app_id:-x}"
+      state_key: home
+      timeout_ms: 15000
+
+  - label: 下拉刷新时间线
+    kind: action
+    action: ui.swipe
+    params:
+      device_ip: "${vars.cloud_container.device_ip}"
+      cloud_index: "${vars.cloud_container.cloud_index}"
+      direction: down
+      distance: 0.6
+
+  - label: 提取时间线候选推文
+    kind: action
+    action: core.extract_timeline_candidates
+    save_as: timeline
+    params:
+      device_ip: "${vars.cloud_container.device_ip}"
+      cloud_index: "${vars.cloud_container.cloud_index}"
+      app_id: "${payload.app_id:-x}"
+      ai_type: "${payload.ai_type:-volc}"
+      swipe_count_min: 5
+      swipe_count_max: "${payload.max_swipes:-15}"
+
+  - label: 选取互动目标
+    kind: action
+    action: core.pick_candidate
+    save_as: picked
+    params:
+      candidates: "${vars.timeline.candidates}"
+      ai_type: "${payload.ai_type:-volc}"
+
+  - label: 打开候选推文互动
+    kind: action
+    action: core.open_candidate
+    params:
+      device_ip: "${vars.cloud_container.device_ip}"
+      cloud_index: "${vars.cloud_container.cloud_index}"
+      candidate: "${vars.picked.candidate}"

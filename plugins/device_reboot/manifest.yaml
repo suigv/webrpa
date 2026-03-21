@@ -1,0 +1,20 @@
+api_version: v1
+kind: plugin
+name: device_reboot
+version: "1.0.0"
+display_name: "重启云机"
+category: "设备初始化"
+description: "重启目标云机容器并等待 ADB 恢复上线。适用于设备卡死、ADB 断连等异常场景。"
+entry_script: script.yaml
+distillable: false
+visible_in_task_catalog: true
+distill_threshold: 3
+inputs:
+  - name: timeout_ms
+    type: integer
+    required: false
+    default: 120000
+    label: "等待超时（毫秒）"
+    description: "等待云机重启并恢复 ADB 连接的最大时间，默认 120 秒。"
+    widget: number
+    advanced: true

@@ -1,0 +1,37 @@
+api_version: v1
+kind: plugin
+name: x_follow_followers
+version: "1.0.0"
+display_name: "X 关注截流"
+category: "X"
+description: "跳转目标博主粉丝列表，随机批量关注，配合每日限额控制，适用于关注截流引流场景。"
+entry_script: script.yaml
+distillable: false
+visible_in_task_catalog: true
+distill_threshold: 3
+inputs:
+  - name: app_id
+    type: string
+    required: false
+    default: "x"
+    label: "应用 ID"
+    advanced: true
+  - name: daily_limit
+    type: integer
+    required: false
+    default: 50
+    label: "每日关注上限"
+    widget: number
+  - name: max_follow_per_run
+    type: integer
+    required: false
+    default: 15
+    label: "单次最多关注数"
+    widget: number
+    advanced: true
+  - name: blogger_shared_key
+    type: string
+    required: false
+    default: "blogger_candidates"
+    label: "博主候选键名"
+    advanced: true

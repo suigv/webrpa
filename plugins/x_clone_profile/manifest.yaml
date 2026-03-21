@@ -1,0 +1,45 @@
+api_version: v1
+kind: plugin
+name: x_clone_profile
+version: "1.0.0"
+display_name: "X 仿冒博主资料"
+category: "X"
+description: "抓取目标博主的昵称、简介、网址等文字资料，写入当前账号编辑资料页，实现账号画像仿冒。头像/Banner 图片处理需额外 action 支持，默认跳过。"
+entry_script: script.yaml
+distillable: false
+visible_in_task_catalog: true
+distill_threshold: 3
+inputs:
+  - name: app_id
+    type: string
+    required: false
+    default: "x"
+    label: "应用 ID"
+    advanced: true
+  - name: blogger_shared_key
+    type: string
+    required: false
+    default: "blogger_candidates"
+    label: "博主候选键名"
+    description: "从共享存储读取目标博主的键名。"
+    advanced: true
+  - name: clone_bio
+    type: boolean
+    required: false
+    default: true
+    label: "仿冒简介"
+    widget: checkbox
+  - name: clone_name
+    type: boolean
+    required: false
+    default: true
+    label: "仿冒昵称"
+    widget: checkbox
+  - name: clone_website
+    type: boolean
+    required: false
+    default: false
+    label: "仿冒网址"
+    description: "是否将博主网址也写入资料。"
+    widget: checkbox
+    advanced: true

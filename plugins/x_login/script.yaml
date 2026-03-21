@@ -1,0 +1,72 @@
+version: "v1"
+workflow: x_login
+steps:
+  - label: 解析当前目标容器
+    kind: action
+    action: selector.resolve_cloud_container
+    save_as: cloud_container
+    params: {}
+
+  - label: 加载账号凭据
+    kind: action
+    action: credentials.load
+    save_as: credential
+    params:
+      device_ip: "${vars.cloud_container.device_ip}"
+      cloud_index: "${vars.cloud_container.cloud_index}"
+      app_id: "${payload.app_id:-x}"
+      slot: "${payload.credential_slot:-}"
+
+  - label: 确保 X App 已启动
+    kind: action
+    action: app.ensure_running
+    params:
+      device_ip: "${vars.cloud_container.device_ip}"
+      cloud_index: "${vars.cloud_container.cloud_index}"
+      app_id: "${payload.app_id:-x}"
+
+  - label: 授予 App 全部权限
+    kind: action
+    action: app.grant_permissions
+    params:
+      device_ip: "${vars.cloud_container.device_ip}"
+      cloud_index: "${vars.cloud_container.cloud_index}"
+      app_id: "${payload.app_id:-x}"
+
+  - label: 检测当前登录阶段
+    kind: action
+    action: core.detect_login_stage
+    save_as: login_stage
+    params:
+      device_ip: "${vars.cloud_container.device_ip}"
+      cloud_index: "${vars.cloud_container.cloud_index}"
+      app_id: "${payload.app_id:-x}"
+
+  - label: 检查是否已登录
+    kind: if
+    when:
+      all:
+        - type: var_equals
+          var: "vars.login_stage.stage"
+          equals: "home"
+    then: 登录完成
+    otherwise: 执行登录流程
+
+  - label: 执行登录流程
+    kind: action
+    action: core.wait_login_stage
+    save_as: login_result
+    params:
+      device_ip: "${vars.cloud_container.device_ip}"
+      cloud_index: "${vars.cloud_container.cloud_index}"
+      app_id: "${payload.app_id:-x}"
+      account: "${vars.credential.account}"
+      password: "${vars.credential.password}"
+      twofa_secret: "${vars.credential.twofa_secret:-}"
+      target_stage: home
+      timeout_ms: 120000
+
+  - label: 登录完成
+    kind: stop
+    status: success
+    message: "登录流程完成"

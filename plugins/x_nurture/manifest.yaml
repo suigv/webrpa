@@ -1,0 +1,56 @@
+api_version: v1
+kind: plugin
+name: x_nurture
+version: "1.0.0"
+display_name: "X 养号"
+category: "X"
+description: "根据账号类型（交友/兼职）执行差异化养号策略：加权关键词搜索、浏览推文、随机点赞停留，并记录每日执行次数。"
+entry_script: script.yaml
+distillable: false
+visible_in_task_catalog: true
+distill_threshold: 3
+inputs:
+  - name: app_id
+    type: string
+    required: false
+    default: "x"
+    label: "应用 ID"
+    advanced: true
+  - name: ai_type
+    type: string
+    required: false
+    default: "volc"
+    label: "账号类型"
+    widget: select
+    options:
+      - value: "volc"
+        label: "交友"
+      - value: "part_time"
+        label: "兼职/PayPay"
+  - name: daily_limit
+    type: integer
+    required: false
+    default: 5
+    label: "每日执行上限"
+    widget: number
+  - name: keyword_count
+    type: integer
+    required: false
+    default: 2
+    label: "每次关键词数量"
+    widget: number
+    advanced: true
+  - name: swipe_count_min
+    type: integer
+    required: false
+    default: 8
+    label: "最少滑动次数"
+    widget: number
+    advanced: true
+  - name: swipe_count_max
+    type: integer
+    required: false
+    default: 15
+    label: "最多滑动次数"
+    widget: number
+    advanced: true

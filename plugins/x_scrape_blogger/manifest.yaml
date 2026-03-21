@@ -1,0 +1,44 @@
+api_version: v1
+kind: plugin
+name: x_scrape_blogger
+version: "1.0.0"
+display_name: "X 采集博主"
+category: "X"
+description: "通过关键词搜索 X 最新推文，批量采集博主用户名并存入共享候选池，供关注截流、仿冒等任务使用。"
+entry_script: script.yaml
+distillable: false
+visible_in_task_catalog: true
+distill_threshold: 3
+inputs:
+  - name: keyword
+    type: string
+    required: true
+    label: "搜索关键词"
+    description: "用于搜索博主的关键词，例如 #mytxx 或 #paypay。"
+    placeholder: "例如 #mytxx"
+  - name: max_collect
+    type: integer
+    required: false
+    default: 10
+    label: "最大采集数量"
+    widget: number
+    advanced: true
+  - name: max_swipes
+    type: integer
+    required: false
+    default: 5
+    label: "最大滑动次数"
+    widget: number
+    advanced: true
+  - name: shared_key
+    type: string
+    required: false
+    default: "blogger_candidates"
+    label: "共享存储键名"
+    advanced: true
+  - name: app_id
+    type: string
+    required: false
+    default: "x"
+    label: "应用 ID"
+    advanced: true

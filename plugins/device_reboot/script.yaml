@@ -1,0 +1,32 @@
+version: "v1"
+workflow: device_reboot
+steps:
+  - label: 解析当前目标容器
+    kind: action
+    action: selector.resolve_cloud_container
+    save_as: cloud_container
+    params: {}
+
+  - label: 重启云机容器
+    kind: action
+    action: sdk.restart_android
+    params:
+      device_ip: "${vars.cloud_container.device_ip}"
+      name: "${vars.cloud_container.container_name}"
+
+  - label: 等待云机重启回线
+    kind: action
+    action: sdk.wait_cloud_status
+    params:
+      device_ip: "${vars.cloud_container.device_ip}"
+      name: "${vars.cloud_container.container_name}"
+      target_status: running
+      timeout_ms: "${payload.timeout_ms:-120000}"
+
+  - label: 等待 ADB 可连接
+    kind: action
+    action: device.check_connect_state
+    params:
+      device_ip: "${vars.cloud_container.device_ip}"
+      cloud_index: "${vars.cloud_container.cloud_index}"
+      timeout_ms: 60000

@@ -1,0 +1,55 @@
+api_version: v1
+kind: plugin
+name: x_quote_intercept
+version: "1.0.0"
+display_name: "X 引用截流"
+category: "X"
+description: "搜索目标博主的回复流，对未处理用户执行引用发布并记录去重，适用于引用截流引流场景。"
+entry_script: script.yaml
+distillable: false
+visible_in_task_catalog: true
+distill_threshold: 3
+inputs:
+  - name: app_id
+    type: string
+    required: false
+    default: "x"
+    label: "应用 ID"
+    advanced: true
+  - name: ai_type
+    type: string
+    required: false
+    default: "volc"
+    label: "账号类型"
+    widget: select
+    options:
+      - value: "volc"
+        label: "交友"
+      - value: "part_time"
+        label: "兼职/PayPay"
+  - name: max_process
+    type: integer
+    required: false
+    default: 5
+    label: "单次最多引用数"
+    widget: number
+    advanced: true
+  - name: max_swipes
+    type: integer
+    required: false
+    default: 10
+    label: "最大滑动次数"
+    widget: number
+    advanced: true
+  - name: blogger_shared_key
+    type: string
+    required: false
+    default: "blogger_candidates"
+    label: "博主候选键名"
+    advanced: true
+  - name: processed_shared_key
+    type: string
+    required: false
+    default: "quoted_users"
+    label: "已处理用户键名"
+    advanced: true

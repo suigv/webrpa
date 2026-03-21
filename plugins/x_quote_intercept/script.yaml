@@ -1,0 +1,156 @@
+version: "v1"
+workflow: x_quote_intercept
+steps:
+  - label: 解析当前目标容器
+    kind: action
+    action: selector.resolve_cloud_container
+    save_as: cloud_container
+    params: {}
+
+  - label: 确保 X App 已启动
+    kind: action
+    action: app.ensure_running
+    params:
+      device_ip: "${vars.cloud_container.device_ip}"
+      cloud_index: "${vars.cloud_container.cloud_index}"
+      app_id: "${payload.app_id:-x}"
+
+  - label: 获取目标博主
+    kind: action
+    action: core.get_blogger_candidate
+    save_as: blogger
+    params:
+      device_ip: "${vars.cloud_container.device_ip}"
+      cloud_index: "${vars.cloud_container.cloud_index}"
+      shared_key: "${payload.blogger_shared_key:-blogger_candidates}"
+
+  - label: 生成引用文案
+    kind: action
+    action: core.generate_quote_text
+    save_as: quote
+    params:
+      device_ip: "${vars.cloud_container.device_ip}"
+      cloud_index: "${vars.cloud_container.cloud_index}"
+      ai_type: "${payload.ai_type:-volc}"
+
+  - label: 加载搜索 Scheme
+    kind: action
+    action: core.load_ui_scheme
+    save_as: search_scheme
+    params:
+      device_ip: "${vars.cloud_container.device_ip}"
+      cloud_index: "${vars.cloud_container.cloud_index}"
+      app_id: "${payload.app_id:-x}"
+      key: search
+      args:
+        query: "to:${vars.blogger.username}"
+        latest: "1"
+
+  - label: 跳转搜索页
+    kind: action
+    action: device.exec
+    params:
+      device_ip: "${vars.cloud_container.device_ip}"
+      cloud_index: "${vars.cloud_container.cloud_index}"
+      command: 'am start -a android.intent.action.VIEW -d "${vars.search_scheme.url}" &'
+
+  - label: 提取搜索候选推文
+    kind: action
+    action: core.extract_search_candidates
+    save_as: candidates
+    params:
+      device_ip: "${vars.cloud_container.device_ip}"
+      cloud_index: "${vars.cloud_container.cloud_index}"
+      app_id: "${payload.app_id:-x}"
+      ai_type: "${payload.ai_type:-volc}"
+      swipe_count_min: 3
+      swipe_count_max: "${payload.max_swipes:-10}"
+
+  - label: 检查是否有候选
+    kind: if
+    when:
+      all:
+        - type: var_equals
+          var: "vars.candidates.count"
+          equals: 0
+    then: 任务结束
+    otherwise: 选取引用目标
+
+  - label: 选取引用目标
+    kind: action
+    action: core.pick_candidate
+    save_as: picked
+    params:
+      device_ip: "${vars.cloud_container.device_ip}"
+      cloud_index: "${vars.cloud_container.cloud_index}"
+      candidates: "${vars.candidates.candidates}"
+      ai_type: "${payload.ai_type:-volc}"
+
+  - label: 检查是否已处理
+    kind: action
+    action: core.check_processed
+    save_as: processed_check
+    params:
+      device_ip: "${vars.cloud_container.device_ip}"
+      cloud_index: "${vars.cloud_container.cloud_index}"
+      key: "${payload.processed_shared_key:-quoted_users}"
+      item: "${vars.picked.candidate.author}"
+
+  - label: 检查处理状态
+    kind: if
+    when:
+      all:
+        - type: var_truthy
+          var: "vars.processed_check.found"
+    then: 任务结束
+    otherwise: 打开候选推文
+
+  - label: 打开候选推文
+    kind: action
+    action: core.open_candidate
+    params:
+      device_ip: "${vars.cloud_container.device_ip}"
+      cloud_index: "${vars.cloud_container.cloud_index}"
+      candidate: "${vars.picked.candidate}"
+
+  - label: 点击引用按鈕
+    kind: action
+    action: ui.click_selector_or_tap
+    params:
+      device_ip: "${vars.cloud_container.device_ip}"
+      cloud_index: "${vars.cloud_container.cloud_index}"
+      app_id: "${payload.app_id:-x}"
+      selector_key: quote_btn
+
+  - label: 输入引用文案
+    kind: action
+    action: ui.input_text_with_shell_fallback
+    params:
+      device_ip: "${vars.cloud_container.device_ip}"
+      cloud_index: "${vars.cloud_container.cloud_index}"
+      app_id: "${payload.app_id:-x}"
+      selector_key: compose_input
+      text: "${vars.quote.quote_text}"
+
+  - label: 点击发布
+    kind: action
+    action: ui.click_selector_or_tap
+    params:
+      device_ip: "${vars.cloud_container.device_ip}"
+      cloud_index: "${vars.cloud_container.cloud_index}"
+      app_id: "${payload.app_id:-x}"
+      selector_key: post_btn
+
+  - label: 记录已处理用户
+    kind: action
+    action: core.append_shared_unique
+    params:
+      device_ip: "${vars.cloud_container.device_ip}"
+      cloud_index: "${vars.cloud_container.cloud_index}"
+      key: "${payload.processed_shared_key:-quoted_users}"
+      item: "${vars.picked.candidate.author}"
+
+  - label: 任务结束
+    kind: stop
+    status: success
+    message: "引用截流任务完成"

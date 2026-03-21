@@ -1,0 +1,129 @@
+version: "v1"
+workflow: x_nurture
+steps:
+  - label: 解析当前目标容器
+    kind: action
+    action: selector.resolve_cloud_container
+    save_as: cloud_container
+    params: {}
+
+  - label: 检查每日养号限额
+    kind: action
+    action: core.check_daily_limit
+    save_as: limit_check
+    params:
+      device_ip: "${vars.cloud_container.device_ip}"
+      cloud_index: "${vars.cloud_container.cloud_index}"
+      key: nurture_daily
+      limit: "${payload.daily_limit:-5}"
+
+  - label: 检查限额是否已达
+    kind: if
+    when:
+      all:
+        - type: var_equals
+          var: "vars.limit_check.remaining"
+          equals: 0
+    then: 任务结束
+    otherwise: 确保 X App 已启动
+
+  - label: 确保 X App 已启动
+    kind: action
+    action: app.ensure_running
+    params:
+      device_ip: "${vars.cloud_container.device_ip}"
+      cloud_index: "${vars.cloud_container.cloud_index}"
+      app_id: "${payload.app_id:-x}"
+
+  - label: 抽取加权关键词
+    kind: action
+    action: core.pick_weighted_keyword
+    save_as: keyword_result
+    params:
+      device_ip: "${vars.cloud_container.device_ip}"
+      cloud_index: "${vars.cloud_container.cloud_index}"
+      ai_type: "${payload.ai_type:-volc}"
+      count: "${payload.keyword_count:-2}"
+
+  - label: 加载搜索 Scheme
+    kind: action
+    action: core.load_ui_scheme
+    save_as: search_scheme
+    params:
+      device_ip: "${vars.cloud_container.device_ip}"
+      cloud_index: "${vars.cloud_container.cloud_index}"
+      app_id: "${payload.app_id:-x}"
+      key: search
+      args:
+        query: "${vars.keyword_result.keyword}"
+        latest: "1"
+
+  - label: 跳转搜索页
+    kind: action
+    action: device.exec
+    params:
+      device_ip: "${vars.cloud_container.device_ip}"
+      cloud_index: "${vars.cloud_container.cloud_index}"
+      command: 'am start -a android.intent.action.VIEW -d "${vars.search_scheme.url}" &'
+
+  - label: 提取时间线候选推文
+    kind: action
+    action: core.extract_timeline_candidates
+    save_as: timeline
+    params:
+      device_ip: "${vars.cloud_container.device_ip}"
+      cloud_index: "${vars.cloud_container.cloud_index}"
+      app_id: "${payload.app_id:-x}"
+      ai_type: "${payload.ai_type:-volc}"
+      swipe_count_min: "${payload.swipe_count_min:-8}"
+      swipe_count_max: "${payload.swipe_count_max:-15}"
+
+  - label: 选取互动目标
+    kind: action
+    action: core.pick_candidate
+    save_as: picked
+    params:
+      device_ip: "${vars.cloud_container.device_ip}"
+      cloud_index: "${vars.cloud_container.cloud_index}"
+      candidates: "${vars.timeline.candidates}"
+      ai_type: "${payload.ai_type:-volc}"
+
+  - label: 打开候选推文互动
+    kind: action
+    action: core.open_candidate
+    params:
+      device_ip: "${vars.cloud_container.device_ip}"
+      cloud_index: "${vars.cloud_container.cloud_index}"
+      candidate: "${vars.picked.candidate}"
+
+  - label: 加载主页 Scheme
+    kind: action
+    action: core.load_ui_scheme
+    save_as: home_scheme
+    params:
+      device_ip: "${vars.cloud_container.device_ip}"
+      cloud_index: "${vars.cloud_container.cloud_index}"
+      app_id: "${payload.app_id:-x}"
+      key: home
+
+  - label: 跳转主页
+    kind: action
+    action: device.exec
+    params:
+      device_ip: "${vars.cloud_container.device_ip}"
+      cloud_index: "${vars.cloud_container.cloud_index}"
+      command: 'am start -a android.intent.action.VIEW -d "${vars.home_scheme.url}" &'
+
+  - label: 累加每日养号计数
+    kind: action
+    action: core.increment_daily_counter
+    params:
+      device_ip: "${vars.cloud_container.device_ip}"
+      cloud_index: "${vars.cloud_container.cloud_index}"
+      key: nurture_daily
+      amount: 1
+
+  - label: 任务结束
+    kind: stop
+    status: success
+    message: "养号任务完成"

@@ -1,0 +1,35 @@
+api_version: v1
+kind: plugin
+name: x_reply_dm
+version: "1.0.0"
+display_name: "X 私信回复"
+category: "X"
+description: "扫描 X 未读私信，检测 PIN 密码页并处理，使用 AI 生成个性化回复并自动发送。"
+entry_script: script.yaml
+distillable: false
+visible_in_task_catalog: true
+distill_threshold: 3
+inputs:
+  - name: app_id
+    type: string
+    required: false
+    default: "x"
+    label: "应用 ID"
+    advanced: true
+  - name: ai_type
+    type: string
+    required: false
+    default: "volc"
+    label: "AI 类型"
+    widget: select
+    options:
+      - value: "volc"
+        label: "交友 (volc)"
+      - value: "part_time"
+        label: "兼职 (part_time)"
+  - name: pin_code
+    type: string
+    required: false
+    default: "1234"
+    label: "PIN 码"
+    advanced: true

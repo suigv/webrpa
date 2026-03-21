@@ -1,0 +1,96 @@
+version: "v1"
+workflow: x_follow_followers
+steps:
+  - label: 解析当前目标容器
+    kind: action
+    action: selector.resolve_cloud_container
+    save_as: cloud_container
+    params: {}
+
+  - label: 检查每日关注限额
+    kind: action
+    action: core.check_daily_limit
+    save_as: limit_check
+    params:
+      device_ip: "${vars.cloud_container.device_ip}"
+      cloud_index: "${vars.cloud_container.cloud_index}"
+      key: follow_daily
+      limit: "${payload.daily_limit:-50}"
+
+  - label: 检查限额是否已达
+    kind: if
+    when:
+      all:
+        - type: var_equals
+          var: "vars.limit_check.remaining"
+          equals: 0
+    then: 任务结束
+    otherwise: 确保 X App 已启动
+
+  - label: 确保 X App 已启动
+    kind: action
+    action: app.ensure_running
+    params:
+      device_ip: "${vars.cloud_container.device_ip}"
+      cloud_index: "${vars.cloud_container.cloud_index}"
+      app_id: "${payload.app_id:-x}"
+
+  - label: 获取目标博主
+    kind: action
+    action: core.get_blogger_candidate
+    save_as: blogger
+    params:
+      device_ip: "${vars.cloud_container.device_ip}"
+      cloud_index: "${vars.cloud_container.cloud_index}"
+      shared_key: "${payload.blogger_shared_key:-blogger_candidates}"
+
+  - label: 加载粉丝页 Scheme
+    kind: action
+    action: core.load_ui_scheme
+    save_as: followers_scheme
+    params:
+      device_ip: "${vars.cloud_container.device_ip}"
+      cloud_index: "${vars.cloud_container.cloud_index}"
+      app_id: "${payload.app_id:-x}"
+      key: followers
+      args:
+        screen_name: "${vars.blogger.username}"
+
+  - label: 跳转博主粉丝页
+    kind: action
+    action: device.exec
+    params:
+      device_ip: "${vars.cloud_container.device_ip}"
+      cloud_index: "${vars.cloud_container.cloud_index}"
+      command: 'am start -a android.intent.action.VIEW -d "${vars.followers_scheme.url}" &'
+
+  - label: 规划关注轮次
+    kind: action
+    action: core.plan_follow_rounds
+    save_as: follow_plan
+    params:
+      target_follow_count: "${payload.max_follow_per_run:-15}"
+
+  - label: 执行批量关注
+    kind: action
+    action: core.follow_visible_targets
+    save_as: follow_result
+    params:
+      device_ip: "${vars.cloud_container.device_ip}"
+      cloud_index: "${vars.cloud_container.cloud_index}"
+      app_id: "${payload.app_id:-x}"
+      max_clicks: "${vars.follow_plan.target_follow_count}"
+
+  - label: 累加每日关注计数
+    kind: action
+    action: core.increment_daily_counter
+    params:
+      device_ip: "${vars.cloud_container.device_ip}"
+      cloud_index: "${vars.cloud_container.cloud_index}"
+      key: follow_daily
+      amount: "${vars.follow_result.clicked_count:-0}"
+
+  - label: 任务结束
+    kind: stop
+    status: success
+    message: "关注截流任务完成"

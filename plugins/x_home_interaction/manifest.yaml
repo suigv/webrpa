@@ -1,0 +1,36 @@
+api_version: v1
+kind: plugin
+name: x_home_interaction
+version: "1.0.0"
+display_name: "X 主页互动"
+category: "X"
+description: "强制重启 X 并在主页时间线执行差异化浏览互动：按推文热度决定是否点赞或进入详情停留，模拟真实用户行为。"
+entry_script: script.yaml
+distillable: false
+visible_in_task_catalog: true
+distill_threshold: 3
+inputs:
+  - name: app_id
+    type: string
+    required: false
+    default: "x"
+    label: "应用 ID"
+    advanced: true
+  - name: ai_type
+    type: string
+    required: false
+    default: "volc"
+    label: "账号类型"
+    widget: select
+    options:
+      - value: "volc"
+        label: "交友"
+      - value: "part_time"
+        label: "兼职/PayPay"
+  - name: max_swipes
+    type: integer
+    required: false
+    default: 15
+    label: "最大滑动次数"
+    widget: number
+    advanced: true

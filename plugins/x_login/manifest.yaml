@@ -1,0 +1,25 @@
+api_version: v1
+kind: plugin
+name: x_login
+version: "1.0.0"
+display_name: "X 登录"
+category: "X"
+description: "自动完成 X (Twitter) 账号登录流程，包含账号输入、密码输入、TOTP 2FA 验证，并检测是否已登录跳过重复操作。"
+entry_script: script.yaml
+distillable: false
+visible_in_task_catalog: true
+distill_threshold: 3
+inputs:
+  - name: credential_slot
+    type: string
+    required: false
+    default: ""
+    label: "凭据槽位"
+    placeholder: "留空使用默认"
+    advanced: true
+  - name: app_id
+    type: string
+    required: false
+    default: "x"
+    label: "应用 ID"
+    advanced: true
