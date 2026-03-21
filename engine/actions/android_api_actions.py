@@ -295,6 +295,30 @@ def android_set_fingerprint(params: dict[str, Any], context: ExecutionContext) -
     return _from_api(client.set_device_fingerprint(payload))
 
 
+GRANT_APP_PERMISSIONS_METADATA = ActionMetadata(
+    description="授予指定应用全部权限（modifydev cmd=18）。",
+    params_schema={
+        "type": "object",
+        "properties": {
+            "pkg": {"type": "string", "description": "应用包名"},
+            "package": {"type": "string", "description": "应用包名（别名）"},
+            "device_ip": {"type": "string", "description": "设备 IP"},
+        },
+        "required": [],
+    },
+)
+
+
+def android_grant_app_permissions(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
+    client = _api_client(params, context)
+    if client is None:
+        return _err("invalid_params", "device_ip is required")
+    pkg = str(params.get("pkg") or params.get("package") or "").strip()
+    if not pkg:
+        return _err("invalid_params", "pkg is required")
+    return _from_api(client.grant_app_permissions(pkg))
+
+
 SET_SHAKE_METADATA = ActionMetadata(
     description="设置设备摇一摇功能状态（modifydev cmd=17）。",
     params_schema={

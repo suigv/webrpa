@@ -117,8 +117,18 @@ def app_ensure_running(params: dict[str, Any], context: ExecutionContext) -> Act
 
 
 def app_grant_permissions(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
-    # 占位实现，后续可扩展常用权限授予逻辑
-    return ActionResult(ok=True, code="ok")
+    from engine.actions.android_api_actions import android_grant_app_permissions
+    from core.app_config import AppConfigRegistry
+
+    pkg = str(params.get("pkg") or params.get("package") or "").strip()
+    if not pkg:
+        app_id = str(params.get("app_id") or "").strip()
+        if app_id:
+            config = AppConfigRegistry.load_app_config(app_id)
+            pkg = str(config.get("package_name") or "").strip()
+    if not pkg:
+        return ActionResult(ok=True, code="ok", message="no package resolved, skipped")
+    return android_grant_app_permissions({**params, "pkg": pkg}, context)
 
 
 def app_dismiss_popups(params: dict[str, Any], context: ExecutionContext) -> ActionResult:

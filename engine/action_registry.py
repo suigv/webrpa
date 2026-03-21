@@ -452,6 +452,7 @@ def _register_android_actions(registry: ActionRegistry) -> None:
         RESTORE_APP_METADATA,
         SCREENSHOT_METADATA,
         SET_CLIPBOARD_METADATA,
+        GRANT_APP_PERMISSIONS_METADATA,
         SET_FINGERPRINT_METADATA,
         SET_LANGUAGE_METADATA,
         SET_PROXY_METADATA,
@@ -487,6 +488,7 @@ def _register_android_actions(registry: ActionRegistry) -> None:
         android_set_proxy,
         android_set_proxy_filter,
         android_set_root_allowed_app,
+        android_grant_app_permissions,
         android_set_shake,
         android_stop_proxy,
         android_switch_adb,
@@ -514,6 +516,11 @@ def _register_android_actions(registry: ActionRegistry) -> None:
     )
     registry.register(
         "android.update_fingerprint", android_set_fingerprint, metadata=SET_FINGERPRINT_METADATA
+    )
+    registry.register(
+        "android.grant_app_permissions",
+        android_grant_app_permissions,
+        metadata=GRANT_APP_PERMISSIONS_METADATA,
     )
     registry.register("android.set_shake", android_set_shake, metadata=SET_SHAKE_METADATA)
     registry.register("android.refresh_location", android_refresh_location)

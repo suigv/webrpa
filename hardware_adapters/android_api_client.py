@@ -219,6 +219,13 @@ class AndroidApiClient:
             payload = json.dumps(data, ensure_ascii=False)
         return self.http.get("/modifydev", query={"cmd": 7, "data": payload})
 
+    def grant_app_permissions(self, pkg: str) -> dict[str, Any]:
+        """GET /modifydev?cmd=18&pkg=<package_name>"""
+        invalid = self._require_non_empty(pkg, "pkg")
+        if invalid:
+            return invalid
+        return self.http.get("/modifydev", query={"cmd": 18, "pkg": pkg.strip()})
+
     def set_shake(
         self, enabled: bool | None = None, shake: int | str | None = None
     ) -> dict[str, Any]:
