@@ -24,6 +24,10 @@
 ---
 
 ## 🟡 持续观测项
+- [ ] **任务 payload 契约未完全收口**：`manifest.inputs` 已成为插件输入真源，但前端历史上仍存在按页面私自注入 `app_id`、`device_ip` 等字段的路径，导致 strict unknown-input 校验与提交行为不一致。需要继续把“业务 payload”与“运行时上下文”彻底分离，统一经 catalog/manifest 白名单过滤后提交。
+  - 目标：除显式声明在 `manifest.inputs` 中的字段外，前端任何任务提交入口都不得向插件 payload 注入隐式参数。
+  - 范围：`web/js/features/tasks.js`、`device_task_panel.js`、`accounts.js`、`task_service.js` 以及后续新增的任务提交入口。
+  - 验收：`device_reboot` / `one_click_new_device` 等非 app-aware 插件不再收到 `app_id`；存在 `app_id` 声明的 X 类插件仍能正常提交；补齐前端/目录契约测试覆盖多入口提交路径。
 - [ ] 随着设备数突破 1000 台，需评估 `ThreadPoolExecutor` 的线程池饱和度。
 - [x] `navigation_actions.py` 通用化：移除业务残留，改为 routes/hops 驱动。
 - [x] **ActionRegistry 调用点分散（需统一分发入口）**：历史上 `AgentExecutor/Interpreter` 存在 `registry.resolve(...)(...)` 的重复直呼，导致后续要加全局限流/审计/拦截需要改多处。现已引入 `engine/action_dispatcher.py:dispatch_action()` 统一动作分发入口（两条执行链路已收敛）。

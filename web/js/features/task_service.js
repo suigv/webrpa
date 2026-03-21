@@ -4,7 +4,6 @@ import { sysLog } from './logs.js';
 
 let catalogCache = null;
 let catalogPromise = null;
-const CONTEXT_PAYLOAD_KEYS = new Set(['app_id', 'app']);
 const CANONICAL_ACCOUNT_KEYS = ['account', 'password', 'twofa_secret'];
 const LEGACY_ACCOUNT_KEYS = ['acc', 'pwd', 'fa2_secret'];
 
@@ -36,6 +35,20 @@ function getCatalogTask(taskName) {
         return null;
     }
     return catalogCache.find(item => item.task === taskName) || null;
+}
+
+export async function taskDeclaresInput(taskName, inputName) {
+    if (!taskName || !inputName) {
+        return false;
+    }
+    if (!catalogCache) {
+        await getTaskCatalog();
+    }
+    const task = getCatalogTask(taskName);
+    if (!task || !Array.isArray(task.inputs)) {
+        return false;
+    }
+    return task.inputs.some((item) => item?.name === inputName);
 }
 
 export function collectTaskPayload(container) {
@@ -96,8 +109,7 @@ export async function sanitizePayloadForTask(taskName, payload = {}) {
         Object.entries(payload).filter(
             ([key]) =>
                 declaredKeys.has(key) ||
-                key.startsWith('_') ||
-                CONTEXT_PAYLOAD_KEYS.has(key)
+                key.startsWith('_')
         )
     );
 }

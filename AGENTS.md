@@ -139,6 +139,8 @@ Different devices use the same port numbers but different IPs — `(ip, port)` i
 - When frontend and backend both support a capability, keep one explicit primary contract and isolate compatibility routes/fields behind thin aliases. Do not let dashboards or forms keep calling legacy endpoints once a current endpoint exists.
 - For login / credential payloads, prefer canonical external field names such as `account`, `password`, and `twofa_secret`. Legacy aliases like `acc`, `pwd`, and `fa2_secret` may be accepted at compatibility boundaries, but new frontend work must not expand those aliases further.
 - Default values that affect task creation or runtime behavior must converge across request models, persistence, orchestration snapshots, and frontend display. Do not leave one layer defaulting to a historical value like `"volc"` while another has already moved to `"default"`.
+- Treat `manifest.inputs` as the single source of truth for plugin business payload. Frontend forms, API validation, and management/bulk submission paths must all submit only declared payload keys.
+- Do not inject implicit payload fields such as `app_id`, `device_ip`, `package`, account aliases, or target metadata unless the selected plugin explicitly declares them. Runtime context belongs in `targets` or dedicated runtime envelopes, not in plugin payload.
 
 ## Pluginization Direction
 - New business workflows go to `plugins/`.

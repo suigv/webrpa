@@ -50,8 +50,7 @@
 {
   "task": "device_reboot",
   "payload": {
-    "device_ip": "192.168.1.2",
-    "name": "cloud-1"
+    "timeout_ms": 120000
   },
   "targets": [
     { "device_id": 1, "cloud_id": 2 }
@@ -65,10 +64,12 @@
 
 说明：
 - `task` 与 `payload` 是异步任务的主入口
+- `payload` 只承载插件 `manifest.inputs` 中声明的业务输入；运行时上下文如 `device_id/cloud_id/device_ip` 不应混入其中
 - 托管任务提交必须显式提供 `targets` 或兼容输入 `devices`；两者都缺失时请求会被拒绝
 - `targets` 是推荐目标声明方式；每项为 `{device_id, cloud_id}`
 - `devices` 仍可作为兼容输入，但控制面内部会归一到显式 `targets`
 - HTTP 调用方应以 `Content-Type: application/json` 发送该请求体；前端共享提交入口已按此契约对齐
+- `app_id` 不是通用保留字段；只有插件显式声明 `app_id` 输入时，才允许出现在 `payload`
 - `script` 仅用于匿名脚本直提交流程；常规插件任务优先使用 `task + payload`
 
 `GET /api/tasks/` 列表项核心字段：

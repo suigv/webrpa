@@ -63,7 +63,14 @@ plugins/<plugin_name>/
 - **目录接口透传**：`GET /api/tasks/catalog` 会把 `inputs` 元数据原样透传给前端，任务面板可据此渲染文本框、数字框、复选框和下拉框。
 - **蒸馏适用性**：`distillable: false` 的插件会在目录与指标接口中明确标记为“不可蒸馏”；`POST /api/tasks/distill/{plugin_name}` 会直接拒绝这类插件。
 - **目录可见性**：`visible_in_task_catalog: false` 的插件默认不会出现在 `GET /api/tasks/catalog`；如需运维查看，可显式调用 `GET /api/tasks/catalog?include_hidden=true`。
-- **前端提交约束**：Web 端派发插件任务时，会按 `inputs` 白名单过滤 payload，只提交 `manifest.yaml` 已声明字段；`device_ip`、`package`、`app_id`、账号注入字段等系统侧上下文不再默认混入插件入参。
+- **前端提交约束**：Web 端派发插件任务时，会按 `inputs` 白名单过滤 payload，只提交 `manifest.yaml` 已声明字段。
+
+### Payload 与 Runtime 上下文边界
+- `manifest.inputs` 是插件业务输入的唯一真源；凡是插件脚本通过 `${payload.xxx}` 读取的字段，都必须在 `manifest.inputs` 中声明。
+- `payload` 只承载插件业务输入；`targets`、`task_id`、`cloud_target_label`、`device_ip`、端口、账号上下文等运行时信息不得以“隐式特权字段”的方式混入 payload。
+- `app_id` 不是全局默认合法字段。只有当插件显式在 `manifest.inputs` 中声明 `app_id` 时，前端/API 才允许将其提交到 payload。
+- `_` 前缀字段仅用于显式兼容/运行时开关；若某个 `_` 字段会影响框架行为，仍应在插件 manifest 中声明，避免行为只存在于隐式约定里。
+- 前端、API、批量派发脚本、管理页等所有提交入口都必须服从同一份 `manifest.inputs` 白名单；禁止页面级私自绕过 catalog/manifest 注入字段。
 
 ### 哪些插件不适合蒸馏
 

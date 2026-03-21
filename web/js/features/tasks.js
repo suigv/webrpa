@@ -7,6 +7,7 @@ import {
     buildTaskRequest,
     collectTaskPayload,
     sanitizePayloadForTask,
+    taskDeclaresInput,
 } from './task_service.js';
 import { FetchSseClient } from '../utils/sse.js';
 
@@ -865,8 +866,9 @@ async function submitTask() {
 
     try {
         const rawPayload = collectTaskPayload($('taskPayloadFields'));
-        // 显式注入应用上下文
-        rawPayload.app_id = appId;
+        if (await taskDeclaresInput(selectedTaskName, 'app_id')) {
+            rawPayload.app_id = appId;
+        }
         const payload = await sanitizePayloadForTask(selectedTaskName, rawPayload);
 
         const taskData = buildTaskRequest({

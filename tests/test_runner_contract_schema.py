@@ -4,6 +4,7 @@ from core.task_execution import (
     ActiveTargetCircuitBreaker,
     _build_confirmed_target_trip,
     _build_target_trip,
+    _tolerate_target_unavailable,
 )
 from engine.models.manifest import InputType, PluginInput
 from engine.models.runtime import ActionResult
@@ -101,6 +102,10 @@ def test_target_circuit_breaker_can_be_disabled():
 
     assert breaker.should_cancel() is False
     assert breaker.trip() is None
+
+
+def test_tolerate_target_unavailable_uses_plugin_manifest_default():
+    assert _tolerate_target_unavailable("device_reboot", {}) is True
 
 
 def test_build_target_trip_ignores_probe_snapshot_before_activation():

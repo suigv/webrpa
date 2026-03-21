@@ -10,17 +10,12 @@ def test_task_catalog_returns_input_metadata_for_new_device_plugin():
 
     assert response.status_code == 200
     tasks = response.json()["tasks"]
-    assert all(item["task"] != "one_click_new_device" for item in tasks)
-
-    hidden_response = client.get("/api/tasks/catalog?include_hidden=true")
-    assert hidden_response.status_code == 200
-    hidden_tasks = hidden_response.json()["tasks"]
-    plugin = next(item for item in hidden_tasks if item["task"] == "one_click_new_device")
+    plugin = next(item for item in tasks if item["task"] == "one_click_new_device")
 
     assert plugin["display_name"] == "一键新机"
     assert plugin["description"]
     assert plugin["distillable"] is False
-    assert plugin["visible_in_task_catalog"] is False
+    assert plugin["visible_in_task_catalog"] is True
     inputs = plugin["inputs"]
     model_source = next(item for item in inputs if item["name"] == "model_source")
     assert model_source["widget"] == "select"
@@ -30,6 +25,18 @@ def test_task_catalog_returns_input_metadata_for_new_device_plugin():
     take_screenshot = next(item for item in inputs if item["name"] == "take_screenshot")
     assert take_screenshot["type"] == "boolean"
     assert take_screenshot["advanced"] is True
+    assert all(item["name"] != "app_id" for item in inputs)
+
+
+def test_task_catalog_device_reboot_does_not_expose_app_id_input():
+    client = TestClient(app)
+    response = client.get("/api/tasks/catalog")
+
+    assert response.status_code == 200
+    tasks = response.json()["tasks"]
+    plugin = next(item for item in tasks if item["task"] == "device_reboot")
+
+    assert all(input_item["name"] != "app_id" for input_item in plugin["inputs"])
 
 
 def test_distill_endpoint_rejects_non_distillable_plugin():

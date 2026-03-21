@@ -189,9 +189,17 @@ def _build_confirmed_target_trip(
 
 
 def _tolerate_target_unavailable(task_name: str, payload: dict[str, Any]) -> bool:
-    return bool(payload.get("_allow_target_unavailable_during_execution")) or (
-        task_name == "one_click_new_device"
-    )
+    raw = payload.get("_allow_target_unavailable_during_execution")
+    if raw is not None:
+        return bool(raw)
+
+    plugin = get_shared_plugin_loader().get(task_name)
+    if plugin is not None:
+        for plugin_input in plugin.manifest.inputs:
+            if plugin_input.name == "_allow_target_unavailable_during_execution":
+                return bool(plugin_input.default)
+
+    return task_name == "one_click_new_device"
 
 
 class ActiveTargetCircuitBreaker:

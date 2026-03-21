@@ -12,6 +12,12 @@
 - 已登记未来目标：设备接管页将从“轮询截图预览”演进到“截图预览 + WebRTC 实时接管”双模式，但当前仅作为规划项，尚未进入实现阶段。
 - 该目标的前置条件已明确：后端统一下发 WebRTC 访问参数、补齐 WebRTC 端口公式与 helper、发布 `web/webplayer` 静态资源、确认浏览器到设备的网络可达性，并补上访问控制/审计边界。
 - 最近重点 (2026-03-17):
+  - **设备重启任务可用性误熔断修复 (2026-03-21)**：
+    - `core.task_execution` 现会在 payload 未显式提供 `_allow_target_unavailable_during_execution` 时，回退读取插件 manifest 输入默认值，避免 `device_reboot` 这类“任务本身会主动导致短时离线”的插件被 availability 收尾检查误判失败。
+    - 已补充回归测试，覆盖 `device_reboot` 通过 manifest 默认值启用离线容忍的路径。
+  - **插件输入清单收紧 (2026-03-21)**：
+    - 审查现有插件后，已从 `device_reboot` 与 `one_click_new_device` 的 manifest 中移除未被脚本消费的冗余 `app_id` 输入，避免任务目录和前端动态表单继续暴露无意义字段。
+    - 前端任务提交层已停止把 `app_id` 当作通用隐式 payload 字段；仅当插件在 `manifest.inputs` 中显式声明 `app_id` 时才会注入，降低 strict unknown-input 校验与页面提交路径不一致的问题。
   - **Inventory / Selector / Generator 初始化能力落地 (2026-03-19)**：
     - 新增 `core.device_profile_inventory`、`core.device_profile_selector`、`core.device_profile_generator` 三层服务，统一承接“先获取再选择”与“本地随机生成”两类场景。
     - 新增 `inventory.get_phone_models` / `inventory.refresh_phone_models`、`selector.select_phone_model`、`generator.generate_fingerprint` / `generator.generate_contact` / `generator.generate_env_bundle` 动作，插件层可以直接 `save_as` 后复用，不再需要把机型筛选和随机规则硬编码进 YAML。

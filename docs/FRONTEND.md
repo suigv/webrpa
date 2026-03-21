@@ -29,6 +29,14 @@ Vite dev server proxies `/api`, `/health`, and `/ws` to `http://127.0.0.1:8001` 
 
 If you need a pure-web fallback (no devices / no native libs), start backend with `MYT_ENABLE_RPC=0`.
 
+## Task payload contract
+
+- Frontend task forms must be rendered from `GET /api/tasks/catalog` metadata rather than hardcoded field lists.
+- Frontend task submission must treat `manifest.inputs` as the only allowed plugin payload schema.
+- Do not inject implicit payload fields such as `app_id`, `device_ip`, `package`, account aliases, or target metadata unless the selected plugin explicitly declares them in `inputs`.
+- Runtime context belongs in dedicated channels such as `targets` and backend-owned runtime envelopes, not in plugin `payload`.
+- If a page needs task-specific context, add it to the plugin manifest first or route it through a non-payload contract; do not create page-local exceptions.
+
 ## Editor / TypeScript language server
 
 If your editor needs `typescript-language-server`:

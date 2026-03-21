@@ -126,9 +126,3 @@ inputs:
     description: "可选。覆盖地区模板默认时区，例如 Asia/Tokyo。"
     placeholder: "例如 Asia/Tokyo"
     advanced: true
-  - name: app_id
-    type: string
-    required: false
-    default: ""
-    label: "应用 ID"
-    advanced: true
