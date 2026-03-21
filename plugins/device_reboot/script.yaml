@@ -23,10 +23,11 @@ steps:
       target_status: running
       timeout_ms: "${payload.timeout_ms:-120000}"
 
-  - label: 等待 ADB 可连接
+  - label: 等待云机可用
     kind: action
-    action: device.check_connect_state
+    action: profile.wait_cloud_available
     params:
-      device_ip: "${vars.cloud_container.device_ip}"
-      cloud_index: "${vars.cloud_container.cloud_index}"
       timeout_ms: 60000
+      transition_timeout_ms: 0
+      poll_interval_ms: 1000
+      require_cycle: false

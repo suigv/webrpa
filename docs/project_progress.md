@@ -18,6 +18,7 @@
   - **插件输入清单收紧 (2026-03-21)**：
     - 审查现有插件后，已从 `device_reboot` 与 `one_click_new_device` 的 manifest 中移除未被脚本消费的冗余 `app_id` 输入，避免任务目录和前端动态表单继续暴露无意义字段。
     - 前端任务提交层已停止把 `app_id` 当作通用隐式 payload 字段；仅当插件在 `manifest.inputs` 中显式声明 `app_id` 时才会注入，降低 strict unknown-input 校验与页面提交路径不一致的问题。
+    - `device_reboot` 的“等待回线”末步已从 `device.check_connect_state` 切到带超时边界的 `profile.wait_cloud_available`，避免底层 RPC 直连检查阻塞导致任务长期停留在 `running`。
   - **Inventory / Selector / Generator 初始化能力落地 (2026-03-19)**：
     - 新增 `core.device_profile_inventory`、`core.device_profile_selector`、`core.device_profile_generator` 三层服务，统一承接“先获取再选择”与“本地随机生成”两类场景。
     - 新增 `inventory.get_phone_models` / `inventory.refresh_phone_models`、`selector.select_phone_model`、`generator.generate_fingerprint` / `generator.generate_contact` / `generator.generate_env_bundle` 动作，插件层可以直接 `save_as` 后复用，不再需要把机型筛选和随机规则硬编码进 YAML。
