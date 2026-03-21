@@ -8,7 +8,7 @@
   },
   "total_devices": 2,
   "discovery_enabled": false,
-  "discovery_subnet": "192.168.1.0/24",
+  "discovery_subnet": "192.168.10.0/24",
   "discovered_device_ips": {},
   "discovered_total_devices": 0,
   "cloud_machines_per_device": 12,
@@ -67,6 +67,6 @@
     "move_steps_max": 24,
     "fallback_policy": "raw",
     "fallback_retry_count": 0,
-    "random_seed": null
+    "random_seed": 0
   }
 }
