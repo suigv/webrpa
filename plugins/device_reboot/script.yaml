@@ -16,18 +16,9 @@ steps:
 
   - label: 等待云机重启回线
     kind: action
-    action: sdk.wait_cloud_status
-    params:
-      device_ip: "${vars.cloud_container.device_ip}"
-      name: "${vars.cloud_container.container_name}"
-      target_status: running
-      timeout_ms: "${payload.timeout_ms:-120000}"
-
-  - label: 等待云机可用
-    kind: action
     action: profile.wait_cloud_available
     params:
-      timeout_ms: 60000
-      transition_timeout_ms: 0
+      timeout_ms: "${payload.timeout_ms:-120000}"
+      transition_timeout_ms: 45000
       poll_interval_ms: 1000
-      require_cycle: false
+      require_cycle: true
