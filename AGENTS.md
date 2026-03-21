@@ -8,6 +8,12 @@ Hard goals:
 - Do not reintroduce legacy task code from old repo.
 - Evolve runtime via pluginized architecture.
 
+## Codex / OpenCode Skill
+
+When working on this repository through Codex or OpenCode, explicitly invoke `$webrpa-dev` in the prompt when the task touches `api/`, `core/`, `engine/`, `models/`, `plugins/`, `tests/`, `tools/`, `config/`, or `web/`.
+
+The purpose is to load repo-specific constraints, validation steps, and file-level heuristics before edits begin. Keep this invocation short and explicit instead of copying the full skill body into task prompts.
+
 ## Scope Rules
 
 ### In Scope

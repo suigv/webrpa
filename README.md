@@ -235,6 +235,20 @@ curl http://127.0.0.1:8001/health
 ./.venv/bin/python main.py
 ```
 
+## AI 协作建议
+
+如果你使用 Codex / OpenCode 在本仓库内协作开发，建议在提示词里显式带上 `$webrpa-dev`，这样代理会先加载本项目的边界约束、验证流程和常用检查路径。
+
+示例：
+
+```text
+$webrpa-dev 帮我看 task_control 的重构边界
+$webrpa-dev 帮我修 web 控制台的 SSE 页面
+$webrpa-dev 帮我给 plugins 新增一个 workflow
+```
+
+该 skill 适用于 `api/`、`core/`、`engine/`、`models/`、`plugins/`、`tests/`、`tools/`、`config/`、`web/` 等目录下的开发任务。
+
 ---
 
 ## 质量与验证
