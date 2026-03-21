@@ -16,6 +16,12 @@ inputs:
     default: ""
     label: "应用 ID"
     advanced: true
+  - name: _allow_target_unavailable_during_execution
+    type: boolean
+    required: false
+    default: true
+    label: "允许设备离线"
+    advanced: true
   - name: timeout_ms
     type: integer
     required: false
