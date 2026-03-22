@@ -9,6 +9,8 @@
 - 阶段补充（2026-03-22）：`v1-launch-readiness` 执行状态已完成，当前 **1.0 launch scope** 以设备管理、任务调度、插件执行为边界；该完成态不包含 M5/WebRTC。
 - 验证结论（2026-03-22）：`./.venv/bin/python tools/check_no_legacy_imports.py`、`./.venv/bin/python -m pytest tests -q`、默认 `uvicorn api.server:app` + `/health`、以及 `MYT_ENABLE_RPC=0` 的兼容启动 + `/health` 均已通过。
 - W1.2 状态（2026-03-22）：设备详情弹窗的停止确认文案已经对齐到 **device-scoped** 1.0 合同，`node --test "web/js/features/device_detail_modal.test.js"` 通过，`npm --prefix web run typecheck` 通过；但浏览器实操 QA 仍受环境阻塞，当前环境缺少 Chrome/Chromium，且 Playwright 安装尝试超时，因此这里只记录代码与测试对齐完成，不宣称浏览器实操验证通过。
+- 当前真相补充（2026-03-22）：仓库当前会加载 10 个插件（`device_reboot`、`one_click_new_device` 与 8 个 `x_*` 工作流）；但“仓库里存在插件”不等于“这些插件都已被本文件或 `docs/STATUS.md` 作为 1.0 workflow 逐个验收”。
+- 当前真相补充（2026-03-22）：后端 `/web` 仍只是控制台入口 shim；若未设置 `MYT_FRONTEND_URL`，它返回 `501` 并提示前端部署方式，而不是直接托管 Vite 构建产物。
 - 阶段：**Web Console Productization & Navigation Engine Hardening**
 - 核心状态：API、任务系统、插件执行、账号池全面可用；Web 控制台完成产品化改造；导航引擎具备自愈与锚点机制；AI 执行引擎接入托管链路。
 - 设备接管页当前已支持“截图预览 + 轻控制”：点击截图触发轻触，并提供返回/Home/Enter/退格键、固定方向滑动以及单行文本发送，所有控制仍经由项目 API 转发，不要求浏览器直连设备。
@@ -36,7 +38,7 @@
     - Web 前端任务弹窗已升级为“提交即拉起、终态自动总结”的任务报告面板；执行完成后左侧会展示汇总结论和目标级结果明细。设备卡片也恢复展示云机机型、状态和控制端口等关键信息，不再只在详情弹窗中可见。
     - `one_click_new_device` 现会默认避开当前机型：当用户不填 `seed` 时，机会从库存中自动随机；插件同时会把切换前机型、选中机型、切换后机型以及环境写入结果汇总，前端弹窗在任务结束后展示报告而不是仅显示运行追踪。
     - 插件契约新增 `distillable`：设备初始化、环境编排、随机化、运维类插件可显式声明 `distillable: false`，目录/指标接口会透出该标记，蒸馏接口也会直接拒绝这类插件；`one_click_new_device` 已按不可蒸馏处理。
-    - 插件契约新增 `visible_in_task_catalog`：像 `one_click_new_device` 这类明确不适合客户在任务列表里直接蒸馏/复用的内部编排型插件，默认会从 `/api/tasks/catalog` 隐藏；如需运维排查或管理端查看，可通过 `include_hidden=true` 显式拉取。
+    - 插件契约新增 `visible_in_task_catalog`：可用于隐藏内部插件；但当前 `one_click_new_device` 与 `device_reboot` 的真实 manifest 仍保持 `visible_in_task_catalog: true`，以便运营直接从任务目录发起。
     - 任务运行时产物新增自动清理策略：`TaskController.cleanup_runtime_artifacts()` 会按隐藏任务保留天数、事件保留天数、trace 保留天数、事件总行数上限和 trace 总体积上限，自动裁剪 `task_events` 与 `config/data/traces/`；同时暴露 `POST/DELETE /api/tasks/cleanup_runtime` 供人工触发清理，避免非蒸馏型任务长期堆积日志与截图。
     - Web 任务面板与单机执行面板新增“任务说明卡”：选中插件后会直接显示任务用途、默认行为和可调参数标签；`/api/tasks/catalog` 也同步透出插件 `description`，便于客户理解像“一键新机”这类任务可以改哪些参数。
     - Web 设备页进一步补齐参数化体验：单机执行面板的“配置高级属性”现在只控制 manifest 中声明为 `advanced` 的字段，切换任务后会自动复位展开状态；底部批量分发条也新增任务说明卡、参数表单和高级参数展开，批量下发不再只能发空 payload。

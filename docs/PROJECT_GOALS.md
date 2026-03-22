@@ -23,8 +23,9 @@ This document defines the north-star goals, scope boundaries, and success criter
 ## Workflow Scope (Ops)
 - All operational workflows target supported application script tasks.
 - Initial workflow list should be explicit and small (3-5 critical flows).
-- Representative workflows are the current plugin library under `plugins/` (source of truth).
-  - Current list: `one_click_new_device`.
+- The current plugin library under `plugins/` is the source of truth for **bundled workflows**, not for workflow-level launch verification.
+- Current bundled list: `device_reboot`, `one_click_new_device`, `x_clone_profile`, `x_follow_followers`, `x_home_interaction`, `x_login`, `x_nurture`, `x_quote_intercept`, `x_reply_dm`, `x_scrape_blogger`.
+- Current narrow launch-readiness examples should remain explicit and conservative in `docs/STATUS.md`; do not treat all bundled plugins as equally verified by default.
 
 ## Non-Goals (Near Term)
 - Building a new general-purpose workflow language.

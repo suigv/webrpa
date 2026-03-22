@@ -18,6 +18,7 @@ This document provides a concise "done vs not-done" view tied to the goal and ro
   - `MYT_ENABLE_RPC=0` compatibility startup + `/health`
 - W1.2 is code-aligned and test-aligned: device-scoped stop wording matches the frozen 1.0 contract, `node --test "web/js/features/device_detail_modal.test.js"` passed, and `npm --prefix web run typecheck` passed.
 - W1.2 hands-on browser QA remains environment-blocked. Playwright launch could not start because Chrome or Chromium was unavailable, and install attempts timed out. This launch state does **not** claim full browser hands-on verification.
+- Current backend `/web` behavior remains an API-side console entry shim: if `MYT_FRONTEND_URL` is unset it returns `501` with frontend deployment guidance; this launch state does **not** claim backend-hosted web assets or browser hands-on console verification.
 - M5/WebRTC is not part of this completion state. Current launch readiness covers the existing screenshot-preview plus light-control path, not real-time WebRTC takeover.
 
 ## Milestone Status
@@ -40,9 +41,13 @@ This document provides a concise "done vs not-done" view tied to the goal and ro
 - **场景模板服务化**：AI 提示词场景模板已下沉为 API 服务。
 
 ## Workflow Coverage (Ops Scope)
-Source of truth: current `plugins/` library (representative workflows).
+Source of truth for shipped manifests: current `plugins/` library. Source of truth for **verified launch claims**: this section only.
 
-- Implemented (Unverified): `one_click_new_device`.
+- Bundled plugin library (currently loaded by `/health`): `device_reboot`, `one_click_new_device`, `x_clone_profile`, `x_follow_followers`, `x_home_interaction`, `x_login`, `x_nurture`, `x_quote_intercept`, `x_reply_dm`, `x_scrape_blogger`.
+- Workflow-level verification currently documented here:
+  - Implemented (Unverified): `one_click_new_device`
+  - Implemented (Unverified): `device_reboot`
+- The bundled `x_*` workflows are present in the repo/plugin loader, but this document does **not** currently claim they are individually launch-verified.
 
 ## Distillation Thresholds (Current Plugins)
 Complexity is defined by branching or step count > 10. Successes are cumulative.
@@ -50,6 +55,7 @@ Complexity is defined by branching or step count > 10. Successes are cumulative.
 | Workflow | Steps | Branching | Complexity | Successes Needed |
 |---|---:|---|---|---:|
 | one_click_new_device | 6 | no | simple | 3 |
+| device_reboot | 4 | no | simple | 3 |
 
 ## Evidence Anchors (Current)
 - `.sisyphus/evidence/task-1-db-characterization.txt`
