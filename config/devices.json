@@ -2,10 +2,12 @@
   "schema_version": 2,
   "allocation_version": 1,
   "host_ip": "127.0.0.1",
-  "device_ips": {},
+  "device_ips": {
+    "1": "192.168.10.3"
+  },
   "total_devices": 1,
   "discovery_enabled": false,
-  "discovery_subnet": "",
+  "discovery_subnet": "192.168.10.0/24",
   "discovered_device_ips": {},
   "discovered_total_devices": 0,
   "cloud_machines_per_device": 12,
@@ -64,6 +66,6 @@
     "move_steps_max": 24,
     "fallback_policy": "raw",
     "fallback_retry_count": 0,
-    "random_seed": null
+    "random_seed": 0
   }
 }
