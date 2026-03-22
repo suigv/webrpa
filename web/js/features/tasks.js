@@ -6,8 +6,7 @@ import {
     apiSubmitTask,
     buildTaskRequest,
     collectTaskPayload,
-    sanitizePayloadForTask,
-    taskDeclaresInput,
+    prepareTaskPayload,
 } from './task_service.js';
 import { FetchSseClient } from '../utils/sse.js';
 
@@ -866,10 +865,7 @@ async function submitTask() {
 
     try {
         const rawPayload = collectTaskPayload($('taskPayloadFields'));
-        if (await taskDeclaresInput(selectedTaskName, 'app_id')) {
-            rawPayload.app_id = appId;
-        }
-        const payload = await sanitizePayloadForTask(selectedTaskName, rawPayload);
+        const payload = await prepareTaskPayload(selectedTaskName, { rawPayload, appId });
 
         const taskData = buildTaskRequest({
             task: selectedTaskName,

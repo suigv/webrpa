@@ -1,6 +1,6 @@
 import { fetchJson } from '../utils/api.js';
 import { toast } from '../ui/toast.js';
-import { apiSubmitTask, buildTaskRequest } from './task_service.js';
+import { apiSubmitTask, buildTaskRequest, prepareTaskPayload } from './task_service.js';
 
 const $ = (id) => document.getElementById(id);
 const DEFAULT_AI_ACTIONS = [
@@ -149,7 +149,7 @@ function readSelectedValues(selector) {
     return Array.from(document.querySelectorAll(selector)).map((element) => element.value);
 }
 
-function buildAiTaskPayload(unit) {
+function buildAiTaskPayload() {
     const goal = String($('unitAiGoal')?.value || '').trim();
     if (!goal) {
         toast.warn('请填写任务描述');
@@ -183,7 +183,6 @@ function buildAiTaskPayload(unit) {
     }
 
     const payload = {
-        device_ip: unit.parent_ip,
         goal,
         expected_state_ids: expectedStateIds,
         allowed_actions: allowedActions,
@@ -253,8 +252,13 @@ export function closeUnitAiDialog() {
 
 export async function submitUnitAiTask(unit, { onSuccess = null, onFailure = null } = {}) {
     if (!unit) return { ok: false, reason: 'missing_unit' };
-    const payload = buildAiTaskPayload(unit);
-    if (!payload) return { ok: false, reason: 'invalid_payload' };
+    const rawPayload = buildAiTaskPayload();
+    if (!rawPayload) return { ok: false, reason: 'invalid_payload' };
+
+    const payload = await prepareTaskPayload('agent_executor', {
+        rawPayload,
+        stripRuntimeOnly: true,
+    });
 
     const taskData = buildTaskRequest({
         task: 'agent_executor',

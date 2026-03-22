@@ -3,8 +3,7 @@ import { toast } from '../ui/toast.js';
 import {
     apiSubmitTask,
     buildTaskRequest,
-    injectAccountPayload,
-    sanitizePayloadForTask,
+    prepareTaskPayload,
 } from './task_service.js';
 
 const accountsInput = document.getElementById("accountsInput");
@@ -462,7 +461,7 @@ async function bulkDispatch() {
     const onlineUnits = [];
     r.data.forEach(d => {
         (d.cloud_machines || []).forEach(u => {
-            if (u.availability_state === "available") onlineUnits.push({ dId: d.device_id, cId: u.cloud_id, deviceIp: d.ip });
+            if (u.availability_state === "available") onlineUnits.push({ dId: d.device_id, cId: u.cloud_id });
         });
     });
 
@@ -483,11 +482,13 @@ async function bulkDispatch() {
             break;
         }
         const account = accountRes.data.account;
-        const rawPayload = await injectAccountPayload(plugin.trim(), {
-            device_ip: u.deviceIp,
-            status_hint: 'runtime',
-        }, account);
-        const payload = await sanitizePayloadForTask(plugin.trim(), rawPayload);
+        const payload = await prepareTaskPayload(plugin.trim(), {
+            rawPayload: {
+                status_hint: 'runtime',
+            },
+            account,
+            stripRuntimeOnly: true,
+        });
         const taskData = buildTaskRequest({
             task: plugin.trim(),
             payload,

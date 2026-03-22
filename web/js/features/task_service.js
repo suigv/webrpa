@@ -6,6 +6,14 @@ let catalogCache = null;
 let catalogPromise = null;
 const CANONICAL_ACCOUNT_KEYS = ['account', 'password', 'twofa_secret'];
 const LEGACY_ACCOUNT_KEYS = ['acc', 'pwd', 'fa2_secret'];
+const RUNTIME_ONLY_PAYLOAD_KEYS = new Set([
+    'device_ip',
+    'device_id',
+    'cloud_id',
+    'target_device_id',
+    'target_cloud_id',
+    'target_label',
+]);
 
 /**
  * 获取插件目录（单例缓存）
@@ -114,6 +122,15 @@ export async function sanitizePayloadForTask(taskName, payload = {}) {
     );
 }
 
+export function stripRuntimeOnlyPayloadFields(payload = {}) {
+    if (!payload || typeof payload !== 'object') {
+        return {};
+    }
+    return Object.fromEntries(
+        Object.entries(payload).filter(([key]) => !RUNTIME_ONLY_PAYLOAD_KEYS.has(key))
+    );
+}
+
 function _setAccountFields(payload, account, declaredKeys, mode) {
     if (!account || typeof account !== 'object') {
         return payload;
@@ -169,6 +186,30 @@ export async function injectAccountPayload(taskName, payload = {}, account = nul
         return _setAccountFields(payload, account, declaredKeys, 'legacy');
     }
     return _setAccountFields(payload, account, declaredKeys, 'canonical');
+}
+
+export async function prepareTaskPayload(taskName, {
+    rawPayload = {},
+    account = null,
+    appId = null,
+    stripRuntimeOnly = false,
+} = {}) {
+    let nextPayload = rawPayload && typeof rawPayload === 'object'
+        ? { ...rawPayload }
+        : {};
+
+    if (stripRuntimeOnly) {
+        nextPayload = stripRuntimeOnlyPayloadFields(nextPayload);
+    }
+
+    nextPayload = await injectAccountPayload(taskName, nextPayload, account);
+
+    const normalizedAppId = String(appId || '').trim();
+    if (normalizedAppId && await taskDeclaresInput(taskName, 'app_id')) {
+        nextPayload.app_id = normalizedAppId;
+    }
+
+    return sanitizePayloadForTask(taskName, nextPayload);
 }
 
 export function buildTaskRequest({
