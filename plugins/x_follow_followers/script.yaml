@@ -13,7 +13,7 @@ steps:
     save_as: limit_check
     params:
       device_ip: "${vars.cloud_container.device_ip}"
-      cloud_index: "${vars.cloud_container.cloud_index}"
+      cloud_index: "${vars.cloud_container.cloud_id}"
       key: follow_daily
       limit: "${payload.daily_limit:-50}"
 
@@ -32,7 +32,7 @@ steps:
     action: app.ensure_running
     params:
       device_ip: "${vars.cloud_container.device_ip}"
-      cloud_index: "${vars.cloud_container.cloud_index}"
+      cloud_index: "${vars.cloud_container.cloud_id}"
       app_id: "${payload.app_id:-x}"
 
   - label: 获取目标博主
@@ -41,7 +41,7 @@ steps:
     save_as: blogger
     params:
       device_ip: "${vars.cloud_container.device_ip}"
-      cloud_index: "${vars.cloud_container.cloud_index}"
+      cloud_index: "${vars.cloud_container.cloud_id}"
       shared_key: "${payload.blogger_shared_key:-blogger_candidates}"
 
   - label: 加载粉丝页 Scheme
@@ -50,7 +50,7 @@ steps:
     save_as: followers_scheme
     params:
       device_ip: "${vars.cloud_container.device_ip}"
-      cloud_index: "${vars.cloud_container.cloud_index}"
+      cloud_index: "${vars.cloud_container.cloud_id}"
       app_id: "${payload.app_id:-x}"
       key: followers
       args:
@@ -61,7 +61,7 @@ steps:
     action: device.exec
     params:
       device_ip: "${vars.cloud_container.device_ip}"
-      cloud_index: "${vars.cloud_container.cloud_index}"
+      cloud_index: "${vars.cloud_container.cloud_id}"
       command: 'am start -a android.intent.action.VIEW -d "${vars.followers_scheme.url}" &'
 
   - label: 规划关注轮次
@@ -77,7 +77,7 @@ steps:
     save_as: follow_result
     params:
       device_ip: "${vars.cloud_container.device_ip}"
-      cloud_index: "${vars.cloud_container.cloud_index}"
+      cloud_index: "${vars.cloud_container.cloud_id}"
       app_id: "${payload.app_id:-x}"
       max_clicks: "${vars.follow_plan.target_follow_count}"
 
@@ -86,7 +86,7 @@ steps:
     action: core.increment_daily_counter
     params:
       device_ip: "${vars.cloud_container.device_ip}"
-      cloud_index: "${vars.cloud_container.cloud_index}"
+      cloud_index: "${vars.cloud_container.cloud_id}"
       key: follow_daily
       amount: "${vars.follow_result.clicked_count:-0}"
 

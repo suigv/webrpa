@@ -26,21 +26,30 @@ class CloudNotFoundError(DeviceControlError):
     pass
 
 
-def validate_rpc_target(device_id: int, cloud_id: int) -> tuple[str, int]:
-    if not is_rpc_enabled():
-        raise RpcDisabledError("RPC is disabled (MYT_ENABLE_RPC=0)")
-
+def _validate_device_cloud(device_id: int, cloud_id: int) -> tuple[str, int, int]:
+    """Returns (device_ip, api_port, rpa_port). Raises DeviceNotFoundError/CloudNotFoundError."""
     total_devices = get_total_devices()
     if device_id < 1 or device_id > total_devices:
         raise DeviceNotFoundError("device not found")
-
     cloud_machines_per_device = get_cloud_machines_per_device()
     if cloud_id < 1 or cloud_id > cloud_machines_per_device:
         raise CloudNotFoundError("cloud not found")
-
     device_ip = get_device_ip(device_id)
-    _api_port, rpa_port = calculate_ports(device_id, cloud_id, cloud_machines_per_device)
+    api_port, rpa_port = calculate_ports(device_id, cloud_id, cloud_machines_per_device)
+    return device_ip, api_port, rpa_port
+
+
+def validate_rpc_target(device_id: int, cloud_id: int) -> tuple[str, int]:
+    if not is_rpc_enabled():
+        raise RpcDisabledError("RPC is disabled (MYT_ENABLE_RPC=0)")
+    device_ip, _api_port, rpa_port = _validate_device_cloud(device_id, cloud_id)
     return device_ip, rpa_port
+
+
+def validate_api_target(device_id: int, cloud_id: int) -> tuple[str, int]:
+    """Returns (device_ip, api_port) for HTTP API access (no RPC required)."""
+    device_ip, api_port, _rpa_port = _validate_device_cloud(device_id, cloud_id)
+    return device_ip, api_port
 
 
 def connect_rpc(device_ip: str, rpa_port: int, *, connect_timeout: int = 5) -> Any:

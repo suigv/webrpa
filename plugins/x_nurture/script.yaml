@@ -13,7 +13,7 @@ steps:
     save_as: limit_check
     params:
       device_ip: "${vars.cloud_container.device_ip}"
-      cloud_index: "${vars.cloud_container.cloud_index}"
+      cloud_index: "${vars.cloud_container.cloud_id}"
       key: nurture_daily
       limit: "${payload.daily_limit:-5}"
 
@@ -32,7 +32,7 @@ steps:
     action: app.ensure_running
     params:
       device_ip: "${vars.cloud_container.device_ip}"
-      cloud_index: "${vars.cloud_container.cloud_index}"
+      cloud_index: "${vars.cloud_container.cloud_id}"
       app_id: "${payload.app_id:-x}"
 
   - label: 抽取加权关键词
@@ -41,7 +41,7 @@ steps:
     save_as: keyword_result
     params:
       device_ip: "${vars.cloud_container.device_ip}"
-      cloud_index: "${vars.cloud_container.cloud_index}"
+      cloud_index: "${vars.cloud_container.cloud_id}"
       ai_type: "${payload.ai_type:-volc}"
       count: "${payload.keyword_count:-2}"
 
@@ -51,7 +51,7 @@ steps:
     save_as: search_scheme
     params:
       device_ip: "${vars.cloud_container.device_ip}"
-      cloud_index: "${vars.cloud_container.cloud_index}"
+      cloud_index: "${vars.cloud_container.cloud_id}"
       app_id: "${payload.app_id:-x}"
       key: search
       args:
@@ -63,7 +63,7 @@ steps:
     action: device.exec
     params:
       device_ip: "${vars.cloud_container.device_ip}"
-      cloud_index: "${vars.cloud_container.cloud_index}"
+      cloud_index: "${vars.cloud_container.cloud_id}"
       command: 'am start -a android.intent.action.VIEW -d "${vars.search_scheme.url}" &'
 
   - label: 提取时间线候选推文
@@ -72,7 +72,7 @@ steps:
     save_as: timeline
     params:
       device_ip: "${vars.cloud_container.device_ip}"
-      cloud_index: "${vars.cloud_container.cloud_index}"
+      cloud_index: "${vars.cloud_container.cloud_id}"
       app_id: "${payload.app_id:-x}"
       ai_type: "${payload.ai_type:-volc}"
       swipe_count_min: "${payload.swipe_count_min:-8}"
@@ -84,7 +84,7 @@ steps:
     save_as: picked
     params:
       device_ip: "${vars.cloud_container.device_ip}"
-      cloud_index: "${vars.cloud_container.cloud_index}"
+      cloud_index: "${vars.cloud_container.cloud_id}"
       candidates: "${vars.timeline.candidates}"
       ai_type: "${payload.ai_type:-volc}"
 
@@ -93,7 +93,7 @@ steps:
     action: core.open_candidate
     params:
       device_ip: "${vars.cloud_container.device_ip}"
-      cloud_index: "${vars.cloud_container.cloud_index}"
+      cloud_index: "${vars.cloud_container.cloud_id}"
       candidate: "${vars.picked.candidate}"
 
   - label: 加载主页 Scheme
@@ -102,7 +102,7 @@ steps:
     save_as: home_scheme
     params:
       device_ip: "${vars.cloud_container.device_ip}"
-      cloud_index: "${vars.cloud_container.cloud_index}"
+      cloud_index: "${vars.cloud_container.cloud_id}"
       app_id: "${payload.app_id:-x}"
       key: home
 
@@ -111,7 +111,7 @@ steps:
     action: device.exec
     params:
       device_ip: "${vars.cloud_container.device_ip}"
-      cloud_index: "${vars.cloud_container.cloud_index}"
+      cloud_index: "${vars.cloud_container.cloud_id}"
       command: 'am start -a android.intent.action.VIEW -d "${vars.home_scheme.url}" &'
 
   - label: 累加每日养号计数
@@ -119,7 +119,7 @@ steps:
     action: core.increment_daily_counter
     params:
       device_ip: "${vars.cloud_container.device_ip}"
-      cloud_index: "${vars.cloud_container.cloud_index}"
+      cloud_index: "${vars.cloud_container.cloud_id}"
       key: nurture_daily
       amount: 1
 

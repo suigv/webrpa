@@ -210,9 +210,19 @@ class Runner:
 
     @staticmethod
     def _resolve_plugin_app_id(payload: dict[str, Any], inputs: list[PluginInput]) -> str:
-        resolved = resolve_app_id(payload, default_app="")
-        if resolved:
-            return resolved
+        # Explicit app_id or app in payload takes priority
+        for key in ("app_id", "app"):
+            raw = str(payload.get(key) or "").strip().lower()
+            if raw and raw != "default":
+                return raw
+        # package -> app lookup
+        package = str(payload.get("package") or "").strip()
+        if package:
+            from core.app_config import AppConfigManager
+            mapped = AppConfigManager.find_app_by_package(package)
+            if mapped:
+                return mapped
+        # Fall back to manifest input default
         for plugin_input in inputs:
             if plugin_input.name != "app_id":
                 continue

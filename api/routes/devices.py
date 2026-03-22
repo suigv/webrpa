@@ -17,8 +17,10 @@ from core.device_control import (
     close_rpc,
     connect_rpc,
     resolve_rpc_point,
+    validate_api_target,
     validate_rpc_target,
 )
+from hardware_adapters.android_api_client import AndroidApiClient
 from core.device_manager import get_device_manager
 from core.lan_discovery import LanDeviceDiscovery
 from models.device import CloudMachineInfo, DeviceInfo, DeviceStatus, DeviceStatusResponse
@@ -241,11 +243,25 @@ async def stop_device(device_id: int):
 
 @router.get("/{device_id}/{cloud_id}/screenshot")
 async def get_cloud_screenshot(device_id: int, cloud_id: int):
-    image_bytes = await _run_rpc_action(
-        device_id,
-        cloud_id,
-        lambda rpc: capture_compressed_image_bytes(rpc),
-    )
+    try:
+        device_ip, api_port = validate_api_target(device_id, cloud_id)
+    except (DeviceNotFoundError, CloudNotFoundError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    def _fetch() -> bytes:
+        client = AndroidApiClient(device_ip, api_port, timeout_seconds=10.0, retries=1)
+        result = client.http.request_bytes("GET", "/snapshot")
+        if not result.get("ok"):
+            raise RuntimeError(result.get("message") or "screenshot failed")
+        data = result.get("data")
+        if not isinstance(data, (bytes, bytearray)) or not data:
+            raise RuntimeError("screenshot returned no image data")
+        return bytes(data)
+
+    try:
+        image_bytes = await to_thread.run_sync(_fetch)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     media_type = "image/png" if image_bytes[:4] == b"\x89PNG" else "image/jpeg"
     return Response(content=image_bytes, media_type=media_type)

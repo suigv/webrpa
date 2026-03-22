@@ -19,6 +19,20 @@ schemes:
   login_flow: "twitter://onboarding/task?flow_token=login"
   settings: "twitter://settings"
 
+stage_patterns:
+  home:
+    content_descs:
+      - "主页"
+    resource_ids:
+      - "com.twitter.android:id/tabs"
+      - "com.twitter.android:id/tab_layout"
+      - "com.twitter.android:id/composer_write"
+  login:
+    resource_ids:
+      - "com.twitter.android:id/ocf_text_input_edit"
+      - "com.twitter.android:id/cta_button"
+      - "com.twitter.android:id/password_edit_text"
+
 states:
   home:
     - selector_key: home_tab
@@ -53,7 +67,7 @@ selectors:
     class_name: "android.widget.EditText"
 
   home_tab:
-    desc_contain: "ホーム"
+    desc_contain: "主页"
   tweet_row:
     id: "com.twitter.android:id/row"
 

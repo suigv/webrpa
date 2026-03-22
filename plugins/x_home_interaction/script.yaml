@@ -12,33 +12,39 @@ steps:
     action: app.stop
     params:
       device_ip: "${vars.cloud_container.device_ip}"
-      cloud_index: "${vars.cloud_container.cloud_index}"
-      app_id: "${payload.app_id:-x}"
+      cloud_index: "${vars.cloud_container.cloud_id}"
+      package: com.twitter.android
 
   - label: 重新启动 X App
     kind: action
     action: app.open
     params:
       device_ip: "${vars.cloud_container.device_ip}"
-      cloud_index: "${vars.cloud_container.cloud_index}"
-      app_id: "${payload.app_id:-x}"
+      cloud_index: "${vars.cloud_container.cloud_id}"
+      package: com.twitter.android
 
   - label: 等待主页加载
     kind: action
     action: ui.wait_until
     params:
       device_ip: "${vars.cloud_container.device_ip}"
-      cloud_index: "${vars.cloud_container.cloud_index}"
+      cloud_index: "${vars.cloud_container.cloud_id}"
       app_id: "${payload.app_id:-x}"
-      state_key: home
-      timeout_ms: 15000
+      app: "${payload.app_id:-x}"
+      package: com.twitter.android
+      state_profile_id: app_stage
+      state_ids:
+        - home
+      timeout_ms: 30000
 
   - label: 下拉刷新时间线
     kind: action
     action: ui.swipe
+    on_fail:
+      strategy: skip
     params:
       device_ip: "${vars.cloud_container.device_ip}"
-      cloud_index: "${vars.cloud_container.cloud_index}"
+      cloud_index: "${vars.cloud_container.cloud_id}"
       direction: down
       distance: 0.6
 
@@ -48,7 +54,7 @@ steps:
     save_as: timeline
     params:
       device_ip: "${vars.cloud_container.device_ip}"
-      cloud_index: "${vars.cloud_container.cloud_index}"
+      cloud_index: "${vars.cloud_container.cloud_id}"
       app_id: "${payload.app_id:-x}"
       ai_type: "${payload.ai_type:-volc}"
       swipe_count_min: 5
@@ -67,5 +73,5 @@ steps:
     action: core.open_candidate
     params:
       device_ip: "${vars.cloud_container.device_ip}"
-      cloud_index: "${vars.cloud_container.cloud_index}"
+      cloud_index: "${vars.cloud_container.cloud_id}"
       candidate: "${vars.picked.candidate}"

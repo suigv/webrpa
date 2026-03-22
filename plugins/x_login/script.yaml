@@ -13,7 +13,7 @@ steps:
     save_as: credential
     params:
       device_ip: "${vars.cloud_container.device_ip}"
-      cloud_index: "${vars.cloud_container.cloud_index}"
+      cloud_index: "${vars.cloud_container.cloud_id}"
       app_id: "${payload.app_id:-x}"
       slot: "${payload.credential_slot:-}"
 
@@ -22,7 +22,7 @@ steps:
     action: app.ensure_running
     params:
       device_ip: "${vars.cloud_container.device_ip}"
-      cloud_index: "${vars.cloud_container.cloud_index}"
+      cloud_index: "${vars.cloud_container.cloud_id}"
       app_id: "${payload.app_id:-x}"
 
   - label: 授予 App 全部权限
@@ -30,7 +30,7 @@ steps:
     action: app.grant_permissions
     params:
       device_ip: "${vars.cloud_container.device_ip}"
-      cloud_index: "${vars.cloud_container.cloud_index}"
+      cloud_index: "${vars.cloud_container.cloud_id}"
       app_id: "${payload.app_id:-x}"
 
   - label: 检测当前登录阶段
@@ -39,7 +39,7 @@ steps:
     save_as: login_stage
     params:
       device_ip: "${vars.cloud_container.device_ip}"
-      cloud_index: "${vars.cloud_container.cloud_index}"
+      cloud_index: "${vars.cloud_container.cloud_id}"
       app_id: "${payload.app_id:-x}"
 
   - label: 检查是否已登录
@@ -58,7 +58,7 @@ steps:
     save_as: login_result
     params:
       device_ip: "${vars.cloud_container.device_ip}"
-      cloud_index: "${vars.cloud_container.cloud_index}"
+      cloud_index: "${vars.cloud_container.cloud_id}"
       app_id: "${payload.app_id:-x}"
       account: "${vars.credential.account}"
       password: "${vars.credential.password}"
