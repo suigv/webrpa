@@ -36,6 +36,7 @@ If you need a pure-web fallback (no devices / no native libs), start backend wit
 - Do not inject implicit payload fields such as `app_id`, `device_ip`, `package`, account aliases, or target metadata unless the selected plugin explicitly declares them in `inputs`.
 - Runtime context belongs in dedicated channels such as `targets` and backend-owned runtime envelopes, not in plugin `payload`.
 - If a page needs task-specific context, add it to the plugin manifest first or route it through a non-payload contract; do not create page-local exceptions.
+- Current backend still carries a small deprecated compatibility seam for legacy `device_ip` payload fallback. Treat that as migration-only behavior: frontend code must not rely on it or reintroduce it.
 
 ## Editor / TypeScript language server
 
@@ -54,6 +55,14 @@ npm run build
 ```
 
 Build output is written to `web/dist/` (not committed).
+
+## Current `/web` behavior
+
+- The backend does **not** serve the Vite build directly.
+- `GET /web` is only a console entry shim:
+  - if `MYT_FRONTEND_URL` is set, backend returns `307` redirect to that URL;
+  - otherwise backend returns `501` with frontend deployment guidance.
+- Browser hands-on verification of the operator console is therefore still distinct from backend API verification.
 
 ## Planned: Device WebRTC takeover
 

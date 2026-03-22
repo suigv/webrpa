@@ -71,6 +71,7 @@ plugins/<plugin_name>/
 - `app_id` 不是全局默认合法字段。只有当插件显式在 `manifest.inputs` 中声明 `app_id` 时，前端/API 才允许将其提交到 payload。
 - `_` 前缀字段仅用于显式兼容/运行时开关；若某个 `_` 字段会影响框架行为，仍应在插件 manifest 中声明，避免行为只存在于隐式约定里。
 - 前端、API、批量派发脚本、管理页等所有提交入口都必须服从同一份 `manifest.inputs` 白名单；禁止页面级私自绕过 catalog/manifest 注入字段。
+- **当前过渡现实**：运行时中仍保留少量 deprecated 兼容口（例如当 `runtime.target` 缺少 `device_ip` 时，部分执行链路仍会回退读取 payload 里的 legacy `device_ip`）。这属于待收敛兼容，不是推荐契约，也不应被新调用方继续依赖。
 
 ### 哪些插件不适合蒸馏
 
@@ -89,6 +90,8 @@ plugins/<plugin_name>/
 如果这些插件也不希望客户在常规任务目录中直接看到，应同时设置：
 
 - `visible_in_task_catalog: false`
+
+> 注意：`distillable: false` 与 `visible_in_task_catalog: false` 不是强绑定关系。像 `one_click_new_device`、`device_reboot` 这类运维/初始化插件，当前代码里虽然不可蒸馏，但仍然可以保持 `visible_in_task_catalog: true`，以便运营直接从任务目录发起。
 
 原因：
 

@@ -153,6 +153,7 @@
 - `targets` 是目标声明通道；不要把 `device_id` / `cloud_id` / `device_ip` 之类运行时上下文重新塞回 `payload`。
 - `app_id` 只有在目标插件显式声明该输入时才允许出现在 `payload` 中。
 - 当 `MYT_STRICT_PLUGIN_UNKNOWN_INPUTS=1` 时，未声明字段会在 dispatch 阶段直接以 `failed_config_error` 拒绝。
+- 当前仍保留少量 deprecated 兼容：某些旧调用路径在 `runtime.target` 缺少 `device_ip` 时，执行层仍会回退读取 payload 中的 legacy `device_ip`。这不是推荐契约，后续会继续收敛。
 
 当任务附带 `display_name`，或属于自然语言驱动的 AI 执行任务（如 `agent_executor`）时，后端会自动创建 / 复用 workflow draft，并在任务响应与 `workflow_draft.updated` SSE 事件里附带：
 - 当前成功样本数与剩余验证次数
