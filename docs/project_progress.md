@@ -6,6 +6,9 @@
 
 ## 1. 当前阶段
 
+- 阶段补充（2026-03-22）：`v1-launch-readiness` 执行状态已完成，当前 **1.0 launch scope** 以设备管理、任务调度、插件执行为边界；该完成态不包含 M5/WebRTC。
+- 验证结论（2026-03-22）：`./.venv/bin/python tools/check_no_legacy_imports.py`、`./.venv/bin/python -m pytest tests -q`、默认 `uvicorn api.server:app` + `/health`、以及 `MYT_ENABLE_RPC=0` 的兼容启动 + `/health` 均已通过。
+- W1.2 状态（2026-03-22）：设备详情弹窗的停止确认文案已经对齐到 **device-scoped** 1.0 合同，`node --test "web/js/features/device_detail_modal.test.js"` 通过，`npm --prefix web run typecheck` 通过；但浏览器实操 QA 仍受环境阻塞，当前环境缺少 Chrome/Chromium，且 Playwright 安装尝试超时，因此这里只记录代码与测试对齐完成，不宣称浏览器实操验证通过。
 - 阶段：**Web Console Productization & Navigation Engine Hardening**
 - 核心状态：API、任务系统、插件执行、账号池全面可用；Web 控制台完成产品化改造；导航引擎具备自愈与锚点机制；AI 执行引擎接入托管链路。
 - 设备接管页当前已支持“截图预览 + 轻控制”：点击截图触发轻触，并提供返回/Home/Enter/退格键、固定方向滑动以及单行文本发送，所有控制仍经由项目 API 转发，不要求浏览器直连设备。

@@ -8,6 +8,18 @@ This document provides a concise "done vs not-done" view tied to the goal and ro
 - Partial: Some deliverables exist; key gaps remain.
 - Planned: Not implemented yet.
 
+## Launch 1.0 Readiness Snapshot
+
+- Launch 1.0 scope is functionally complete for **device management, task scheduling, and plugin execution**.
+- Validation gates passed for this launch-readiness state:
+  - `./.venv/bin/python tools/check_no_legacy_imports.py`
+  - `./.venv/bin/python -m pytest tests -q`
+  - default `uvicorn api.server:app` startup + `/health`
+  - `MYT_ENABLE_RPC=0` compatibility startup + `/health`
+- W1.2 is code-aligned and test-aligned: device-scoped stop wording matches the frozen 1.0 contract, `node --test "web/js/features/device_detail_modal.test.js"` passed, and `npm --prefix web run typecheck` passed.
+- W1.2 hands-on browser QA remains environment-blocked. Playwright launch could not start because Chrome or Chromium was unavailable, and install attempts timed out. This launch state does **not** claim full browser hands-on verification.
+- M5/WebRTC is not part of this completion state. Current launch readiness covers the existing screenshot-preview plus light-control path, not real-time WebRTC takeover.
+
 ## Milestone Status
 
 | Milestone | Status | Evidence Notes |
@@ -16,6 +28,7 @@ This document provides a concise "done vs not-done" view tied to the goal and ro
 | M1 AI Bootstrapping (探索) | Implemented (Unverified) | VLM 自主寻路与 `unknown` 兜底链路已实现，但缺少统一近期证据锚点。 |
 | M2 Data-Driven Mode (演进) | Implemented (Unverified) | `TraceLearner` / `AppConfigWriter` 已落地，但缺少统一近期证据锚点。 |
 | M3 YAML Mastery (蒸馏) | Partial | `GoldenRunDistiller` 基座与相关工具已存在，仍缺多轮蒸馏证据闭环。 |
+| Launch 1.0 readiness | Verified | 1.0 launch scope limited to device management, task scheduling, and plugin execution. Validation gates passed. W1.2 browser hands-on QA remains environment-blocked. M5/WebRTC excluded from this state. |
 
 - **文本化文档对齐 (2026-03-13)**：完成全量 `docs/` 内容审计，确立了多云机动态端口公式，修复了 SDK/API 文档的陈旧代码引用。
 - **执行器热点拆分完成 (2026-03-18)**：`agent_executor` 已拆为 runtime/planning/trace/support/types 多文件结构，`sdk_actions` 已拆为 façade + action catalog，当前热点文件继续演进时的变更面明显缩小。
