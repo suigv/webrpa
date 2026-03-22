@@ -224,7 +224,72 @@ if stage_patterns:
 
 ---
 
-## 阶段五：账号资产与 App 强绑定
+## 阶段五：任务编排与执行速度控制
+
+### 5A：任务编排（Task Pipeline）
+
+**需求**：插件之间需要有执行顺序和循环能力。例如：
+> 采集博主 → 仿冒博主 → 关注截流（顺序执行，可循环）
+
+#### 现状分析
+
+当前框架只支持单插件任务，插件之间无编排关系。`priority` 字段只控制队列优先级，不控制顺序依赖。
+
+#### 设计方案：Pipeline 任务类型
+
+新增 `_pipeline` 内置任务，在 payload 中定义编排：
+
+```json
+{
+  "task": "_pipeline",
+  "devices": [1],
+  "payload": {
+    "steps": [
+      {"plugin": "x_scrape_blogger", "payload": {"ai_type": "volc"}},
+      {"plugin": "x_clone_profile",  "payload": {"ai_type": "volc"}},
+      {"plugin": "x_follow_followers", "payload": {"ai_type": "volc"}}
+    ],
+    "repeat": 3,
+    "repeat_interval_ms": 5000
+  }
+}
+```
+
+#### 实现要点
+
+- [ ] 5A.1 新增 `_pipeline` 内置 runner，按顺序依次调用各插件
+- [ ] 5A.2 支持 `repeat: N`（重复 N 次，`0` 表示无限循环直到取消）
+- [ ] 5A.3 支持 `repeat_interval_ms`：每轮之间的等待时间
+- [ ] 5A.4 任务事件：每个子步骤完成时发出 `pipeline.step_done` 事件
+- [ ] 5A.5 取消支持：取消 pipeline 时，当前执行中的子步骤也能感知并停止
+- [ ] 5A.6 前端 UI：Pipeline 编排界面，拖拽排序插件，设置重复次数
+
+### 5B：全局执行速度控制
+
+**需求**：插件缺少全局等待参数。需要速度滑块 + 随机等待高级参数。
+
+#### 设计方案：框架保留参数（`_` 前缀）
+
+`_speed`、`_wait_min_ms`、`_wait_max_ms` 作为框架级保留参数，所有插件自动支持，无需单独声明：
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `_speed` | string | `normal` | `slow`=2x间隔 / `normal`=1x / `fast`=0.5x |
+| `_wait_min_ms` | integer | `0` | 每个 action 后随机等待最小值 |
+| `_wait_max_ms` | integer | `0` | 每个 action 后随机等待最大值 |
+
+#### 实现要点
+
+- [ ] 5B.1 拟真引擎（HumanizedHelper）读取这些参数，调整操作间隔倍率
+- [ ] 5B.2 Interpreter 在每个 action 执行后，追加 `random.uniform(_wait_min_ms, _wait_max_ms)` ms 等待
+- [ ] 5B.3 `_` 前缀为框架保留命名空间，蒸馏不应硬编码这些值
+- [ ] 5B.4 `_speed` 不影响 `ui.wait_until` 超时，只影响操作间主动等待
+- [ ] 5B.5 前端 UI：任务提交界面统一展示速度滑块和高级等待参数
+
+---
+
+## 阶段六：账号资产与 App 强绑定
+
 
 ### 问题
 
@@ -298,7 +363,7 @@ WHERE json_extract(metadata_json, '$.app_id') IS NOT NULL;
 
 ---
 
-## 阶段六：插件热加载机制
+## 阶段七：插件热加载机制
 
 蒸馏生成新插件后，任务执行路径（`Runner._plugin_loader`）使用启动时的缓存，无法感知新插件，必须重启服务。对于同一 App 的多任务蒸馏积累场景，这是严重阻碍。
 
@@ -357,8 +422,9 @@ clear_shared_plugin_loader_cache()
 - 阶段二依赖阶段一（框架修复后才能安全回退插件硬编码）
 - 阶段三可与阶段二并行（蒸馏改动独立）
 - 阶段四必须在阶段一、二完成后执行（确保插件通过 payload 工作正常）
-- 阶段五可与阶段三、四并行（账号系统改动独立，无依赖）
-- 阶段六可与阶段五并行（热加载改动独立，无依赖）
+- 阶段五（编排+速度）可与阶段三、四并行（框架新增功能，无破坏性依赖）
+- 阶段六（账号绑定）可与任意阶段并行（账号系统改动独立）
+- 阶段七（热加载）可与任意阶段并行（独立改动）
 
 ## 完成标准
 
