@@ -224,7 +224,81 @@ if stage_patterns:
 
 ---
 
-## 阶段五：插件热加载机制
+## 阶段五：账号资产与 App 强绑定
+
+### 问题
+
+账号导入时已支持 `app_id` 字段，但：
+1. **`app_id` 存在 `metadata_json` 里**（`core/account_store.py` schema），无法被 SQL 过滤
+2. **`pop_ready_account` 不过滤 `app_id`**，任何插件都能取到任意 App 的账号
+3. **`list_accounts` 返回所有账号**，前端无法按 app 隔离显示
+4. **`app_id` 默认值是 `"default"`**，导入时不强制选择 App，存在垃圾数据
+
+### 设计决策
+
+- `default` 保留，含义为：**系统级账号/资产**（如 socks5 代理、通用 API key 等），非特定 App
+- 导入非系统资产时 `app_id` 必填，不能为 `default`（前端 UI 强制选择）
+- `credentials.load` action 按 `app_id` 过滤账号池，插件只能取到对应 App 的账号
+- 前端账号列表按 `app_id` 分组展示
+
+### 6.1 DB schema 添加 `app_id` 列（core/account_store.py）
+
+```sql
+ALTER TABLE accounts ADD COLUMN app_id TEXT NOT NULL DEFAULT 'default';
+CREATE INDEX idx_accounts_app_id ON accounts(app_id);
+```
+
+`upsert_account` 将 `app_id` 从 metadata 提升为独立列：
+```python
+fields = [..., "app_id"]  # 加入字段列表
+# app_id 从 data 直接读，不再落入 metadata
+```
+
+### 6.2 `pop_ready_account` 支持 `app_id` 过滤（core/account_store.py）
+
+```python
+def pop_ready_account(self, app_id: str | None = None) -> dict[str, Any] | None:
+    filter_clause = "status = 'ready'"
+    params = []
+    if app_id:
+        filter_clause += " AND (app_id = ? OR app_id = 'default')"
+        params.append(app_id)
+    # ... 余下逻辑不变
+```
+
+注意：`app_id='default'` 的账str | None = None) -> list[dict[str, Any]]:
+    if app_id:
+        rows = conn.execute(
+            "SELECT * FROM accounts WHERE app_id = ? OR app_id = 'default' ORDER BY created_at ASC",
+            (app_id,)
+        ).fetchall()
+    else:
+        # 管理员视图：返回全部
+        rows = conn.execute("SELECT * FROM accounts ORDER BY created_at ASC").fetchall()
+```
+
+### 6.4 `credentials.load` action 传入 `app_id`
+
+插件通过 `app_id: "${payload.app_id:-x}"` 调用 `credentials.load`，action 内部用 `app_id` 过滤账号池。
+
+### 6.5 API 层更新
+
+- `GET /api/data/accounts`：支持 `?app_id=x` 查询参数，前端按 App 分组展示
+- `AccountsImportRequest.app_id`：改为必填（`app_id: str`，移除默认值 `"default"`），前端强制选择
+- 前端导入界面：下拉选择 App（从插件 catalog 动态获取 app_id 列表），无「默认」选项，另有「系统资产」选项对应 `default`
+
+### 6.6 数据迁移
+
+现有 `metadata_json` 中含 `app_id` 的账号需提取到新列：
+```sql
+UPDATE accounts
+SET app_id = json_extract(metadata_json, '$.app_id')
+WHERE json_extract(metadata_json, '$.app_id') IS NOT NULL;
+```
+
+---
+
+## 阶段六：插件热加载机制
 
 蒸馏生成新插件后，任务执行路径（`Runner._plugin_loader`）使用启动时的缓存，无法感知新插件，必须重启服务。对于同一 App 的多任务蒸馏积累场景，这是严重阻碍。
 
@@ -281,13 +355,15 @@ clear_shared_plugin_loader_cache()
 
 - 阶段一是基础，必须首先完成并验证
 - 阶段二依赖阶段一（框架修复后才能安全回退插件硬编码）
-- 阶段三可与阶段二并行
-- 阶段五可与阶段三并行（独立改动，无依赖）
-- 阶段四必须在阶段一二完成后执行（确保插件通过 payload 工作正常）
+- 阶段三可与阶段二并行（蒸馏改动独立）
+- 阶段四必须在阶段一、二完成后执行（确保插件通过 payload 工作正常）
+- 阶段五可与阶段三、四并行（账号系统改动独立，无依赖）
+- 阶段六可与阶段五并行（热加载改动独立，无依赖）
 
 ## 完成标准
 
 - 对任意新 App，agent_executor 执行成功 -> 蒸馏 -> 不重启服务 -> 插件直接二次执行成功
+- 账号导入强制绑定 App，插件只能取到对应 App 的账号
 - 同一 App 多次蒸馏，app yaml 正确累积所有选择器和 stage_patterns
 - 蒸馏生成的 script.yaml 不含 package、state_profile_id 硬编码
 - ai_type 完全从系统层移除，只在插件 payload 层存在
