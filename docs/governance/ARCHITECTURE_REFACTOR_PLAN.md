@@ -224,16 +224,71 @@ if stage_patterns:
 
 ---
 
+## 阶段五：插件热加载机制
+
+蒸馏生成新插件后，任务执行路径（`Runner._plugin_loader`）使用启动时的缓存，无法感知新插件，必须重启服务。对于同一 App 的多任务蒸馏积累场景，这是严重阻碍。
+
+### 现状分析
+
+er._plugin_loader` — 进程启动时加载一次，**之后不更新** ❌
+- `app yaml`（`config/apps/*.yaml`）— 文件形式，`_merge_selectors_to_app_config` merge 追加，天然支持多次蒸馏累积 ✅
+
+### 5.1 fix `Runner` 插件加载（engine/runner.py:44）
+
+**问题**：`self._plugin_loader = get_shared_plugin_loader()` 缓存不更新。
+
+**修复**：任务执行时按需刷新 loader。最小改动方案——在 `run()` 方法里获取插件时用 refresh：
+
+```python
+# engine/runner.py run() 方法内，替换静态 plugin_loader.esh（插件不存在时才 refresh，避免每次扫描）：
+
+```python
+# 优化版：先查缓存，未命中才 refresh
+plugin = self._plugin_loader.get(task_name)
+if plugin is None:
+    plugin = get_shared_plugin_loader(refresh=True).get(task_name)
+```
+
+### 5.2 蒸馏完成后自动触发 loader 刷新
+
+蒸馏完成时（`distill_golden_run.py` 写入插件文件后），通知 Runner 刷新 loader。
+最简实现：蒸馏 API 在写完文件后调用 `clear_shared_plugin_loader_cache()`，下次任务执行时自动重建。
+
+```python
+# api/routes/task_routes.py 蒸馏成功后
+from engine.plugin_loader import clear_shared_plugin_loader_cache
+clear_shared_plugin_loader_cache()
+```
+
+### 5.3 app yaml 热加载（已天然支持）
+
+`config/apps/*.yaml` 是文件，`_merge_selectors_to_app_config` 每次蒸馏都读取并 merge，已支持累积。
+但 `AppConfigManager.load_app_config` 是否有缓存需要确认：
+
+```python
+# core/app_config.py — 确认 get_app_config 无内存缓存
+# 若有 lru_cache 或 _cache 则需清除
+```
+
+### 5.4 验证
+
+1. 蒸馏生成新插件后，**不重启服务**，直接下发该插件任务，确认能正常执行
+2. 同一 App 执行两次不同任务蒸馏，确认 app yaml 正确累积两次的选择器和 stage_patterns
+
+---
+
 ## 执行顺序说明
 
 - 阶段一是基础，必须首先完成并验证
 - 阶段二依赖阶段一（框架修复后才能安全回退插件硬编码）
 - 阶段三可与阶段二并行
+- 阶段五可与阶段三并行（独立改动，无依赖）
 - 阶段四必须在阶段一二完成后执行（确保插件通过 payload 工作正常）
 
 ## 完成标准
 
-- 对任意新 App，agent_executor 执行成功 -> 蒸馏 -> 插件直接二次执行，无需人工补充参数
+- 对任意新 App，agent_executor 执行成功 -> 蒸馏 -> 不重启服务 -> 插件直接二次执行成功
+- 同一 App 多次蒸馏，app yaml 正确累积所有选择器和 stage_patterns
 - 蒸馏生成的 script.yaml 不含 package、state_profile_id 硬编码
 - ai_type 完全从系统层移除，只在插件 payload 层存在
 - 所有现有 x_* 插件回退人工补丁后仍能正常执行
