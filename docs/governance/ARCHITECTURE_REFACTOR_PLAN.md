@@ -2,6 +2,19 @@
 
 > 状态：待执行 | 最后更新：2026-03-22
 
+## 已完成的前置修复（勿重复）
+
+以下问题在本计划制定前已修复，执行本计划时不需要重复处理：
+
+| 修复项 | 文件 | 说明 |
+|--------|------|------|
+| `cloud_container.cloud_index` → `cloud_container.cloud_id` | 所有 x_* 插件 script.yaml | resolve_cloud_container 返回 cloud_id 不是 cloud_index |
+| `_resolve_plugin_app_id` 错误返回 `"default"` | `engine/runner.py` | resolve_app_id(default_app="") 返回 "default" 而非空字符串，导致 manifest default 被跳过 |
+| 截图接口从 RPC 改为 HTTP API | `api/routes/devices.py`、`core/device_control.py` | 截图用 AndroidApiClient /snapshot（30001端口），消除与任务 RPC 的并发竞争 |
+| WebSocket 双通道重复广播 | `api/routes/websocket.py` | DB 轮询用 _mem_broadcast_max_id 跳过主进程已广播事件 |
+| x.yaml home_tab selector 日语→中文 | `config/apps/x.yaml` | desc_contain: "ホーム" → "主页" |
+| x.yaml 添加 stage_patterns | `config/apps/x.yaml` | 手工添加，阶段三完成后需对齐格式 |
+
 ## 设计原则
 
 1. **框架只传 payload，不感知业务语义** — ai_type、app_id 等业务概念只在插件层存在
@@ -64,7 +77,14 @@ def _resolve_package_name(params: dict[str, Any], context: ExecutionContext) -> 
 ```
 在 `app_open`、`app_stop`、`app_ensure_running` 中用此 helper 替换 `params.get("package")`。
 
-### 1.4 验证
+### 1.4 向后兼容说明
+
+阶段一修改是**纯增量**的：
+- 插件显式传 `package`/`state_profile_id`/`app` 时，显式值优先，行为不变
+- 只有插件未传这些参数时，才走新的自动推断路径
+- 现有所有插件在阶段一完成后无需立即修改，可继续正常运行
+
+### 1.5 验证
 
 阶段一完成后：将 `x_home_interaction/script.yaml` 的 `package`、`state_profile_id`、`app` 参数临时注释，提交任务，确认仍能成功执行。成功则进入阶段二。
 
@@ -90,9 +110,12 @@ def _resolve_package_name(params: dict[str, Any], context: ExecutionContext) -> 
 - `state_profile_id` 参数（除非有特殊覆盖需求）
 - `app:` 参数（框架已通过 app_id 注入）
 
-### 2.3 `config/apps/x.yaml` stage_patterns 格式对齐
+### 2.3 `config/apps/x.yaml` 已知问题
 
-当前手工添加的 `stage_patterns` 需与阶段三蒸馏输出格式对齐。阶段三完成后对比确认，必要时调整格式。
+- `stage_patterns.home` 当前使用 `resource_ids`（tabs、tab_layout、composer_write），这是正确的
+- **注意**：`_extract_app_stage_patterns` 对 `stage_patterns` 路径下的 `content_descs` 字段不会自动转为 `text_markers`（只有 `selectors` 路径才会）。因此 stage_patterns 里必须用 `resource_ids` 或 `text_markers`，不能用 `content_descs`
+- `login_entry_btn` selector 文本仍是日语（`ログイン`）——中文设备界面登录按钮文字可能是「ログイン」或「登录」，需实测确认后修正
+- 格式需与阶段三蒸馏输出格式对齐，阶段三完成后对比确认
 
 ---
 
@@ -130,6 +153,16 @@ if stage_patterns:
 ### 3.2 确认蒸馏输出不含硬编码
 
 确认 `_build_draft` 生成的 `ui.wait_until` 步骤（L256）只含 `expected_state_ids`、`timeout_ms`、`interval_ms`，不含 `state_profile_id`、`package`。当前代码已如此，确认即可。
+
+### 3.3 注意 `_extract_app_stage_patterns` 的字段限制
+
+`_extract_app_stage_patterns`（state_actions.py L122）在解析 `stage_patterns` 路径时，支持的字段为：
+- `resource_ids` / `resource_id_markers`
+- `focus_markers` / `window_markers`
+- `text_markers` / `texts`
+- `content_descs`（注意：此字段在 `selectors` 路径下才自动转为 text_markers，在 `stage_patterns` 路径下不生效）
+
+蒸馏沉淀时应优先使用 `resource_ids`，这是最可靠的状态识别方式。
 
 ---
 
@@ -175,6 +208,19 @@ if stage_patterns:
 - `tests/test_task_request_contracts.py`
 
 补充回归测试：验证插件通过 `payload` 正确消费 `ai_type`，且 `TaskRequest` 不含 `ai_type` 时任务仍能正常下发。
+
+---
+
+### 4.5 待验证的 core action 参数
+
+以下 action 的参数名称和行为在插件层未经完整验证，阶段四前需逐一确认：
+
+| action | 插件用法 | 待确认项 |
+|--------|----------|----------|
+| `core.extract_timeline_candidates` | `app_id`、`ai_type`、`swipe_count_min/max` | 参数名是否正确，ai_type 移入 payload 后是否需要调整 |
+| `core.pick_candidate` | `candidates`、`ai_type` | 同上 |
+| `core.open_candidate` | `device_ip`、`cloud_index`、`candidate` | 参数名是否正确 |
+| `credentials.load` | `device_ip`、`cloud_index`、`app_id`、`slot` | 验证 app_id 在 payload 里能否正确读取 |
 
 ---
 
