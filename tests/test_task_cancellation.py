@@ -9,6 +9,8 @@ from fastapi.testclient import TestClient
 from api.server import app
 from core.account_feedback import AccountFeedbackService
 from core.device_manager import DeviceManager
+from core.task_events import TaskEventStore
+from core.task_finalizer import TaskAttemptFinalizer
 from core.task_control import (
     TaskController,
     override_task_controller_for_tests,
@@ -185,3 +187,40 @@ def test_account_feedback_service_does_not_mutate_on_cancellation_adjacent_path(
     )
 
     assert writes == []
+
+
+def test_finalizer_exception_after_cancel_uses_user_reason(tmp_path: Path):
+    db_path = tmp_path / "task_finalizer_cancel_reason.db"
+    store = TaskStore(db_path=db_path)
+    events = TaskEventStore(db_path=db_path)
+    finalizer = TaskAttemptFinalizer(store=store, event_store=events)
+
+    with store.transaction(immediate=True) as conn:
+        record = store.create_task(
+            task_id="task-cancel-reason",
+            payload={"task": "anonymous"},
+            devices=[1],
+            targets=[{"device_id": 1, "cloud_id": 1}],
+            ai_type="default",
+            max_retries=0,
+            retry_backoff_seconds=0,
+            priority=0,
+            run_at=None,
+            conn=conn,
+        )
+        store.mark_running(record.task_id, conn=conn)
+        store.request_cancel(record.task_id, conn=conn)
+
+    outcome = finalizer.finalize_exception_attempt(
+        task_id="task-cancel-reason",
+        task_name="anonymous",
+        error="interrupted by cancellation",
+    )
+
+    assert outcome.should_enqueue_retry is False
+    task_events = events.list_events("task-cancel-reason")
+    assert [event.event_type for event in task_events] == [
+        "task.dispatch_result",
+        "task.cancelled",
+    ]
+    assert task_events[1].payload["reason"] == "user"

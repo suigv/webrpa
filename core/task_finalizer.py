@@ -174,7 +174,7 @@ class TaskAttemptFinalizer:
                     task_id=task_id,
                     result=terminal_result,
                     message="cancelled by user",
-                    reason="user_exception_path",
+                    reason="user",
                     conn=conn,
                 )
             else:
