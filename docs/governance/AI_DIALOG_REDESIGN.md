@@ -26,7 +26,7 @@
 ### 流程
 
 1. 用户输入自然语言 goal（如「帮我登录 X」）
-2. 前端调用轻量 LLM（`ai_di）并追问用户
+2. 前端调用轻量 LLM（`ai_dialog_planner`）识别意图、推断缺失参数并追问用户
    - 账号可从账号池列表选择，无需手填
 3. 构建 `agent_executor` payload，自动填入 `expected_state_ids`、`allowed_actions` 等
 4. 下发任务，进入执行状态（见第四节）
@@ -54,7 +54,14 @@
 ```
 
 - **立即执行**：直接重放上次完整 payload，零交互
-- **编辑后执行**：展开对话，只修改变化分组展示
+- **编辑后执行**：展开对话，只修改变化的参数（如换账号）
+
+### 账号策略
+
+重放时上次账号可能已 `in_progress` 或 `banned`，策略：
+- 默认从账号池重新取同 app_id 的可用账号
+- 若上次账号仍 `ready`，优先使用（保持操作连续性）
+- 若账号池为空，提示用户补充账号后再执行
 
 ---
 
@@ -100,7 +107,8 @@ AI 操作  → trace_record(source="ai",    action="ui.click", ...)
 ```
 
 - 前端接管模式的操作通过现有 `/api/devices/{id}/{cloud}/tap` 等接口执行
-- 这些 API uided: true`
+- 这些 API 新增可选参数 `trace_context: {task_id, run_id}`，传入时写入 trace record 并标记 `human_guided: true`
+- **关键**：前端接管模式必须持有当前任务的 `task_id` 和 `run_id`，才能将操作关联到正确蒸馏上下文
 
 **价值**：用户接管解决的「AI 卡住」场景 = app yaml 里缺失的边缘状态处理。这是最高质量的蒸馏数据，沉淀后 AI 下次遇到相同情况不再卡住。
 
@@ -115,7 +123,8 @@ AI 操作  → trace_record(source="ai",    action="ui.click", ...)
 
 ## 六、系统提示词分层管理
 
-当前前端有 `unitAiSystemPrompt` 输入框，用户手填，层 | `config/apps/{app}.yaml` 的 `agent_hint` 字段 | ❌ | App 特有提示（界面语言、常见弹窗、按钮文字）|
+当前前端有 `unitAiSystemPrompt` 输入框，用户手填——这是错误设计。
+ | `config/apps/{app}.yaml` 的 `agent_hint` 字段 | ❌ | App 特有提示（界面语言、常见弹窗、按钮文字）|
 | 任务层 | `ai_dialog_planner` 根据 goal 生成 | ❌ | 当前任务目标、成功标志 |
 | 用户层 | 用户手填（高级选项，默认隐藏）| ✅ | 专家模式自定义补充 |
 
@@ -179,10 +188,17 @@ agent_hint: |
 
 ### Phase 1：执行状态浮层（最高价值，独立可交付）
 - [ ] 1.1 前端新增 AI 执行浮层组件，消费 WebSocket `task.action_result` 事件
-- [ ] 1.ner` 轻量 LLM 调用：意图识别 + 参数推断
-- [ ] 2.2 `expected_state_ids` 从 app yaml states 自动推断
-- [ ] 2.3 无 app yaml 时自动使用探索模式
-- [ ] 2.4 对话式账号选择（从账号池列表，按 app_id 过滤）
+- [ ] 1.2 浮层展示：步骤序号、label（人话描述）、成功/失败/进行中状态
+- [ ] 1.3 停滞检测触发时弹出干预选项（继续等待/我来接管/放弃）
+- [ ] 1.4 取消按钮调用现有取消任务 API
+
+### Phase 2：交互式对话下发
+- [ ] 2.1 新增 `ai_dialog_planner` 轻量 LLM 调用：意图识别 + 参数推断
+  - 使用轻量模型（Haiku 级别），控制调用成本，不用 agent_executor 同款重模型
+- [ ] 2.2 `expected_state_ids` 从 app yaml states 自动推断，无 yaml 时用 `["unknown"]`
+- [ ] 2.3 对话式账号选择（从账号池列表，按 app_id 过滤）
+- [ ] 2.4 `allowed_actions` 从 app yaml 读取，无 yaml 时用框架全集
+- [ ] 2.5 任务完成后询问是否保存为快捷任务
 
 ### Phase 3：历史任务快捷重放
 - [ ] 3.1 `workflow_drafts` 新增 `source: ai_dialog` 标记
@@ -190,7 +206,13 @@ agent_hint: |
 - [ ] 3.3 前端历史任务卡片（按 App 分组，一键执行/编辑执行）
 
 ### Phase 4：用户接管与统一 Trace
-- [ ] 4.1 `ModelTraceStore` 新增 `source` Phase 5：系统提示词分层
+- [ ] 4.1 `ModelTraceStore` trace record 新增 `source`（`ai`/`human`）和 `human_guided` 字段
+- [ ] 4.2 `api/routes/devices.py` tap/swipe/key_press 接口支持可选 `trace_context` 参数，传入时写入 trace record
+- [ ] 4.3 前端接管模式持有当前 `task_id` 和 `run_id`，操作时透传
+- [ ] 4.4 agent_executor 暂停/恢复 API（接管时暂停，交还时从当前 UI 状态重新观察继续）
+- [ ] 4.5 蒸馏器不过滤 `source`，`human_guided` 步骤在蒸馏报告中标注
+
+### Phase 5：系统提示词分层
 - [ ] 5.1 app yaml 新增 `agent_hint` 字段
 - [ ] 5.2 agent_executor 合并各层 system prompt
 - [ ] 5.3 蒸馏时从执行记录提取 agent_hint 沉淀到 app yaml

@@ -84,6 +84,10 @@ def _resolve_package_name(params: dict[str, Any], context: ExecutionContext) -> 
 - 只有插件未传这些参数时，才走新的自动推断路径
 - 现有所有插件在阶段一完成后无需立即修改，可继续正常运行
 
+### 1.4b `credentials.load` action 兼容性确认
+
+插件通过 `credentials.load` 加载账号时传入 `app_id: "${payload.app_id:-x}"`，该参数经由 payload 注入机制已在 context.payload 里。确认 `credentials_load` action 能正确从 payload 读取 `app_id` 用于账号池过滤（阶段六完成后才生效，此处仅确认参数链路正确）。
+
 ### 1.5 验证
 
 阶段一完成后：将 `x_home_interaction/script.yaml` 的 `package`、`state_profile_id`、`app` 参数临时注释，提交任务，确认仍能成功执行。成功则进入阶段二。
@@ -188,6 +192,7 @@ if stage_patterns:
 | `api/routes/task_routes.py` | `TaskRequest` 不再有 `ai_type`，移除相关代码 |
 | `api/routes/devices.py` | 移除返回 `ai_type` 的设备信息字段 |
 | `web/js/features/task_service.js` | 将 `ai_type` 移入 payload（`payload: {...payload, ai_type: selectedValue}`），移除顶层 `ai_type` 字段 |
+| `web/js/features/devices.js` 等 | 移除设备列表中 `ai_type` 的展示字段（设备卡片不再显示运营角色）|
 
 ### 4.3 可选：payload_defaults 机制
 
