@@ -12,6 +12,7 @@ const ThemeManager = {
       this.currentTheme = saved;
     }
     this.applyTheme(this.currentTheme);
+    this.updateLabel();
     
     const btn = document.getElementById('themeToggle');
     if (btn) btn.addEventListener('click', () => this.toggle());
