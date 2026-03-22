@@ -2,6 +2,8 @@
 
 This roadmap translates `docs/PROJECT_GOALS.md` into milestones with clear completion criteria and a status signal that distinguishes verified work from unverified implementation.
 
+It is a **future-facing planning document**, not the source of truth for the current frozen 1.0 launch scope. For the current verified launch state, use `docs/STATUS.md` first.
+
 ## Status Legend
 - Verified: Evidence captured (tests or validation logs).
 - Implemented (Unverified): Code exists but verification evidence is missing.
@@ -9,6 +11,8 @@ This roadmap translates `docs/PROJECT_GOALS.md` into milestones with clear compl
 - Planned: Not implemented yet.
 
 ## Milestones
+
+Current framing note: the verified Launch 1.0 state is limited to **device management, task scheduling, and plugin execution**. The milestones below remain useful for planning and sequencing, but they should not be read as a list of features already included in the current launch-ready scope.
 
 ### M0: Baseline Compliance and Runtime Stability
 Status: Verified.
@@ -36,6 +40,7 @@ Definition of done: Account system (authentication + basic access control) is pr
 
 ### M5: Device Console Live Takeover (WebRTC)
 Status: Planned.
+Post-1.0 framing: This milestone is explicitly **out of scope for the frozen 1.0 launch state** and is retained here as future roadmap work only.
 Definition of done: The device detail/takeover page supports switching from snapshot preview to WebRTC-based live monitoring and interactive control, with a safe production deployment path.
 Current target:
 - Keep the current screenshot preview as a fallback path and add a separate WebRTC live takeover mode instead of a hard replacement.

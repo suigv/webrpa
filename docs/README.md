@@ -1,78 +1,47 @@
-# WebRPA 文档中心
+# WebRPA Docs
 
-# WebRPA 是一个基于 **“行为编译器 (Behavior Compiler)”** 理念构建的下一代 RPA 自动化平台。它不依赖于僵化的硬编码规则，而是利用 AI (VLM/LLM) 的原生视觉直觉进行自主探索，并自动将探索出的行为路径转化为高性能、零 AI 依赖的工业级 YAML 插件。
+`docs/STATUS.md` is the **current truth anchor** for the frozen 1.0 launch state.
 
-### 核心演进逻辑：成熟度漏斗 (Maturity Funnel)
-系统通过以下三个阶段实现任务的闭环演进：
-1.  **AI 自主探索 (Bootstrapping)**：打破规则枷锁，实现 0-1 的视觉寻路。
-2.  **数据驱动执行 (Native Mode)**：自动沉淀感知记忆，将经验转化为确定性数据，平滑提效。
-3.  **终极插件蒸馏 (YAML Mastery)**：编译生成高可确定、脱离大模型依赖的生产级插件脚本。
+This docs landing page is intentionally conservative:
 
-欢迎使用 WebRPA 开发文档。本文档库旨在提供项目现状、开发规范及架构设计的单一事实来源。
+- **1.0 launch scope is limited to** device management, task scheduling, and plugin execution.
+- **Browser hands-on QA remains environment-blocked**; current docs should not imply full browser live verification.
+- **M5/WebRTC is out of scope for 1.0** and belongs only to future-facing roadmap/strategy materials.
 
----
+## Current reference
 
-## 🚀 Quick Start
-- **[AI 会话必读指南 (AI Onboarding Guide)](AI_ONBOARDING.md)**: 开启新会话或新 AI 介入时，请优先引导其阅读此文档以同步项目上下文。
+Use these first when you need the current contract, current state, or launch-readiness boundaries.
 
-## 最新变更
-- `agent_executor` 已进一步拆成 runtime/planning/trace/support/types 多文件结构；`sdk_actions` 也已拆为 façade + catalog，降低两个热点文件继续膨胀的风险。
-- 设备/云机可用性现在支持提前熔断：活跃 target 连续 probe 失败达到 unavailable 阈值后，任务会直接以 `failed_circuit_breaker` / `target_unavailable` 终止，而不是等后续 RPC 超时。
-- 相关背景与实现记录见 `docs/TECHNICAL_DEBT.md`、`docs/project_progress.md`；运行参数见 `docs/CONFIGURATION.md`。
+- **[STATUS.md](STATUS.md)** — current status matrix and launch-readiness snapshot; start here.
+- **[HTTP_API.md](HTTP_API.md)** — current backend control-plane API reference.
+- **[PLUGIN_CONTRACT.md](PLUGIN_CONTRACT.md)** — current plugin/runtime payload contract.
+- **[CONFIGURATION.md](CONFIGURATION.md)** — current configuration and environment-variable reference.
+- **[FRONTEND.md](FRONTEND.md)** — current frontend deployment contract and known constraints.
+- **[AI_ONBOARDING.md](AI_ONBOARDING.md)** — guided reading order for new AI sessions.
 
-## 文档索引 (Index)
-- **[架构演进 2.0 (Architecture 2.0)](architecture_2_0.md)**：项目灵魂，描述了从寻找路径到自动固化再到生成 YAML 的进化漏斗。
-- **[项目进度看板 (Project Progress)](project_progress.md)**：实时变动日志。
-- **[北极星目标 (Project Goals)](PROJECT_GOALS.md)**：双阶段演进与 YAML 大师战略。
-- **[AI Onboarding 必读](AI_ONBOARDING.md)**：新会话启动指南。
-- **[AI 工作流设计清单 (AI Workflow Checklist)](ai_workflow_design_checklist.md)**  
-  设计基于 LLM/VLM 的自主智能体流程时的关键考量点。
+## Historical / governance
 
----
+Use these for implementation history, debt tracking, handoff context, and governance records. They are useful, but they are **not** the primary source for the frozen 1.0 launch snapshot.
 
-## 🛠 开发指南 (Core Contracts)
-- **[插件开发与输入规范 (Plugin Contract)](PLUGIN_CONTRACT.md)**  
-  当前运行时 YAML 插件契约（`manifest.api_version: v1` / `script.version: v1`）的核心语法、输入参数声明及变量插值规则。
-- **[AI 工作流设计清单 (AI Workflow Checklist)](ai_workflow_design_checklist.md)**  
-  设计基于 LLM/VLM 的自主智能体流程时的关键考量点。
+- **[project_progress.md](project_progress.md)** — historical progress log plus rolling summary; read as log-oriented history, not the primary current-state source.
+- **[TECHNICAL_DEBT.md](TECHNICAL_DEBT.md)** — active debt register and anti-regression guardrails.
+- **[HANDOFF.md](HANDOFF.md)** — continuation/runbook context for deeper engineering handoff.
+- **[monitoring_rollout.md](monitoring_rollout.md)** — monitoring rollout notes and operational guidance.
+- **[stale_running_recovery_tuning.md](stale_running_recovery_tuning.md)** — stale-running tuning guidance.
 
----
+## Future / strategy
 
-## 📡 API 参考
-- **[WebRPA HTTP API（本服务）](HTTP_API.md)**  
-  FastAPI 暴露的控制面接口（任务/设备/账号池/蒸馏/Schema 等），以及 `/web` 与 `/ws/logs`。
-- **[盒子内 SDK API（8000）](MYT_SDK_API.md)**  
-  设备级 SDK 接口（云机容器、镜像、备份、VPC 等）。
-- **[MYTOS Android API (api_port)](MYTOS_API.md)**  
-  云机级 Android HTTP API（剪贴板、代理、文件、系统配置等）。
-- **[Android RPA SDK (rpa_port)](ANDROID_RPA_SDK.md)**  
-  RPA 控制 SDK（触控、UI 节点、截图、视频流等）。
+Use these for direction-setting and longer-horizon planning. They should not be read as proof that those items are in the frozen 1.0 launch scope.
 
----
+- **[ROADMAP.md](ROADMAP.md)** — milestone planning and future work. M5/WebRTC belongs here as post-1.0 work.
+- **[PROJECT_GOALS.md](PROJECT_GOALS.md)** — long-range goals and success criteria.
+- **[architecture_2_0.md](architecture_2_0.md)** — strategic architecture vision.
+- **[SKILLS_EVOLUTION.md](SKILLS_EVOLUTION.md)** — future-facing architecture/skills evolution analysis.
+- **[ai_workflow_design_checklist.md](ai_workflow_design_checklist.md)** — design checklist for AI workflow evolution.
 
-## 🏗 架构与设计 (Architecture)
-- **[技术债与治理报告 (Technical Debt)](TECHNICAL_DEBT.md)**  
-  记录系统级的设计缺陷、冗余及后续重构计划。
-- **[系统交接文档 (Handoff Guide)](HANDOFF.md)**  
-  深度架构解析、依赖拓扑及核心组件（Runner, Interpreter, Controller）的运行机制。
-- **[Skills化演进与架构评估 (Skills Evolution)](SKILLS_EVOLUTION.md)**  
-  评估项目“技能化”进度，分析架构阻力并指明 AI 自动合成技能的演进方向。
-- **[自主学习与感知记忆系统 (Architecture 2.0)](architecture_2_0.md)**  
-  设计目标：解决冷启动悖论，通过感知记忆消除硬编码，实现 AI 自主进化。
+## Quick orientation
 
----
-
-## ⚙️ 运维与调优
-- **[配置与环境变量参考 (Configuration)](CONFIGURATION.md)**  
-  全量环境变量说明、默认值及典型启动场景。
-- **[监控部署指南 (Monitoring Rollout)](monitoring_rollout.md)**  
-  Prometheus 采集、告警配置及面板渲染说明。
-- **[僵尸任务恢复调优 (Stale Running Tuning)](stale_running_recovery_tuning.md)**  
-  关于 `MYT_TASK_STALE_RUNNING_SECONDS` 的校准与演练建议。
-
----
-
-## 📚 规划与目标 (Goals & Roadmap)
-- **[项目目标 (Project Goals)](PROJECT_GOALS.md)**：北极星目标、成功标准与蒸馏门槛定义。
-- **[里程碑规划 (Roadmap)](ROADMAP.md)**：M0-M4 里程碑状态与下一步证据行动。
-- **[当前状态矩阵 (Status)](STATUS.md)**：功能完成度的 done/not-done 视图。
+1. Read **[STATUS.md](STATUS.md)** for the current launch-ready snapshot.
+2. Use **[HTTP_API.md](HTTP_API.md)**, **[PLUGIN_CONTRACT.md](PLUGIN_CONTRACT.md)**, **[CONFIGURATION.md](CONFIGURATION.md)**, and **[FRONTEND.md](FRONTEND.md)** for current contracts.
+3. Use **[project_progress.md](project_progress.md)** and **[TECHNICAL_DEBT.md](TECHNICAL_DEBT.md)** for history and governance context.
+4. Read **[ROADMAP.md](ROADMAP.md)** and related strategy docs only as future-facing material.

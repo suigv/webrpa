@@ -1,48 +1,66 @@
-# AI Agent 上传/会话读取指南 (Onboarding Guide)
+# AI Agent Onboarding Guide
 
-为了让新会话的 AI 能够快速理解项目现状并保持架构一致性，建议在新会话开始时，引导其按以下优先级读取文档。
+This guide is for new AI sessions entering the repository.
 
----
+Start from the **current launch-state docs**, not from strategy or vision materials.
 
-## 🟢 第一级：必读上下文 (Essential Context)
-**用途**：理解“我们在做什么”以及“现在做到了哪里”。
+## Current-state first rules
 
-- **[架构演进 2.0 (Architecture 2.0)](architecture_2_0.md)**  
-  *项目的灵魂与进化论。* 描述了从“受限 AI”转向“解放 AI”的成熟度漏斗模型，以及自主演进、感知记忆和终极 YAML 蒸馏的逻辑。
-- **[项目进度看板 (Project Progress)](project_progress.md)**  
-  *实时更新的变更日志。* 重点看“最近变动”和“当前状态统计”，避免 AI 建议已废弃的模块。
-- **[项目核心目标 (Project Goals)](PROJECT_GOALS.md)**  
-  *决策锚点。* 定义了 North Star 指标和 Core Goals（如：AI 自主执行、技能蒸馏）。
+- Treat **Launch 1.0 scope as frozen**: device management, task scheduling, and plugin execution.
+- Treat **`docs/STATUS.md` as the current truth anchor**.
+- Do **not** infer that browser hands-on QA is complete; it remains environment-blocked.
+- Do **not** treat M5/WebRTC as current launch scope; it is future roadmap material only.
+- Strategy docs help with direction, but they are **not** the current implementation contract.
 
----
+## Recommended reading order
 
-## 🟡 第二级：技术规范 (Technical Specs)
-**用途**：理解“怎么写代码”以及“接口契约是什么”。
+### 1. Read first: current launch-state snapshot
 
-- **[插件契约规范 (Plugin Contract)](PLUGIN_CONTRACT.md)**  
-  *YAML 编写指南。* AI 生成 Skills (YAML) 时必须遵循的 Pydantic 字段规范。
-- **[设备与多云架构 (Android RPA SDK)](ANDROID_RPA_SDK.md)**  
-  *环境定义。* 描述了多云机隔离、端口计算公式 (`30001/30002`) 以及 RPA 通讯机制。
-- **[系统状态矩阵 (Status Matrix)](STATUS.md)**  
-  *里程碑核对。* 快速了解 M0-M4 各个阶段的 Verified（已验证）vs Planned（规划中）情况。
+- **[STATUS.md](STATUS.md)**  
+  Start here for the frozen 1.0 launch snapshot, current verification boundary, browser QA caveat, and explicit exclusion of M5/WebRTC from launch scope.
+- **[README.md](README.md)**  
+  Docs landing page that separates current reference docs from historical/governance material and future/strategy material.
 
----
----
+### 2. Read next: current contracts
 
-## 🛠️ AI 行为守则 (Agent Responsibilities)
-- **文档自愈 (Self-Documenting)**：根据 `AGENTS.md` 规范，AI 在完成任何功能开发、Action 新增或重构后，**必须**同步更新相关文档（包括但不限于 `/docs` 目录、`ActionMetadata` 声明以及 `project_progress.md`）。
-- **校验为先**：必须在提交前执行 `check_no_legacy_imports.py` 和 `pytest`。
+- **[HTTP_API.md](HTTP_API.md)**  
+  Current backend/API contract.
+- **[PLUGIN_CONTRACT.md](PLUGIN_CONTRACT.md)**  
+  Current plugin manifest, payload, and runtime contract.
+- **[CONFIGURATION.md](CONFIGURATION.md)**  
+  Current runtime configuration and environment-variable contract.
+- **[FRONTEND.md](FRONTEND.md)**  
+  Current frontend deployment model, payload boundary, and known constraints.
 
-## 🔵 第三级：架构深潜 (Deep Architecture)
-**用途**：理解“代码库的解耦逻辑”以及“核心组件职责”。
+### 3. Read after that: historical and governance context
 
-- **[系统交接文档 (Handoff Guide)](HANDOFF.md)**  
-  *“活地图”。* 深度解析 `Runner`, `Interpreter`, `TaskController` 之间的调用拓扑。
-- **[脚本执行路线图 (Roadmap)](ROADMAP.md)**  
-  *长期规划。* 明确后续重构和功能开发的具体路径。
+- **[project_progress.md](project_progress.md)**  
+  Historical/log-oriented progress record. Useful for chronology and recent changes, but not the primary current-state contract.
+- **[TECHNICAL_DEBT.md](TECHNICAL_DEBT.md)**  
+  Current debt register, guardrails, and anti-regression context.
+- **[HANDOFF.md](HANDOFF.md)**  
+  Deeper engineering handoff and continuation context.
 
----
+### 4. Read last: future / vision / strategy
 
-## 💡 AI 引导建议 (Prompt Suggestion)
-在新会话的第一条指令中，您可以直接发送：
-> “请先按优先级读取 `docs/AI_ONBOARDING.md` 中定义的**必读上下文**，确保你了解最新的重构进度（如 ActionRegistry 增强）和 Skills 演进路线后，再开始处理 [您的具体需求]。”
+These documents are useful for long-range direction, but they should not be treated as proof of what is included in the frozen 1.0 launch state.
+
+- **[ROADMAP.md](ROADMAP.md)**  
+  Future milestone framing, including post-1.0 items such as M5/WebRTC.
+- **[PROJECT_GOALS.md](PROJECT_GOALS.md)**  
+  Long-range goals and success criteria.
+- **[architecture_2_0.md](architecture_2_0.md)**  
+  Strategic architecture vision.
+- **[SKILLS_EVOLUTION.md](SKILLS_EVOLUTION.md)**  
+  Future-facing architecture evolution analysis.
+
+## AI responsibilities
+
+- Keep recommendations aligned with the current docs hierarchy above.
+- Prefer current contracts over historical notes when they differ.
+- Update relevant docs when functional changes alter the current contract.
+- Do not over-claim completion, especially around browser hands-on QA or WebRTC takeover.
+
+## Suggested first prompt for a new session
+
+> Please read `docs/STATUS.md` and `docs/README.md` first, then review the current contract docs in `docs/AI_ONBOARDING.md` before making changes.
