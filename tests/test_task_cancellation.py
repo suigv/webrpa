@@ -79,6 +79,16 @@ def _wait_until_status(
     return False
 
 
+def _wait_for_run_id(controller: TaskController, task_id: str, timeout_s: float = 3.0) -> str | None:
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        record = controller.get(task_id)
+        if record is not None and record.active_run_id:
+            return str(record.active_run_id)
+        time.sleep(0.05)
+    return None
+
+
 def test_running_task_can_be_cancelled_via_api(tmp_path: Path):
     reset_task_controller_for_tests()
     db_path = tmp_path / "tasks_cancel_test.db"
@@ -171,6 +181,128 @@ def test_cancel_requested_with_runner_exception_marks_cancelled_not_failed(tmp_p
         reset_task_controller_for_tests()
         if db_path.exists():
             db_path.unlink()
+
+
+def test_running_task_can_be_paused_and_resumed_via_api(tmp_path: Path):
+    reset_task_controller_for_tests()
+    db_path = tmp_path / "tasks_pause_resume_test.db"
+    controller = TaskController(
+        store=TaskStore(db_path=db_path),
+        queue_backend=InMemoryTaskQueue(),
+        runner=CancellableFakeRunner(),
+    )
+    override_task_controller_for_tests(controller)
+
+    try:
+        with TestClient(app) as client:
+            create = client.post(
+                "/api/tasks/",
+                json={
+                    "script": {"task": "anonymous", "steps": []},
+                    "devices": [1],
+                    "ai_type": "volc",
+                    "max_retries": 0,
+                    "retry_backoff_seconds": 0,
+                },
+            )
+            assert create.status_code == 200
+            task_id = create.json()["task_id"]
+            assert _wait_until_status(client, task_id, "running", timeout_s=2.0)
+
+            pause = client.post(f"/api/tasks/{task_id}/pause", json={"reason": "operator_pause"})
+            assert pause.status_code == 200
+            assert pause.json()["paused"] is True
+            assert _wait_until_status(client, task_id, "paused", timeout_s=3.0)
+
+            resume = client.post(f"/api/tasks/{task_id}/resume", json={"reason": "operator_resume"})
+            assert resume.status_code == 200
+            assert resume.json()["resumed"] is True
+            assert _wait_until_status(client, task_id, "completed", timeout_s=4.0)
+    finally:
+        reset_task_controller_for_tests()
+
+
+def test_running_task_takeover_requires_matching_run_id(tmp_path: Path):
+    reset_task_controller_for_tests()
+    db_path = tmp_path / "tasks_takeover_test.db"
+    controller = TaskController(
+        store=TaskStore(db_path=db_path),
+        queue_backend=InMemoryTaskQueue(),
+        runner=CancellableFakeRunner(),
+    )
+    override_task_controller_for_tests(controller)
+
+    try:
+        with TestClient(app) as client:
+            create = client.post(
+                "/api/tasks/",
+                json={
+                    "script": {"task": "anonymous", "steps": []},
+                    "devices": [1],
+                    "ai_type": "volc",
+                    "max_retries": 0,
+                    "retry_backoff_seconds": 0,
+                },
+            )
+            assert create.status_code == 200
+            task_id = create.json()["task_id"]
+            assert _wait_until_status(client, task_id, "running", timeout_s=2.0)
+
+            active_run_id = _wait_for_run_id(controller, task_id)
+            assert active_run_id
+
+            bad = client.post(
+                f"/api/tasks/{task_id}/takeover",
+                json={"run_id": "wrong-run", "owner": "operator-a"},
+            )
+            assert bad.status_code == 409
+
+            good = client.post(
+                f"/api/tasks/{task_id}/takeover",
+                json={"run_id": active_run_id, "owner": "operator-a"},
+            )
+            assert good.status_code == 200
+            assert good.json()["takeover_state"] == "takeover_requested"
+            assert _wait_until_status(client, task_id, "paused", timeout_s=3.0)
+    finally:
+        reset_task_controller_for_tests()
+
+
+def test_paused_task_can_be_cancelled_via_api(tmp_path: Path):
+    reset_task_controller_for_tests()
+    db_path = tmp_path / "tasks_pause_cancel_test.db"
+    controller = TaskController(
+        store=TaskStore(db_path=db_path),
+        queue_backend=InMemoryTaskQueue(),
+        runner=CancellableFakeRunner(),
+    )
+    override_task_controller_for_tests(controller)
+
+    try:
+        with TestClient(app) as client:
+            create = client.post(
+                "/api/tasks/",
+                json={
+                    "script": {"task": "anonymous", "steps": []},
+                    "devices": [1],
+                    "ai_type": "volc",
+                    "max_retries": 0,
+                    "retry_backoff_seconds": 0,
+                },
+            )
+            assert create.status_code == 200
+            task_id = create.json()["task_id"]
+
+            pause = client.post(f"/api/tasks/{task_id}/pause", json={"reason": "operator_pause"})
+            assert pause.status_code == 200
+            assert pause.json()["paused"] is True
+
+            cancel = client.post(f"/api/tasks/{task_id}/cancel")
+            assert cancel.status_code == 200
+            assert cancel.json()["cancelled"] is True
+            assert _wait_until_status(client, task_id, "cancelled", timeout_s=3.0)
+    finally:
+        reset_task_controller_for_tests()
 
 
 def test_account_feedback_service_does_not_mutate_on_cancellation_adjacent_path():

@@ -38,6 +38,7 @@ class TaskAttemptFinalizer:
         task_id: str,
         task_record: TaskRecord | None,
         result: dict[str, Any],
+        payload_override: dict[str, Any] | None = None,
         conn: Any,
     ) -> None:
         if task_record is None or self._workflow_drafts is None:
@@ -45,6 +46,7 @@ class TaskAttemptFinalizer:
         workflow_payload = self._workflow_drafts.record_terminal(
             task_record=task_record,
             result=result,
+            payload_override=payload_override,
             conn=conn,
         )
         if workflow_payload:
@@ -85,6 +87,7 @@ class TaskAttemptFinalizer:
         result: dict[str, Any],
         message: str,
         reason: str,
+        payload_override: dict[str, Any] | None = None,
         conn: Any,
     ) -> None:
         self._store.mark_cancelled(task_id, message=message, conn=conn)
@@ -92,13 +95,21 @@ class TaskAttemptFinalizer:
         self._events.append_event(
             task_id,
             "task.cancelled",
-            build_task_metrics_payload(cancelled, {"reason": reason}),
+            build_task_metrics_payload(
+                cancelled,
+                {
+                    "status": "cancelled",
+                    "ok": False,
+                    "reason": reason,
+                },
+            ),
             conn=conn,
         )
         self._record_workflow_terminal(
             task_id=task_id,
             task_record=cancelled,
             result=result,
+            payload_override=payload_override,
             conn=conn,
         )
 
@@ -108,6 +119,7 @@ class TaskAttemptFinalizer:
         task_id: str,
         error: str,
         result: dict[str, Any],
+        payload_override: dict[str, Any] | None = None,
         conn: Any,
     ) -> None:
         self._store.mark_failed(task_id, error=error, result=result, conn=conn)
@@ -115,13 +127,21 @@ class TaskAttemptFinalizer:
         self._events.append_event(
             task_id,
             "task.failed",
-            build_task_metrics_payload(failed, {"error": error}),
+            build_task_metrics_payload(
+                failed,
+                {
+                    "status": "failed",
+                    "ok": False,
+                    "error": error,
+                },
+            ),
             conn=conn,
         )
         self._record_workflow_terminal(
             task_id=task_id,
             task_record=failed,
             result=result,
+            payload_override=payload_override,
             conn=conn,
         )
 
@@ -130,6 +150,7 @@ class TaskAttemptFinalizer:
         *,
         task_id: str,
         result: dict[str, Any],
+        payload_override: dict[str, Any] | None = None,
         conn: Any,
     ) -> None:
         self._store.mark_completed(task_id, result=result, conn=conn)
@@ -137,13 +158,20 @@ class TaskAttemptFinalizer:
         self._events.append_event(
             task_id,
             "task.completed",
-            build_task_metrics_payload(completed, {"ok": True}),
+            build_task_metrics_payload(
+                completed,
+                {
+                    "status": "completed",
+                    "ok": True,
+                },
+            ),
             conn=conn,
         )
         self._record_workflow_terminal(
             task_id=task_id,
             task_record=completed,
             result=result,
+            payload_override=payload_override,
             conn=conn,
         )
 
@@ -231,10 +259,16 @@ class TaskAttemptFinalizer:
                     result=result,
                     message="cancelled by user",
                     reason="user",
+                    payload_override=payload,
                     conn=conn,
                 )
             elif bool(result.get("ok")):
-                self._finalize_completed_terminal(task_id=task_id, result=result, conn=conn)
+                self._finalize_completed_terminal(
+                    task_id=task_id,
+                    result=result,
+                    payload_override=payload,
+                    conn=conn,
+                )
             else:
                 error = str(result.get("message", "task failed"))
                 outcome.retry_record = self._store.schedule_retry(task_id, error=error, conn=conn)
@@ -253,6 +287,7 @@ class TaskAttemptFinalizer:
                         result=result,
                         message="cancelled by user",
                         reason="user",
+                        payload_override=payload,
                         conn=conn,
                     )
                 else:
@@ -260,6 +295,7 @@ class TaskAttemptFinalizer:
                         task_id=task_id,
                         error=error,
                         result=result,
+                        payload_override=payload,
                         conn=conn,
                     )
                     feedback_error = error

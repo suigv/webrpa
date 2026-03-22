@@ -212,10 +212,22 @@ export async function prepareTaskPayload(taskName, {
     return sanitizePayloadForTask(taskName, nextPayload);
 }
 
+function resolveCompatibilityDevices(compatibilityDevices, devices) {
+    if (Array.isArray(compatibilityDevices) && compatibilityDevices.length) {
+        return compatibilityDevices;
+    }
+    if (Array.isArray(devices) && devices.length) {
+        return devices;
+    }
+    return null;
+}
+
 export function buildTaskRequest({
     task,
     payload = {},
     targets,
+    compatibilityDevices,
+    devices,
     priority = 50,
     maxRetries = 0,
     runAt = null,
@@ -229,8 +241,35 @@ export function buildTaskRequest({
     };
     if (Array.isArray(targets) && targets.length) {
         request.targets = targets;
+    } else {
+        const legacyDevices = resolveCompatibilityDevices(compatibilityDevices, devices);
+        if (legacyDevices) {
+            request.devices = legacyDevices;
+        }
     }
     return request;
+}
+
+export function resolveTaskDisplayName(taskData, catalog = catalogCache) {
+    if (!taskData || typeof taskData !== 'object') {
+        return null;
+    }
+
+    const explicitDisplayName = String(taskData.display_name || '').trim();
+    if (explicitDisplayName) {
+        return explicitDisplayName;
+    }
+
+    const taskName = String(taskData.task_name || taskData.task || '').trim();
+    if (taskName && Array.isArray(catalog) && catalog.length > 0) {
+        const matched = catalog.find((item) => item?.task === taskName);
+        const catalogDisplayName = String(matched?.display_name || '').trim();
+        if (catalogDisplayName) {
+            return catalogDisplayName;
+        }
+    }
+
+    return taskName || null;
 }
 
 function describeTargets(taskData) {
@@ -257,9 +296,7 @@ export async function apiSubmitTask(taskData, options = {}) {
             toast.success("任务已提交，节点正在启动...");
         }
         if (log) {
-            // 尝试从缓存中查找中文名
-            const taskObj = (catalogCache || []).find(x => x.task === taskData.task);
-            const taskDisplayName = taskObj ? taskObj.display_name : taskData.task;
+            const taskDisplayName = resolveTaskDisplayName(taskData);
             sysLog(`[任务] ${taskDisplayName} 已分配至云机 ${describeTargets(taskData)}`);
         }
         if (openReport && typeof window !== 'undefined' && r.data?.task_id) {
@@ -267,7 +304,7 @@ export async function apiSubmitTask(taskData, options = {}) {
                 detail: {
                     taskId: r.data.task_id,
                     taskName: taskData.task,
-                    displayName: r.data.display_name || null,
+                    displayName: resolveTaskDisplayName(r.data),
                 },
             }));
         }

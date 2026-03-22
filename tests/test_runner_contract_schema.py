@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 from core.task_execution import (
     ActiveTargetCircuitBreaker,
@@ -10,6 +11,7 @@ from engine.models.manifest import InputType, PluginInput
 from engine.models.runtime import ActionResult
 from engine.models.workflow import ActionStep, StopStep, WorkflowScript
 from engine.parser import parse_script
+from engine.plugin_loader import clear_shared_plugin_loader_cache, get_shared_plugin_loader
 from engine.runner import Runner
 
 
@@ -93,6 +95,81 @@ def test_interpreter_session_defaults_keep_legacy_payload_device_ip_fallback():
     assert defaults["device_index"] == 2
 
 
+def test_interpreter_session_defaults_expose_injected_hidden_app_defaults():
+    import engine.interpreter as interpreter_module
+
+    defaults = interpreter_module.Interpreter()._build_session_defaults(
+        payload={
+            "package": "com.twitter.android",
+            "_app_stage_patterns": {"home": {"text_markers": ["For you"]}},
+            "_app_selectors": {"home_tab": {"type": "id", "value": "home"}},
+        },
+        plugin_inputs=[],
+    )
+
+    assert defaults["package"] == "com.twitter.android"
+    assert defaults["_app_stage_patterns"] == {"home": {"text_markers": ["For you"]}}
+    assert defaults["_app_selectors"] == {"home_tab": {"type": "id", "value": "home"}}
+
+
+def test_app_open_uses_injected_package_when_action_param_absent(monkeypatch):
+    import engine.actions.ui_app_actions as ui_app_actions
+    from engine.models.runtime import ExecutionContext
+
+    class FakeRpc:
+        def __init__(self):
+            self.opened: list[str] = []
+
+        def openApp(self, package: str) -> bool:
+            self.opened.append(package)
+            return True
+
+        def close(self) -> None:
+            return None
+
+    rpc = FakeRpc()
+    monkeypatch.setattr(ui_app_actions, "_get_rpc", lambda params, context: (rpc, None))
+    monkeypatch.setattr(ui_app_actions, "_close_rpc", lambda rpc: None)
+
+    ctx = ExecutionContext(
+        payload={},
+        session={"defaults": {"package": "com.twitter.android"}},
+    )
+    result = ui_app_actions.app_open({}, ctx)
+
+    assert result.ok is True
+    assert rpc.opened == ["com.twitter.android"]
+
+
+def test_app_open_explicit_package_overrides_injected_default(monkeypatch):
+    import engine.actions.ui_app_actions as ui_app_actions
+    from engine.models.runtime import ExecutionContext
+
+    class FakeRpc:
+        def __init__(self):
+            self.opened: list[str] = []
+
+        def openApp(self, package: str) -> bool:
+            self.opened.append(package)
+            return True
+
+        def close(self) -> None:
+            return None
+
+    rpc = FakeRpc()
+    monkeypatch.setattr(ui_app_actions, "_get_rpc", lambda params, context: (rpc, None))
+    monkeypatch.setattr(ui_app_actions, "_close_rpc", lambda rpc: None)
+
+    ctx = ExecutionContext(
+        payload={},
+        session={"defaults": {"package": "com.twitter.android"}},
+    )
+    result = ui_app_actions.app_open({"package": "com.override.app"}, ctx)
+
+    assert result.ok is True
+    assert rpc.opened == ["com.override.app"]
+
+
 def test_target_circuit_breaker_can_be_disabled():
     breaker = ActiveTargetCircuitBreaker(
         task_id="task-1",
@@ -133,6 +210,74 @@ def test_runner_does_not_inject_default_app_id_into_plugin_without_declared_inpu
     assert result["ok"] is True
     assert seen["timeout_ms"] == 120000
     assert "app_id" not in seen
+
+
+def test_clear_shared_plugin_loader_cache_rebuilds_future_lookup(tmp_path: Path):
+    plugins_root = tmp_path / "plugins"
+    plugins_root.mkdir()
+
+    clear_shared_plugin_loader_cache()
+    first = get_shared_plugin_loader(plugins_root=plugins_root)
+    clear_shared_plugin_loader_cache()
+    second = get_shared_plugin_loader(plugins_root=plugins_root)
+
+    assert first is not second
+
+
+def test_runner_rechecks_shared_loader_after_cached_miss(monkeypatch):
+    class _Loader:
+        def __init__(self, entries):
+            self._entries = dict(entries)
+
+        def get(self, name: str):
+            return self._entries.get(name)
+
+    plugin = type("PluginEntry", (), {"manifest": type("Manifest", (), {"inputs": []})(), "script_path": Path("/tmp/demo.yaml")})()
+    loaders = [_Loader({}), _Loader({"new_plugin": plugin})]
+
+    monkeypatch.setattr("engine.runner.get_shared_plugin_loader", lambda: loaders.pop(0))
+
+    runner = Runner(agent_executor_runtime=None)
+    monkeypatch.setattr(runner, "_run_yaml_plugin", lambda *args, **kwargs: {"ok": True, "task": "new_plugin", "status": "completed"})
+    monkeypatch.setattr("engine.runner.parse_script", lambda path: WorkflowScript(version="v1", workflow="demo", steps=[]))
+    monkeypatch.setattr(runner, "_validate_script_actions", lambda script: None)
+
+    result = runner.run({"task": "new_plugin"})
+
+    assert result["ok"] is True
+    assert result["task"] == "new_plugin"
+
+
+def test_runner_uses_latest_shared_loader_for_same_named_plugin(monkeypatch):
+    class _Loader:
+        def __init__(self, entry):
+            self._entry = entry
+
+        def get(self, name: str):
+            if name != "demo_plugin":
+                return None
+            return self._entry
+
+    old_plugin = type("PluginEntry", (), {"manifest": type("Manifest", (), {"inputs": [], "version": "old"})(), "script_path": Path("/tmp/old.yaml")})()
+    new_plugin = type("PluginEntry", (), {"manifest": type("Manifest", (), {"inputs": [], "version": "new"})(), "script_path": Path("/tmp/new.yaml")})()
+    loaders = [_Loader(old_plugin), _Loader(new_plugin)]
+
+    monkeypatch.setattr("engine.runner.get_shared_plugin_loader", lambda: loaders.pop(0))
+
+    runner = Runner(agent_executor_runtime=None)
+    seen: dict[str, object] = {}
+    monkeypatch.setattr(
+        runner,
+        "_run_yaml_plugin",
+        lambda task_name, payload, plugin, *args, **kwargs: seen.update({"version": plugin.manifest.version}) or {"ok": True, "task": task_name, "status": "completed"},
+    )
+    monkeypatch.setattr("engine.runner.parse_script", lambda path: WorkflowScript(version="v1", workflow="demo", steps=[]))
+    monkeypatch.setattr(runner, "_validate_script_actions", lambda script: None)
+
+    result = runner.run({"task": "demo_plugin"})
+
+    assert result["ok"] is True
+    assert seen["version"] == "new"
 
 
 def test_build_target_trip_ignores_probe_snapshot_before_activation():

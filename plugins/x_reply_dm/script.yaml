@@ -13,7 +13,6 @@ steps:
     params:
       device_ip: "${vars.cloud_container.device_ip}"
       cloud_index: "${vars.cloud_container.cloud_id}"
-      app_id: "${payload.app_id:-x}"
 
   - label: 加载私信页 Scheme
     kind: action
@@ -22,7 +21,6 @@ steps:
     params:
       device_ip: "${vars.cloud_container.device_ip}"
       cloud_index: "${vars.cloud_container.cloud_id}"
-      app_id: "${payload.app_id:-x}"
       key: dm_list
 
   - label: 跳转私信列表页
@@ -89,7 +87,6 @@ steps:
     params:
       device_ip: "${vars.cloud_container.device_ip}"
       cloud_index: "${vars.cloud_container.cloud_id}"
-      app_id: "${payload.app_id:-x}"
       selector_key: dm_input
       text: "${vars.ai_reply.reply_text}"
       submit: true
@@ -101,7 +98,6 @@ steps:
     params:
       device_ip: "${vars.cloud_container.device_ip}"
       cloud_index: "${vars.cloud_container.cloud_id}"
-      app_id: "${payload.app_id:-x}"
       key: home
 
   - label: 跳转主页

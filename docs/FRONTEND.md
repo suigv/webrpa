@@ -38,6 +38,16 @@ If you need a pure-web fallback (no devices / no native libs), start backend wit
 - If a page needs task-specific context, add it to the plugin manifest first or route it through a non-payload contract; do not create page-local exceptions.
 - Current backend still carries a small deprecated compatibility seam for legacy `device_ip` payload fallback. Treat that as migration-only behavior: frontend code must not rely on it or reintroduce it.
 
+## Workflow drafts (history + replay)
+
+- The Web console includes a “草稿历史” panel that reads workflow draft state from:
+  - `GET /api/tasks/drafts`
+  - `GET /api/tasks/drafts/{draft_id}`
+  - `GET /api/tasks/drafts/{draft_id}/snapshot` (edit-and-replay form prefill)
+- Continuing validation and distillation are triggered via:
+  - `POST /api/tasks/drafts/{draft_id}/continue`
+  - `POST /api/tasks/drafts/{draft_id}/distill`
+
 ## Editor / TypeScript language server
 
 If your editor needs `typescript-language-server`:

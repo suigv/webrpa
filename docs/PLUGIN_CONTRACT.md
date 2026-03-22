@@ -64,6 +64,7 @@ plugins/<plugin_name>/
 - **蒸馏适用性**：`distillable: false` 的插件会在目录与指标接口中明确标记为“不可蒸馏”；`POST /api/tasks/plugins/{plugin_name}/distill` 会直接拒绝这类插件。
 - **目录可见性**：`visible_in_task_catalog: false` 的插件默认不会出现在 `GET /api/tasks/catalog`；如需运维查看，可显式调用 `GET /api/tasks/catalog?include_hidden=true`。
 - **前端提交约束**：Web 端派发插件任务时，会按 `inputs` 白名单过滤 payload，只提交 `manifest.yaml` 已声明字段。
+- **刷新语义**：catalog refresh / distill success 只影响后续 plugin lookup；已经持有旧 `PluginLoader` 引用的对象与正在运行的任务不承诺热切换到新插件版本。
 
 ### Payload 与 Runtime 上下文边界
 - `manifest.inputs` 是插件业务输入的唯一真源；凡是插件脚本通过 `${payload.xxx}` 读取的字段，都必须在 `manifest.inputs` 中声明。

@@ -88,7 +88,22 @@ def _coerce_text_list(raw: object) -> list[str]:
 
 
 def _resolve_package(params: Params, context: ExecutionContext) -> str:
-    return str(params.get("package") or context.get_session_default("package") or "").strip()
+    return str(
+        params.get("package")
+        or context.get_session_default("package")
+        or context.payload.get("package")
+        or ""
+    ).strip()
+
+
+def _resolve_injected_stage_patterns(context: ExecutionContext) -> dict[str, object] | None:
+    raw_patterns = (
+        context.get_session_default("stage_patterns")
+        or context.get_session_default("_app_stage_patterns")
+        or context.payload.get("stage_patterns")
+        or context.payload.get("_app_stage_patterns")
+    )
+    return raw_patterns if isinstance(raw_patterns, dict) else None
 
 
 def _load_state_action_defaults_document() -> dict[str, object]:
@@ -170,7 +185,7 @@ def _extract_app_stage_patterns(config: object) -> dict[str, dict[str, list[str]
 def _resolve_login_stage_patterns(
     params: Params, context: ExecutionContext
 ) -> tuple[dict[str, dict[str, list[str]]], tuple[str, ...]]:
-    raw_patterns = params.get("stage_patterns") or context.get_session_default("stage_patterns")
+    raw_patterns = params.get("stage_patterns") or _resolve_injected_stage_patterns(context)
     patterns: dict[str, dict[str, list[str]]] = {}
 
     if isinstance(raw_patterns, dict):
@@ -687,18 +702,28 @@ def detect_app_stage(params: Params, context: ExecutionContext) -> ActionResult:
         return err
     assert rpc is not None
     try:
-        package = _resolve_package(params, context)
-        app_name = (
-            params.get("app")
-            or sdk_config_support.app_from_package(package)
-            or sdk_config_support.DEFAULT_APP_NAME
-        )
+        stage_patterns = {}
+        raw_stage_patterns = params.get("stage_patterns") or _resolve_injected_stage_patterns(context)
+        if isinstance(raw_stage_patterns, dict):
+            stage_patterns = {
+                str(stage_id).strip(): _normalize_stage_entry(entry)
+                for stage_id, entry in raw_stage_patterns.items()
+                if str(stage_id).strip()
+            }
 
-        try:
-            config = sdk_config_support.load_app_config_document(str(app_name))
-            stage_patterns = _extract_app_stage_patterns(config)
-        except Exception:
-            stage_patterns = {}
+        if not stage_patterns:
+            package = _resolve_package(params, context)
+            app_name = (
+                params.get("app")
+                or sdk_config_support.app_from_package(package)
+                or sdk_config_support.DEFAULT_APP_NAME
+            )
+
+            try:
+                config = sdk_config_support.load_app_config_document(str(app_name))
+                stage_patterns = _extract_app_stage_patterns(config)
+            except Exception:
+                stage_patterns = {}
 
         if not stage_patterns:
             return ActionResult(ok=True, code="ok", data={"stage": "unknown"})

@@ -33,7 +33,6 @@ steps:
     params:
       device_ip: "${vars.cloud_container.device_ip}"
       cloud_index: "${vars.cloud_container.cloud_id}"
-      app_id: "${payload.app_id:-x}"
 
   - label: 获取目标博主
     kind: action
@@ -51,7 +50,6 @@ steps:
     params:
       device_ip: "${vars.cloud_container.device_ip}"
       cloud_index: "${vars.cloud_container.cloud_id}"
-      app_id: "${payload.app_id:-x}"
       key: followers
       args:
         screen_name: "${vars.blogger.username}"
@@ -78,7 +76,6 @@ steps:
     params:
       device_ip: "${vars.cloud_container.device_ip}"
       cloud_index: "${vars.cloud_container.cloud_id}"
-      app_id: "${payload.app_id:-x}"
       max_clicks: "${vars.follow_plan.target_follow_count}"
 
   - label: 累加每日关注计数

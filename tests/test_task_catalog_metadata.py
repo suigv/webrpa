@@ -130,3 +130,31 @@ def test_distill_endpoint_keeps_threshold_payload_when_completed_count_is_string
         "completed": 2,
         "threshold": 3,
     }
+
+
+def test_distill_endpoint_clears_plugin_loader_cache_only_on_success(monkeypatch: pytest.MonkeyPatch):
+    class _Controller:
+        def plugin_success_counts(self):
+            return [{"task_name": "demo_plugin", "completed": 3}]
+
+    class _Loader:
+        def get(self, name: str):
+            if name != "demo_plugin":
+                return None
+            return SimpleNamespace(
+                manifest=SimpleNamespace(distill_threshold=3, distillable=True)
+            )
+
+    cleared: list[bool] = []
+
+    monkeypatch.setattr(task_routes, "get_task_controller", lambda: _Controller())
+    monkeypatch.setattr(task_routes, "_plugin_loader", lambda refresh=False: _Loader())
+    monkeypatch.setattr("engine.plugin_loader.clear_shared_plugin_loader_cache", lambda: cleared.append(True))
+    monkeypatch.setattr("subprocess.run", lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout="ok", stderr=""))
+
+    client = TestClient(app)
+    response = client.post("/api/tasks/plugins/demo_plugin/distill")
+
+    assert response.status_code == 200
+    assert response.json()["ok"] is True
+    assert cleared == [True]

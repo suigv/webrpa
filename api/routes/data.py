@@ -1,5 +1,3 @@
-from typing import Any
-
 from anyio.to_thread import run_sync
 from fastapi import APIRouter
 from pydantic import BaseModel
@@ -47,6 +45,10 @@ class AccountStatusUpdate(BaseModel):
     error_msg: str | None = None
 
 
+class AccountScopeRequest(BaseModel):
+    app_id: str | None = None
+
+
 @router.get("/accounts")
 async def get_accounts():
     """获取原始存储文本 (兼容性接口)"""
@@ -69,7 +71,7 @@ async def import_accounts(data: AccountsImportRequest):
 
 class AccountUpdate(BaseModel):
     old_account: str
-    new_data: dict[str, Any]
+    new_data: dict[str, object]
 
 
 @router.post("/accounts/update")
@@ -94,18 +96,18 @@ async def update_account_status(data: AccountStatusUpdate):
 
 
 @router.post("/accounts/pop")
-async def pop_account():
+async def pop_account(data: AccountScopeRequest | None = None):
     """原子化获取下一个待处理账号"""
-    account = await run_sync(pop_account_from_pool)
+    account = await run_sync(pop_account_from_pool, data.app_id if data else None)
     if account:
         return {"status": "ok", "account": account}
     return {"status": "error", "message": "No ready accounts available in pool"}
 
 
 @router.get("/accounts/parsed")
-async def get_accounts_parsed():
+async def get_accounts_parsed(app_id: str | None = None):
     """获取所有解析后的账号对象"""
-    accounts = await run_sync(list_accounts)
+    accounts = await run_sync(list_accounts, app_id)
     return {"accounts": accounts}
 
 

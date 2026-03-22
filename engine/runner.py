@@ -45,6 +45,10 @@ class Runner:
         self._interpreter = Interpreter()
         self._agent_executor_runtime = agent_executor_runtime or AgentExecutorRuntime()
 
+    def _resolve_plugin_entry(self, task_name: str):
+        self._plugin_loader = get_shared_plugin_loader()
+        return self._plugin_loader.get(task_name)
+
     def run(
         self,
         script_payload: dict[str, Any],
@@ -73,7 +77,7 @@ class Runner:
             )
 
         # Try YAML plugin first
-        plugin = self._plugin_loader.get(task_name)
+        plugin = self._resolve_plugin_entry(task_name)
         if plugin is not None:
             payload_error = self._validate_plugin_payload(script_payload, plugin.manifest.inputs)
             if payload_error is not None:

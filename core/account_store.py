@@ -111,33 +111,77 @@ class AccountStore(BaseStore):
                 return self._row_to_dict(row)
         return None
 
-    def list_accounts(self) -> list[dict[str, Any]]:
+    @staticmethod
+    def _normalize_app_id(app_id: str | None) -> str | None:
+        raw = str(app_id or "").strip().lower()
+        return raw or None
+
+    def _matches_app_id(
+        self,
+        row_data: dict[str, Any],
+        app_id: str | None,
+        *,
+        allow_global_fallback: bool = False,
+    ) -> bool:
+        requested = self._normalize_app_id(app_id)
+        if requested is None:
+            return True
+
+        account_app_id = self._normalize_app_id(row_data.get("app_id"))
+        if account_app_id == requested:
+            return True
+        if not allow_global_fallback:
+            return False
+        return account_app_id in {None, "default"}
+
+    def list_accounts(self, app_id: str | None = None) -> list[dict[str, Any]]:
         with self._connect() as conn:
             rows = conn.execute(
                 "SELECT * FROM accounts ORDER BY created_at ASC, account ASC"
             ).fetchall()
-            return [self._row_to_dict(row) for row in rows]
+            accounts = [self._row_to_dict(row) for row in rows]
+            if app_id is None:
+                return accounts
+            return [row for row in accounts if self._matches_app_id(row, app_id)]
 
     def count_accounts(self) -> int:
         with self._connect() as conn:
             row = conn.execute("SELECT COUNT(*) FROM accounts").fetchone()
             return row[0] if row else 0
 
-    def pop_ready_account(self, conn: sqlite3.Connection | None = None) -> dict[str, Any] | None:
+    def pop_ready_account(
+        self,
+        app_id: str | None = None,
+        conn: sqlite3.Connection | None = None,
+    ) -> dict[str, Any] | None:
         """原子化获取一个 ready 状态的账号并标记为 in_progress"""
         now = _now_iso()
         with self._tx(conn) as tx_conn:
-            # 使用 LIMIT 1 找到第一个 ready 的
-            row = tx_conn.execute(
-                "SELECT * FROM accounts WHERE status = 'ready' ORDER BY updated_at ASC LIMIT 1"
-            ).fetchone()
-            if row:
-                account = row["account"]
+            rows = tx_conn.execute(
+                "SELECT * FROM accounts WHERE status = 'ready' ORDER BY updated_at ASC, created_at ASC, account ASC"
+            ).fetchall()
+            selected: sqlite3.Row | None = None
+            if app_id is None:
+                selected = rows[0] if rows else None
+            else:
+                for row in rows:
+                    if self._matches_app_id(self._row_to_dict(row), app_id):
+                        selected = row
+                        break
+                if selected is None:
+                    for row in rows:
+                        if self._matches_app_id(
+                            self._row_to_dict(row), app_id, allow_global_fallback=True
+                        ):
+                            selected = row
+                            break
+            if selected:
+                account = selected["account"]
                 tx_conn.execute(
                     "UPDATE accounts SET status = 'in_progress', last_used = ?, updated_at = ? WHERE account = ?",
                     (now, now, account),
                 )
-                data = self._row_to_dict(row)
+                data = self._row_to_dict(selected)
                 data["status"] = "in_progress"
                 data["last_used"] = now
                 data["updated_at"] = now

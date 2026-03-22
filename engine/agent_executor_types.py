@@ -22,5 +22,6 @@ class AgentExecutorConfig:
     system_prompt: str
     llm_runtime: dict[str, object]
     planner_inputs: dict[str, object]
+    planner_artifact: dict[str, object]
     fallback_modalities: list[str]
     observation_params: dict[str, object]

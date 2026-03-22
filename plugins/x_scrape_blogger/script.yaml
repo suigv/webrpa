@@ -13,7 +13,6 @@ steps:
     params:
       device_ip: "${vars.cloud_container.device_ip}"
       cloud_index: "${vars.cloud_container.cloud_id}"
-      app_id: "${payload.app_id:-x}"
 
   - label: 加载搜索 Scheme
     kind: action
@@ -22,7 +21,6 @@ steps:
     params:
       device_ip: "${vars.cloud_container.device_ip}"
       cloud_index: "${vars.cloud_container.cloud_id}"
-      app_id: "${payload.app_id:-x}"
       key: search
       args:
         query: "${payload.keyword}"
@@ -43,7 +41,6 @@ steps:
     params:
       device_ip: "${vars.cloud_container.device_ip}"
       cloud_index: "${vars.cloud_container.cloud_id}"
-      app_id: "${payload.app_id:-x}"
       keyword: "${payload.keyword}"
       max_collect: "${payload.max_collect:-10}"
       max_swipes: "${payload.max_swipes:-5}"

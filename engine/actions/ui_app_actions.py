@@ -67,12 +67,21 @@ def _close_rpc(rpc: MytRpc | None) -> None:
     _rpc_bootstrap.close_rpc(rpc)
 
 
+def _resolve_package(params: dict[str, Any], context: ExecutionContext) -> str:
+    return str(
+        params.get("package")
+        or context.get_session_default("package")
+        or context.payload.get("package")
+        or ""
+    ).strip()
+
+
 def app_open(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
     rpc, err = _get_rpc(params, context)
     if err:
         return err
     try:
-        package = str(params.get("package") or "")
+        package = _resolve_package(params, context)
         ok = rpc.openApp(package) if rpc is not None else False
         return ActionResult(ok=ok, code="ok" if ok else "app_open_failed")
     finally:
@@ -84,7 +93,7 @@ def app_stop(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
     if err:
         return err
     try:
-        package = str(params.get("package") or "")
+        package = _resolve_package(params, context)
         ok = rpc.stopApp(package) if rpc is not None else False
         return ActionResult(ok=ok, code="ok" if ok else "app_stop_failed")
     finally:
@@ -92,7 +101,7 @@ def app_stop(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
 
 
 def app_ensure_running(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
-    package = str(params.get("package") or "")
+    package = _resolve_package(params, context)
     rpc, err = _get_rpc(params, context)
     if err:
         return err
@@ -120,9 +129,15 @@ def app_grant_permissions(params: dict[str, Any], context: ExecutionContext) -> 
     from core.app_config import AppConfigManager
     from engine.actions.android_api_actions import android_grant_app_permissions
 
-    pkg = str(params.get("pkg") or params.get("package") or "").strip()
+    pkg = str(
+        params.get("pkg")
+        or params.get("package")
+        or context.get_session_default("package")
+        or context.payload.get("package")
+        or ""
+    ).strip()
     if not pkg:
-        app_id = str(params.get("app_id") or "").strip()
+        app_id = str(params.get("app_id") or context.payload.get("app_id") or "").strip()
         if app_id:
             config = AppConfigManager.load_app_config(app_id)
             pkg = str(config.get("package_name") or "").strip()

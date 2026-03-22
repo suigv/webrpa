@@ -383,12 +383,12 @@
 
 | Metric | Value |
 |---|---:|
-| API route decorators (`api/routes`) | 57 |
+| API route decorators (`api/routes`) | 60 |
 | App-level route decorators (`api/server.py`) | 5 |
-| Plugin count (`plugins/*/manifest.yaml`) | 1 |
+| Plugin count (`plugins/*/manifest.yaml`) | 10 |
 | SDK action bindings (`engine/actions/sdk_actions.py` + `engine/actions/sdk_action_catalog.py`) | 158 |
-| Test files (`tests/test_*.py`) | 75 |
-| Test functions (`def test_*`) | 404 |
+| Test files (`tests/test_*.py`) | 76 |
+| Test functions (`def test_*`) | 446 |
 <!-- AUTO_PROGRESS_SNAPSHOT:END -->
 
 ## 4. 维护说明

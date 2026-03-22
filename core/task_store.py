@@ -48,6 +48,9 @@ class TaskRecord:
     retry_backoff_seconds: int = 2
     next_retry_at: str | None = None
     cancel_requested: bool = False
+    pause_requested: bool = False
+    takeover_owner: str | None = None
+    active_run_id: str | None = None
     priority: int = 50
     run_at: str | None = None
 
@@ -84,6 +87,9 @@ class TaskStore(BaseStore):
                     retry_backoff_seconds INTEGER NOT NULL DEFAULT 2,
                     next_retry_at TEXT,
                     cancel_requested INTEGER NOT NULL DEFAULT 0,
+                    pause_requested INTEGER NOT NULL DEFAULT 0,
+                    takeover_owner TEXT,
+                    active_run_id TEXT,
                     priority INTEGER NOT NULL DEFAULT 50,
                     run_at TEXT
                 )
@@ -113,6 +119,14 @@ class TaskStore(BaseStore):
                 conn.execute("ALTER TABLE tasks ADD COLUMN run_at TEXT")
             if "idempotency_key" not in columns:
                 conn.execute("ALTER TABLE tasks ADD COLUMN idempotency_key TEXT")
+            if "pause_requested" not in columns:
+                conn.execute(
+                    "ALTER TABLE tasks ADD COLUMN pause_requested INTEGER NOT NULL DEFAULT 0"
+                )
+            if "takeover_owner" not in columns:
+                conn.execute("ALTER TABLE tasks ADD COLUMN takeover_owner TEXT")
+            if "active_run_id" not in columns:
+                conn.execute("ALTER TABLE tasks ADD COLUMN active_run_id TEXT")
 
             conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)")
             conn.execute(
@@ -157,8 +171,9 @@ class TaskStore(BaseStore):
             INSERT INTO tasks (
                 task_id, payload_json, devices_json, targets_json, ai_type,
                 idempotency_key, status, created_at, updated_at,
-                max_retries, retry_backoff_seconds, priority, run_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                max_retries, retry_backoff_seconds, pause_requested,
+                takeover_owner, active_run_id, priority, run_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
         params = (
             record.task_id,
@@ -172,6 +187,9 @@ class TaskStore(BaseStore):
             record.updated_at,
             record.max_retries,
             record.retry_backoff_seconds,
+            int(record.pause_requested),
+            record.takeover_owner,
+            record.active_run_id,
             record.priority,
             record.run_at,
         )
@@ -260,6 +278,9 @@ class TaskStore(BaseStore):
             retry_backoff_seconds=row["retry_backoff_seconds"],
             next_retry_at=row["next_retry_at"],
             cancel_requested=bool(row["cancel_requested"]),
+            pause_requested=bool(row["pause_requested"]),
+            takeover_owner=row["takeover_owner"],
+            active_run_id=row["active_run_id"],
             priority=row["priority"],
             run_at=row["run_at"],
         )
@@ -269,7 +290,7 @@ class TaskStore(BaseStore):
             rows = conn.execute(
                 "SELECT * FROM tasks ORDER BY created_at DESC LIMIT ?", (limit,)
             ).fetchall()
-            return [self._row_to_record(row) for row in rows]
+            return [record for row in rows if (record := self._row_to_record(row)) is not None]
 
     def status_counts(self) -> dict[str, int]:
         with self._connect() as conn:
@@ -325,7 +346,13 @@ class TaskStore(BaseStore):
             status = row["status"]
             if status == "pending":
                 tx_conn.execute(
-                    "UPDATE tasks SET status = 'cancelled', updated_at = ? WHERE task_id = ?",
+                    "UPDATE tasks SET status = 'cancelled', updated_at = ?, pause_requested = 0 WHERE task_id = ?",
+                    (_now_iso(), task_id),
+                )
+                return "cancelled"
+            if status == "paused":
+                tx_conn.execute(
+                    "UPDATE tasks SET status = 'cancelled', updated_at = ?, pause_requested = 0, active_run_id = NULL WHERE task_id = ?",
                     (_now_iso(), task_id),
                 )
                 return "cancelled"
@@ -337,6 +364,75 @@ class TaskStore(BaseStore):
                 return "cancelling"
             return status
 
+    def request_pause(self, task_id: str, conn: sqlite3.Connection | None = None) -> str | None:
+        with self._tx(conn) as tx_conn:
+            row = tx_conn.execute(
+                "SELECT status FROM tasks WHERE task_id = ?",
+                (task_id,),
+            ).fetchone()
+            if not row:
+                return None
+            status = str(row["status"])
+            if status == "pending":
+                tx_conn.execute(
+                    "UPDATE tasks SET status = 'paused', updated_at = ? WHERE task_id = ?",
+                    (_now_iso(), task_id),
+                )
+                return "paused"
+            if status == "running":
+                tx_conn.execute(
+                    "UPDATE tasks SET pause_requested = 1, updated_at = ? WHERE task_id = ?",
+                    (_now_iso(), task_id),
+                )
+                return "pause_requested"
+            return status
+
+    def resume_task(self, task_id: str, conn: sqlite3.Connection | None = None) -> str | None:
+        with self._tx(conn) as tx_conn:
+            row = tx_conn.execute(
+                "SELECT status FROM tasks WHERE task_id = ?",
+                (task_id,),
+            ).fetchone()
+            if not row:
+                return None
+            status = str(row["status"])
+            if status == "paused":
+                tx_conn.execute(
+                    "UPDATE tasks SET status = 'pending', pause_requested = 0, updated_at = ? WHERE task_id = ?",
+                    (_now_iso(), task_id),
+                    )
+                return "pending"
+            if status == "running":
+                tx_conn.execute(
+                    "UPDATE tasks SET pause_requested = 0, updated_at = ? WHERE task_id = ?",
+                    (_now_iso(), task_id),
+                )
+                return "running"
+            return status
+
+    def request_takeover(
+        self,
+        task_id: str,
+        *,
+        owner: str | None = None,
+        conn: sqlite3.Connection | None = None,
+    ) -> str | None:
+        with self._tx(conn) as tx_conn:
+            row = tx_conn.execute(
+                "SELECT status FROM tasks WHERE task_id = ?",
+                (task_id,),
+            ).fetchone()
+            if not row:
+                return None
+            status = str(row["status"])
+            if status != "running":
+                return status
+            tx_conn.execute(
+                "UPDATE tasks SET pause_requested = 1, takeover_owner = ?, updated_at = ? WHERE task_id = ?",
+                (owner, _now_iso(), task_id),
+            )
+            return "takeover_requested"
+
     def is_cancel_requested(self, task_id: str, conn: sqlite3.Connection | None = None) -> bool:
         with self._tx(conn) as tx_conn:
             row = tx_conn.execute(
@@ -344,6 +440,26 @@ class TaskStore(BaseStore):
                 (task_id,),
             ).fetchone()
             return bool(row["cancel_requested"]) if row else False
+
+    def is_pause_requested(self, task_id: str, conn: sqlite3.Connection | None = None) -> bool:
+        with self._tx(conn) as tx_conn:
+            row = tx_conn.execute(
+                "SELECT pause_requested FROM tasks WHERE task_id = ?",
+                (task_id,),
+            ).fetchone()
+            return bool(row["pause_requested"]) if row else False
+
+    def set_active_run_id(
+        self,
+        task_id: str,
+        run_id: str | None,
+        conn: sqlite3.Connection | None = None,
+    ) -> None:
+        with self._tx(conn) as tx_conn:
+            tx_conn.execute(
+                "UPDATE tasks SET active_run_id = ?, updated_at = ? WHERE task_id = ?",
+                (run_id, _now_iso(), task_id),
+            )
 
     def mark_running(self, task_id: str, conn: sqlite3.Connection | None = None) -> bool:
         now = _now_iso()
@@ -357,7 +473,8 @@ class TaskStore(BaseStore):
                     next_retry_at = NULL,
                     finished_at = NULL,
                     error = NULL,
-                    result_json = NULL
+                    result_json = NULL,
+                    pause_requested = 0
                 WHERE task_id = ? AND status = 'pending'
                 """,
                 (now, now, task_id),
@@ -377,10 +494,26 @@ class TaskStore(BaseStore):
                     finished_at = ?,
                     error = ?,
                     next_retry_at = NULL,
-                    cancel_requested = 0
+                    cancel_requested = 0,
+                    pause_requested = 0,
+                    active_run_id = NULL
                 WHERE task_id = ?
                 """,
                 (now, now, message, task_id),
+            )
+
+    def mark_paused(self, task_id: str, conn: sqlite3.Connection | None = None) -> None:
+        now = _now_iso()
+        with self._tx(conn) as tx_conn:
+            tx_conn.execute(
+                """
+                UPDATE tasks
+                SET status = 'paused',
+                    updated_at = ?,
+                    pause_requested = 0
+                WHERE task_id = ?
+                """,
+                (now, task_id),
             )
 
     def mark_failed(
@@ -402,7 +535,9 @@ class TaskStore(BaseStore):
                     error = ?,
                     result_json = ?,
                     next_retry_at = NULL,
-                    cancel_requested = 0
+                    cancel_requested = 0,
+                    pause_requested = 0,
+                    active_run_id = NULL
                 WHERE task_id = ?
                 """,
                 (now, now, error, payload, task_id),
@@ -426,7 +561,9 @@ class TaskStore(BaseStore):
                     result_json = ?,
                     error = NULL,
                     next_retry_at = NULL,
-                    cancel_requested = 0
+                    cancel_requested = 0,
+                    pause_requested = 0,
+                    active_run_id = NULL
                 WHERE task_id = ?
                 """,
                 (now, now, payload, task_id),
@@ -553,7 +690,7 @@ class TaskStore(BaseStore):
             params = (int(limit),)
         with self._connect() as conn:
             rows = conn.execute(sql, params).fetchall()
-        return [self._row_to_record(row) for row in rows]
+        return [record for row in rows if (record := self._row_to_record(row)) is not None]
 
     def list_pending_tasks(self) -> list[TaskRecord]:
         with self._connect() as conn:
@@ -561,7 +698,7 @@ class TaskStore(BaseStore):
                 "SELECT * FROM tasks WHERE status = 'pending' AND (run_at IS NULL OR run_at <= ?) AND (next_retry_at IS NULL OR next_retry_at <= ?) ORDER BY priority DESC, created_at ASC",
                 (_now_iso(), _now_iso()),
             ).fetchall()
-            return [self._row_to_record(row) for row in rows]
+            return [record for row in rows if (record := self._row_to_record(row)) is not None]
 
     def recover_stale_running_tasks(
         self,
@@ -590,4 +727,8 @@ class TaskStore(BaseStore):
                 """,
                 [(now, task_id) for task_id in task_ids],
             )
-            return [self.get_task(task_id, conn=tx_conn) for task_id in task_ids if task_id]
+            return [
+                record
+                for task_id in task_ids
+                if task_id and (record := self.get_task(task_id, conn=tx_conn)) is not None
+            ]

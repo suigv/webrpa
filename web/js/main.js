@@ -7,6 +7,7 @@ import { fetchJson } from './utils/api.js';
 import { initDevices, closeDetail } from './features/devices.js';
 import { initLogs } from './features/logs.js';
 import { initTasks } from './features/tasks.js';
+import { initDrafts } from './features/drafts.js';
 import { initConfig } from './features/config.js';
 import { initAccounts } from './features/accounts.js';
 import { initMetrics } from './features/metrics.js';
@@ -42,6 +43,7 @@ async function init() {
         { name: "Devices", fn: initDevices },
         { name: "Logs", fn: initLogs },
         { name: "Tasks", fn: initTasks },
+        { name: "Drafts", fn: initDrafts },
         { name: "Config", fn: initConfig },
         { name: "Accounts", fn: initAccounts },
         { name: "Metrics", fn: initMetrics }
@@ -68,8 +70,10 @@ function setupNavigation() {
             const targetId = btn.getAttribute('data-tab');
             if(!targetId) return;
 
-            navItems.forEach(b => b.classList.remove('active'));
-            panes.forEach(p => {
+            navItems.forEach((b) => {
+                b.classList.remove('active');
+            });
+            panes.forEach((p) => {
                 p.classList.remove('active');
                 p.style.display = 'none';
             });

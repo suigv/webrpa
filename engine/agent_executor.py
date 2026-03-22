@@ -8,6 +8,7 @@ from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any
 
 from ai_services.llm_client import LLMClient
+from core.app_config import get_app_agent_hint, resolve_app_id
 from engine.action_dispatcher import dispatch_action
 from engine.action_registry import ActionRegistry, get_registry
 from engine.models.runtime import ExecutionContext
@@ -947,6 +948,7 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
                     system_prompt=config.system_prompt,
                     llm_runtime=config.llm_runtime,
                     planner_inputs=config.planner_inputs,
+                    planner_artifact=config.planner_artifact,
                     history_digest=history_digest,
                     reflection=reflection,
                 )
@@ -1025,6 +1027,21 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
         runtime_llm = _json_dict(runtime.get("llm")) if isinstance(runtime, Mapping) else {}
         payload_llm = _json_dict(payload.get("llm"))
         llm_runtime = {**runtime_llm, **payload_llm} if runtime_llm or payload_llm else {}
+        app_id = resolve_app_id(dict(payload))
+        app_hint = get_app_agent_hint(app_id)
+        advanced_prompt = str(payload.get("advanced_prompt") or payload.get("system_prompt") or "").strip()
+        goal_text_parts = [goal]
+        if app_hint:
+            goal_text_parts.append(f"App hint: {app_hint}")
+        if advanced_prompt:
+            goal_text_parts.append(f"Advanced operator prompt: {advanced_prompt}")
+        planner_artifact: dict[str, object] = {
+            "goal": goal,
+            "app_id": app_id,
+            "app_hint": app_hint,
+            "advanced_prompt": advanced_prompt,
+            "goal_text": "\n\n".join(part for part in goal_text_parts if part),
+        }
 
         return AgentExecutorConfig(
             goal=goal,
@@ -1037,7 +1054,8 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
             system_prompt=str(payload.get("system_prompt") or "").strip(),
             llm_runtime=llm_runtime,
             planner_inputs=_planner_inputs(payload),
-            fallback_modalities=_string_list(payload.get("fallback_modalities") or ["vlm"]),
+            planner_artifact=planner_artifact,
+            fallback_modalities=_string_list(payload.get("fallback_modalities", [])),
             observation_params=observation_params,
         )
 

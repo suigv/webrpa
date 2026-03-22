@@ -7,6 +7,7 @@ import {
     buildTaskRequest,
     collectTaskPayload,
     prepareTaskPayload,
+    resolveTaskDisplayName,
 } from './task_service.js';
 import { FetchSseClient } from '../utils/sse.js';
 
@@ -17,6 +18,8 @@ let selectedTaskName = '';
 let currentEventStream = null;
 let taskSubmissionListenerBound = false;
 const submittedTaskMonitors = new Map();
+
+let submissionOverrides = null;
 
 function clearElement(element) {
     if (element) {
@@ -95,7 +98,9 @@ function createSummaryCard(title, text, badgeText = '', badgeVariant = 'default'
 function createSummaryActions(buttons) {
     const row = document.createElement('div');
     row.className = 'flex flex-wrap gap-2 mt-3';
-    buttons.forEach((button) => row.appendChild(button));
+    buttons.forEach((button) => {
+        row.appendChild(button);
+    });
     return row;
 }
 
@@ -390,11 +395,7 @@ function renderTaskSummary(task) {
 }
 
 function renderTaskSnapshot(task) {
-    let finalName = task.display_name;
-    if (!finalName && pluginCatalog.length > 0) {
-        const matched = pluginCatalog.find(p => p.task === task.task_name);
-        if (matched) finalName = matched.display_name;
-    }
+    const finalName = resolveTaskDisplayName(task, pluginCatalog);
 
     const title = $('taskModalTitle');
     if (title) {
@@ -673,13 +674,9 @@ function renderTasksList(tasks) {
 
         const title = document.createElement('span');
         title.className = 'list-item-title';
-        
-        let finalName = t.display_name;
-        if (!finalName && pluginCatalog.length > 0) {
-            const matched = pluginCatalog.find(p => p.task === t.task_name);
-            if (matched) finalName = matched.display_name;
-        }
-        
+
+        const finalName = resolveTaskDisplayName(t, pluginCatalog);
+
         title.textContent = finalName || t.task_name || '未知任务';
 
         const meta = document.createElement('span');
@@ -876,13 +873,126 @@ async function submitTask() {
             runAt: $('taskRunAt')?.value || null,
         });
 
+        if (submissionOverrides && typeof submissionOverrides === 'object') {
+            if (submissionOverrides.display_name) taskData.display_name = submissionOverrides.display_name;
+            if (submissionOverrides.draft_id) taskData.draft_id = submissionOverrides.draft_id;
+            if (typeof submissionOverrides.success_threshold === 'number') {
+                taskData.success_threshold = submissionOverrides.success_threshold;
+            }
+            if (submissionOverrides.ai_type) taskData.ai_type = submissionOverrides.ai_type;
+        }
+
         const result = await apiSubmitTask(taskData);
         if (result?.ok) {
+            submissionOverrides = null;
             await loadTasks();
         }
     } finally {
         if (btn) btn.disabled = false;
     }
+}
+
+function setFormValuesFromPayload(container, payload) {
+    if (!container || !payload || typeof payload !== 'object') return;
+    container.querySelectorAll('[data-payload-key]').forEach((input) => {
+        const key = input?.dataset?.payloadKey;
+        if (!key) return;
+        if (!(key in payload)) return;
+        const value = payload[key];
+
+        const type = input.dataset?.payloadType || 'string';
+        if (type === 'boolean' || input.type === 'checkbox') {
+            input.checked = Boolean(value);
+            return;
+        }
+        if (value === null || value === undefined) {
+            input.value = '';
+            return;
+        }
+        if (typeof value === 'object') {
+            return;
+        }
+        input.value = String(value);
+    });
+}
+
+function selectTargetsFromSnapshot(targets) {
+    if (!Array.isArray(targets)) return;
+    const desired = new Set(
+        targets
+            .map((t) => `${Number(t?.device_id || 0)}-${Number(t?.cloud_id || 0)}`)
+            .filter((k) => !k.startsWith('0-'))
+    );
+    if (desired.size === 0) return;
+    document.querySelectorAll('.task-target-cb').forEach((cb) => {
+        const key = `${Number(cb.dataset.device || 0)}-${Number(cb.dataset.cloud || 0)}`;
+        cb.checked = desired.has(key);
+    });
+}
+
+export async function prefillTaskFromDraft({
+    taskName,
+    payload,
+    targets,
+    priority,
+    maxRetries,
+    appId,
+    displayName,
+    draftId,
+    successThreshold,
+    aiType,
+} = {}) {
+    const resolvedTaskName = String(taskName || '').trim();
+    if (!resolvedTaskName) return;
+
+    if (!Array.isArray(pluginCatalog) || pluginCatalog.length === 0) {
+        pluginCatalog = await getTaskCatalog();
+        renderPluginSelector();
+    }
+
+    selectedTaskName = resolvedTaskName;
+    renderPluginSelector();
+    renderFields();
+
+    const appSelect = $('taskAppSelector');
+    if (appSelect && appSelect.options.length <= 1) {
+        await initAppSelector();
+    }
+    if (appSelect) {
+        const desired = String(
+            appId
+            || (payload && typeof payload === 'object' ? (payload.app_id || payload.app) : '')
+            || ''
+        ).trim();
+        if (desired) {
+            const has = Array.from(appSelect.options).some((opt) => opt.value === desired);
+            if (has) {
+                appSelect.value = desired;
+            }
+        }
+    }
+
+    const container = $('taskPayloadFields');
+    setFormValuesFromPayload(container, payload);
+
+    if (typeof priority === 'number' || (typeof priority === 'string' && String(priority).trim())) {
+        const el = $('taskPriority');
+        if (el) el.value = String(priority);
+    }
+    if (typeof maxRetries === 'number' || (typeof maxRetries === 'string' && String(maxRetries).trim())) {
+        const el = $('taskMaxRetries');
+        if (el) el.value = String(maxRetries);
+    }
+
+    await loadTaskTargets();
+    selectTargetsFromSnapshot(targets);
+
+    submissionOverrides = {
+        display_name: String(displayName || '').trim() || null,
+        draft_id: String(draftId || '').trim() || null,
+        success_threshold: Number.isFinite(Number(successThreshold)) ? Number(successThreshold) : null,
+        ai_type: String(aiType || '').trim() || null,
+    };
 }
 
 async function loadTaskTargets() {

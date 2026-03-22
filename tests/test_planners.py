@@ -52,6 +52,7 @@ def test_structured_planner_no_longer_requires_legacy_plan_method() -> None:
             system_prompt="",
             llm_runtime={},
             planner_inputs={},
+            planner_artifact={"goal_text": "tap button", "advanced_prompt": "be careful"},
         )
     )
 
@@ -59,3 +60,4 @@ def test_structured_planner_no_longer_requires_legacy_plan_method() -> None:
     assert result.action == "ui.click"
     assert result.params == {"x": 1, "y": 2}
     assert result.diagnostics["request"]["prompt"]
+    assert result.planner_artifact["advanced_prompt"] == "be careful"

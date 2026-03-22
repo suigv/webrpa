@@ -202,9 +202,12 @@ function buildAiTaskPayload() {
         }
     }
 
-    if (systemPrompt) payload.system_prompt = systemPrompt;
+    if (systemPrompt) {
+        payload.advanced_prompt = systemPrompt;
+        payload.system_prompt = systemPrompt;
+    }
     if (profileName) payload._runtime_profile = profileName;
-    if (useVlm) payload.fallback_modalities = ['vlm'];
+    payload.fallback_modalities = useVlm ? ['vlm'] : [];
     return payload;
 }
 

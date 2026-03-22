@@ -13,7 +13,6 @@ steps:
     params:
       device_ip: "${vars.cloud_container.device_ip}"
       cloud_index: "${vars.cloud_container.cloud_id}"
-      app_id: "${payload.app_id:-x}"
 
   - label: 获取目标博主
     kind: action
@@ -31,7 +30,6 @@ steps:
     params:
       device_ip: "${vars.cloud_container.device_ip}"
       cloud_index: "${vars.cloud_container.cloud_id}"
-      app_id: "${payload.app_id:-x}"
       key: profile
       args:
         screen_name: "${vars.blogger.username}"
@@ -60,7 +58,6 @@ steps:
     params:
       device_ip: "${vars.cloud_container.device_ip}"
       cloud_index: "${vars.cloud_container.cloud_id}"
-      app_id: "${payload.app_id:-x}"
       key: edit_profile
 
   - label: 打开编辑资料页
@@ -86,7 +83,6 @@ steps:
     params:
       device_ip: "${vars.cloud_container.device_ip}"
       cloud_index: "${vars.cloud_container.cloud_id}"
-      app_id: "${payload.app_id:-x}"
       selector_key: edit_name_field
       text: "${vars.blogger_profile.display_name}"
 
@@ -105,7 +101,6 @@ steps:
     params:
       device_ip: "${vars.cloud_container.device_ip}"
       cloud_index: "${vars.cloud_container.cloud_id}"
-      app_id: "${payload.app_id:-x}"
       selector_key: edit_bio_field
       text: "${vars.blogger_profile.bio}"
 
@@ -124,7 +119,6 @@ steps:
     params:
       device_ip: "${vars.cloud_container.device_ip}"
       cloud_index: "${vars.cloud_container.cloud_id}"
-      app_id: "${payload.app_id:-x}"
       selector_key: edit_website_field
       text: "${vars.blogger_profile.website}"
 
@@ -134,5 +128,4 @@ steps:
     params:
       device_ip: "${vars.cloud_container.device_ip}"
       cloud_index: "${vars.cloud_container.cloud_id}"
-      app_id: "${payload.app_id:-x}"
       selector_key: save_profile

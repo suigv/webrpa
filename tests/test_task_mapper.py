@@ -20,11 +20,12 @@ def test_task_mapper_parses_datetimes_and_record_targets():
         targets=[
             {"device_id": 1, "cloud_id": 2},
             {"device_id": 0, "cloud_id": 1},
-            "ignored",
         ],
         ai_type="volc",
         status="pending",
         created_at="2026-03-09T01:02:03Z",
+        started_at="2026-03-09T01:02:13Z",
+        finished_at="2026-03-09T01:02:23Z",
         next_retry_at="2026-03-09T01:03:03+00:00",
         run_at="2026-03-09T01:04:03",
     )
@@ -37,6 +38,8 @@ def test_task_mapper_parses_datetimes_and_record_targets():
     assert response.task_name == "demo-task"
     assert response_targets == [{"device_id": 1, "cloud_id": 2}]
     assert response.created_at == datetime(2026, 3, 9, 1, 2, 3, tzinfo=UTC)
+    assert response.started_at == datetime(2026, 3, 9, 1, 2, 13, tzinfo=UTC)
+    assert response.finished_at == datetime(2026, 3, 9, 1, 2, 23, tzinfo=UTC)
     assert response.next_retry_at == datetime(2026, 3, 9, 1, 3, 3, tzinfo=UTC)
     assert response.run_at == datetime(2026, 3, 9, 1, 4, 3)
 

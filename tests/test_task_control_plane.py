@@ -12,6 +12,7 @@ import time
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from urllib import request as urllib_request
 
 import pytest
@@ -814,6 +815,27 @@ def test_task_control_plane_rejects_managed_submit_without_targets_or_devices():
         )
 
 
+def test_task_control_plane_accepts_canonical_task_payload_targets_shape_without_ai_type():
+    os.environ["MYT_TASK_QUEUE_BACKEND"] = "memory"
+    reset_task_controller_for_tests()
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/tasks/",
+            json={
+                "task": "named-task",
+                "payload": {"goal": "open home"},
+                "targets": [{"device_id": 3, "cloud_id": 2}],
+            },
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["task_name"] == "named-task"
+        assert payload["ai_type"] == "default"
+        assert payload["devices"] == [3]
+        assert payload["targets"] == [{"device_id": 3, "cloud_id": 2}]
+
+
 def test_task_control_plane_devices_input_is_normalized_to_explicit_targets():
     os.environ["MYT_TASK_QUEUE_BACKEND"] = "memory"
     reset_task_controller_for_tests()
@@ -835,6 +857,103 @@ def test_task_control_plane_devices_input_is_normalized_to_explicit_targets():
             {"device_id": 3, "cloud_id": 1},
             {"device_id": 5, "cloud_id": 1},
         ]
+
+
+def test_task_create_route_centralizes_compatibility_submission_fields(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    captured: dict[str, object] = {}
+
+    class _FakeController:
+        def submit_with_retry(self, **kwargs):
+            captured.update(kwargs)
+            return SimpleNamespace(
+                task_id="task-test-1",
+                payload=dict(kwargs["payload"]),
+                devices=list(kwargs["devices"]),
+                targets=list(kwargs["targets"] or []),
+                ai_type=str(kwargs["ai_type"]),
+                idempotency_key=kwargs["idempotency_key"],
+                status="pending",
+                created_at="2026-03-23T00:00:00+00:00",
+                retry_count=0,
+                max_retries=int(kwargs["max_retries"]),
+                retry_backoff_seconds=int(kwargs["retry_backoff_seconds"]),
+                next_retry_at=None,
+                priority=int(kwargs["priority"]),
+                run_at=kwargs["run_at"],
+            )
+
+        def workflow_draft_summary_for_task(self, record):
+            _ = record
+            return None
+
+    monkeypatch.setattr("api.routes.task_routes.get_task_controller", lambda: _FakeController())
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/tasks/",
+            headers={"X-Idempotency-Key": "header-key"},
+            json={
+                "task": "agent_executor",
+                "payload": {"goal": "open home"},
+                "devices": [3, 5],
+                "ai_type": "volc",
+                "display_name": "Open Home",
+                "draft_id": "draft_123",
+                "success_threshold": 4,
+                "max_retries": 2,
+                "retry_backoff_seconds": 5,
+                "priority": 80,
+            },
+        )
+
+    assert response.status_code == 200
+    assert captured == {
+        "payload": {"task": "agent_executor", "goal": "open home"},
+        "devices": [3, 5],
+        "targets": None,
+        "ai_type": "volc",
+        "max_retries": 2,
+        "retry_backoff_seconds": 5,
+        "priority": 80,
+        "run_at": None,
+        "idempotency_key": "header-key",
+        "display_name": "Open Home",
+        "draft_id": "draft_123",
+        "success_threshold": 4,
+    }
+
+
+@pytest.mark.parametrize(
+    ("field_name", "field_value"),
+    [
+        ("device_ip", "10.0.0.1"),
+        ("cloud_id", 2),
+        ("allowed_actions", ["ui.click"]),
+    ],
+)
+def test_task_control_plane_rejects_misplaced_top_level_contract_fields(
+    field_name: str, field_value: object
+):
+    os.environ["MYT_TASK_QUEUE_BACKEND"] = "memory"
+    reset_task_controller_for_tests()
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/tasks/",
+            json={
+                "task": "agent_executor",
+                "payload": {"goal": "open home"},
+                "targets": [{"device_id": 3, "cloud_id": 2}],
+                field_name: field_value,
+            },
+        )
+
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        assert any(
+            "canonical top-level task request" in str(item.get("msg", "")) for item in detail
+        )
 
 
 def test_task_controller_rejects_submit_without_targets_or_devices(tmp_path: Path):

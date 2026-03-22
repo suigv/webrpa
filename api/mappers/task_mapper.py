@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from typing import Any
+
 from core.task_store import TaskRecord
 from engine.plugin_loader import get_shared_plugin_loader
 from models.task import (
@@ -40,7 +42,7 @@ def extract_targets(record: TaskRecord) -> list[TaskTarget]:
     return targets
 
 
-def _base_task_fields(record: TaskRecord) -> dict[str, object]:
+def _base_task_fields(record: TaskRecord) -> dict[str, Any]:
     task_name = "anonymous"
     if isinstance(record.payload, dict):
         task_name = str(record.payload.get("task") or "anonymous")
@@ -67,6 +69,8 @@ def _base_task_fields(record: TaskRecord) -> dict[str, object]:
         "idempotency_key": record.idempotency_key,
         "status": TaskStatus(record.status),
         "created_at": parse_datetime(record.created_at) or datetime.now(UTC),
+        "started_at": parse_datetime(getattr(record, "started_at", None)),
+        "finished_at": parse_datetime(getattr(record, "finished_at", None)),
         "retry_count": record.retry_count,
         "max_retries": record.max_retries,
         "retry_backoff_seconds": record.retry_backoff_seconds,
@@ -82,8 +86,12 @@ def to_task_response(
 ) -> TaskResponse:
     fields = _base_task_fields(record)
     if workflow_draft is not None:
-        fields["workflow_draft"] = workflow_draft
-    return TaskResponse(**fields)
+        fields["workflow_draft"] = (
+            workflow_draft
+            if isinstance(workflow_draft, WorkflowDraftSummary)
+            else WorkflowDraftSummary.model_validate(workflow_draft)
+        )
+    return TaskResponse.model_validate(fields)
 
 
 def to_task_detail_response(
@@ -92,5 +100,15 @@ def to_task_detail_response(
 ) -> TaskDetailResponse:
     fields = _base_task_fields(record)
     if workflow_draft is not None:
-        fields["workflow_draft"] = workflow_draft
-    return TaskDetailResponse(**fields, result=record.result, error=record.error)
+        fields["workflow_draft"] = (
+            workflow_draft
+            if isinstance(workflow_draft, WorkflowDraftSummary)
+            else WorkflowDraftSummary.model_validate(workflow_draft)
+        )
+    return TaskDetailResponse.model_validate(
+        {
+            **fields,
+            "result": record.result,
+            "error": record.error,
+        }
+    )

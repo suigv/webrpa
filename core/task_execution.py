@@ -60,6 +60,7 @@ class ProcessTaskHandle:
     current_target: tuple[int, int] | None = None
     current_target_started_at_epoch: float | None = None
     target_trip_sent: bool = False
+    pause_sent: bool = False
     breaker_trip: TargetCircuitBreakerTrip | None = None
     tolerate_target_unavailable: bool = False
 
@@ -279,6 +280,7 @@ class SubprocessCancellationState:
         self._control_queue = control_queue
         self._trip: TargetCircuitBreakerTrip | None = None
         self._trip_lock = threading.Lock()
+        self._pause_requested = False
 
     def _drain_control_queue(self) -> None:
         if self._control_queue is None:
@@ -290,7 +292,16 @@ class SubprocessCancellationState:
                 return
             except Exception:
                 return
-            if not isinstance(message, dict) or message.get("type") != "trip":
+            if not isinstance(message, dict):
+                continue
+            message_type = str(message.get("type") or "").strip().lower()
+            if message_type == "pause":
+                self._pause_requested = True
+                continue
+            if message_type == "resume":
+                self._pause_requested = False
+                continue
+            if message_type != "trip":
                 continue
             payload = message.get("payload")
             if not isinstance(payload, dict):
@@ -314,6 +325,10 @@ class SubprocessCancellationState:
         self._drain_control_queue()
         with self._trip_lock:
             return self._trip
+
+    def is_pause_requested(self) -> bool:
+        self._drain_control_queue()
+        return self._pause_requested
 
 
 def _delay_seconds(next_retry_at: str) -> int:
@@ -412,6 +427,9 @@ def _execute_task(
             return True
         return store.is_cancel_requested(task_id)
 
+    def _combined_pause() -> bool:
+        return store.is_pause_requested(task_id)
+
     with store.transaction(immediate=True) as conn:
         marked_running = store.mark_running(task_id, conn=conn)
         record = store.get_task(task_id, conn=conn)
@@ -479,15 +497,19 @@ def _execute_task(
 
             runtime = dict(prepared.runtime)
             runtime["emit_event"] = emit_event
+            run_id = f"{task_id}-run-{record.retry_count + 1}"
 
             if task_name == "agent_executor":
                 runtime.update(
                     {
                         "retry_count": record.retry_count,
                         "attempt_number": record.retry_count + 1,
-                        "run_id": f"{task_id}-run-{record.retry_count + 1}",
+                        "run_id": run_id,
                     }
                 )
+            else:
+                runtime.setdefault("run_id", run_id)
+            store.set_active_run_id(task_id, str(runtime.get("run_id") or run_id))
 
             local_breaker = ActiveTargetCircuitBreaker(
                 task_id=task_id,
@@ -503,7 +525,7 @@ def _execute_task(
             try:
 
                 def _target_cancel(_breaker: ActiveTargetCircuitBreaker = local_breaker) -> bool:
-                    return _breaker.should_cancel() or _combined_cancel()
+                    return _breaker.should_cancel() or _combined_cancel() or _combined_pause()
 
                 def _current_trip(
                     _breaker: ActiveTargetCircuitBreaker = local_breaker,
@@ -527,6 +549,19 @@ def _execute_task(
                         should_cancel=_target_cancel,
                         runtime=runtime,
                     )
+                    if (
+                        _combined_pause()
+                        and not _combined_cancel()
+                        and str(single_result.get("status") or "") == "cancelled"
+                    ):
+                        single_result = {
+                            **single_result,
+                            "ok": False,
+                            "status": "paused",
+                            "checkpoint": str(single_result.get("checkpoint") or "pause"),
+                            "code": "task_paused",
+                            "message": "task paused by operator",
+                        }
                     active_trip = _current_trip()
                     if active_trip is not None:
                         single_result = _trip_result(task_name, active_trip)
@@ -538,6 +573,21 @@ def _execute_task(
                     local_breaker.close()
 
             target_results.append({"target": prepared.target, "result": single_result})
+            if str(single_result.get("status") or "") == "paused" and not _combined_cancel():
+                with store.transaction(immediate=True) as conn:
+                    store.mark_paused(task_id, conn=conn)
+                    events.append_event(
+                        task_id,
+                        "task.paused",
+                        {
+                            "target": prepared.target,
+                            "run_id": str(runtime.get("run_id") or ""),
+                            "message": str(single_result.get("message") or "task paused by operator"),
+                        },
+                        conn=conn,
+                    )
+                store.set_active_run_id(task_id, str(runtime.get("run_id") or run_id))
+                return
             if not bool(single_result.get("ok")) and first_failure is None:
                 first_failure = single_result
 
@@ -571,6 +621,7 @@ def _execute_task(
         outcome = finalizer.finalize_exception_attempt(
             task_id=task_id, task_name=task_name, error=str(exc)
         )
+        store.set_active_run_id(task_id, None)
         _finalize_attempt_terminalization(
             queue_backend,
             retry_record=outcome.retry_record,
@@ -584,6 +635,7 @@ def _execute_task(
         result=result,
         payload=record.payload,
     )
+    store.set_active_run_id(task_id, None)
     _finalize_attempt_terminalization(
         queue_backend,
         retry_record=outcome.retry_record,
@@ -944,6 +996,17 @@ class TaskExecutionService:
             ):
                 handle.cancel_event.set()
                 handle.cancel_signaled_at = now
+
+            pause_requested = self._store.is_pause_requested(handle.task_id)
+            if handle.control_queue is not None:
+                if pause_requested and not handle.pause_sent:
+                    with suppress(Exception):
+                        handle.control_queue.put({"type": "pause"})
+                    handle.pause_sent = True
+                elif not pause_requested and handle.pause_sent:
+                    with suppress(Exception):
+                        handle.control_queue.put({"type": "resume"})
+                    handle.pause_sent = False
 
             self._maybe_trip_process_target(handle, now)
 

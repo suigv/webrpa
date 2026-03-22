@@ -117,12 +117,12 @@ def update_account_status(account: str, status: str, error_msg: str | None = Non
     return _get_store().update_status(account, status, error_msg)
 
 
-def pop_account() -> dict[str, Any] | None:
-    return _get_store().pop_ready_account()
+def pop_account(app_id: str | None = None) -> dict[str, Any] | None:
+    return _get_store().pop_ready_account(app_id=app_id)
 
 
-def list_accounts() -> list[dict[str, Any]]:
-    return _get_store().list_accounts()
+def list_accounts(app_id: str | None = None) -> list[dict[str, Any]]:
+    return _get_store().list_accounts(app_id=app_id)
 
 
 def reset_accounts() -> int:

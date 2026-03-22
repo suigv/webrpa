@@ -21,6 +21,7 @@ from core.task_api_service import (
 from core.task_control import get_task_controller
 from core.task_store import ManagedTaskStateClearBlockedError
 from models.task import (
+    TaskControlRequest,
     TaskDetailResponse,
     TaskMetricsResponse,
     TaskRequest,
@@ -28,6 +29,7 @@ from models.task import (
     TaskStatus,
     WorkflowDraftContinueRequest,
     WorkflowDraftDistillRequest,
+    WorkflowDraftSnapshotResponse,
     WorkflowDraftSummary,
 )
 
@@ -37,9 +39,11 @@ _PLUGIN_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 
 
 def _plugin_loader(*, refresh: bool = False):
-    from engine.plugin_loader import get_shared_plugin_loader
+    from engine.plugin_loader import clear_shared_plugin_loader_cache, get_shared_plugin_loader
 
-    return get_shared_plugin_loader(refresh=refresh)
+    if refresh:
+        clear_shared_plugin_loader_cache()
+    return get_shared_plugin_loader()
 
 
 def _validate_plugin_name(name: str) -> str:
@@ -226,6 +230,10 @@ async def _distill_plugin_response(plugin_name: str, force: bool) -> dict[str, A
         return result.returncode, result.stdout, result.stderr
 
     code, stdout, stderr = await run_sync(_run)
+    if code == 0:
+        from engine.plugin_loader import clear_shared_plugin_loader_cache
+
+        clear_shared_plugin_loader_cache()
     return {
         "ok": code == 0,
         "plugin_name": plugin_name,
@@ -249,18 +257,10 @@ async def create_task(
     try:
         record = await run_sync(
             lambda: controller.submit_with_retry(
-                script_payload,
-                [int(device_id) for device_id in request.devices],
-                [target.model_dump() for target in request.targets] if request.targets else None,
-                request.ai_type,
-                request.max_retries,
-                request.retry_backoff_seconds,
-                request.priority,
-                request.run_at.isoformat() if request.run_at is not None else None,
-                idempotency_key,
-                display_name=request.display_name,
-                draft_id=request.draft_id,
-                success_threshold=request.success_threshold,
+                **request.controller_submission_kwargs(
+                    script_payload=script_payload,
+                    idempotency_key=idempotency_key,
+                )
             )
         )
     except ValueError as exc:
@@ -363,9 +363,10 @@ async def clear_tasks():
 
 @router.get("/catalog")
 def task_catalog(include_hidden: bool = Query(default=False)):
-    from engine.plugin_loader import get_shared_plugin_loader
+    from engine.plugin_loader import clear_shared_plugin_loader_cache, get_shared_plugin_loader
 
-    loader = get_shared_plugin_loader(refresh=True)
+    clear_shared_plugin_loader_cache()
+    loader = get_shared_plugin_loader()
     catalog: list[dict[str, object]] = []
     for name in loader.names:
         entry = loader.get(name)
@@ -493,6 +494,17 @@ async def get_workflow_draft(draft_id: str):
     return summary
 
 
+@router.get("/drafts/{draft_id}/snapshot", response_model=WorkflowDraftSnapshotResponse)
+async def get_workflow_draft_snapshot(draft_id: str):
+    controller = get_task_controller()
+    try:
+        return await run_sync(controller.workflow_draft_snapshot, draft_id)
+    except ValueError as exc:
+        message = str(exc)
+        status = 404 if "not found" in message.lower() else 400
+        raise HTTPException(status_code=status, detail=message) from exc
+
+
 @router.post("/drafts/{draft_id}/continue", response_model=list[TaskResponse])
 async def continue_workflow_draft(
     draft_id: str,
@@ -594,6 +606,57 @@ async def cancel_task(task_id: str):
     if state is None:
         raise HTTPException(status_code=404, detail="task not found")
     return {"task_id": task_id, "status": state, "cancel_state": state, "cancelled": True}
+
+
+@router.post("/{task_id}/pause")
+async def pause_task(task_id: str, request: TaskControlRequest | None = None):
+    controller = get_task_controller()
+    record = await run_sync(controller.get, task_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="task not found")
+    if record.status in {TaskStatus.COMPLETED.value, TaskStatus.FAILED.value, TaskStatus.CANCELLED.value}:
+        return {"task_id": task_id, "status": record.status, "paused": False}
+    state = await run_sync(lambda: controller.pause_state(task_id, reason=request.reason if request else None))
+    if state is None:
+        raise HTTPException(status_code=404, detail="task not found")
+    changed = state in {"paused", "pause_requested"}
+    return {"task_id": task_id, "status": state, "pause_state": state, "paused": changed}
+
+
+@router.post("/{task_id}/resume")
+async def resume_task(task_id: str, request: TaskControlRequest | None = None):
+    controller = get_task_controller()
+    record = await run_sync(controller.get, task_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="task not found")
+    state = await run_sync(lambda: controller.resume_state(task_id, reason=request.reason if request else None))
+    if state is None:
+        raise HTTPException(status_code=404, detail="task not found")
+    changed = state in {"pending", "running"} and record.status != state
+    return {"task_id": task_id, "status": state, "resume_state": state, "resumed": changed}
+
+
+@router.post("/{task_id}/takeover")
+async def takeover_task(task_id: str, request: TaskControlRequest | None = None):
+    controller = get_task_controller()
+    record = await run_sync(controller.get, task_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="task not found")
+    try:
+        state = await run_sync(
+            lambda: controller.takeover_state(
+                task_id,
+                owner=request.owner if request else None,
+                run_id=request.run_id if request else None,
+                reason=request.reason if request else None,
+            )
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if state is None:
+        raise HTTPException(status_code=404, detail="task not found")
+    changed = state == "takeover_requested"
+    return {"task_id": task_id, "status": state, "takeover_state": state, "takeover": changed}
 
 
 @router.post("/device/{device_id}/stop")

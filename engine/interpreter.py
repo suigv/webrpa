@@ -541,4 +541,9 @@ class Interpreter:
             if value is not None:
                 defaults[key] = value
 
+        for key in ("package", "_app_states", "_app_stage_patterns", "_app_selectors"):
+            value = payload_dict.get(key)
+            if value is not None and key not in defaults:
+                defaults[key] = value
+
         return defaults

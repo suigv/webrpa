@@ -143,15 +143,45 @@
 - `GET /api/tasks/{task_id}`：任务详情（含 result / error）。
 - `GET /api/tasks/{task_id}/events`：任务事件流（SSE）。
 
+任务列表/详情响应额外字段（如存在则返回）：
+- `started_at`：任务进入 running 的时间戳。
+- `finished_at`：任务进入终态（completed/failed/cancelled）的时间戳。
+
 `POST /api/tasks/` 额外支持：
 - `display_name`：客户可见中文任务名，例如 `X 登录`。
 - `draft_id`：把任务挂入已有 workflow draft。
 - `success_threshold`：达到多少次成功样本后允许蒸馏，默认 `3`。
 
+AI 托管任务提交契约（当前正式路径）：
+
+```json
+{
+  "task": "agent_executor",
+  "payload": {
+    "goal": "dismiss login interstitial"
+  },
+  "targets": [
+    {"device_id": 7, "cloud_id": 2}
+  ],
+  "priority": 50,
+  "max_retries": 0,
+  "retry_backoff_seconds": 2,
+  "run_at": null,
+  "idempotency_key": null
+}
+```
+
+契约边界：
+- **Canonical top-level fields**：`task`、`payload`、`targets`，以及已存在的调度/控制字段 `priority`、`max_retries`、`retry_backoff_seconds`、`run_at`、`idempotency_key`。
+- **Compatibility-only top-level fields**：`devices`、`ai_type`、`display_name`、`draft_id`、`success_threshold`。这些字段仍被支持，但不属于新的首选提交形状。
+- **Anonymous script mode**：`script` 仍是独立的匿名脚本提交流程；不要把它当作 AI 托管任务的首选入口。
+
 任务请求契约补充：
 - `payload` 只承载插件在 `manifest.inputs` 中声明的业务输入。
-- `targets` 是目标声明通道；不要把 `device_id` / `cloud_id` / `device_ip` 之类运行时上下文重新塞回 `payload`。
-- `app_id` 只有在目标插件显式声明该输入时才允许出现在 `payload` 中。
+- `targets` 是首选目标声明通道；`devices` 仅作为兼容输入存在，后端会统一归一到显式 `targets`。
+- `device_id` / `cloud_id` / `device_ip` 属于目标/运行时元数据，必须通过 `targets` 或运行时信封提供，而不是顶层漂移字段或主业务 `payload`。
+- `allowed_actions`、`expected_state_ids`、`app_id` 这类业务输入若需要提交，必须放在 `payload` 内；其中 `app_id` 只有在目标插件显式声明该输入时才允许出现。
+- `_runtime_profile`、`_runtime`、`_llm`、`_vlm` 属于私有运行时覆写，不属于主业务 payload 契约；它们可以作为内部/兼容路径存在，但调用方不应把它们当作公开业务输入。
 - 当 `MYT_STRICT_PLUGIN_UNKNOWN_INPUTS=1` 时，未声明字段会在 dispatch 阶段直接以 `failed_config_error` 拒绝。
 - 当前仍保留少量 deprecated 兼容：某些旧调用路径在 `runtime.target` 缺少 `device_ip` 时，执行层仍会回退读取 payload 中的 legacy `device_ip`。这不是推荐契约，后续会继续收敛。
 
@@ -162,6 +192,9 @@
 
 ### 7.1 任务取消与清理
 - `POST /api/tasks/{task_id}/cancel`：取消任务（等价于“更显式”的取消入口）。
+- `POST /api/tasks/{task_id}/pause`：暂停任务。pending 任务会直接进入 `paused`；running 任务会进入协作式 `pause_requested` 流程。
+- `POST /api/tasks/{task_id}/resume`：恢复任务。`paused` 任务会重新排队；running + `pause_requested` 会清除暂停请求。
+- `POST /api/tasks/{task_id}/takeover`：发起显式 operator takeover 请求，可附带 `run_id` / `owner`。
 - `POST /api/tasks/cleanup_failed`：清理 failed/cancelled 任务及相关运行产物（兼容 `DELETE`）。
 - `POST /api/tasks/cleanup_runtime`：按保留期/上限裁剪任务事件与 trace（兼容 `DELETE`）。
 - `DELETE /api/tasks/`：清空任务（运维用途，谨慎使用）。
@@ -213,6 +246,7 @@
 ### 7.4 Workflow Draft
 - `GET /api/tasks/drafts`：列出 workflow drafts（按更新时间倒序）。
 - `GET /api/tasks/drafts/{draft_id}`：获取草稿状态、样本计数、失败建议和蒸馏进度。
+- `GET /api/tasks/drafts/{draft_id}/snapshot`：获取最近一次成功快照（用于“编辑并重放”将历史参数预填到任务表单）。
 - `POST /api/tasks/drafts/{draft_id}/continue`：复用最近一次成功快照继续自动验证。
 - `POST /api/tasks/drafts/{draft_id}/distill`：当成功样本达到门槛后离线蒸馏最近一次成功 golden run，生成 YAML 草稿。
 
@@ -225,6 +259,7 @@ Workflow draft 约束：
 - `draft_id` 一旦创建，会绑定首个任务的 `task_name`、`display_name` 与 `success_threshold`。
 - 后续续跑或重试必须沿用同一业务身份；若传入不一致的值，接口会返回 400，避免把不相关运行误并到同一个草稿。
 - `cleanup_failed` / `clear_all` 会同步清理 workflow draft 中已经失效的任务引用，避免草稿状态残留到已删除任务。
+- 最近成功快照会固化 replay identity（例如解析后的 `app_id`、显式 `credentials_ref` 来源类型与账号名），用于“编辑并重放”保持更稳定的身份边界。
 
 ### 7.5 插件蒸馏
 - `POST /api/tasks/plugins/{plugin_name}/distill`：触发插件蒸馏（受 `distill_threshold` 与目录边界约束）。
@@ -232,6 +267,7 @@ Workflow draft 约束：
 说明：
 - 当插件 `manifest.yaml` 声明 `distillable: false` 时，该接口会直接返回 `code=distillation_not_supported`。
 - 这类插件通常属于设备初始化、环境编排、随机化或运维流程，不应把一次 AI / API 运行样本固化成蒸馏模板。
+- 蒸馏成功后后端会清空共享 plugin loader cache；只有**后续 lookup**（例如新的 catalog 请求、后续任务分发）会看到新插件，当前运行中的任务不承诺热更新。
 
 ---
 

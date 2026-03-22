@@ -649,3 +649,60 @@ def test_native_adapter_follow_targets_binding_treats_missing_as_matched_state(
     assert result.state.state_id == "missing"
     assert result.message == "no follow targets extracted"
     assert result.raw_details["legacy_code"] == "follow_targets_missing"
+
+
+def test_ui_match_state_uses_injected_stage_patterns_when_params_absent(monkeypatch: MonkeyPatch) -> None:
+    from engine.action_registry import resolve_action
+
+    captured: dict[str, object] = {}
+
+    class FakeAdapter:
+        def __init__(self, state_profile_id: str, *, action_params=None, binding_id=None):
+            captured["state_profile_id"] = state_profile_id
+            captured["binding_id"] = binding_id
+            captured["action_params"] = dict(action_params or {})
+
+        def match_state(self, context: ExecutionContext, *, expected_state_ids, timeout_ms=None):
+            _ = (context, expected_state_ids, timeout_ms)
+
+            class _Result:
+                def to_action_result(self):
+                    return ActionResult(ok=True, code="ok", data={"state": {"state_id": "home"}})
+
+            return _Result()
+
+    monkeypatch.setattr("engine.actions.ui_state_actions.NativeUIStateAdapter", FakeAdapter)
+
+    ctx = ExecutionContext(
+        payload={"device_ip": "192.168.1.214"},
+        session={
+            "defaults": {
+                "package": "com.twitter.android",
+                "_app_stage_patterns": {"home": {"text_markers": ["For you"]}},
+                "_app_selectors": {"home_tab": {"type": "id", "value": "home"}},
+            }
+        },
+    )
+    result = resolve_action("ui.match_state")(
+        {
+            "platform": "native",
+            "state_profile_id": "app_stage",
+            "expected_state_ids": ["home"],
+        },
+        ctx,
+    )
+
+    assert result.ok is True
+    assert captured["state_profile_id"] == "app_stage"
+    assert captured["binding_id"] is None
+    action_params = cast(dict[str, object], captured["action_params"])
+    assert action_params["package"] == "com.twitter.android"
+    assert action_params["stage_patterns"] == {
+        "home": {"text_markers": ["For you"]}
+    }
+    assert action_params["_app_stage_patterns"] == {
+        "home": {"text_markers": ["For you"]}
+    }
+    assert action_params["_app_selectors"] == {
+        "home_tab": {"type": "id", "value": "home"}
+    }

@@ -71,6 +71,7 @@ class _StructuredPlannerConfig:
     system_prompt: str
     llm_runtime: dict[str, object]
     planner_inputs: dict[str, object]
+    planner_artifact: dict[str, object]
     fallback_modalities: list[str]
     observation_params: dict[str, object]
 
@@ -96,6 +97,7 @@ class PlannerInput:
     system_prompt: str
     llm_runtime: dict[str, object]
     planner_inputs: dict[str, object] = field(default_factory=dict)
+    planner_artifact: dict[str, object] = field(default_factory=dict)
 
     # --- Self-reflection fields ---
     history_digest: list[dict[str, object]] = field(default_factory=list)
@@ -126,6 +128,7 @@ class PlannerOutput:
     provider: str = ""
     model: str = ""
     planner_structured_state: object = None
+    planner_artifact: dict[str, object] = field(default_factory=dict)
 
     # Free-form bucket for request/response traces, vlm attempt logs, etc.
     diagnostics: dict[str, object] = field(default_factory=dict)
@@ -147,6 +150,7 @@ class PlannerOutput:
             "provider": self.provider,
             "model": self.model,
             "planner_structured_state": self.planner_structured_state,
+            "planner_artifact": _json_dict(self.planner_artifact),
         }
         if self.extracted_data is not None:
             d["extracted_data"] = self.extracted_data
@@ -202,6 +206,7 @@ class StructuredPlanner:
             system_prompt=inp.system_prompt,
             llm_runtime=inp.llm_runtime,
             planner_inputs=inp.planner_inputs,
+            planner_artifact=inp.planner_artifact,
             fallback_modalities=inp.fallback_modalities,
             observation_params={},
         )
@@ -263,20 +268,22 @@ def plan_structured_step(
                     else "vlm returned empty action"
                 ),
                 "action": vlm_output.action,
-                "request": dict(vlm_output.diagnostics.get("request", {})),
-                "response": dict(vlm_output.diagnostics.get("response", {})),
+                "request": _json_dict(vlm_output.diagnostics.get("request")),
+                "response": _json_dict(vlm_output.diagnostics.get("response")),
             }
         else:
             vlm_attempt = {
                 "ok": False,
                 "code": vlm_output.code or "vlm_error",
                 "message": vlm_output.message or "vlm planning failed",
-                "request": dict(vlm_output.diagnostics.get("request", {})),
-                "response": dict(vlm_output.diagnostics.get("response", {})),
+                "request": _json_dict(vlm_output.diagnostics.get("request")),
+                "response": _json_dict(vlm_output.diagnostics.get("response")),
             }
 
+    artifact = _json_dict(getattr(config, "planner_artifact", {}))
+    prompt_goal = str(artifact.get("goal_text") or config.goal or "").strip()
     prompt_payload: dict[str, object] = {
-        "goal": config.goal,
+        "goal": prompt_goal or config.goal,
         "step_index": step_index,
         "allowed_actions": config.allowed_actions,
         "observation": observation,
@@ -299,6 +306,8 @@ def plan_structured_step(
     visible_inputs = _planner_visible_inputs(config.planner_inputs)
     if visible_inputs:
         prompt_payload["payload"] = visible_inputs
+    if artifact:
+        prompt_payload["planner_artifact"] = artifact
 
     request = LLMRequest(
         prompt=json.dumps(prompt_payload, ensure_ascii=False),
@@ -324,6 +333,7 @@ def plan_structured_step(
             planned_at=planned_at,
             fallback_reason=fallback_reason,
             diagnostics={"request": request_trace, "response": response_trace},
+            planner_artifact=artifact,
         )
 
     output_text = str(getattr(response, "output_text", "") or "").strip()
@@ -335,6 +345,7 @@ def plan_structured_step(
             planned_at=planned_at,
             fallback_reason=fallback_reason,
             diagnostics={"request": request_trace, "response": response_trace},
+            planner_artifact=artifact,
         )
     try:
         plan = json.loads(output_text)
@@ -346,6 +357,7 @@ def plan_structured_step(
             planned_at=planned_at,
             fallback_reason=fallback_reason,
             diagnostics={"request": request_trace, "response": response_trace},
+            planner_artifact=artifact,
         )
     if not isinstance(plan, dict):
         return PlannerOutput(
@@ -355,6 +367,7 @@ def plan_structured_step(
             planned_at=planned_at,
             fallback_reason=fallback_reason,
             diagnostics={"request": request_trace, "response": response_trace},
+            planner_artifact=artifact,
         )
     params_raw = plan.get("params")
     extracted_raw = plan.get("extracted_data")
@@ -372,6 +385,7 @@ def plan_structured_step(
         planner_structured_state=getattr(response, "structured_state", None),
         fallback_reason=fallback_reason,
         diagnostics={"request": request_trace, "response": response_trace},
+        planner_artifact=artifact,
     )
 
 
@@ -611,6 +625,7 @@ def _legacy_dict_to_output(raw: dict[str, object]) -> PlannerOutput:
         "provider",
         "model",
         "planner_structured_state",
+        "planner_artifact",
     }
     diagnostics = {k: v for k, v in raw.items() if k not in known_keys}
     params_raw = raw.get("params")
@@ -631,5 +646,6 @@ def _legacy_dict_to_output(raw: dict[str, object]) -> PlannerOutput:
         provider=str(raw.get("provider") or ""),
         model=str(raw.get("model") or ""),
         planner_structured_state=raw.get("planner_structured_state"),
+        planner_artifact=_json_dict(raw.get("planner_artifact")),
         diagnostics=diagnostics,
     )

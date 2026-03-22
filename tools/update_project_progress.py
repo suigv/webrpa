@@ -95,10 +95,16 @@ def _render_snapshot(root: Path) -> str:
 
 def main() -> None:
     project_root = bootstrap_project_root()
-    progress_file = project_root / "docs" / "project_progress.md"
+    candidates = [
+        project_root / "docs" / "governance" / "project_progress.md",
+        project_root / "docs" / "project_progress.md",
+    ]
+    progress_file = next((path for path in candidates if path.exists()), None)
 
-    if not progress_file.exists():
-        raise FileNotFoundError(f"progress file not found: {progress_file}")
+    if progress_file is None:
+        raise FileNotFoundError(
+            "progress file not found: " + ", ".join(str(path) for path in candidates)
+        )
 
     original = progress_file.read_text(encoding="utf-8")
     snapshot = _render_snapshot(project_root)

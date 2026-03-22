@@ -113,6 +113,13 @@ class TaskController:
         self._execution_service: TaskExecutionService | None = None
         self._attempt_finalizer: TaskAttemptFinalizer | None = None
 
+    def _resolve_plugin_loader(self, *, refresh: bool = False):
+        loader = get_shared_plugin_loader(refresh=refresh)
+        self._plugin_loader = loader
+        self._dispatch_runtime_resolver._plugin_loader = loader
+        self._runtime_cleanup._plugin_loader = loader
+        return loader
+
     def _ensure_services(self):
         """阶梯式初始化子服务，防止启动瞬间死锁。"""
         if self._execution_service is not None:
@@ -165,7 +172,8 @@ class TaskController:
         self._ensure_services()
         normalized_devices, normalized_targets = _normalize_targets_and_devices(devices, targets)
         task_name = str(payload.get("task") or "anonymous")
-        is_named_plugin = self._plugin_loader.has(task_name)
+        loader = self._resolve_plugin_loader()
+        is_named_plugin = loader.has(task_name)
 
         if idempotency_key:
             existing = self._store.find_active_by_idempotency_key(idempotency_key)
@@ -247,7 +255,14 @@ class TaskController:
                 self._events.append_event(
                     task_id,
                     "task.cancelled",
-                    build_task_metrics_payload(cancelled, {"reason": "user"}),
+                    build_task_metrics_payload(
+                        cancelled,
+                        {
+                            "status": "cancelled",
+                            "ok": False,
+                            "reason": "user",
+                        },
+                    ),
                     conn=conn,
                 )
                 if cancelled is not None:
@@ -359,6 +374,86 @@ class TaskController:
 
     def list_workflow_drafts(self, limit: int = 100) -> list[dict[str, Any]]:
         return self._workflow_drafts.list_summaries(limit=limit)
+
+    def workflow_draft_snapshot(self, draft_id: str) -> dict[str, Any]:
+        return self._workflow_drafts.continuation_snapshot(draft_id)
+
+    def pause_state(self, task_id: str, *, reason: str | None = None) -> str | None:
+        with self._store.transaction(immediate=True) as conn:
+            state = self._store.request_pause(task_id, conn=conn)
+            if state is None:
+                return None
+            if state == "paused":
+                self._events.append_event(
+                    task_id,
+                    "task.paused",
+                    {"status": "paused", "reason": reason or "user"},
+                    conn=conn,
+                )
+            elif state == "pause_requested":
+                self._events.append_event(
+                    task_id,
+                    "task.pause_requested",
+                    {"status": "pause_requested", "reason": reason or "user"},
+                    conn=conn,
+                )
+            return state
+
+    def resume_state(self, task_id: str, *, reason: str | None = None) -> str | None:
+        self._ensure_services()
+        with self._store.transaction(immediate=True) as conn:
+            state = self._store.resume_task(task_id, conn=conn)
+            if state is None:
+                return None
+            record = self._store.get_task(task_id, conn=conn)
+            if state == "pending":
+                self._events.append_event(
+                    task_id,
+                    "task.resumed",
+                    {"status": "pending", "reason": reason or "user"},
+                    conn=conn,
+                )
+            elif state == "running":
+                self._events.append_event(
+                    task_id,
+                    "task.resume_requested",
+                    {"status": "running", "reason": reason or "user"},
+                    conn=conn,
+                )
+        if state == "pending" and record is not None and self._execution_service is not None:
+            self._execution_service.enqueue_record(record)
+        return state
+
+    def takeover_state(
+        self,
+        task_id: str,
+        *,
+        owner: str | None = None,
+        run_id: str | None = None,
+        reason: str | None = None,
+    ) -> str | None:
+        with self._store.transaction(immediate=True) as conn:
+            record = self._store.get_task(task_id, conn=conn)
+            if record is None:
+                return None
+            current_run_id = str(record.active_run_id or "").strip()
+            requested_run_id = str(run_id or "").strip()
+            if requested_run_id and current_run_id and requested_run_id != current_run_id:
+                raise ValueError("run_id mismatch for takeover request")
+            state = self._store.request_takeover(task_id, owner=owner, conn=conn)
+            if state == "takeover_requested":
+                self._events.append_event(
+                    task_id,
+                    "task.takeover_requested",
+                    {
+                        "status": state,
+                        "owner": owner,
+                        "run_id": current_run_id or requested_run_id or None,
+                        "reason": reason or "operator_takeover",
+                    },
+                    conn=conn,
+                )
+            return state
 
     def continue_workflow_draft(self, draft_id: str, count: int = 1) -> list[TaskRecord]:
         snapshot_bundle = self._workflow_drafts.continuation_snapshot(draft_id)

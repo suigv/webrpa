@@ -6,6 +6,7 @@ from typing import Any
 
 import requests
 
+from core.app_config import AppConfigManager
 from core.credentials_loader import load_credentials_from_ref
 from engine.models.runtime import ActionResult, ExecutionContext
 
@@ -54,9 +55,13 @@ def credentials_checkout(params: dict[str, Any], context: ExecutionContext) -> A
     port = os.environ.get("MYT_API_PORT", "8001")
     host = os.environ.get("MYT_API_HOST", "127.0.0.1")
     url = f"http://{host}:{port}/api/data/accounts/pop"
+    request_payload = _build_checkout_request_payload(params, context)
 
     try:
-        resp = requests.post(url, timeout=10)
+        if request_payload is None:
+            resp = requests.post(url, timeout=10)
+        else:
+            resp = requests.post(url, json=request_payload, timeout=10)
         data = resp.json()
 
         if data.get("status") == "ok":
@@ -78,3 +83,30 @@ def credentials_checkout(params: dict[str, Any], context: ExecutionContext) -> A
         return ActionResult(
             ok=False, code="request_failed", message=f"Failed to checkout account: {exc}"
         )
+
+
+def _build_checkout_request_payload(
+    params: dict[str, Any], context: ExecutionContext
+) -> dict[str, Any] | None:
+    app_id = _resolve_checkout_app_id(params, context)
+    if not app_id:
+        return None
+    return {"app_id": app_id}
+
+
+def _resolve_checkout_app_id(params: dict[str, Any], context: ExecutionContext) -> str:
+    payload = context.payload if isinstance(context.payload, dict) else {}
+    for source in (params, payload):
+        for key in ("app_id", "app"):
+            raw = str(source.get(key) or "").strip().lower()
+            if raw:
+                return raw
+
+    for source in (params, payload):
+        package = str(source.get("package") or "").strip()
+        if not package:
+            continue
+        mapped = AppConfigManager.find_app_by_package(package)
+        if mapped:
+            return mapped
+    return ""

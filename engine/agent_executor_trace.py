@@ -421,6 +421,7 @@ class AgentExecutorTraceMixin:
             "message": str(plan.get("message") or ""),
             "request": _json_dict(plan.get("request")),
             "response": _json_dict(plan.get("response")),
+            "planner_artifact": _json_dict(plan.get("planner_artifact")),
             "model_metadata": {
                 "request_id": str(plan.get("request_id") or ""),
                 "provider": str(plan.get("provider") or ""),

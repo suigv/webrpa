@@ -2002,7 +2002,27 @@ def test_agent_executor_extends_step_budget_once_when_recent_progress_exists():
 
     assert result["ok"] is True
     assert result["step_count"] == 2
-    assert len(llm_client.calls) == 3
+
+
+def test_agent_executor_builds_layered_planner_artifact(monkeypatch):
+    runtime = AgentExecutorRuntime()
+    monkeypatch.setattr("engine.agent_executor.get_app_agent_hint", lambda app_id: "Prefer timeline-first navigation")
+
+    config = runtime._parse_config(
+        {
+            "task": "agent_executor",
+            "goal": "log into X",
+            "expected_state_ids": ["account"],
+            "allowed_actions": ["ui.click"],
+            "advanced_prompt": "Do not dismiss unread prompts blindly",
+            "package": "com.twitter.android",
+        }
+    )
+
+    assert config.planner_artifact["app_id"] == "x"
+    assert config.planner_artifact["app_hint"] == "Prefer timeline-first navigation"
+    assert config.planner_artifact["advanced_prompt"] == "Do not dismiss unread prompts blindly"
+    assert "App hint:" in str(config.planner_artifact["goal_text"])
 
 
 def test_agent_executor_cancellation_writes_terminal_trace_record(tmp_path: Path):

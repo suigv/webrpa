@@ -13,7 +13,6 @@ steps:
     params:
       device_ip: "${vars.cloud_container.device_ip}"
       cloud_index: "${vars.cloud_container.cloud_id}"
-      package: com.twitter.android
 
   - label: 重新启动 X App
     kind: action
@@ -21,7 +20,6 @@ steps:
     params:
       device_ip: "${vars.cloud_container.device_ip}"
       cloud_index: "${vars.cloud_container.cloud_id}"
-      package: com.twitter.android
 
   - label: 等待主页加载
     kind: action
@@ -29,10 +27,6 @@ steps:
     params:
       device_ip: "${vars.cloud_container.device_ip}"
       cloud_index: "${vars.cloud_container.cloud_id}"
-      app_id: "${payload.app_id:-x}"
-      app: "${payload.app_id:-x}"
-      package: com.twitter.android
-      state_profile_id: app_stage
       state_ids:
         - home
       timeout_ms: 30000
@@ -55,7 +49,6 @@ steps:
     params:
       device_ip: "${vars.cloud_container.device_ip}"
       cloud_index: "${vars.cloud_container.cloud_id}"
-      app_id: "${payload.app_id:-x}"
       ai_type: "${payload.ai_type:-volc}"
       swipe_count_min: 5
       swipe_count_max: "${payload.max_swipes:-15}"

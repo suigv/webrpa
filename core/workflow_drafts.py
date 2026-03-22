@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import re
+import json
 import sqlite3
 import uuid
 from pathlib import Path
 from typing import Any
 
+from core.app_config import resolve_app_id
 from core.golden_run_distillation import GoldenRunDistiller
 from core.model_trace_store import ModelTraceContext
 from core.paths import plugins_dir, traces_dir
@@ -88,24 +90,32 @@ def _list_trace_contexts(task_id: str) -> list[ModelTraceContext]:
     task_root = traces_dir() / task_id
     if not task_root.is_dir():
         return []
-    trace_paths: list[tuple[float, Path]] = []
+    trace_paths: list[tuple[float, str, str, int, Path]] = []
     for path in task_root.glob("*/*.jsonl"):
+        match = _TRACE_FILE_RE.match(path.name)
+        if match is None:
+            continue
         try:
             stat = path.stat()
         except OSError:
             continue
-        trace_paths.append((stat.st_mtime, path))
+        trace_paths.append(
+            (
+                stat.st_mtime,
+                path.parent.name,
+                match.group("target"),
+                int(match.group("attempt")),
+                path,
+            )
+        )
     contexts: list[ModelTraceContext] = []
-    for _, path in sorted(trace_paths, key=lambda item: item[0], reverse=True):
-        match = _TRACE_FILE_RE.match(path.name)
-        if match is None:
-            continue
+    for _, run_id, target_label, attempt_number, path in sorted(trace_paths, reverse=True):
         contexts.append(
             ModelTraceContext(
                 task_id=task_id,
-                run_id=path.parent.name,
-                target_label=match.group("target"),
-                attempt_number=int(match.group("attempt")),
+                run_id=run_id,
+                target_label=target_label,
+                attempt_number=attempt_number,
             )
         )
     return contexts
@@ -136,8 +146,10 @@ def _trace_context_from_dict(value: object) -> ModelTraceContext | None:
     attempt_number = value.get("attempt_number")
     if not task_id or not run_id or not target_label:
         return None
+    if attempt_number is None:
+        return None
     try:
-        attempt = int(attempt_number)
+        attempt = int(str(attempt_number).strip())
     except Exception:
         return None
     if attempt < 1:
@@ -148,6 +160,61 @@ def _trace_context_from_dict(value: object) -> ModelTraceContext | None:
         target_label=target_label,
         attempt_number=attempt,
     )
+
+
+def _trace_context_exists(context: ModelTraceContext) -> bool:
+    path = traces_dir() / context.task_id / context.run_id / (
+        f"{context.target_label}.attempt-{context.attempt_number}.jsonl"
+    )
+    return path.is_file()
+
+
+def _build_snapshot_identity(payload: dict[str, Any]) -> dict[str, Any]:
+    package = str(payload.get("package") or "").strip() or None
+    app_id = resolve_app_id(payload)
+
+    credentials_ref_raw = str(payload.get("credentials_ref") or "").strip()
+    credentials_ref_kind = "missing"
+    credentials_ref_path: str | None = None
+    account_from_creds: str | None = None
+
+    if credentials_ref_raw:
+        if credentials_ref_raw.startswith("{") and credentials_ref_raw.endswith("}"):
+            credentials_ref_kind = "inline_json"
+            try:
+                creds_payload = json.loads(credentials_ref_raw)
+            except Exception:
+                creds_payload = None
+            if isinstance(creds_payload, dict):
+                account_from_creds = str(
+                    creds_payload.get("account")
+                    or creds_payload.get("username_or_email")
+                    or ""
+                ).strip() or None
+        else:
+            credentials_ref_kind = "path"
+            credentials_ref_path = credentials_ref_raw
+
+    account_inline = (
+        str(payload.get("account") or "").strip()
+        or str(payload.get("acc") or "").strip()
+    ).strip() or None
+    account = account_inline or account_from_creds
+
+    account_source = "unknown"
+    if account_from_creds:
+        account_source = "credentials_ref"
+    elif account_inline:
+        account_source = "inline_payload"
+
+    return {
+        "app_id": app_id,
+        "package": package,
+        "credentials_ref_kind": credentials_ref_kind,
+        "credentials_ref_path": credentials_ref_path,
+        "account": account,
+        "account_source": account_source,
+    }
 
 
 class WorkflowDraftService:
@@ -309,11 +376,18 @@ class WorkflowDraftService:
         *,
         task_record: Any,
         result: dict[str, Any] | None,
+        payload_override: dict[str, Any] | None = None,
         conn: sqlite3.Connection | None = None,
     ) -> dict[str, Any] | None:
-        if not isinstance(getattr(task_record, "payload", None), dict):
+        if not isinstance(payload_override, dict) and not isinstance(
+            getattr(task_record, "payload", None), dict
+        ):
             return None
-        payload = dict(task_record.payload)
+        payload = (
+            dict(payload_override)
+            if isinstance(payload_override, dict)
+            else dict(task_record.payload)
+        )
         draft_id = str(payload.get("_workflow_draft_id") or "").strip()
         if not draft_id:
             return None
@@ -332,7 +406,7 @@ class WorkflowDraftService:
             task_status = str(getattr(task_record, "status", "") or "").lower()
             if task_status == "completed":
                 trace_contexts = _list_trace_contexts(str(task_record.task_id))
-                latest_trace_context = trace_contexts[0] if trace_contexts else None
+                latest_trace_context = trace_contexts[0] if len(trace_contexts) == 1 else None
                 record.success_count += 1
                 record.latest_completed_task_id = str(task_record.task_id)
                 record.successful_task_ids = _dedupe_keep_last(
@@ -349,6 +423,7 @@ class WorkflowDraftService:
                         getattr(task_record, "retry_backoff_seconds", 2) or 2
                     ),
                     "priority": int(getattr(task_record, "priority", 50) or 50),
+                    "identity": _build_snapshot_identity(payload),
                     "trace_context": (
                         _trace_context_to_dict(latest_trace_context)
                         if latest_trace_context is not None
@@ -524,7 +599,8 @@ class WorkflowDraftService:
                         "multiple golden run traces found for latest successful task; "
                         "target-specific distillation is required"
                     )
-                return trace_context
+                if _trace_context_exists(trace_context):
+                    return trace_context
         for task_id in reversed(record.successful_task_ids):
             contexts = _list_trace_contexts(task_id)
             if len(contexts) > 1:

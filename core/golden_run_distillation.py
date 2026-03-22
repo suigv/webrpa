@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-# pyright: reportUnknownParameterType=false, reportUnknownArgumentType=false, reportUnknownVariableType=false, reportUnknownMemberType=false, reportUnusedCallResult=false, reportUnannotatedClassAttribute=false, reportExplicitAny=false
+# pyright: reportUnknownParameterType=false, reportUnknownArgumentType=false, reportUnknownVariableType=false, reportUnknownMemberType=false, reportUnusedCallResult=false
 import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol, cast
 
 import yaml
 
@@ -19,6 +19,27 @@ from engine.models.manifest import InputType, PluginInput, PluginManifest
 from engine.models.workflow import ActionStep, WorkflowScript
 
 _WORD_RE = re.compile(r"[^a-z0-9]+")
+_FRAMEWORK_OWNED_INPUT_FIELDS = frozenset(
+    {
+        "adb_port",
+        "api_port",
+        "app",
+        "app_id",
+        "binding_id",
+        "cloud_id",
+        "cloud_index",
+        "device_id",
+        "device_ip",
+        "package",
+        "rpa_port",
+        "run_id",
+        "sdk_port",
+        "serial",
+        "state_profile_id",
+        "target_label",
+        "task_id",
+    }
+)
 
 
 def _slug(value: str, *, default: str) -> str:
@@ -29,6 +50,11 @@ def _slug(value: str, *, default: str) -> str:
 
 def _stable_key(value: object) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+
+
+def _is_framework_owned_input_path(path: tuple[str, ...]) -> bool:
+    leaf = next((part for part in reversed(path) if not part.isdigit()), "")
+    return leaf in _FRAMEWORK_OWNED_INPUT_FIELDS
 
 
 def _iter_scalar_paths(value: object, prefix: tuple[str, ...] = ()):
@@ -73,6 +99,10 @@ class GoldenRunDistillationError(RuntimeError):
         }
 
 
+class _DraftRefinerLLMClient(Protocol):
+    def evaluate(self, request: object) -> object: ...
+
+
 class GoldenRunDistiller:
     def __init__(self, *, trace_store: ModelTraceStore | None = None) -> None:
         self._trace_store = trace_store or ModelTraceStore()
@@ -109,6 +139,7 @@ class GoldenRunDistiller:
             encoding="utf-8",
         )
         self._merge_selectors_to_app_config(step_records, script)
+        self._merge_agent_hint_candidates_to_app_config(step_records)
         return GoldenRunDraft(
             manifest=manifest,
             script=script,
@@ -353,6 +384,8 @@ class GoldenRunDistiller:
         produced_ref = produced_refs.get(stable_key)
         if produced_ref is not None:
             return produced_ref
+        if _is_framework_owned_input_path(path):
+            return value
         if not self._should_parameterize_literal(
             value=value, path=path, literal_counts=literal_counts
         ):
@@ -465,8 +498,13 @@ class GoldenRunDistiller:
 
         state_map: dict[str, dict[str, str]] = {}
         for record in records:
-            fe = record.get("fallback_evidence") or {}
-            xml_content = str((fe.get("ui_xml") or {}).get("content") or "").strip()
+            fe = record.get("fallback_evidence")
+            if not isinstance(fe, dict):
+                fe = {}
+            ui_xml = fe.get("ui_xml")
+            if not isinstance(ui_xml, dict):
+                ui_xml = {}
+            xml_content = str(ui_xml.get("content") or "").strip()
             if not xml_content:
                 continue
             try:
@@ -503,8 +541,13 @@ class GoldenRunDistiller:
         text_lens: list[int] = []
         desc_lens: list[int] = []
         for record in records:
-            fe = record.get("fallback_evidence") or {}
-            xml_content = str((fe.get("ui_xml") or {}).get("content") or "").strip()
+            fe = record.get("fallback_evidence")
+            if not isinstance(fe, dict):
+                fe = {}
+            ui_xml = fe.get("ui_xml")
+            if not isinstance(ui_xml, dict):
+                ui_xml = {}
+            xml_content = str(ui_xml.get("content") or "").strip()
             if not xml_content:
                 continue
             try:
@@ -562,6 +605,7 @@ class GoldenRunDistiller:
                     new_selectors[key] = {"type": "resource_id", "mode": "equal", "value": rid_val}
 
         # load existing app config
+        doc: dict[str, Any]
         try:
             doc = load_app_config_document(app)
         except Exception:
@@ -571,9 +615,8 @@ class GoldenRunDistiller:
 
         # merge selectors
         if new_selectors:
-            existing_sel: dict[str, object] = (
-                doc.get("selectors") if isinstance(doc.get("selectors"), dict) else {}
-            )  # type: ignore[assignment]
+            raw_selectors = doc.get("selectors")
+            existing_sel: dict[str, object] = raw_selectors if isinstance(raw_selectors, dict) else {}
             for key, selector in new_selectors.items():
                 if key not in existing_sel:
                     existing_sel[key] = selector
@@ -583,9 +626,10 @@ class GoldenRunDistiller:
         # merge states
         new_states = self._extract_states_from_records(records)
         if new_states:
+            raw_states = doc.get("states")
             existing_states: list[dict[str, str]] = (
-                doc.get("states") if isinstance(doc.get("states"), list) else []
-            )  # type: ignore[assignment]
+                raw_states if isinstance(raw_states, list) else []
+            )
             existing_ids = {str(s.get("id") or "") for s in existing_states}
             for state in new_states:
                 if state["id"] not in existing_ids:
@@ -603,6 +647,52 @@ class GoldenRunDistiller:
         if not changed:
             return
 
+        config_path = app_config_path(app)
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        config_path.write_text(
+            yaml.safe_dump(doc, sort_keys=False, allow_unicode=True),
+            encoding="utf-8",
+        )
+
+    def _merge_agent_hint_candidates_to_app_config(self, records: list[dict[str, object]]) -> None:
+        package = self._extract_package_from_records(records)
+        if not package:
+            return
+        app = app_from_package(package)
+        if not app:
+            return
+
+        candidates: list[str] = []
+        for record in records:
+            planner = record.get("planner")
+            if not isinstance(planner, dict):
+                continue
+            artifact = planner.get("planner_artifact")
+            if not isinstance(artifact, dict):
+                continue
+            advanced_prompt = str(artifact.get("advanced_prompt") or "").strip()
+            if advanced_prompt and advanced_prompt not in candidates:
+                candidates.append(advanced_prompt)
+
+        if not candidates:
+            return
+
+        try:
+            doc = load_app_config_document(app)
+        except Exception:
+            doc = {"version": "v1", "package_name": package}
+
+        existing_raw = doc.get("agent_hint_candidates")
+        existing = [item for item in existing_raw if isinstance(item, str) and item.strip()] if isinstance(existing_raw, list) else []
+        merged = existing[:]
+        changed = False
+        for candidate in candidates:
+            if candidate not in merged:
+                merged.append(candidate)
+                changed = True
+        if not changed:
+            return
+        doc["agent_hint_candidates"] = merged[-10:]
         config_path = app_config_path(app)
         config_path.parent.mkdir(parents=True, exist_ok=True)
         config_path.write_text(
@@ -747,7 +837,7 @@ class LLMDraftRefiner:
             response_format={"type": "json_object"},
         )
 
-        client = self._get_client()
+        client = cast(_DraftRefinerLLMClient, self._get_client())
         response = client.evaluate(request)  # type: ignore[union-attr]
 
         if not bool(getattr(response, "ok", False)):

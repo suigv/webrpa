@@ -85,6 +85,12 @@ def resolve_app_payload(app_id: str, current_payload: dict[str, Any]) -> dict[st
     return resolved
 
 
+def get_app_agent_hint(app_id: str) -> str:
+    config = get_app_config(app_id)
+    raw = str(config.get("agent_hint") or "").strip()
+    return raw
+
+
 class AppConfigManager:
     @staticmethod
     def apps_dir() -> Path:

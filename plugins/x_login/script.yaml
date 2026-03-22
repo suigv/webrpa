@@ -23,7 +23,6 @@ steps:
     params:
       device_ip: "${vars.cloud_container.device_ip}"
       cloud_index: "${vars.cloud_container.cloud_id}"
-      app_id: "${payload.app_id:-x}"
 
   - label: 授予 App 全部权限
     kind: action
@@ -31,7 +30,6 @@ steps:
     params:
       device_ip: "${vars.cloud_container.device_ip}"
       cloud_index: "${vars.cloud_container.cloud_id}"
-      app_id: "${payload.app_id:-x}"
 
   - label: 检测当前登录阶段
     kind: action
@@ -40,7 +38,6 @@ steps:
     params:
       device_ip: "${vars.cloud_container.device_ip}"
       cloud_index: "${vars.cloud_container.cloud_id}"
-      app_id: "${payload.app_id:-x}"
 
   - label: 检查是否已登录
     kind: if
@@ -59,7 +56,6 @@ steps:
     params:
       device_ip: "${vars.cloud_container.device_ip}"
       cloud_index: "${vars.cloud_container.cloud_id}"
-      app_id: "${payload.app_id:-x}"
       account: "${vars.credential.account}"
       password: "${vars.credential.password}"
       twofa_secret: "${vars.credential.twofa_secret:-}"

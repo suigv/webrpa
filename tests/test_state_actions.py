@@ -116,8 +116,10 @@ def test_ui_match_state_normalizes_native_state_profile_params(monkeypatch):
     assert result.ok is True
     assert captured["state_profile_id"] == "feed_profile"
     assert captured["binding_id"] is None
-    assert captured["action_params"]["state_profile_id"] == "feed_profile"
-    assert "binding_id" not in captured["action_params"]
+    action_params = captured["action_params"]
+    assert isinstance(action_params, dict)
+    assert action_params["state_profile_id"] == "feed_profile"
+    assert "binding_id" not in action_params
 
 
 def test_ui_match_state_keeps_binding_id_entrypoint_compatibility(monkeypatch):
@@ -159,8 +161,10 @@ def test_ui_match_state_keeps_binding_id_entrypoint_compatibility(monkeypatch):
     assert result.ok is True
     assert captured["state_profile_id"] == "legacy_profile"
     assert captured["binding_id"] is None
-    assert captured["action_params"]["state_profile_id"] == "legacy_profile"
-    assert "binding_id" not in captured["action_params"]
+    action_params = captured["action_params"]
+    assert isinstance(action_params, dict)
+    assert action_params["state_profile_id"] == "legacy_profile"
+    assert "binding_id" not in action_params
 
 
 def test_detect_login_stage_uses_visible_japanese_login_entry_text(monkeypatch):
@@ -875,6 +879,88 @@ def test_detect_app_stage_falls_back_to_legacy_stage_like_selectors(monkeypatch)
             }
         },
         "stage_order": ["home"],
+    }
+
+
+def test_detect_app_stage_uses_injected_stage_patterns_when_params_absent(monkeypatch):
+    mod = _load_state_actions_module()
+    ExecutionContext = _load_execution_context()
+
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(mod, "_connect_rpc", lambda params, context: (object(), None))
+    monkeypatch.setattr(mod, "_close_rpc", lambda rpc: None)
+
+    def _fake_detect(rpc, params, context):
+        _ = (rpc, context)
+        captured["params"] = params
+        return "home"
+
+    monkeypatch.setattr(mod, "_detect_login_stage_with_rpc", _fake_detect)
+    monkeypatch.setattr(
+        mod.sdk_config_support,
+        "load_app_config_document",
+        lambda app: (_ for _ in ()).throw(AssertionError("config fallback should not run")),
+    )
+
+    ctx = ExecutionContext(
+        payload={"device_ip": "192.168.1.214"},
+        session={
+            "defaults": {
+                "package": "com.twitter.android",
+                "_app_stage_patterns": {"home": {"text_markers": ["For you"]}},
+            }
+        },
+    )
+    result = mod.detect_app_stage({}, ctx)
+
+    assert result.ok is True
+    assert result.data == {"stage": "home"}
+    assert captured["params"] == {
+        "stage_patterns": {
+            "home": {"resource_ids": [], "focus_markers": [], "text_markers": ["For you"]}
+        },
+        "stage_order": ["home"],
+    }
+
+
+def test_detect_app_stage_explicit_stage_patterns_override_injected_defaults(monkeypatch):
+    mod = _load_state_actions_module()
+    ExecutionContext = _load_execution_context()
+
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(mod, "_connect_rpc", lambda params, context: (object(), None))
+    monkeypatch.setattr(mod, "_close_rpc", lambda rpc: None)
+
+    def _fake_detect(rpc, params, context):
+        _ = (rpc, context)
+        captured["params"] = params
+        return "search"
+
+    monkeypatch.setattr(mod, "_detect_login_stage_with_rpc", _fake_detect)
+
+    ctx = ExecutionContext(
+        payload={"device_ip": "192.168.1.214"},
+        session={
+            "defaults": {
+                "package": "com.twitter.android",
+                "_app_stage_patterns": {"home": {"text_markers": ["For you"]}},
+            }
+        },
+    )
+    result = mod.detect_app_stage(
+        {"stage_patterns": {"search": {"text_markers": ["Search"]}}},
+        ctx,
+    )
+
+    assert result.ok is True
+    assert result.data == {"stage": "search"}
+    assert captured["params"] == {
+        "stage_patterns": {
+            "search": {"resource_ids": [], "focus_markers": [], "text_markers": ["Search"]}
+        },
+        "stage_order": ["search"],
     }
 
 

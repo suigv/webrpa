@@ -5,12 +5,46 @@ from typing import Any
 from pydantic import BaseModel, Field, model_validator
 
 
+CANONICAL_TASK_REQUEST_FIELDS = frozenset(
+    {
+        "script",
+        "task",
+        "payload",
+        "targets",
+        "priority",
+        "max_retries",
+        "retry_backoff_seconds",
+        "run_at",
+        "idempotency_key",
+    }
+)
+COMPATIBILITY_TASK_REQUEST_FIELDS = frozenset(
+    {
+        "devices",
+        "display_name",
+        "draft_id",
+        "success_threshold",
+        "ai_type",
+    }
+)
+MISPLACED_TOP_LEVEL_TASK_FIELDS = {
+    "allowed_actions": "put payload business inputs inside payload",
+    "expected_state_ids": "put payload business inputs inside payload",
+    "app_id": "put plugin inputs inside payload only when the plugin declares them",
+    "device_id": "declare execution targets with targets or compatibility devices",
+    "device_ip": "declare execution targets with targets or compatibility devices",
+    "cloud_id": "declare execution targets with targets or compatibility devices",
+    "_runtime_profile": "keep runtime-only overrides out of the primary top-level contract",
+}
+
+
 class TaskType(StrEnum):
     SCRIPT = "script"
 
 
 class TaskStatus(StrEnum):
     PENDING = "pending"
+    PAUSED = "paused"
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
@@ -58,6 +92,13 @@ class WorkflowDraftSummary(BaseModel):
     next_action: str | None = None
 
 
+class WorkflowDraftSnapshotResponse(BaseModel):
+    display_name: str
+    draft_id: str
+    success_threshold: int = 3
+    snapshot: dict[str, Any] = Field(default_factory=dict)
+
+
 class TaskRequest(BaseModel):
     script: dict[str, Any] | None = None
     task: str | None = Field(default=None, min_length=1)
@@ -74,6 +115,20 @@ class TaskRequest(BaseModel):
     priority: int = Field(default=50, ge=0, le=100)
     run_at: datetime | None = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def validate_top_level_contract(cls, value: Any):
+        if not isinstance(value, dict):
+            return value
+        misplaced = sorted(set(value).intersection(MISPLACED_TOP_LEVEL_TASK_FIELDS))
+        if not misplaced:
+            return value
+        field = misplaced[0]
+        raise ValueError(
+            f"{field} is not part of the canonical top-level task request; "
+            f"{MISPLACED_TOP_LEVEL_TASK_FIELDS[field]}"
+        )
+
     @model_validator(mode="after")
     def validate_submission_mode(self):
         if self.script is None and (self.task is None or not str(self.task).strip()):
@@ -81,6 +136,27 @@ class TaskRequest(BaseModel):
         if not self.targets and not self.devices:
             raise ValueError("either targets or devices must be provided")
         return self
+
+    def controller_submission_kwargs(
+        self,
+        *,
+        script_payload: dict[str, Any],
+        idempotency_key: str | None,
+    ) -> dict[str, Any]:
+        return {
+            "payload": script_payload,
+            "devices": [int(device_id) for device_id in self.devices],
+            "targets": [target.model_dump() for target in self.targets] if self.targets else None,
+            "ai_type": self.ai_type,
+            "max_retries": self.max_retries,
+            "retry_backoff_seconds": self.retry_backoff_seconds,
+            "priority": self.priority,
+            "run_at": self.run_at.isoformat() if self.run_at is not None else None,
+            "idempotency_key": idempotency_key,
+            "display_name": self.display_name,
+            "draft_id": self.draft_id,
+            "success_threshold": self.success_threshold,
+        }
 
 
 class TaskResponse(BaseModel):
@@ -95,6 +171,8 @@ class TaskResponse(BaseModel):
     idempotency_key: str | None = None
     status: TaskStatus
     created_at: datetime
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
     retry_count: int = 0
     max_retries: int = 0
     retry_backoff_seconds: int = 2
@@ -121,6 +199,12 @@ class TaskMetricsResponse(BaseModel):
 
 class WorkflowDraftContinueRequest(BaseModel):
     count: int = Field(default=1, ge=1, le=10)
+
+
+class TaskControlRequest(BaseModel):
+    run_id: str | None = Field(default=None, min_length=1, max_length=128)
+    reason: str | None = Field(default=None, min_length=1, max_length=200)
+    owner: str | None = Field(default=None, min_length=1, max_length=120)
 
 
 class WorkflowDraftDistillRequest(BaseModel):

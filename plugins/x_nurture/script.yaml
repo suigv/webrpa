@@ -33,7 +33,6 @@ steps:
     params:
       device_ip: "${vars.cloud_container.device_ip}"
       cloud_index: "${vars.cloud_container.cloud_id}"
-      app_id: "${payload.app_id:-x}"
 
   - label: 抽取加权关键词
     kind: action
@@ -52,7 +51,6 @@ steps:
     params:
       device_ip: "${vars.cloud_container.device_ip}"
       cloud_index: "${vars.cloud_container.cloud_id}"
-      app_id: "${payload.app_id:-x}"
       key: search
       args:
         query: "${vars.keyword_result.keyword}"
@@ -73,7 +71,6 @@ steps:
     params:
       device_ip: "${vars.cloud_container.device_ip}"
       cloud_index: "${vars.cloud_container.cloud_id}"
-      app_id: "${payload.app_id:-x}"
       ai_type: "${payload.ai_type:-volc}"
       swipe_count_min: "${payload.swipe_count_min:-8}"
       swipe_count_max: "${payload.swipe_count_max:-15}"
@@ -103,7 +100,6 @@ steps:
     params:
       device_ip: "${vars.cloud_container.device_ip}"
       cloud_index: "${vars.cloud_container.cloud_id}"
-      app_id: "${payload.app_id:-x}"
       key: home
 
   - label: 跳转主页

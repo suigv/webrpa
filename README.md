@@ -117,12 +117,16 @@
 
 - `Runner` 支持匿名脚本与命名任务分发
 - YAML 插件通过 `engine/plugin_loader.py` 加载并交给解释器执行
-- 运行时与 `GET /api/tasks/catalog` 共用同一插件缓存视图；catalog 的显式 refresh 会同步更新现有 runtime 视图
+- 插件目录 refresh / cache clear 只影响**后续 lookup**；已经持有旧 `PluginLoader` 引用的对象或已在运行中的任务不承诺热切换到新插件版本
+- 蒸馏成功后会失效共享插件缓存，因此后续目录请求与后续任务分发可重新发现新生成的插件目录
 - 内置动作注册器（浏览器动作、凭据动作等）
 - 复用的 selector workflow 已收口到 composite actions（如 `core.load_ui_selectors`、`ui.selector_click_with_fallback`），避免脚本重复加载/点击逻辑
 - Golden Run 离线蒸馏工具 `tools/distill_golden_run.py` 会从一条成功轨迹生成可审阅的 `manifest.yaml` + `script.yaml` 草稿，要求保留参数化输入；草稿不会自动安装到 `plugins/`，只有通过 parse + replay smoke 后才算可用
 - 新增 workflow draft 闭环：客户可直接用中文任务名创建 AI 任务，系统会自动累积成功样本、保留最近一次成功快照、在失败时产出结构化修改建议，并在达到门槛后通过 `/api/tasks/drafts/{draft_id}/distill` 离线生成 YAML 草稿
 - workflow draft 蒸馏输出默认位于 `plugins/.drafts/<plugin_name>_draft/`，避免未审核草稿被立即当作正式插件加载
+- workflow draft 成功回放支持“历史查看 / 编辑并重放”，并会冻结最近成功样本的 `app_id` 与显式身份引用，确保后续 replay 更可预测
+- `agent_executor` 现在显式构造 planner artifact：把任务目标、可见输入、可选 app hint、可选 advanced prompt 分层后交给 planner，而不是继续把对话意图隐式散落在 executor 热路径里
+- 任务控制面新增 `pause` / `resume` / `takeover` 显式契约；其目标是管理型任务的可观测控制边界，而不是承诺任意运行中热编辑
 - `wait_until` 已补齐 success-before-timeout、`on_timeout goto`、`on_fail`、取消态与动态重轮询语义
 - `ExecutionContext.session.defaults` 已作为最小任务级默认值接缝落地，保持显式 action 参数优先，其次 session defaults，最后回退到原始 payload
 - `ExecutionContext.runtime` 已承接任务运行时信封；target / task_id / cloud_target_label 等控制面信息不再通过 payload 私有字段注入
