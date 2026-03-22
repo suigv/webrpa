@@ -150,7 +150,6 @@ def test_ui_core_actions_success(monkeypatch):
     assert ui_actions.get_sdk_version({}, ctx).ok is True
     assert ui_actions.check_connect_state({}, ctx).ok is True
     assert ui_actions.exec_command({"command": "ls"}, ctx).ok is True
-    assert ui_actions.dumpNodeXml({}, ctx).ok is True
     assert ui_actions.dump_node_xml_ex({}, ctx).ok is True
     assert ui_actions.screenshot({"save_path": "a.png"}, ctx).ok is True
     assert ui_actions.capture_raw({}, ctx).ok is True

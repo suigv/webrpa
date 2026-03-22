@@ -121,7 +121,7 @@ def _script_payload_for_task_request(request: TaskRequest) -> dict[str, Any]:
     return script_payload
 
 
-def _legacy_distillability_payload(plugin_name: str) -> dict[str, Any] | None:
+def _distillability_payload(plugin_name: str) -> dict[str, Any] | None:
     if _plugin_distillable(plugin_name):
         return None
     return {
@@ -134,7 +134,7 @@ def _legacy_distillability_payload(plugin_name: str) -> dict[str, Any] | None:
     }
 
 
-def _legacy_distill_threshold_payload(
+def _distill_threshold_payload(
     *,
     plugin_name: str,
     completed: int,
@@ -192,7 +192,7 @@ async def _distill_plugin_response(plugin_name: str, force: bool) -> dict[str, A
     if entry is None:
         raise HTTPException(status_code=404, detail=f"plugin not found: {plugin_name}")
 
-    distillability_payload = _legacy_distillability_payload(plugin_name)
+    distillability_payload = _distillability_payload(plugin_name)
     if distillability_payload is not None:
         return distillability_payload
 
@@ -202,7 +202,7 @@ async def _distill_plugin_response(plugin_name: str, force: bool) -> dict[str, A
     completed = _plugin_success_completed(stat)
     threshold = int(entry.manifest.distill_threshold or 3)
 
-    threshold_payload = _legacy_distill_threshold_payload(
+    threshold_payload = _distill_threshold_payload(
         plugin_name=plugin_name,
         completed=completed,
         threshold=threshold,
@@ -530,12 +530,6 @@ async def distill_workflow_draft(
 
 @router.post("/plugins/{plugin_name}/distill")
 async def distill_plugin_current(plugin_name: str, force: bool = False):
-    return await _distill_plugin_response(plugin_name, force)
-
-
-@router.post("/distill/{plugin_name}")
-async def distill_plugin(plugin_name: str, force: bool = False):
-    """Legacy compatibility endpoint for plugin-name-based distillation."""
     return await _distill_plugin_response(plugin_name, force)
 
 

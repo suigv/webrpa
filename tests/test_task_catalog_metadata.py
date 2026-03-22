@@ -42,16 +42,6 @@ def test_task_catalog_device_reboot_does_not_expose_app_id_input():
     assert all(input_item["name"] != "app_id" for input_item in plugin["inputs"])
 
 
-def test_distill_endpoint_rejects_non_distillable_plugin():
-    client = TestClient(app)
-    response = client.post("/api/tasks/distill/one_click_new_device")
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["ok"] is False
-    assert payload["code"] == "distillation_not_supported"
-
-
 def test_current_distill_endpoint_rejects_non_distillable_plugin():
     client = TestClient(app)
     response = client.post("/api/tasks/plugins/one_click_new_device/distill")
@@ -62,8 +52,8 @@ def test_current_distill_endpoint_rejects_non_distillable_plugin():
     assert payload["code"] == "distillation_not_supported"
 
 
-def test_legacy_distill_threshold_payload_only_blocks_below_threshold():
-    blocked = task_routes._legacy_distill_threshold_payload(
+def test_distill_threshold_payload_only_blocks_below_threshold():
+    blocked = task_routes._distill_threshold_payload(
         plugin_name="demo_plugin",
         completed=1,
         threshold=3,
@@ -72,7 +62,7 @@ def test_legacy_distill_threshold_payload_only_blocks_below_threshold():
     assert blocked is not None
     assert blocked["code"] == "threshold_not_met"
 
-    allowed = task_routes._legacy_distill_threshold_payload(
+    allowed = task_routes._distill_threshold_payload(
         plugin_name="demo_plugin",
         completed=3,
         threshold=3,
@@ -130,7 +120,7 @@ def test_distill_endpoint_keeps_threshold_payload_when_completed_count_is_string
     monkeypatch.setattr(task_routes, "_plugin_loader", lambda refresh=False: _Loader())
 
     client = TestClient(app)
-    response = client.post("/api/tasks/distill/demo_plugin")
+    response = client.post("/api/tasks/plugins/demo_plugin/distill")
 
     assert response.status_code == 200
     assert response.json() == {

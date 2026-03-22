@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from functools import wraps
-from typing import Any
+from typing import Any, cast
 
 from engine.models.runtime import ActionResult, ExecutionContext
 from hardware_adapters.mytRpc import MytRpc
@@ -243,12 +243,6 @@ def release_selector_context(context: ExecutionContext, *, close_rpc: Any = None
 
 
 @_with_sync
-def dumpNodeXml(params: dict[str, Any], context: ExecutionContext) -> ActionResult:  # noqa: N802
-    """Backward-compatible XML dump action (legacy name)."""
-    return dump_node_xml_ex(params, context)
-
-
-@_with_sync
 def selector_click_with_fallback(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
     """Legacy selector click with fallback command."""
     # This logic was in ui_actions.py; keeping it here for now or could move to ui_selector_actions.py
@@ -318,7 +312,7 @@ def _get_rpc(
     """Dynamic proxy for _get_rpc to follow monkeypatches on this module."""
     import sys
 
-    ua = sys.modules.get("engine.actions.ui_actions")
+    ua = cast(Any, sys.modules.get("engine.actions.ui_actions"))
     if ua and hasattr(ua, "_get_rpc") and ua._get_rpc != _get_rpc:
         return ua._get_rpc(params, context)
     return _get_rpc_orig(params, context)
@@ -328,7 +322,7 @@ def _sync_late_patches():
     """Syncs potentially monkeypatched attributes to submodules."""
     import sys
 
-    ua = sys.modules.get("engine.actions.ui_actions")
+    ua = cast(Any, sys.modules.get("engine.actions.ui_actions"))
     if not ua:
         return
 
@@ -341,20 +335,20 @@ def _sync_late_patches():
         ui_app_actions,
         ui_device_actions,
     ]:
-        if hasattr(mod, "MytRpc") and mod.MytRpc != current_rpc:
-            mod.MytRpc = current_rpc
+        if hasattr(mod, "MytRpc") and getattr(mod, "MytRpc") != current_rpc:
+            setattr(cast(Any, mod), "MytRpc", current_rpc)
 
     # Sync MytSelector
     current_selector = getattr(ua, "MytSelector", _selector_support.MytSelector)
     for mod in [_selector_support, ui_selector_actions]:
-        if hasattr(mod, "MytSelector") and mod.MytSelector != current_selector:
-            mod.MytSelector = current_selector
+        if hasattr(mod, "MytSelector") and getattr(mod, "MytSelector") != current_selector:
+            setattr(cast(Any, mod), "MytSelector", current_selector)
 
     # Sync RpcNode
     current_node = getattr(ua, "RpcNode", _selector_support.RpcNode)
     for mod in [_selector_support, ui_selector_actions]:
-        if hasattr(mod, "RpcNode") and mod.RpcNode != current_node:
-            mod.RpcNode = current_node
+        if hasattr(mod, "RpcNode") and getattr(mod, "RpcNode") != current_node:
+            setattr(cast(Any, mod), "RpcNode", current_node)
 
     # Sync internal helpers for test monkeypatching
     for helper_name in ["_get_rpc", "_close_rpc"]:
@@ -369,7 +363,7 @@ def _sync_late_patches():
                 _selector_support,
             ]:
                 if hasattr(mod, helper_name) and getattr(mod, helper_name) != current_helper:
-                    setattr(mod, helper_name, current_helper)
+                    setattr(cast(Any, mod), helper_name, current_helper)
 
     # Sync _get_rpc proxy
     for mod in [
@@ -379,8 +373,8 @@ def _sync_late_patches():
         ui_app_actions,
         ui_device_actions,
     ]:
-        if hasattr(mod, "_get_rpc") and mod._get_rpc != _get_rpc:
-            mod._get_rpc = _get_rpc
+        if hasattr(mod, "_get_rpc") and getattr(mod, "_get_rpc") != _get_rpc:
+            setattr(cast(Any, mod), "_get_rpc", _get_rpc)
 
 
 # Specifically fix _is_rpc_enabled for tests
