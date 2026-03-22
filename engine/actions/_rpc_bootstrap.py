@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import os
+import sys
 from collections.abc import Callable
 from typing import Any
 
 from core.port_calc import calculate_ports
+from engine.actions._context_value_support import merge_legacy_payload_device_ip
 
-RpcFactory = Callable[[], Any]
+RpcFactory = type[Any]
 ResultFactory = Callable[..., Any]
 
 
@@ -26,17 +28,17 @@ class DummyRpc:
     pass
 
 
-def is_mock(cls: type) -> bool:
+def is_mock(cls: object) -> bool:
     """Checks if the given class is likely a mock or test double."""
-    if not cls or not hasattr(cls, "__name__"):
+    if cls is None or not hasattr(cls, "__name__"):
         return False
-    if cls.__name__ == "DummyRpc":
+    if getattr(cls, "__name__", "") == "DummyRpc":
         return False
     # Avoid circular import to get the real MytRpc for module comparison
     try:
         from hardware_adapters.mytRpc import MytRpc as RealMytRpc
 
-        return cls.__module__ != RealMytRpc.__module__
+        return getattr(cls, "__module__", None) != RealMytRpc.__module__
     except ImportError:
         return True
 
@@ -56,18 +58,6 @@ def _normalize_runtime_target(context: Any) -> dict[str, Any]:
         if isinstance(payload_target, dict):
             return payload_target
     return {}
-
-
-def _merge_legacy_payload_device_ip(
-    target: dict[str, Any],
-    payload: dict[str, Any],
-) -> dict[str, Any]:
-    """Compatibility shim for older callers that still pass device_ip in payload."""
-    if not target or not payload or "device_ip" in target or not payload.get("device_ip"):
-        return target
-    merged_target = dict(target)
-    merged_target["device_ip"] = payload.get("device_ip")
-    return merged_target
 
 
 def _pick_connection_source(
@@ -105,7 +95,7 @@ def _pick_connection_source(
 
 def resolve_connection_params(params: dict[str, Any], context: Any) -> tuple[str, int]:
     payload: dict[str, Any] = dict(getattr(context, "payload", {}) or {})
-    target = _merge_legacy_payload_device_ip(_normalize_runtime_target(context), payload)
+    target = merge_legacy_payload_device_ip(_normalize_runtime_target(context), payload)
     session_defaults = getattr(context, "session_defaults", {})
     session_defaults = session_defaults if isinstance(session_defaults, dict) else {}
     source = _pick_connection_source(params, session_defaults, target, payload)
@@ -130,16 +120,14 @@ def resolve_connection_params(params: dict[str, Any], context: Any) -> tuple[str
 
 
 def get_rpc_class() -> Any:
-    """Dynamically resolve MytRpc class, prioritizing ui_actions re-export for tests."""
-    try:
-        # Avoid circular import at top level
-        import engine.actions.ui_actions as ua
+    ui_actions = sys.modules.get("engine.actions.ui_actions")
+    if ui_actions is not None:
+        patched = getattr(ui_actions, "MytRpc", None)
+        if patched is not None:
+            return patched
+    from hardware_adapters.mytRpc import MytRpc
 
-        return ua.MytRpc
-    except (ImportError, AttributeError):
-        from hardware_adapters.mytRpc import MytRpc
-
-        return MytRpc
+    return MytRpc
 
 
 def bootstrap_rpc(

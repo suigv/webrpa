@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from engine.action_dispatcher import dispatch_action
+from engine.actions._context_value_support import merge_legacy_payload_device_ip
 from engine.action_registry import get_registry, register_defaults
 from engine.conditions import browser_condition_state_id
 from engine.conditions import evaluate as eval_condition
@@ -103,7 +104,7 @@ class Interpreter:
                 if not context.jumped:
                     context.pc += 1
             # Fell through all steps without explicit stop
-            res = {
+            res: dict[str, Any] = {
                 "ok": True,
                 "workflow": script.workflow,
                 "status": "completed",
@@ -519,6 +520,7 @@ class Interpreter:
             runtime_target = runtime.get("target")
             if isinstance(runtime_target, dict):
                 target = runtime_target
+        target = merge_legacy_payload_device_ip(target, payload_dict)
         defaults: dict[str, Any] = {}
 
         for plugin_input in plugin_inputs:
@@ -529,7 +531,7 @@ class Interpreter:
                 defaults[plugin_input.name] = plugin_input.default
 
         connection_defaults = {
-            "device_ip": self._legacy_device_ip_default(target, payload_dict),
+            "device_ip": target.get("device_ip"),
             "rpa_port": target.get("rpa_port") or payload_dict.get("rpa_port"),
             "cloud_index": target.get("cloud_id") or payload_dict.get("cloud_index"),
             "device_index": target.get("device_id") or payload_dict.get("device_index"),
@@ -540,11 +542,3 @@ class Interpreter:
                 defaults[key] = value
 
         return defaults
-
-    def _legacy_device_ip_default(
-        self,
-        target: dict[str, Any],
-        payload_dict: dict[str, Any],
-    ) -> Any:
-        """Compatibility fallback while some callers still submit device_ip in payload."""
-        return target.get("device_ip") or payload_dict.get("device_ip")

@@ -18,6 +18,17 @@ def session_defaults(context: ExecutionContext) -> dict[str, Any]:
     return defaults if isinstance(defaults, dict) else {}
 
 
+def merge_legacy_payload_device_ip(
+    target: dict[str, Any],
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    if not target or not payload or "device_ip" in target or not payload.get("device_ip"):
+        return target
+    merged_target = dict(target)
+    merged_target["device_ip"] = payload.get("device_ip")
+    return merged_target
+
+
 def resolve_context_value(
     params: dict[str, Any],
     context: ExecutionContext,
