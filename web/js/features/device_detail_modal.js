@@ -78,7 +78,7 @@ export function bindDeviceModalActions({ getCurrentUnit, onDeviceChanged }) {
         stopDeviceBtn.onclick = async () => {
             const unit = getCurrentUnit?.();
             if (!unit) return;
-            if (!window.confirm(`确定要停止云机 #${unit.parent_id}-${unit.cloud_id} 上正在运行的所有任务吗？`)) {
+            if (!window.confirm(`确定要停止设备 #${unit.parent_id} 上正在运行的所有任务吗？`)) {
                 return;
             }
             const response = await fetchJson(`/api/tasks/device/${unit.parent_id}/stop`, { method: 'POST' });
