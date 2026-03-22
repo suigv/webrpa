@@ -137,6 +137,49 @@ def test_extract_follow_and_unread_targets_from_xml():
     ]
 
 
+def test_dm_and_follow_extractors_keep_empty_and_target_package_nodes_only():
+    xml = """
+    <hierarchy>
+      <node package="com.other" text="Alice: wrong package" bounds="[10,320][240,400]" />
+      <node package="" text="Alice: empty package latest" bounds="[20,480][260,560]" />
+      <node package="com.demo" text="Alice: target package older" bounds="[30,420][270,500]" />
+      <node package="com.other" text="Follow" bounds="[100,600][220,680]" />
+      <node package="" text="Follow" bounds="[120,700][240,780]" />
+      <node package="com.demo" text="Follow" bounds="[140,820][260,900]" />
+    </hierarchy>
+    """
+
+    inbound = support.extract_last_dm_message_from_xml(
+        xml,
+        package="com.demo",
+        max_left=540,
+        separator_tokens=["Alice:"],
+    )
+    follow_targets = support.extract_follow_targets_from_xml(
+        xml,
+        package="com.demo",
+        min_top=350,
+        button_texts=["Follow"],
+    )
+
+    assert inbound is not None
+    assert inbound["message"] == "empty package latest"
+    assert inbound["bound"] == {"left": 20, "top": 480, "right": 260, "bottom": 560}
+
+    assert follow_targets == [
+        {
+            "text": "Follow",
+            "bound": {"left": 120, "top": 700, "right": 240, "bottom": 780},
+            "center": {"x": 180, "y": 740},
+        },
+        {
+            "text": "Follow",
+            "bound": {"left": 140, "top": 820, "right": 260, "bottom": 900},
+            "center": {"x": 200, "y": 860},
+        },
+    ]
+
+
 def test_extract_follow_and_unread_targets_log_parse_failure(caplog):
     with caplog.at_level(logging.DEBUG, logger=support.__name__):
         follow_targets = support.extract_follow_targets_from_xml(

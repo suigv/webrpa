@@ -75,7 +75,8 @@
    最小下一步：继续沿既有 companion/helper seam 做这种局部骨架收口，但不要误报为该热点已闭环；tracked-handle cleanup、query dispatch 与其余 node/bounds 路径仍在文件内。
 7. **`engine/actions/_state_detection_support.py` 仍有结构性重复压力**  
    后果：XML 解析、package 过滤、bounds/center 计算、列表提取与日志回退路径仍可能在新 state helper 中重新复制。  
-   最小下一步：新增 state 提取逻辑时强制复用现有 XML/helper 骨架，只补能力差异，不再复制一整段解析流程。
+   当前进展：DM 提取与 centered-target 提取已先共用一个 file-local 节点迭代 helper，只收口 `root.iter("node")` 顺序遍历、`{"", package}` 包过滤语义，以及 eligible node 的 `parse_bounds(...)` 预处理；消息归一化、separator 判定、`min_top`、center/dedupe、target shaping 与排序仍保留在各自 caller。  
+   最小下一步：继续沿这种小步局部收口方式复用现有 XML/helper 骨架，只补能力差异，不把该热点误报为已闭环。
 
 ---
  

@@ -54,6 +54,18 @@ def _bound_center(bound: dict[str, int]) -> dict[str, int]:
     }
 
 
+def _iter_eligible_nodes_with_bounds(
+    root: ET.Element,
+    *,
+    package: str,
+) -> Iterable[tuple[ET.Element, dict[str, int]]]:
+    for node in root.iter("node"):
+        node_package = str(node.attrib.get("package") or "")
+        if package and node_package not in {"", package}:
+            continue
+        yield node, parse_bounds(node.attrib.get("bounds", ""))
+
+
 def query_any_text_contains(rpc: Any, texts: Iterable[str], timeout_ms: int = 900) -> bool:
     _ = timeout_ms
     selector = rpc.create_selector()
@@ -393,16 +405,12 @@ def _extract_last_dm_message(
         return None
 
     matches: list[dict[str, Any]] = []
-    for node in root.iter("node"):
-        node_package = str(node.attrib.get("package") or "")
-        if package and node_package not in {"", package}:
-            continue
+    for node, bound in _iter_eligible_nodes_with_bounds(root, package=package):
         raw = _node_raw_text(node)
         if not raw:
             continue
         if all(token not in raw for token in separator_tokens):
             continue
-        bound = parse_bounds(node.attrib.get("bounds", ""))
         if not accept_bound(bound):
             continue
         message = normalize_dm_text(raw)
@@ -504,13 +512,9 @@ def _extract_centered_targets(
     targets: list[dict[str, Any]] = []
     seen: set[tuple[int, int]] = set()
 
-    for node in root.iter("node"):
-        node_package = str(node.attrib.get("package") or "")
-        if package and node_package not in {"", package}:
-            continue
+    for node, bound in _iter_eligible_nodes_with_bounds(root, package=package):
         if not match_node(node):
             continue
-        bound = parse_bounds(node.attrib.get("bounds", ""))
         top = int(bound.get("top", 0))
         if top < min_top:
             continue
