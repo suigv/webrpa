@@ -1,4 +1,4 @@
-# pyright: reportUnknownArgumentType=false, reportUnknownVariableType=false, reportUnknownMemberType=false, reportMissingParameterType=false, reportDeprecated=false
+# pyright: reportUnknownArgumentType=false, reportUnknownVariableType=false, reportUnknownMemberType=false, reportMissingParameterType=false, reportDeprecated=false, reportImportCycles=false
 
 from __future__ import annotations
 
@@ -269,28 +269,10 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
             previous_observation_fingerprint = observation_fingerprint
 
             if stagnant_observation_count >= config.stagnant_limit:
-                self._append_trace(
-                    trace_context,
-                    self._terminal_trace_record(
-                        status="failed_circuit_breaker",
-                        sequence=step_index,
-                        step_index=step_index,
-                        observation=observation_state
-                        if isinstance(observation_state, dict)
-                        else {},
-                        observation_ok=observation_ok,
-                        observation_modality=observation_modality,
-                        observed_state_ids=observed_state_ids,
-                        fallback_reason=fallback_reason,
-                        fallback_evidence=fallback_evidence,
-                        code="stagnant_structured_state",
-                        message="structured state observation did not change across repeated actions",
-                        observed_at=observed_at,
-                    ),
-                )
-                return self._result(
-                    ok=False,
-                    status="failed_circuit_breaker",
+                return self._failed_circuit_breaker_result(
+                    trace_context=trace_context,
+                    sequence=step_index,
+                    step_index=step_index,
                     checkpoint="observe",
                     code="stagnant_structured_state",
                     message="structured state observation did not change across repeated actions",
@@ -303,6 +285,13 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
                         "stagnant_observation_count": stagnant_observation_count,
                         "observation": observation_state,
                     },
+                    observation=observation_state if isinstance(observation_state, dict) else {},
+                    observation_ok=observation_ok,
+                    observation_modality=observation_modality,
+                    observed_state_ids=observed_state_ids,
+                    fallback_reason=fallback_reason,
+                    fallback_evidence=fallback_evidence,
+                    observed_at=observed_at,
                 )
 
             planned_step = self._plan_step(
@@ -526,32 +515,10 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
         final_step_count = step_index - 1
         terminal_sequence = final_step_count + (1 if pending_trace_record is not None else 0)
         self._flush_pending_trace(trace_context, pending_trace_record)
-        self._append_trace(
-            trace_context,
-            self._terminal_trace_record(
-                status="failed_circuit_breaker",
-                sequence=terminal_sequence,
-                step_index=final_step_count,
-                observation=_json_dict(last_observation.get("data")),
-                observation_ok=bool(last_observation.get("ok")),
-                observation_modality=str(last_observation.get("modality") or "structured_state"),
-                observed_state_ids=_string_list(last_observation.get("observed_state_ids")),
-                fallback_reason=str(
-                    last_observation.get("fallback_reason")
-                    or self._fallback_reason(
-                        observation_ok=bool(last_observation.get("ok")),
-                        observation_payload=_json_dict(last_observation.get("data")),
-                    )
-                ),
-                fallback_evidence=_json_dict(last_observation.get("fallback_evidence")),
-                code="step_budget_exhausted",
-                message="gpt executor exhausted configured step budget",
-                observed_at=str(last_observation.get("observed_at") or ""),
-            ),
-        )
-        return self._result(
-            ok=False,
-            status="failed_circuit_breaker",
+        return self._failed_circuit_breaker_result(
+            trace_context=trace_context,
+            sequence=terminal_sequence,
+            step_index=final_step_count,
             checkpoint="loop",
             code="step_budget_exhausted",
             message="gpt executor exhausted configured step budget",
@@ -564,6 +531,19 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
                 "step_budget_extensions_used": step_budget_extensions_used,
                 "extended_steps_total": extended_steps_total,
             },
+            observation=_json_dict(last_observation.get("data")),
+            observation_ok=bool(last_observation.get("ok")),
+            observation_modality=str(last_observation.get("modality") or "structured_state"),
+            observed_state_ids=_string_list(last_observation.get("observed_state_ids")),
+            fallback_reason=str(
+                last_observation.get("fallback_reason")
+                or self._fallback_reason(
+                    observation_ok=bool(last_observation.get("ok")),
+                    observation_payload=_json_dict(last_observation.get("data")),
+                )
+            ),
+            fallback_evidence=_json_dict(last_observation.get("fallback_evidence")),
+            observed_at=str(last_observation.get("observed_at") or ""),
         )
 
     def _observe_step(
@@ -1070,6 +1050,54 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
             message="task cancelled by user",
             step_count=step_index,
             history=history,
+        )
+
+    def _failed_circuit_breaker_result(
+        self,
+        *,
+        trace_context: ModelTraceContext,
+        sequence: int,
+        step_index: int,
+        checkpoint: str,
+        code: str,
+        message: str,
+        step_count: int,
+        history: list[dict[str, object]],
+        circuit_breaker: dict[str, object],
+        observation: dict[str, object],
+        observation_ok: bool,
+        observation_modality: str,
+        observed_state_ids: list[str],
+        fallback_reason: str,
+        fallback_evidence: dict[str, object],
+        observed_at: str,
+    ) -> dict[str, Any]:
+        self._append_trace(
+            trace_context,
+            self._terminal_trace_record(
+                status="failed_circuit_breaker",
+                sequence=sequence,
+                step_index=step_index,
+                observation=observation,
+                observation_ok=observation_ok,
+                observation_modality=observation_modality,
+                observed_state_ids=observed_state_ids,
+                fallback_reason=fallback_reason,
+                fallback_evidence=fallback_evidence,
+                code=code,
+                message=message,
+                observed_at=observed_at,
+            ),
+        )
+        return self._result(
+            ok=False,
+            status="failed_circuit_breaker",
+            checkpoint=checkpoint,
+            code=code,
+            message=message,
+            step_count=step_count,
+            history=history,
+            circuit_breaker=circuit_breaker,
         )
 
     def _planning_failure(

@@ -63,7 +63,8 @@
    最小下一步：继续只抽离下一处重复的终态/事件骨架到邻近 helper，避免把新策略直接追加进主执行循环；`_handle_process_exit()` 仍保持原样，热点未闭环。
 4. **`engine/agent_executor.py` 仍需持续瘦身**  
    后果：虽然已拆出 planning/trace/support/types，但 run-loop 仍容易重新吸附空动作延迟、失败出口、history/trace 组装等 fix-forward 分支。  
-   最小下一步：继续按单步语义切片，把下一组同型 per-step 失败或 defer 分支下沉到私有 helper，保持 `run()` 只表达状态推进。
+   当前进展：`run()` 内两条 `failed_circuit_breaker` 终态分支（stagnant structured-state abort / step-budget exhausted）已先收口到同一个 file-local helper，只统一 terminal trace append + `_result(...)` shaping，保留分支判断、计数与预算决策在主循环内。  
+   最小下一步：继续按单步语义切片，把下一组同型 per-step 失败或 defer 分支下沉到私有 helper，保持 `run()` 只表达状态推进；该热点仍未闭环，不应误报为完成治理。
 5. **`engine/actions/android_api_actions.py` 仍有回膨风险**  
    后果：package 型动作、零参数 wrapper、alias 动作最容易在新增能力时重新复制 `_from_api`、参数解析和 client 包装样板。  
    最小下一步：每次新增动作先复用现有 `_with_client` / 参数 helper；若再出现第二组同型样板，立即就地合并，不新增新层级。

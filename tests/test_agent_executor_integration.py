@@ -159,8 +159,9 @@ def test_agent_executor_circuit_breaker_step_budget_exhausted(tmp_path: Path):
     assert records[-1]["status"] == "failed_circuit_breaker"
 
 
-def test_agent_executor_circuit_breaker_stagnant_state_abort():
+def test_agent_executor_circuit_breaker_stagnant_state_abort(tmp_path: Path):
     observation = {"state": {"state_id": "account"}, "status": "matched"}
+    trace_store = ModelTraceStore(root_dir=tmp_path / "traces")
     runtime = _build_runtime(
         llm_client=_SequencedLLMClient(
             responses=[
@@ -181,6 +182,7 @@ def test_agent_executor_circuit_breaker_stagnant_state_abort():
             ]
         ),
         observations=[observation, observation, observation],
+        trace_store=trace_store,
     )
 
     result = runtime.run(
@@ -200,6 +202,20 @@ def test_agent_executor_circuit_breaker_stagnant_state_abort():
     assert result["checkpoint"] == "observe"
     assert result["circuit_breaker"]["code"] == "stagnant_structured_state"
     assert result["circuit_breaker"]["stagnant_limit"] == 1
+    records = _read_trace_records(tmp_path / "traces")
+    assert [record["record_type"] for record in records] == ["step", "terminal"]
+    terminal = records[-1]
+    observation_payload = cast(dict[str, object], terminal["observation"])
+    assert terminal["status"] == "failed_circuit_breaker"
+    assert terminal["code"] == "stagnant_structured_state"
+    assert terminal["step_index"] == 2
+    assert terminal["message"] == "structured state observation did not change across repeated actions"
+    assert observation_payload["modality"] == "structured_state"
+    assert observation_payload["ok"] is True
+    assert observation_payload["observed_state_ids"] == ["account"]
+    observation_data = cast(dict[str, object], observation_payload["data"])
+    state_payload = cast(dict[str, object], observation_data["state"])
+    assert state_payload["state_id"] == "account"
 
 
 def test_agent_executor_allows_follow_up_after_successful_locate_point_on_same_screen():
