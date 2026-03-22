@@ -179,9 +179,15 @@ def test_android_api_actions_keepalive_and_google_paths(monkeypatch):
     assert android_mod.android_get_google_adid({}, ctx).ok is True
     assert android_mod.android_get_google_id({"cmd": 2}, ctx).ok is True
 
-    missing_package = android_mod.android_add_background_keepalive({}, ctx)
-    assert missing_package.ok is False
-    assert missing_package.code == "invalid_params"
+    missing_add_package = android_mod.android_add_background_keepalive({}, ctx)
+    missing_remove_package = android_mod.android_remove_background_keepalive({}, ctx)
+    missing_update_package = android_mod.android_update_background_keepalive({}, ctx)
+    assert missing_add_package.ok is False
+    assert missing_add_package.code == "invalid_params"
+    assert missing_remove_package.ok is False
+    assert missing_remove_package.code == "invalid_params"
+    assert missing_update_package.ok is False
+    assert missing_update_package.code == "invalid_params"
 
     assert calls == [
         ("query_background_keepalive", None),

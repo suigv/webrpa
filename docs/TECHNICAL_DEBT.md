@@ -67,7 +67,8 @@
    最小下一步：继续按单步语义切片，把下一组同型 per-step 失败或 defer 分支下沉到私有 helper，保持 `run()` 只表达状态推进；该热点仍未闭环，不应误报为完成治理。
 5. **`engine/actions/android_api_actions.py` 仍有回膨风险**  
    后果：package 型动作、零参数 wrapper、alias 动作最容易在新增能力时重新复制 `_from_api`、参数解析和 client 包装样板。  
-   最小下一步：每次新增动作先复用现有 `_with_client` / 参数 helper；若再出现第二组同型样板，立即就地合并，不新增新层级。
+   当前进展：background-keepalive 的 add/remove/update 三个 package-scoped wrapper 已先收口到一个 file-local typed helper，保持 public action 名称与客户端调用路径不变，并补齐缺失 `package` 的对称回归覆盖。  
+   最小下一步：继续只沿现有 `_with_client` / 参数 helper / 邻近 file-local helper 做小步收口；backup/restore/export/import 等相邻重复簇仍未处理，不应误报为该热点已闭环。
 6. **`engine/actions/_ui_selector_support.py` 仍是 support 热点**  
    后果：query dispatch、node getter、handle 清理、bounds 归一化等逻辑若继续混写，选择器支持层会再次膨胀。  
    最小下一步：优先沿既有 companion/helper seam 继续局部提取重复查询或节点读取骨架，同时保持 facade 和 teardown 顺序不变。

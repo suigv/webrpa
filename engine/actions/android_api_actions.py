@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 
 from engine.action_registry import ActionMetadata
 from engine.models.runtime import ActionResult, ExecutionContext
@@ -75,6 +75,20 @@ def _package_param(params: dict[str, Any]) -> str:
 def _require_package(params: dict[str, Any]) -> str | None:
     package = _package_param(params)
     return package or None
+
+
+BackgroundKeepalivePackageCallback = Callable[[AndroidApiClient, str], dict[str, Any]]
+
+
+def _background_keepalive_package_action(
+    params: dict[str, Any],
+    context: ExecutionContext,
+    callback: BackgroundKeepalivePackageCallback,
+) -> ActionResult:
+    package = _require_package(params)
+    if not package:
+        return _err("invalid_params", "package is required")
+    return _with_client(params, context, lambda client: callback(client, package))
 
 
 def _backup_target_path(params: dict[str, Any]) -> str:
@@ -559,28 +573,31 @@ def android_query_background_keepalive(
 def android_add_background_keepalive(
     params: dict[str, Any], context: ExecutionContext
 ) -> ActionResult:
-    package = _require_package(params)
-    if not package:
-        return _err("invalid_params", "package is required")
-    return _with_client(params, context, lambda client: client.add_background_keepalive(package))
+    return _background_keepalive_package_action(
+        params,
+        context,
+        lambda client, package: client.add_background_keepalive(package),
+    )
 
 
 def android_remove_background_keepalive(
     params: dict[str, Any], context: ExecutionContext
 ) -> ActionResult:
-    package = _require_package(params)
-    if not package:
-        return _err("invalid_params", "package is required")
-    return _with_client(params, context, lambda client: client.remove_background_keepalive(package))
+    return _background_keepalive_package_action(
+        params,
+        context,
+        lambda client, package: client.remove_background_keepalive(package),
+    )
 
 
 def android_update_background_keepalive(
     params: dict[str, Any], context: ExecutionContext
 ) -> ActionResult:
-    package = _require_package(params)
-    if not package:
-        return _err("invalid_params", "package is required")
-    return _with_client(params, context, lambda client: client.update_background_keepalive(package))
+    return _background_keepalive_package_action(
+        params,
+        context,
+        lambda client, package: client.update_background_keepalive(package),
+    )
 
 
 BACKUP_APP_METADATA = ActionMetadata(
