@@ -1,5 +1,6 @@
 # pyright: reportPrivateUsage=false
 
+import time
 from contextlib import asynccontextmanager
 from typing import cast
 
@@ -13,6 +14,7 @@ from api.server import app
 from core.config_loader import ConfigLoader
 from core.device_manager import DeviceManager
 from core.port_calc import calculate_ports
+from models.config import ConfigStore
 
 
 class _FakeProbeService:
@@ -139,7 +141,7 @@ def test_api_devices_discover_updates_config_mapping(monkeypatch: MonkeyPatch):
     _disable_lifespan(monkeypatch)
     backup = ConfigLoader._config
     try:
-        ConfigLoader._config = {
+        ConfigLoader._config = ConfigStore.model_validate({
             "schema_version": 2,
             "allocation_version": 1,
             "host_ip": "192.168.1.214",
@@ -148,7 +150,7 @@ def test_api_devices_discover_updates_config_mapping(monkeypatch: MonkeyPatch):
             "sdk_port": 8000,
             "discovery_enabled": False,
             "discovery_subnet": "192.168.1.0/24",
-        }
+        })
         monkeypatch.setattr(devices_route.discovery, "scan_now", _scan_one_ip)
 
         with TestClient(app) as client:
@@ -168,7 +170,7 @@ def test_api_devices_list_preserves_payload_shape_for_available_only(monkeypatch
     _disable_lifespan(monkeypatch)
     backup = ConfigLoader._config
     try:
-        ConfigLoader._config = {
+        ConfigLoader._config = ConfigStore.model_validate({
             "schema_version": 2,
             "allocation_version": 1,
             "host_ip": "10.0.0.1",
@@ -176,7 +178,7 @@ def test_api_devices_list_preserves_payload_shape_for_available_only(monkeypatch
             "total_devices": 1,
             "sdk_port": 8000,
             "cloud_machines_per_device": 1,
-        }
+        })
         monkeypatch.setattr("core.device_manager.get_cloud_machines_per_device", lambda: 1)
         manager = DeviceManager()
         _reset_manager_state(manager)
@@ -408,7 +410,7 @@ def test_api_devices_available_only_filters_out_devices_without_available_clouds
     _disable_lifespan(monkeypatch)
     backup = ConfigLoader._config
     try:
-        ConfigLoader._config = {
+        ConfigLoader._config = ConfigStore.model_validate({
             "schema_version": 2,
             "allocation_version": 1,
             "host_ip": "10.0.0.1",
@@ -416,7 +418,7 @@ def test_api_devices_available_only_filters_out_devices_without_available_clouds
             "total_devices": 1,
             "sdk_port": 8000,
             "cloud_machines_per_device": 1,
-        }
+        })
         manager = DeviceManager()
         _reset_manager_state(manager)
 
@@ -429,6 +431,49 @@ def test_api_devices_available_only_filters_out_devices_without_available_clouds
         device = payload[0]
         assert device["available_cloud_count"] == 0
         assert device["cloud_machines"] == []
+    finally:
+        ConfigLoader._config = backup
+
+
+def test_api_devices_available_only_excludes_stale_available_clouds(monkeypatch: MonkeyPatch):
+    _disable_lifespan(monkeypatch)
+    backup = ConfigLoader._config
+    try:
+        ConfigLoader._config = ConfigStore.model_validate({
+            "schema_version": 2,
+            "allocation_version": 1,
+            "host_ip": "10.0.0.1",
+            "device_ips": {"1": "10.0.0.11"},
+            "total_devices": 1,
+            "sdk_port": 8000,
+            "cloud_machines_per_device": 2,
+        })
+        monkeypatch.setattr("core.device_manager.get_cloud_machines_per_device", lambda: 2)
+        fake_probe = _FakeProbeService({})
+        monkeypatch.setattr("core.cloud_probe_service.get_cloud_probe_service", lambda: fake_probe)
+
+        manager = DeviceManager()
+        _reset_manager_state(manager)
+        manager._update_probe_cache(1, 1, True, 11, "ok")
+        manager._update_probe_cache(1, 2, True, 12, "ok")
+        with manager._probe_lock:
+            manager._probe_cache[(1, 2)]["last_checked_at"] = time.time() - (
+                manager._probe_stale_seconds + 1
+            )
+
+        with TestClient(app) as client:
+            response = client.get("/api/devices/?availability=available_only")
+            assert response.status_code == 200
+            payload = cast(list[dict[str, object]], response.json())
+
+        assert len(payload) == 1
+        device = payload[0]
+        assert device["available_cloud_count"] == 1
+        assert device["probe_stale"] is True
+        clouds = cast(list[dict[str, object]], device["cloud_machines"])
+        assert len(clouds) == 1
+        assert clouds[0]["cloud_id"] == 1
+        assert clouds[0]["stale"] is False
     finally:
         ConfigLoader._config = backup
 

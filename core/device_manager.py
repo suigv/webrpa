@@ -241,6 +241,12 @@ class DeviceManager:
             "stale": stale,
         }
 
+    @staticmethod
+    def _is_effectively_available(probe: dict[str, Any]) -> bool:
+        return str(probe.get("availability_state", "unknown")) == "available" and not bool(
+            probe.get("stale", False)
+        )
+
     def get_cloud_probe_snapshot(self, device_id: int, cloud_id: int) -> dict[str, Any]:
         snapshot = self._get_probe_snapshot(device_id, cloud_id)
         snapshot["device_id"] = device_id
@@ -373,7 +379,8 @@ class DeviceManager:
             api_port, rpa_port = calculate_ports(device_id, cloud_id, cloud_machines_per_device)
             probe = self._get_probe_snapshot(device_id, cloud_id)
             state = str(probe.get("availability_state", "unknown"))
-            if state == "available":
+            is_effectively_available = self._is_effectively_available(probe)
+            if is_effectively_available:
                 available_count += 1
             if state == "unknown":
                 probe_partial = True
@@ -399,7 +406,7 @@ class DeviceManager:
             if model_info:
                 cloud_info["machine_model_name"] = model_info.get("machine_model_name")
                 cloud_info["machine_model_id"] = model_info.get("machine_model_id")
-            if availability == "available_only" and state != "available":
+            if availability == "available_only" and not is_effectively_available:
                 continue
             clouds.append(cloud_info)
 

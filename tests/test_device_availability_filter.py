@@ -1,6 +1,7 @@
 # pyright: reportPrivateUsage=false
 
 import threading
+import time
 from typing import cast
 
 from _pytest.monkeypatch import MonkeyPatch
@@ -9,6 +10,7 @@ from core.cloud_probe_service import CloudProbeService
 from core.config_loader import ConfigLoader
 from core.device_manager import DeviceManager
 from core.port_calc import calculate_ports
+from models.config import ConfigStore
 
 
 class _FakeProbeService:
@@ -71,7 +73,7 @@ def test_device_snapshot_filters_available_clouds_and_uses_probe_service_model_m
     try:
         _reset_manager_state(manager)
         monkeypatch.setattr("core.device_manager.get_cloud_machines_per_device", lambda: 2)
-        ConfigLoader._config = {
+        ConfigLoader._config = ConfigStore.model_validate({
             "schema_version": 2,
             "allocation_version": 1,
             "host_ip": "10.0.0.1",
@@ -79,7 +81,7 @@ def test_device_snapshot_filters_available_clouds_and_uses_probe_service_model_m
             "total_devices": 1,
             "cloud_machines_per_device": 2,
             "sdk_port": 8000,
-        }
+        })
 
         api_port, _rpa_port = calculate_ports(1, 1, 2)
         fake_probe = _FakeProbeService(
@@ -119,7 +121,7 @@ def test_cloud_probe_service_drives_probe_cache_updates(monkeypatch: MonkeyPatch
     backup = ConfigLoader._config
     try:
         monkeypatch.setattr("core.cloud_probe_service.get_cloud_machines_per_device", lambda: 1)
-        ConfigLoader._config = {
+        ConfigLoader._config = ConfigStore.model_validate({
             "schema_version": 2,
             "allocation_version": 1,
             "host_ip": "10.0.0.1",
@@ -127,7 +129,7 @@ def test_cloud_probe_service_drives_probe_cache_updates(monkeypatch: MonkeyPatch
             "total_devices": 1,
             "cloud_machines_per_device": 1,
             "sdk_port": 8000,
-        }
+        })
 
         service = CloudProbeService()
         manager = _ProbeManager()
@@ -189,7 +191,7 @@ def test_mark_cloud_released_does_not_overwrite_probe_unavailable_state(monkeypa
     try:
         _reset_manager_state(manager)
         monkeypatch.setattr("core.device_manager.get_cloud_machines_per_device", lambda: 1)
-        ConfigLoader._config = {
+        ConfigLoader._config = ConfigStore.model_validate({
             "schema_version": 2,
             "allocation_version": 1,
             "host_ip": "10.0.0.1",
@@ -197,7 +199,7 @@ def test_mark_cloud_released_does_not_overwrite_probe_unavailable_state(monkeypa
             "total_devices": 1,
             "cloud_machines_per_device": 1,
             "sdk_port": 8000,
-        }
+        })
         monkeypatch.setattr(
             "core.cloud_probe_service.get_cloud_probe_service", lambda: _FakeProbeService({})
         )
@@ -213,5 +215,47 @@ def test_mark_cloud_released_does_not_overwrite_probe_unavailable_state(monkeypa
         assert after["availability_state"] == "unavailable"
         assert after["availability_reason"] == "connect_failed"
         assert str(after["last_checked_at"]).endswith("+00:00")
+    finally:
+        ConfigLoader._config = backup
+
+
+def test_stale_available_clouds_are_not_counted_or_returned_for_available_only(
+    monkeypatch: MonkeyPatch,
+):
+    backup = ConfigLoader._config
+    manager = DeviceManager()
+    try:
+        _reset_manager_state(manager)
+        monkeypatch.setattr("core.device_manager.get_cloud_machines_per_device", lambda: 2)
+        ConfigLoader._config = ConfigStore.model_validate({
+            "schema_version": 2,
+            "allocation_version": 1,
+            "host_ip": "10.0.0.1",
+            "device_ips": {"1": "10.0.0.11"},
+            "total_devices": 1,
+            "cloud_machines_per_device": 2,
+            "sdk_port": 8000,
+        })
+        monkeypatch.setattr("core.cloud_probe_service.get_cloud_probe_service", lambda: _FakeProbeService({}))
+
+        manager._update_probe_cache(1, 1, True, 11, "ok")
+        manager._update_probe_cache(1, 2, True, 12, "ok")
+        with manager._probe_lock:
+            manager._probe_cache[(1, 2)]["last_checked_at"] = time.time() - (
+                manager._probe_stale_seconds + 1
+            )
+
+        snapshot = manager.get_devices_snapshot(availability="available_only")
+
+        assert len(snapshot) == 1
+        device = snapshot[0]
+        assert device["available_cloud_count"] == 1
+        assert device["probe_stale"] is True
+
+        clouds = cast(list[dict[str, object]], device["cloud_machines"])
+        assert len(clouds) == 1
+        assert clouds[0]["cloud_id"] == 1
+        assert clouds[0]["availability_state"] == "available"
+        assert clouds[0]["stale"] is False
     finally:
         ConfigLoader._config = backup
