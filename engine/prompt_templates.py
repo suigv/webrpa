@@ -23,28 +23,3 @@ def _load() -> list[dict[str, Any]]:
 
 def get_prompt_templates() -> list[dict[str, Any]]:
     return _load()
-
-
-# 向后兼容：模块级访问时懒加载
-class _LazyList(list):
-    _loaded = False
-
-    def _ensure(self):
-        if not self._loaded:
-            self._loaded = True
-            self.extend(_load())
-
-    def __iter__(self):
-        self._ensure()
-        return super().__iter__()
-
-    def __len__(self):
-        self._ensure()
-        return super().__len__()
-
-    def __getitem__(self, idx):
-        self._ensure()
-        return super().__getitem__(idx)
-
-
-PROMPT_TEMPLATES: list[dict[str, Any]] = _LazyList()
