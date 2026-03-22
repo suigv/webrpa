@@ -17,12 +17,19 @@ logger = logging.getLogger(__name__)
 
 
 # --- 任务事件桥接逻辑 ---
+
+# 记录已被内存订阅广播过的最大 event_id，DB 轮询跳过这些事件避免重复推送
+_mem_broadcast_max_id = 0
+_mem_broadcast_lock = threading.Lock()
+
+
 def get_event_broadcaster(loop: asyncio.AbstractEventLoop) -> Callable[[Any], None]:
     """返回一个将任务事件转发到 WebSocket 的回调函数"""
     if not loop.is_running():
         raise RuntimeError("event loop must be running")
 
     def _on_event(event):
+        global _mem_broadcast_max_id
         # 构造纯净的结构化数据
         payload = {
             "event_type": event.event_type,
@@ -37,6 +44,11 @@ def get_event_broadcaster(loop: asyncio.AbstractEventLoop) -> Callable[[Any], No
         # 由于事件可能在后台线程产生，需要安全地调度到主循环
         if loop.is_running():
             asyncio.run_coroutine_threadsafe(_broadcast(json_str), loop)
+
+        # 标记该 event_id 已广播，DB 轮询将跳过它
+        with _mem_broadcast_lock:
+            if event.event_id > _mem_broadcast_max_id:
+                _mem_broadcast_max_id = event.event_id
 
     return _on_event
 
@@ -71,6 +83,11 @@ def start_db_event_poller(loop: asyncio.AbstractEventLoop) -> None:
                 new_events = event_store.list_events_after(last_event_id, limit=50)
                 for event in new_events:
                     last_event_id = event.event_id
+                    # 跳过已被内存订阅广播过的事件，避免主进程任务日志重复推送
+                    with _mem_broadcast_lock:
+                        already_broadcast = event.event_id <= _mem_broadcast_max_id
+                    if already_broadcast:
+                        continue
                     payload = {
                         "event_type": event.event_type,
                         "task_id": event.task_id,

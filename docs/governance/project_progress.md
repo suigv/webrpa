@@ -16,6 +16,11 @@
 - 设备接管页当前已支持“截图预览 + 轻控制”：点击截图触发轻触，并提供返回/Home/Enter/退格键、固定方向滑动以及单行文本发送，所有控制仍经由项目 API 转发，不要求浏览器直连设备。
 - 已登记未来目标：设备接管页将从“轮询截图预览”演进到“截图预览 + WebRTC 实时接管”双模式，但当前仅作为规划项，尚未进入实现阶段。
 - 该目标的前置条件已明确：后端统一下发 WebRTC 访问参数、补齐 WebRTC 端口公式与 helper、发布 `web/webplayer` 静态资源、确认浏览器到设备的网络可达性，并补上访问控制/审计边界。
+- 最近重点 (2026-03-22):
+  - **前端实时日志重复推送修复 (2026-03-22)**：
+    - 排查发现后端存在两个并行 WebSocket 广播通道：内存订阅（`get_event_broadcaster` 的 `_on_event`）和 DB 轮询（`_db_poll_loop`）。主进程任务的每个事件在 `TaskEventStore.append_event` 时同时触发内存 `_notify` 和写入 SQLite，导致两个通道各广播一次，前端收到重复消息。
+    - 修复：在 `api/routes/websocket.py` 的 `_on_event` 广播后记录已处理的 `event_id`（`_mem_broadcast_max_id`），DB 轮询跳过 `event_id <= _mem_broadcast_max_id` 的事件。子进程模式不受影响（子进程不共享内存，其事件只经由 DB 轮询广播）。
+
 - 最近重点 (2026-03-17):
   - **设备重启任务可用性误熔断修复 (2026-03-21)**：
     - `core.task_execution` 现会在 payload 未显式提供 `_allow_target_unavailable_during_execution` 时，回退读取插件 manifest 输入默认值，避免 `device_reboot` 这类“任务本身会主动导致短时离线”的插件被 availability 收尾检查误判失败。
