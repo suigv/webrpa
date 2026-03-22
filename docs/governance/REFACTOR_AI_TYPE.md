@@ -79,10 +79,27 @@
 - [ ] 3.1 更新 `api/routes/task_routes.py`：`ai_type` 不再是顶层参数
 - [ ] 3.2 更新 `api/routes/devices.py`：移除设备 `ai_type` 相关端点
 - [ ] 3.3 更新前端 `task_service.js`：将 `ai_type` 移入 payload
+- [ ] 3.4 （可选）实现 `payload_defaults` 机制：设备配置支持通用 payload 默认值，框架 merge 时用户显式传的优先
 
 ### Phase 4：测试修复
 - [ ] 4.1 更新所有引用 `ai_type` 的测试文件（至少6个）
 - [ ] 4.2 补充回归测试：验证插件通过 payload 正确消费 `ai_type`
+
+##  决策
+- `device.ai_type` **完全移除**，设备不持有运营角色
+- `ai_type` 是插件 payload 的普通参数，用户在任务提交 UI 选择，通过 `payload` 传递
+- 插件 `manifest.yaml` 声明 `ai_type` input（含 select options），UI 据此渲染选择器
+- `device.ai_type` 没有实质调度逻辑，只是透传字段，可直接移除
+- `task_control.py` 的 `ai_type` 在 workflow draft 重放时使用，移除后由 payload 自动携带，不影响功能
+- 决策：**完全移除系统层 ai_type**，框架只传递 `payload`，运营角色逻辑完全在插件层
+- `ai_type` 从 `TaskRequest` 顶层字段移入 `payload`，前端同步修改
+
+### 设备默认值需求（新增 payload_defaults 机制）
+如果需要设备有默认运营角色（用户不选时自动使用），通过新增通用 `payload_defaults` 机制实现：
+- 设备配置支持 `payload_defaults: {ai_type: volc}` 等任意 payload 默认值
+- 框架在任务执行时将 `payload_defaults` 与用户提交的 `payload` merge，用户显式传的字段优先
+- 框架完全不感知 `ai_type` 语义，只做通用 key-value merge
+- 此机制是可选的扩展，Phase 3 实现
 
 ## 注意事项
 
