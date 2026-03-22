@@ -34,24 +34,24 @@ Start from the **current launch-state docs**, not from strategy or vision materi
 
 ### 3. Read after that: historical and governance context
 
-- **[project_progress.md](project_progress.md)**  
+- **[governance/project_progress.md](governance/project_progress.md)**  
   Historical/log-oriented progress record. Useful for chronology and recent changes, but not the primary current-state contract.
-- **[TECHNICAL_DEBT.md](TECHNICAL_DEBT.md)**  
+- **[governance/TECHNICAL_DEBT.md](governance/TECHNICAL_DEBT.md)**  
   Current debt register, guardrails, and anti-regression context.
-- **[HANDOFF.md](HANDOFF.md)**  
+- **[governance/HANDOFF.md](governance/HANDOFF.md)**  
   Deeper engineering handoff and continuation context.
 
 ### 4. Read last: future / vision / strategy
 
 These documents are useful for long-range direction, but they should not be treated as proof of what is included in the frozen 1.0 launch state.
 
-- **[ROADMAP.md](ROADMAP.md)**  
+- **[strategy/ROADMAP.md](strategy/ROADMAP.md)**  
   Future milestone framing, including post-1.0 items such as M5/WebRTC.
-- **[PROJECT_GOALS.md](PROJECT_GOALS.md)**  
+- **[strategy/PROJECT_GOALS.md](strategy/PROJECT_GOALS.md)**  
   Long-range goals and success criteria.
-- **[architecture_2_0.md](architecture_2_0.md)**  
+- **[strategy/architecture_2_0.md](strategy/architecture_2_0.md)**  
   Strategic architecture vision.
-- **[SKILLS_EVOLUTION.md](SKILLS_EVOLUTION.md)**  
+- **[strategy/SKILLS_EVOLUTION.md](strategy/SKILLS_EVOLUTION.md)**  
   Future-facing architecture evolution analysis.
 
 ## AI responsibilities

@@ -7,11 +7,11 @@
 文档分工：
 
 - `README.md`：入口说明与项目摘要。
-- `docs/project_progress.md`：项目看板，包含可用能力、完成状态与下一步计划。
+- `docs/governance/project_progress.md`：项目看板，包含可用能力、完成状态与下一步计划。
 - `docs/PLUGIN_CONTRACT.md`：插件契约与参数输入规范（v2）。
-- `docs/HANDOFF.md`：架构解析、变量作用域与设计原则（精简版）。
-- `docs/ai_workflow_design_checklist.md`：AI 工作流设计清单（中文）。
-- `docs/TECHNICAL_DEBT.md`：系统技术债与治理重构路线图。
+- `docs/governance/HANDOFF.md`：架构解析、变量作用域与设计原则（精简版）。
+- `docs/strategy/ai_workflow_design_checklist.md`：AI 工作流设计清单（中文）。
+- `docs/governance/TECHNICAL_DEBT.md`：系统技术债与治理重构路线图。
 
 ## 2）项目定位
 
@@ -114,7 +114,7 @@ AI 相关能力应尽量复用：
 - current AI development is cloud-machine-first。
 - browser support remains supported but secondary for this wave。
 
-对应的目标工作流见：`docs/ai_workflow_design_checklist.md`
+对应的目标工作流见：`docs/strategy/ai_workflow_design_checklist.md`
 
 ## 7）对“视觉模型”的当前判断
 
@@ -171,7 +171,7 @@ curl http://127.0.0.1:8001/health
 2. 不要把 AI 目标方向直接写成当前已交付能力。
 3. 不要把生成草稿等同于安全上线插件。
 4. 任何 AI 扩展都应保留验证、回放与证据链。
-5. 文档进度请持续更新 `docs/ai_workflow_design_checklist.md`，而不是把 working notes 塞进 canonical status docs。
+5. 文档进度请持续更新 `docs/strategy/ai_workflow_design_checklist.md`，而不是把 working notes 塞进 canonical status docs。
 
 ## 12）硬约束
 

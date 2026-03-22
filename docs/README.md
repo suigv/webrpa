@@ -2,6 +2,14 @@
 
 `docs/STATUS.md` is the **current truth anchor** for the frozen 1.0 launch state.
 
+This folder is intentionally split into:
+
+- **top-level current docs** — current contracts and launch-state truth
+- **`governance/`** — history, debt, handoff
+- **`strategy/`** — roadmap and future-facing architecture
+- **`ops/`** — operational rollout/runbook notes
+- **`reference/`** — large external/vendor API references
+
 This docs landing page is intentionally conservative:
 
 - **1.0 launch scope is limited to** device management, task scheduling, and plugin execution.
@@ -23,25 +31,19 @@ Use these first when you need the current contract, current state, or launch-rea
 
 Use these for implementation history, debt tracking, handoff context, and governance records. They are useful, but they are **not** the primary source for the frozen 1.0 launch snapshot.
 
-- **[project_progress.md](project_progress.md)** — historical progress log plus rolling summary; read as log-oriented history, not the primary current-state source.
-- **[TECHNICAL_DEBT.md](TECHNICAL_DEBT.md)** — active debt register and anti-regression guardrails.
-- **[HANDOFF.md](HANDOFF.md)** — continuation/runbook context for deeper engineering handoff.
-- **[monitoring_rollout.md](monitoring_rollout.md)** — monitoring rollout notes and operational guidance.
-- **[stale_running_recovery_tuning.md](stale_running_recovery_tuning.md)** — stale-running tuning guidance.
+- **[governance/README.md](governance/README.md)** — entry point for progress log, debt register, and handoff docs.
+- **[ops/README.md](ops/README.md)** — entry point for rollout and deployment notes.
 
 ## Future / strategy
 
 Use these for direction-setting and longer-horizon planning. They should not be read as proof that those items are in the frozen 1.0 launch scope.
 
-- **[ROADMAP.md](ROADMAP.md)** — milestone planning and future work. M5/WebRTC belongs here as post-1.0 work.
-- **[PROJECT_GOALS.md](PROJECT_GOALS.md)** — long-range goals and success criteria.
-- **[architecture_2_0.md](architecture_2_0.md)** — strategic architecture vision.
-- **[SKILLS_EVOLUTION.md](SKILLS_EVOLUTION.md)** — future-facing architecture/skills evolution analysis.
-- **[ai_workflow_design_checklist.md](ai_workflow_design_checklist.md)** — design checklist for AI workflow evolution.
+- **[strategy/README.md](strategy/README.md)** — entry point for roadmap, goals, architecture vision, and future-facing notes.
+- **[reference/README.md](reference/README.md)** — entry point for large SDK/API reference manuals.
 
 ## Quick orientation
 
 1. Read **[STATUS.md](STATUS.md)** for the current launch-ready snapshot.
 2. Use **[HTTP_API.md](HTTP_API.md)**, **[PLUGIN_CONTRACT.md](PLUGIN_CONTRACT.md)**, **[CONFIGURATION.md](CONFIGURATION.md)**, and **[FRONTEND.md](FRONTEND.md)** for current contracts.
-3. Use **[project_progress.md](project_progress.md)** and **[TECHNICAL_DEBT.md](TECHNICAL_DEBT.md)** for history and governance context.
-4. Read **[ROADMAP.md](ROADMAP.md)** and related strategy docs only as future-facing material.
+3. Use **[governance/README.md](governance/README.md)** for history and governance context.
+4. Read **[strategy/README.md](strategy/README.md)** only as future-facing material.

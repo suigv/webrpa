@@ -224,7 +224,7 @@ curl http://127.0.0.1:8001/health
 
 - 开发模式（Vite）：`cd web && npm install && npm run dev`，然后访问 `http://127.0.0.1:5173/`
 - 生产模式（Nginx）：按 `docs/FRONTEND.md` 配置 Nginx 后访问 `http://<host>/web`
-  - 后端进程托管（systemd）参考：`docs/DEPLOYMENT_SYSTEMD.md`
+- 后端进程托管（systemd）参考：`docs/ops/DEPLOYMENT_SYSTEMD.md`
 
 ### 5) (可选) 桌面工作站启动器 (pywebview)
 
@@ -282,13 +282,13 @@ MYT_ENABLE_RPC=0 ./.venv/bin/python -m uvicorn api.server:app --host 127.0.0.1 -
 
 - 文档层级约定，单点可判定：
   - `README.md` = entrypoint / summary only
-  - `docs/project_progress.md` + `docs/project_progress.md` = canonical status / progress
-  - `docs/HANDOFF.md` = continuation / runbook / evidence workflow
+- `docs/STATUS.md` + `docs/governance/project_progress.md` = canonical status / progress
+- `docs/governance/HANDOFF.md` = continuation / runbook / evidence workflow
   - `docs/README.md` = optional index, not canonical
 
-- 进度与功能清单：`docs/project_progress.md`
-- 当前 main 已完成/未完成事项：`docs/project_progress.md`
-- 跨对话交接模板：`docs/HANDOFF.md`
+- 进度与功能清单：`docs/governance/project_progress.md`
+- 当前 main 已完成/未完成事项：`docs/governance/project_progress.md`
+- 跨对话交接模板：`docs/governance/HANDOFF.md`
 - 插件输入契约与灰度策略：`docs/PLUGIN_CONTRACT.md`
 - 历史/辅助文档归档：`docs/archive/`
 - 原子化问题分类：`docs/reference/功能原子化问题分类说明.md`
@@ -307,7 +307,7 @@ MYT_ENABLE_RPC=0 ./.venv/bin/python -m uvicorn api.server:app --host 127.0.0.1 -
 
 - CI 自动校验：`.github/workflows/project-progress-sync.yml`
   - 在 PR / push(main/master) 时自动运行快照刷新
-  - 若 `docs/project_progress.md` 未同步更新则检查失败
+- 若 `docs/governance/project_progress.md` 未同步更新则检查失败
 
 ---
 
