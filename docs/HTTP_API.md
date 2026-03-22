@@ -1,9 +1,9 @@
 # HTTP API（WebRPA 自身服务）
 
 本文件只描述 **webrpa 服务本身**暴露的 HTTP / WebSocket API（FastAPI）。设备 SDK（8000）、MYTOS Android API（api_port）与 RPA SDK（rpa_port）请分别参考：
-- `docs/MYT_SDK_API.md`
-- `docs/MYTOS_API.md`
-- `docs/ANDROID_RPA_SDK.md`
+- `docs/reference/MYT_SDK_API.md`
+- `docs/reference/MYTOS_API.md`
+- `docs/reference/ANDROID_RPA_SDK.md`
 
 > 交互式 OpenAPI：启动服务后访问 `/docs`。
 
@@ -226,8 +226,8 @@ Workflow draft 约束：
 - 后续续跑或重试必须沿用同一业务身份；若传入不一致的值，接口会返回 400，避免把不相关运行误并到同一个草稿。
 - `cleanup_failed` / `clear_all` 会同步清理 workflow draft 中已经失效的任务引用，避免草稿状态残留到已删除任务。
 
-### 7.5 既有插件蒸馏
-- `POST /api/tasks/distill/{plugin_name}`：触发插件蒸馏（受 `distill_threshold` 与目录边界约束）。
+### 7.5 插件蒸馏
+- `POST /api/tasks/plugins/{plugin_name}/distill`：触发插件蒸馏（受 `distill_threshold` 与目录边界约束）。
 
 说明：
 - 当插件 `manifest.yaml` 声明 `distillable: false` 时，该接口会直接返回 `code=distillation_not_supported`。

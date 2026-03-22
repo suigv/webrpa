@@ -61,7 +61,7 @@ plugins/<plugin_name>/
 - **严格模式**：由 `MYT_STRICT_PLUGIN_UNKNOWN_INPUTS=1` 控制。若开启，插件将拒绝任何未在 `manifest.yaml` 中声明的输入参数（`task` 和 `_` 前缀参数除外）。
 - **验证失败**：返回 `status=failed_config_error`, `checkpoint=dispatch`。
 - **目录接口透传**：`GET /api/tasks/catalog` 会把 `inputs` 元数据原样透传给前端，任务面板可据此渲染文本框、数字框、复选框和下拉框。
-- **蒸馏适用性**：`distillable: false` 的插件会在目录与指标接口中明确标记为“不可蒸馏”；`POST /api/tasks/distill/{plugin_name}` 会直接拒绝这类插件。
+- **蒸馏适用性**：`distillable: false` 的插件会在目录与指标接口中明确标记为“不可蒸馏”；`POST /api/tasks/plugins/{plugin_name}/distill` 会直接拒绝这类插件。
 - **目录可见性**：`visible_in_task_catalog: false` 的插件默认不会出现在 `GET /api/tasks/catalog`；如需运维查看，可显式调用 `GET /api/tasks/catalog?include_hidden=true`。
 - **前端提交约束**：Web 端派发插件任务时，会按 `inputs` 白名单过滤 payload，只提交 `manifest.yaml` 已声明字段。
 
