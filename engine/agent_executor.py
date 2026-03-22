@@ -44,7 +44,7 @@ from .agent_executor_trace import AgentExecutorTraceMixin
 from .agent_executor_types import AgentExecutorConfig, LLMClientLike
 
 if TYPE_CHECKING:
-    from core.model_trace_store import ModelTraceStore
+    from core.model_trace_store import ModelTraceContext, ModelTraceStore
     from engine.planners import BasePlanner
 
 
@@ -222,7 +222,7 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
                 ui_observe_transition=ui_observe_transition,
                 ui_wait_until=ui_wait_until,
             )
-            observation = observation_result["observation"]
+            observation_ok = bool(observation_result["observation_ok"])
             observation_state = observation_result["observation_state"]
             observed_at = str(observation_result["observed_at"])
             observation_modality = str(observation_result["modality"])
@@ -235,7 +235,7 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
             observation_fingerprint = str(observation_result["fingerprint"])
             last_observation = {
                 "data": observation_state if isinstance(observation_state, dict) else {},
-                "ok": bool(observation.ok),
+                "ok": observation_ok,
                 "fallback_reason": fallback_reason,
                 "modality": observation_modality,
                 "observed_state_ids": observed_state_ids,
@@ -251,7 +251,7 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
                     "transition_status": "observed",
                     "next_observation_modality": observation_modality,
                     "next_observed_state_ids": observed_state_ids,
-                    "next_observation_ok": bool(observation.ok),
+                    "next_observation_ok": observation_ok,
                     "next_observation": observation_state,
                     "observed_at": observed_at,
                 }
@@ -278,7 +278,7 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
                         observation=observation_state
                         if isinstance(observation_state, dict)
                         else {},
-                        observation_ok=bool(observation.ok),
+                        observation_ok=observation_ok,
                         observation_modality=observation_modality,
                         observed_state_ids=observed_state_ids,
                         fallback_reason=fallback_reason,
@@ -320,7 +320,8 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
                 should_cancel=should_cancel,
             )
             plan = _json_dict(planned_step["plan"])
-            history_digest = list(planned_step["history_digest"])
+            history_digest_raw = planned_step["history_digest"]
+            history_digest = history_digest_raw if isinstance(history_digest_raw, list) else []
             reflection = _json_dict(planned_step["reflection"])
 
             if plan["ok"] is False:
@@ -379,72 +380,30 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
             action_name = str(planned_step["action_name"])
             action_params = _json_dict(planned_step["action_params"])
 
-            if not action_name and observation_requires_fallback:
-                empty_action_defer_count += 1
-                defer_message = str(
-                    plan.get("message")
-                    or "planner returned empty action during fallback observation"
-                )
-                if context.emit_event:
-                    context.emit_event(
-                        "task.planning_deferred",
-                        {
-                            "step": step_index,
-                            "reason": "empty_action_during_fallback_observation",
-                            "retry_count": empty_action_defer_count,
-                            "retry_limit": _EMPTY_ACTION_DEFER_LIMIT,
-                            "message": defer_message,
-                        },
-                    )
-                if empty_action_defer_count <= _EMPTY_ACTION_DEFER_LIMIT:
-                    self._append_trace(
-                        trace_context,
-                        {
-                            "trace_version": 1,
-                            "sequence": step_index,
-                            "step_index": step_index,
-                            "record_type": "step",
-                            "task": self.task_name,
-                            "status": "planning_deferred",
-                            "observation": {
-                                "ok": bool(observation.ok),
-                                "modality": observation_modality,
-                                "observed_state_ids": observed_state_ids,
-                                "expected_state_ids": list(config.expected_state_ids),
-                                "data": observation_state,
-                            },
-                            "fallback_reason": str(plan.get("fallback_reason") or fallback_reason),
-                            "fallback_evidence": fallback_evidence,
-                            "planner": self._trace_planner(plan),
-                            "message": defer_message,
-                            "defer_count": empty_action_defer_count,
-                            "defer_limit": _EMPTY_ACTION_DEFER_LIMIT,
-                            "timestamps": {
-                                "observed_at": observed_at,
-                                "planned_at": str(plan.get("planned_at") or ""),
-                                "recorded_at": _timestamp(),
-                            },
-                        },
-                    )
-                    step_index += 1
-                    continue
-                return self._planning_failure(
-                    trace_context=trace_context,
-                    step_index=step_index,
-                    history=history,
-                    observation_state=observation_state,
-                    observation_ok=bool(last_observation.get("ok")),
-                    observation_modality=observation_modality,
-                    observed_state_ids=observed_state_ids,
-                    fallback_reason=str(plan.get("fallback_reason") or ""),
-                    fallback_evidence=fallback_evidence,
-                    observed_at=observed_at,
-                    plan=plan,
-                    code="planner_empty_action_retry_exhausted",
-                    message=(
-                        "planner returned empty action during fallback observation too many times"
-                    ),
-                )
+            empty_action_defer_outcome = self._handle_empty_action_defer_branch(
+                config=config,
+                trace_context=trace_context,
+                step_index=step_index,
+                history=history,
+                empty_action_defer_count=empty_action_defer_count,
+                observation_ok=observation_ok,
+                observation_state=observation_state,
+                observation_modality=observation_modality,
+                observed_state_ids=observed_state_ids,
+                observation_requires_fallback=observation_requires_fallback,
+                fallback_reason=fallback_reason,
+                fallback_evidence=fallback_evidence,
+                observed_at=observed_at,
+                plan=plan,
+                emit_event=context.emit_event,
+            )
+            empty_action_defer_count = int(str(empty_action_defer_outcome["defer_count"]))
+            if bool(empty_action_defer_outcome["continue_loop"]):
+                step_index += 1
+                continue
+            branch_result = empty_action_defer_outcome.get("result")
+            if isinstance(branch_result, dict):
+                return branch_result
 
             empty_action_defer_count = 0
             if action_name not in config.allowed_actions:
@@ -474,9 +433,7 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
                         "message": str(plan.get("message") or ""),
                     },
                 )
-            action_result = dispatch_action(
-                action_name, action_params, context, registry=self._registry
-            )
+            action_result = dispatch_action(action_name, action_params, context, registry=self._registry)
             action_result_payload = action_result.model_dump(mode="python")
             if context.emit_event:
                 context.emit_event(
@@ -488,19 +445,19 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
                         "message": action_result.message or "",
                     },
                 )
+
+            current_action_fp = _action_fingerprint(action_name, action_params)
+            repeated_action_count = (
+                repeated_action_count + 1
+                if current_action_fp == previous_action_fingerprint
+                else 1
+            )
+            previous_action_fingerprint = current_action_fp
             last_action = {
                 "action": action_name,
                 "params": action_params,
                 "result": action_result_payload,
             }
-
-            current_action_fp = _action_fingerprint(action_name, action_params)
-            if current_action_fp == previous_action_fingerprint:
-                repeated_action_count += 1
-            else:
-                repeated_action_count = 1
-            previous_action_fingerprint = current_action_fp
-
             history.append(
                 {
                     "step_index": step_index,
@@ -518,7 +475,7 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
                 "task": self.task_name,
                 "status": "action_executed",
                 "observation": {
-                    "ok": bool(observation.ok),
+                    "ok": observation_ok,
                     "modality": observation_modality,
                     "observed_state_ids": observed_state_ids,
                     "expected_state_ids": list(config.expected_state_ids),
@@ -551,7 +508,7 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
                         observation=observation_state
                         if isinstance(observation_state, dict)
                         else {},
-                        observation_ok=bool(observation.ok),
+                        observation_ok=observation_ok,
                         observation_modality=observation_modality,
                         observed_state_ids=observed_state_ids,
                         fallback_reason=str(plan.get("fallback_reason") or fallback_reason),
@@ -614,7 +571,7 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
         *,
         config: AgentExecutorConfig,
         context: ExecutionContext,
-        trace_context: dict[str, object],
+        trace_context: ModelTraceContext,
         step_index: int,
         last_action: dict[str, object] | None,
         previous_state_id: str,
@@ -681,9 +638,10 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
 
         def _capture_observation(
             observation_result: Any, operation: str
-        ) -> tuple[str, str, object, dict[str, object]]:
+        ) -> tuple[str, str, bool, object, dict[str, object]]:
             observed_at = _timestamp()
             observation_payload = observation_result.model_dump(mode="python")
+            observation_ok = bool(observation_payload.get("ok"))
             observation_state = observation_payload.get("data", {})
             fallback_evidence = self._collect_fallback_evidence(
                 context,
@@ -701,11 +659,12 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
                 previous_state_id=previous_state_id,
                 last_action=last_action,
             )
-            return operation, observed_at, observation_state, fallback_evidence
+            return operation, observed_at, observation_ok, observation_state, fallback_evidence
 
         (
             observation_operation,
             observed_at,
+            observation_ok,
             observation_state,
             fallback_evidence,
         ) = _capture_observation(observation, observation_operation)
@@ -729,6 +688,7 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
             (
                 observation_operation,
                 observed_at,
+                observation_ok,
                 observation_state,
                 fallback_evidence,
             ) = _capture_observation(observation, observation_operation)
@@ -736,19 +696,19 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
         observation_modality = self._observation_modality(observation_state)
         observed_state_ids = self._observed_state_ids(observation_state)
         observation_requires_fallback = _observation_requires_fallback(
-            observation_ok=bool(observation.ok),
+            observation_ok=observation_ok,
             observation_payload=observation_state,
         )
         observation_certainty = _observation_certainty(
             observation_state,
-            observation_ok=bool(observation.ok),
+            observation_ok=observation_ok,
         )
         observation_source = _observation_source(
             observation_state,
             operation=observation_operation,
         )
         fallback_reason = self._fallback_reason(
-            observation_ok=bool(observation.ok),
+            observation_ok=observation_ok,
             observation_payload=observation_state,
         )
         if not observation_requires_fallback:
@@ -762,13 +722,13 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
                     "step": step_index,
                     "modality": observation_modality,
                     "observed_state_ids": observed_state_ids,
-                    "ok": bool(observation.ok),
+                    "ok": observation_ok,
                     "state_certainty": observation_certainty,
                     "state_source": observation_source,
                 },
             )
         return {
-            "observation": observation,
+            "observation_ok": observation_ok,
             "observation_state": observation_state,
             "observed_at": observed_at,
             "modality": observation_modality,
@@ -779,6 +739,149 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
             "fallback_reason": fallback_reason,
             "fallback_evidence": fallback_evidence,
             "fingerprint": observation_fingerprint,
+        }
+
+    def _handle_empty_action_defer(
+        self,
+        *,
+        config: AgentExecutorConfig,
+        trace_context: ModelTraceContext,
+        step_index: int,
+        empty_action_defer_count: int,
+        observation_ok: bool,
+        observation_state: object,
+        observation_modality: str,
+        observed_state_ids: list[str],
+        observation_requires_fallback: bool,
+        fallback_reason: str,
+        fallback_evidence: dict[str, object],
+        observed_at: str,
+        plan: dict[str, Any],
+        emit_event: Callable[[str, dict[str, Any]], None] | None,
+    ) -> dict[str, object]:
+        if str(plan.get("action") or "").strip() or not observation_requires_fallback:
+            return {
+                "deferred": False,
+                "defer_count": empty_action_defer_count,
+                "continue_loop": False,
+            }
+
+        next_defer_count = empty_action_defer_count + 1
+        defer_message = str(
+            plan.get("message") or "planner returned empty action during fallback observation"
+        )
+        if emit_event:
+            emit_event(
+                "task.planning_deferred",
+                {
+                    "step": step_index,
+                    "reason": "empty_action_during_fallback_observation",
+                    "retry_count": next_defer_count,
+                    "retry_limit": _EMPTY_ACTION_DEFER_LIMIT,
+                    "message": defer_message,
+                },
+            )
+        if next_defer_count <= _EMPTY_ACTION_DEFER_LIMIT:
+            self._append_trace(
+                trace_context,
+                {
+                    "trace_version": 1,
+                    "sequence": step_index,
+                    "step_index": step_index,
+                    "record_type": "step",
+                    "task": self.task_name,
+                    "status": "planning_deferred",
+                    "observation": {
+                        "ok": observation_ok,
+                        "modality": observation_modality,
+                        "observed_state_ids": observed_state_ids,
+                        "expected_state_ids": list(config.expected_state_ids),
+                        "data": observation_state,
+                    },
+                    "fallback_reason": str(plan.get("fallback_reason") or fallback_reason),
+                    "fallback_evidence": fallback_evidence,
+                    "planner": self._trace_planner(plan),
+                    "message": defer_message,
+                    "defer_count": next_defer_count,
+                    "defer_limit": _EMPTY_ACTION_DEFER_LIMIT,
+                    "timestamps": {
+                        "observed_at": observed_at,
+                        "planned_at": str(plan.get("planned_at") or ""),
+                        "recorded_at": _timestamp(),
+                    },
+                },
+            )
+        return {
+            "deferred": True,
+            "defer_count": next_defer_count,
+            "continue_loop": next_defer_count <= _EMPTY_ACTION_DEFER_LIMIT,
+        }
+
+    def _handle_empty_action_defer_branch(
+        self,
+        *,
+        config: AgentExecutorConfig,
+        trace_context: ModelTraceContext,
+        step_index: int,
+        history: list[dict[str, object]],
+        empty_action_defer_count: int,
+        observation_ok: bool,
+        observation_state: object,
+        observation_modality: str,
+        observed_state_ids: list[str],
+        observation_requires_fallback: bool,
+        fallback_reason: str,
+        fallback_evidence: dict[str, object],
+        observed_at: str,
+        plan: dict[str, Any],
+        emit_event: Callable[[str, dict[str, Any]], None] | None,
+    ) -> dict[str, object]:
+        defer_outcome = self._handle_empty_action_defer(
+            config=config,
+            trace_context=trace_context,
+            step_index=step_index,
+            empty_action_defer_count=empty_action_defer_count,
+            observation_ok=observation_ok,
+            observation_state=observation_state,
+            observation_modality=observation_modality,
+            observed_state_ids=observed_state_ids,
+            observation_requires_fallback=observation_requires_fallback,
+            fallback_reason=fallback_reason,
+            fallback_evidence=fallback_evidence,
+            observed_at=observed_at,
+            plan=plan,
+            emit_event=emit_event,
+        )
+        if not bool(defer_outcome["deferred"]):
+            return {
+                "defer_count": empty_action_defer_count,
+                "continue_loop": False,
+                "result": None,
+            }
+        if bool(defer_outcome["continue_loop"]):
+            return {
+                "defer_count": int(str(defer_outcome["defer_count"])),
+                "continue_loop": True,
+                "result": None,
+            }
+        return {
+            "defer_count": int(str(defer_outcome["defer_count"])),
+            "continue_loop": False,
+            "result": self._planning_failure(
+                trace_context=trace_context,
+                step_index=step_index,
+                history=history,
+                observation_state=observation_state,
+                observation_ok=observation_ok,
+                observation_modality=observation_modality,
+                observed_state_ids=observed_state_ids,
+                fallback_reason=str(plan.get("fallback_reason") or ""),
+                fallback_evidence=fallback_evidence,
+                observed_at=observed_at,
+                plan=plan,
+                code="planner_empty_action_retry_exhausted",
+                message="planner returned empty action during fallback observation too many times",
+            ),
         }
 
     def _plan_step(
@@ -972,7 +1075,7 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
     def _planning_failure(
         self,
         *,
-        trace_context: dict[str, object],
+        trace_context: ModelTraceContext,
         step_index: int,
         history: list[dict[str, object]],
         observation_state: object,
