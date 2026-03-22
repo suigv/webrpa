@@ -134,7 +134,48 @@ agent_hint: |
 
 ---
 
-## 七、实现任务计划
+## 七、参数简化原则
+
+### 7.1 allowed_actions — 框架自动管理，不暴露用户
+
+当前前端有 `allowed_actions` 复选框，用户需要勾选 `ui.click`、`ai.locate_point` 等，这是错误的设计。
+
+**正确设计**：
+- 框架内置所有注册 skill action 为候选集
+- `config/apps/{app}.yaml` 可声明 `allowed_actions` 字段限制该 App 下可用动作
+- 蒸馏时自动从成功执行记录中提取实际用到的 action 写入 app yaml
+- **用户完全不接触此参数**，前端移除该复选框组
+
+### 7.2 LLM / VLM — 必选能力，自动 fallback，不需要用户选择
+
+当前前端有「使用 VLM」开关，让用户手动触发 fallback，设计不合理。
+
+**正确设计**：
+- **LLM**：必选，AI 规划决策核心，始终启用
+- **VLM**：系统自动 fallback，当 XML 结构化状态检测失败（`unknown`）时自动切换视觉理解
+- 观察策略由框架 `_observation_modality` 逻辑自动决定
+- **前端移除「使用 VLM」开关**
+
+### 7.3 前端 AI 对话界面最终保留的用户参数
+
+| 参数 | 展示形式 | 说明 |
+|------|----------|------|
+| goal（任务描述） | 文本输入 | 必填，自然语言 |
+| 账号选择 | 下拉（按 app 过滤）| 可选，从账号池选 |
+| 高级：用户自定义提示 | 折叠区域 | 专家模式，默认隐藏 |
+
+其他所有技术参数（`expected_state_ids`、`allowed_actions`、`max_steps`、`stagnant_limit`、VLM 开关）均由框架自动处理，不暴露给普通用户。
+
+---
+
+## 八、实现任务计划
+
+### Phase 0：移除不合理参数（前置清理）
+- [ ] 0.1 前端移除 `allowed_actions` 复选框组
+- [ ] 0.2 前端移除「使用 VLM」开关
+- [ ] 0.3 前端移除 `unitAiSystemPrompt` 顶层输入框（降级为高级选项折叠区域）
+- [ ] 0.4 前端移除 `unitAiState` 状态复选框组（由框架推断）
+- [ ] 0.5 前端移除 `max_steps`、`stagnant_limit` 显式输入（保留为高级选项）
 
 ### Phase 1：执行状态浮层（最高价值，独立可交付）
 - [ ] 1.1 前端新增 AI 执行浮层组件，消费 WebSocket `task.action_result` 事件
