@@ -59,7 +59,8 @@
    最小下一步：继续做 route-local 收口，把目录/统计/蒸馏兼容响应骨架压到就近 helper，保持 route 薄层，但不要误报为已完全收敛。
 3. **`core/task_execution.py` 仍是执行主链热点**  
    后果：任务终态、取消、重试、target 可用性和进程退出规则容易再次堆回主流程。  
-   最小下一步：只抽离下一处重复的终态/事件骨架到邻近 helper，避免把新策略直接追加进主执行循环。
+   当前进展：`_execute_task()` 内异常路径与结果路径共享的 post-run terminalization（finalize outcome → conditional retry enqueue → `time.sleep(0)`）已收口到邻近 file-local helper，减少一处重复骨架且不改变重试/取消语义。  
+   最小下一步：继续只抽离下一处重复的终态/事件骨架到邻近 helper，避免把新策略直接追加进主执行循环；`_handle_process_exit()` 仍保持原样，热点未闭环。
 4. **`engine/agent_executor.py` 仍需持续瘦身**  
    后果：虽然已拆出 planning/trace/support/types，但 run-loop 仍容易重新吸附空动作延迟、失败出口、history/trace 组装等 fix-forward 分支。  
    最小下一步：继续按单步语义切片，把下一组同型 per-step 失败或 defer 分支下沉到私有 helper，保持 `run()` 只表达状态推进。

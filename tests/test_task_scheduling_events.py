@@ -6,6 +6,7 @@ import threading
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import cast
 
 from fastapi.testclient import TestClient
 
@@ -18,9 +19,10 @@ from core.task_control import (
     reset_task_controller_for_tests,
 )
 from core.task_events import TaskEventStore
-from core.task_execution import ProcessTaskHandle, TaskExecutionService
+from core.task_execution import ProcessTaskHandle, TaskExecutionService, _execute_task
 from core.task_finalizer import TaskAttemptFinalizer
 from core.task_queue import InMemoryTaskQueue
+from core.task_runtime import PreparedTaskTarget, TaskDispatchRuntimeResolver
 from core.task_store import TaskStore
 from engine.action_registry import ActionRegistry
 from engine.agent_executor import AgentExecutorRuntime
@@ -64,6 +66,37 @@ class OrderRunner:
         with self._lock:
             self.order.append(str(script_payload.get("label", "unknown")))
         return {"ok": True, "status": "completed", "message": "ok"}
+
+
+class ExplodingRunner:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def run(self, script_payload, should_cancel=None, runtime=None):
+        _ = (script_payload, should_cancel, runtime)
+        self.calls += 1
+        raise RuntimeError("boom")
+
+
+class StaticDispatchRuntimeResolver:
+    def prepare(
+        self,
+        task_id,
+        task_name,
+        payload,
+        devices,
+        targets,
+        enforce_availability,
+    ):
+        _ = (task_id, task_name, devices, enforce_availability)
+        dispatch_target = dict((targets or [{"device_id": 1, "cloud_id": 1}])[0])
+        return [
+            PreparedTaskTarget(
+                target=dispatch_target,
+                payload=dict(payload),
+                runtime={"cloud_target": f"Unit #{dispatch_target['device_id']}-{dispatch_target['cloud_id']}"},
+            )
+        ]
 
 
 class _SequencedLLMClient:
@@ -332,6 +365,56 @@ def test_task_events_sse_stream_contains_retry_and_failed_terminal_events(tmp_pa
             db_path.unlink()
 
 
+def test_execute_task_exception_path_enqueues_retry_once(tmp_path: Path):
+    db_path = tmp_path / "task_execution_exception_retry_once.db"
+    store = TaskStore(db_path=db_path)
+    events = TaskEventStore(db_path=db_path)
+    queue_backend = InMemoryTaskQueue()
+    finalizer = TaskAttemptFinalizer(store=store, event_store=events)
+    runner = ExplodingRunner()
+
+    record = store.create_task(
+        task_id="exception-retry-once-task",
+        payload={"task": "anonymous", "steps": []},
+        devices=[1],
+        targets=[{"device_id": 1, "cloud_id": 1}],
+        max_retries=1,
+        retry_backoff_seconds=0,
+    )
+
+    _execute_task(
+        task_id=record.task_id,
+        store=store,
+        queue_backend=queue_backend,
+        runner=runner,
+        events=events,
+        finalizer=finalizer,
+        dispatch_runtime_resolver=cast(
+            TaskDispatchRuntimeResolver, cast(object, StaticDispatchRuntimeResolver())
+        ),
+    )
+
+    updated = store.get_task(record.task_id)
+    assert updated is not None
+    assert updated.status == "pending"
+    assert updated.retry_count == 1
+    assert updated.error == "boom"
+    assert runner.calls == 1
+
+    assert queue_backend.dequeue(timeout_seconds=0) == record.task_id
+    assert queue_backend.dequeue(timeout_seconds=0) is None
+
+    task_events = events.list_events(record.task_id)
+    event_types = [event.event_type for event in task_events]
+    assert event_types == [
+        "task.started",
+        "task.dispatching",
+        "task.dispatch_result",
+        "task.retry_scheduled",
+    ]
+    assert event_types.count("task.retry_scheduled") == 1
+
+
 def test_pending_task_cancel_emits_cancel_requested_and_cancelled_without_starting():
     reset_task_controller_for_tests()
     with TestClient(app) as client:
@@ -376,7 +459,9 @@ def test_process_exit_forced_cancel_uses_finalizer_path(tmp_path: Path):
         runner=OrderRunner(),
         event_store=events,
         finalizer=finalizer,
-        dispatch_runtime_resolver=object(),
+        dispatch_runtime_resolver=cast(
+            TaskDispatchRuntimeResolver, cast(object, StaticDispatchRuntimeResolver())
+        ),
     )
 
     record = store.create_task(

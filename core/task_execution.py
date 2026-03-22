@@ -355,6 +355,17 @@ def _enqueue_retry(queue_backend: QueueBackend, record: Any, should_enqueue: boo
     )
 
 
+def _finalize_attempt_terminalization(
+    queue_backend: QueueBackend | None,
+    *,
+    retry_record: Any,
+    should_enqueue_retry: bool,
+) -> None:
+    if queue_backend is not None:
+        _enqueue_retry(queue_backend, retry_record, should_enqueue_retry)
+    time.sleep(0)
+
+
 def _resolve_executor_mode(requested: str, queue_backend: QueueBackend) -> str:
     raw = (requested or "").strip().lower()
     if raw in {"thread", "threads"}:
@@ -560,9 +571,11 @@ def _execute_task(
         outcome = finalizer.finalize_exception_attempt(
             task_id=task_id, task_name=task_name, error=str(exc)
         )
-        if queue_backend is not None:
-            _enqueue_retry(queue_backend, outcome.retry_record, outcome.should_enqueue_retry)
-        time.sleep(0)
+        _finalize_attempt_terminalization(
+            queue_backend,
+            retry_record=outcome.retry_record,
+            should_enqueue_retry=outcome.should_enqueue_retry,
+        )
         return
 
     outcome = finalizer.finalize_result_attempt(
@@ -571,9 +584,11 @@ def _execute_task(
         result=result,
         payload=record.payload,
     )
-    if queue_backend is not None:
-        _enqueue_retry(queue_backend, outcome.retry_record, outcome.should_enqueue_retry)
-    time.sleep(0)
+    _finalize_attempt_terminalization(
+        queue_backend,
+        retry_record=outcome.retry_record,
+        should_enqueue_retry=outcome.should_enqueue_retry,
+    )
 
 
 def _create_process_queue_backend() -> QueueBackend:
