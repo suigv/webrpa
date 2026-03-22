@@ -96,6 +96,31 @@ def _task_detail_response_for(controller: Any, record: Any) -> TaskDetailRespons
     return to_task_detail_response(record, workflow_draft=workflow_draft)
 
 
+def _reconcile_idempotency_key(
+    request: TaskRequest,
+    header_idempotency_key: str | None,
+) -> str | None:
+    body_idempotency_key = request.idempotency_key
+    if (
+        body_idempotency_key
+        and header_idempotency_key
+        and body_idempotency_key != header_idempotency_key
+    ):
+        raise HTTPException(
+            status_code=400, detail="idempotency key mismatch between body and header"
+        )
+    return body_idempotency_key or header_idempotency_key
+
+
+def _script_payload_for_task_request(request: TaskRequest) -> dict[str, Any]:
+    if request.script is not None:
+        return dict(request.script)
+
+    script_payload: dict[str, Any] = {"task": str(request.task or "anonymous")}
+    script_payload.update(request.payload)
+    return script_payload
+
+
 def _legacy_distillability_payload(plugin_name: str) -> dict[str, Any] | None:
     if _plugin_distillable(plugin_name):
         return None
@@ -218,22 +243,8 @@ async def create_task(
     x_idempotency_key: str | None = Header(default=None, alias="X-Idempotency-Key"),
 ):
     controller = get_task_controller()
-    if (
-        request.idempotency_key
-        and x_idempotency_key
-        and request.idempotency_key != x_idempotency_key
-    ):
-        raise HTTPException(
-            status_code=400, detail="idempotency key mismatch between body and header"
-        )
-    idempotency_key = request.idempotency_key or x_idempotency_key
-
-    if request.script is not None:
-        script_payload: dict[str, Any] = dict(request.script)
-    else:
-        script_payload = {"task": str(request.task or "anonymous")}
-        if isinstance(request.payload, dict):
-            script_payload.update(request.payload)
+    idempotency_key = _reconcile_idempotency_key(request, x_idempotency_key)
+    script_payload = _script_payload_for_task_request(request)
 
     try:
         record = await run_sync(

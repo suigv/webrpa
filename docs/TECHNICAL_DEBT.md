@@ -55,7 +55,8 @@
    最小下一步：补一层共享前端提交断言，统一验证“仅 manifest 声明字段进入 payload，runtime context 只进 `targets` / runtime envelope”，并补多入口契约测试。
 2. **`api/routes/task_routes.py` 仍承担过多兼容装配**  
    后果：目录、统计、蒸馏兼容口和历史字段拼装继续把 route 变成结构债汇合点。  
-   最小下一步：继续做 route-local 收口，把插件成功统计解析、兼容响应骨架和 catalog/metrics 共用拼装压到就近 helper，保持 route 薄层。
+   当前进展：`create_task()` 已进一步把 body/header 幂等键对齐与 request→script payload 归一化提取到 route-local helper，保持 `script` 与 `task + payload` 提交语义不变。  
+   最小下一步：继续做 route-local 收口，把目录/统计/蒸馏兼容响应骨架压到就近 helper，保持 route 薄层，但不要误报为已完全收敛。
 3. **`core/task_execution.py` 仍是执行主链热点**  
    后果：任务终态、取消、重试、target 可用性和进程退出规则容易再次堆回主流程。  
    最小下一步：只抽离下一处重复的终态/事件骨架到邻近 helper，避免把新策略直接追加进主执行循环。

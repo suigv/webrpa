@@ -587,6 +587,53 @@ def test_managed_task_submission_uses_api_surface_and_managed_execution_lifecycl
             db_path.unlink()
 
 
+def test_script_submission_ignores_payload_when_both_are_present(tmp_path: Path):
+    reset_task_controller_for_tests()
+    db_path = tmp_path / "tasks_script_payload_boundary_test.db"
+    if db_path.exists():
+        db_path.unlink()
+
+    runner = _RecordingManagedRunner()
+    controller = TaskController(
+        store=TaskStore(db_path=db_path),
+        queue_backend=InMemoryTaskQueue(),
+        runner=runner,
+        event_store=TaskEventStore(db_path=db_path),
+    )
+    override_task_controller_for_tests(controller)
+
+    try:
+        with TestClient(app) as client:
+            controller.stop()
+
+            create = client.post(
+                "/api/tasks/",
+                json={
+                    "script": {"task": "anonymous", "steps": []},
+                    "payload": {"unexpected": "value"},
+                    "targets": [{"device_id": 7, "cloud_id": 2}],
+                    "ai_type": "volc",
+                },
+            )
+            assert create.status_code == 200
+            task_id = create.json()["task_id"]
+
+            dequeued = controller._queue.dequeue(timeout_seconds=1)
+            assert dequeued == task_id
+            assert controller._execution_service is not None
+            controller._execution_service._process_task(task_id)
+
+            assert _wait_event(controller, task_id, "task.completed", timeout_s=3.0)
+            assert _wait_status(client, task_id, timeout_s=3.0) == "completed"
+
+            assert len(runner.calls) == 1
+            assert runner.calls[0]["script_payload"] == {"task": "anonymous", "steps": []}
+    finally:
+        reset_task_controller_for_tests()
+        if db_path.exists():
+            db_path.unlink()
+
+
 def test_task_control_plane_failed_flow():
     os.environ["MYT_TASK_QUEUE_BACKEND"] = "memory"
     reset_task_controller_for_tests()
