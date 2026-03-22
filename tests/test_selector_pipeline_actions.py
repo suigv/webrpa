@@ -131,10 +131,10 @@ class _RpcBase:
     def addQuery_Index(self, selector, index):
         return True
 
-    def clear_selector(self, selector):
+    def clear_selector(self, selector) -> bool:
         return True
 
-    def free_selector(self, selector):
+    def free_selector(self, selector) -> bool:
         return True
 
     def find_nodes(self, selector, max_cnt_ret, timeout_ms):
@@ -189,13 +189,15 @@ class _RpcBase:
     def get_node_json(self, node):
         return f'{{"node": {int(node)}}}'
 
-    def click_node(self, node):
+    def click_node(self, node) -> object:
         _ = node
-        return True
+        clicked = True
+        return clicked
 
-    def long_click_node(self, node):
+    def long_click_node(self, node) -> object:
         _ = node
-        return True
+        clicked = True
+        return clicked
 
 
 class FakeRpcHasNode(_RpcBase):
@@ -332,10 +334,37 @@ def test_selector_node_collection_actions(monkeypatch):
     )
     assert node_res.ok is True
     assert ctx.vars["node_h"] == 201
+    assert node_res.data == {
+        "nodes_handle": 101,
+        "index": 1,
+        "node_handle": 201,
+        "node": {
+            "text": "text-201",
+            "id": "id-201",
+            "class_name": "class-demo",
+            "package": "pkg.demo",
+            "desc": "desc-201",
+            "bound": {"left": 1, "top": 2, "right": 3, "bottom": 4},
+        },
+        "saved_as": "node_h",
+    }
 
     parent_res = ui_actions.node_get_parent({"node_var": "node_h", "save_as": "parent_h"}, ctx)
     assert parent_res.ok is True
     assert ctx.vars["parent_h"] == 1201
+    assert parent_res.data == {
+        "node_handle": 201,
+        "parent_handle": 1201,
+        "saved_as": "parent_h",
+        "node": {
+            "text": "text-1201",
+            "id": "id-1201",
+            "class_name": "class-demo",
+            "package": "pkg.demo",
+            "desc": "desc-1201",
+            "bound": {"left": 1, "top": 2, "right": 3, "bottom": 4},
+        },
+    }
 
     child_count_res = ui_actions.node_get_child_count({"node_var": "node_h"}, ctx)
     assert child_count_res.ok is True
@@ -346,6 +375,20 @@ def test_selector_node_collection_actions(monkeypatch):
     )
     assert child_res.ok is True
     assert ctx.vars["child_h"] == 202
+    assert child_res.data == {
+        "node_handle": 201,
+        "index": 0,
+        "child_handle": 202,
+        "saved_as": "child_h",
+        "node": {
+            "text": "text-202",
+            "id": "id-202",
+            "class_name": "class-demo",
+            "package": "pkg.demo",
+            "desc": "desc-202",
+            "bound": {"left": 1, "top": 2, "right": 3, "bottom": 4},
+        },
+    }
 
     free_res = ui_actions.selector_free_nodes({"nodes_var": "nodes_h"}, ctx)
     assert free_res.ok is True
@@ -372,11 +415,11 @@ def test_selector_replace_frees_previous_before_close(monkeypatch):
     original_selector_cls = ui_actions.MytSelector
 
     class RecordingSelector(original_selector_cls):
-        def clear_selector(self):
+        def clear_selector(self) -> bool:
             events.append(("clear", self.rpc.name))
             return True
 
-        def free_selector(self):
+        def free_selector(self) -> bool:
             events.append(("free", self.rpc.name))
             return True
 
@@ -419,7 +462,7 @@ def test_selector_click_one_always_tears_down_before_close(monkeypatch):
         def touchUp(self, finger_id, x, y):
             return self.click_ok
 
-        def click_node(self, node):
+        def click_node(self, node) -> bool:
             _ = node
             self.events.append("click_node")
             return self.click_ok
@@ -441,11 +484,11 @@ def test_selector_click_one_always_tears_down_before_close(monkeypatch):
         rpc = RecordingRpc(events, click_ok=click_ok)
 
         class RecordingSelector(original_selector_cls):
-            def clear_selector(self, events=events):
+            def clear_selector(self, events=events) -> bool:
                 events.append("clear")
                 return True
 
-            def free_selector(self, events=events):
+            def free_selector(self, events=events) -> bool:
                 events.append("free")
                 return True
 

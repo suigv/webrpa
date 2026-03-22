@@ -71,7 +71,8 @@
    最小下一步：继续只沿现有 `_with_client` / 参数 helper / 邻近 file-local helper 做小步收口；backup/restore/export/import 等相邻重复簇仍未处理，不应误报为该热点已闭环。
 6. **`engine/actions/_ui_selector_support.py` 仍是 support 热点**  
    后果：query dispatch、node getter、handle 清理、bounds 归一化等逻辑若继续混写，选择器支持层会再次膨胀。  
-   最小下一步：优先沿既有 companion/helper seam 继续局部提取重复查询或节点读取骨架，同时保持 facade 和 teardown 顺序不变。
+   当前进展：节点集合读取链路里，`selector_get_node_by_index` / `node_get_parent` / `node_get_child` 已先共用一个 file-local success helper，只收口 handle 解析、缺失句柄失败、可选 `save_as` 与序列化 `node` payload 组装，保留各 action 自身的 key/message、查询分派与 teardown 顺序不变。  
+   最小下一步：继续沿既有 companion/helper seam 做这种局部骨架收口，但不要误报为该热点已闭环；tracked-handle cleanup、query dispatch 与其余 node/bounds 路径仍在文件内。
 7. **`engine/actions/_state_detection_support.py` 仍有结构性重复压力**  
    后果：XML 解析、package 过滤、bounds/center 计算、列表提取与日志回退路径仍可能在新 state helper 中重新复制。  
    最小下一步：新增 state 提取逻辑时强制复用现有 XML/helper 骨架，只补能力差异，不再复制一整段解析流程。

@@ -398,6 +398,33 @@ def _serialize_node(node: Any, rpc: Any = None) -> dict[str, Any]:
     }
 
 
+def _node_handle_result(
+    *,
+    raw_handle: Any,
+    rpc: Any,
+    context: ExecutionContext,
+    save_as: str,
+    handle_key: str,
+    not_found_message: str,
+    extra_data: dict[str, Any],
+) -> ActionResult:
+    resolved_handle = _resolve_handle_value(raw_handle)
+    if resolved_handle is None:
+        return ActionResult(ok=False, code="not_found", message=not_found_message)
+    if save_as:
+        context.vars[save_as] = resolved_handle
+    return ActionResult(
+        ok=True,
+        code="ok",
+        data={
+            **extra_data,
+            handle_key: resolved_handle,
+            "node": _serialize_node(resolved_handle, rpc),
+            "saved_as": save_as or None,
+        },
+    )
+
+
 def create_selector(
     params: dict[str, Any],
     context: ExecutionContext,
@@ -611,24 +638,15 @@ def selector_get_node_by_index(params: dict[str, Any], context: ExecutionContext
     if index < 0:
         return ActionResult(ok=False, code="invalid_params", message="index must be >= 0")
 
-    node = selector.rpc.get_node_by_index(handle, index)
-    node_handle = _resolve_handle_value(node)
-    if node_handle is None:
-        return ActionResult(ok=False, code="not_found", message="node not found at index")
-
     save_as = str(params.get("save_as") or "node_handle").strip()
-    if save_as:
-        context.vars[save_as] = node_handle
-    return ActionResult(
-        ok=True,
-        code="ok",
-        data={
-            "nodes_handle": handle,
-            "index": index,
-            "node_handle": node_handle,
-            "node": _serialize_node(node_handle, selector.rpc),
-            "saved_as": save_as or None,
-        },
+    return _node_handle_result(
+        raw_handle=selector.rpc.get_node_by_index(handle, index),
+        rpc=selector.rpc,
+        context=context,
+        save_as=save_as,
+        handle_key="node_handle",
+        not_found_message="node not found at index",
+        extra_data={"nodes_handle": handle, "index": index},
     )
 
 
@@ -641,22 +659,15 @@ def node_get_parent(params: dict[str, Any], context: ExecutionContext) -> Action
         return ActionResult(
             ok=False, code="invalid_params", message="node_handle or node_var is required"
         )
-    parent = selector.rpc.get_node_parent(node_handle)
-    parent_handle = _resolve_handle_value(parent)
-    if parent_handle is None:
-        return ActionResult(ok=False, code="not_found", message="parent node not found")
     save_as = str(params.get("save_as") or "node_parent_handle").strip()
-    if save_as:
-        context.vars[save_as] = parent_handle
-    return ActionResult(
-        ok=True,
-        code="ok",
-        data={
-            "node_handle": node_handle,
-            "parent_handle": parent_handle,
-            "saved_as": save_as or None,
-            "node": _serialize_node(parent_handle, selector.rpc),
-        },
+    return _node_handle_result(
+        raw_handle=selector.rpc.get_node_parent(node_handle),
+        rpc=selector.rpc,
+        context=context,
+        save_as=save_as,
+        handle_key="parent_handle",
+        not_found_message="parent node not found",
+        extra_data={"node_handle": node_handle},
     )
 
 
@@ -685,23 +696,15 @@ def node_get_child(params: dict[str, Any], context: ExecutionContext) -> ActionR
     index = _to_int(params.get("index"), -1)
     if index < 0:
         return ActionResult(ok=False, code="invalid_params", message="index must be >= 0")
-    child = selector.rpc.get_node_child(node_handle, index)
-    child_handle = _resolve_handle_value(child)
-    if child_handle is None:
-        return ActionResult(ok=False, code="not_found", message="child node not found")
     save_as = str(params.get("save_as") or "node_child_handle").strip()
-    if save_as:
-        context.vars[save_as] = child_handle
-    return ActionResult(
-        ok=True,
-        code="ok",
-        data={
-            "node_handle": node_handle,
-            "index": index,
-            "child_handle": child_handle,
-            "saved_as": save_as or None,
-            "node": _serialize_node(child_handle, selector.rpc),
-        },
+    return _node_handle_result(
+        raw_handle=selector.rpc.get_node_child(node_handle, index),
+        rpc=selector.rpc,
+        context=context,
+        save_as=save_as,
+        handle_key="child_handle",
+        not_found_message="child node not found",
+        extra_data={"node_handle": node_handle, "index": index},
     )
 
 
