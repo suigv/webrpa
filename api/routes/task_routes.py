@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from typing import Any
 
 from anyio.to_thread import run_sync
@@ -126,6 +127,34 @@ def _legacy_distill_threshold_payload(
     }
 
 
+def _plugin_success_completed(row: Mapping[str, object] | None) -> int:
+    if row is None:
+        return 0
+    completed = row.get("completed", 0)
+    if isinstance(completed, bool):
+        return int(completed)
+    if isinstance(completed, int):
+        return completed
+    if isinstance(completed, str):
+        return int(completed)
+    raise TypeError("plugin success row completed must be int-compatible")
+
+
+def _plugin_success_metrics_row(row: Mapping[str, object]) -> dict[str, object]:
+    name = str(row["task_name"])
+    completed = _plugin_success_completed(row)
+    distillable = _plugin_distillable(name)
+    threshold = _distill_threshold_for(name)
+    return {
+        **dict(row),
+        "distillable": distillable,
+        "visible_in_task_catalog": _plugin_visible_in_task_catalog(name),
+        "distill_threshold": threshold,
+        "distill_ready": distillable and completed >= threshold,
+        "distill_remaining": max(0, threshold - completed),
+    }
+
+
 async def _distill_plugin_response(plugin_name: str, force: bool) -> dict[str, Any]:
     import subprocess
     import sys
@@ -145,7 +174,7 @@ async def _distill_plugin_response(plugin_name: str, force: bool) -> dict[str, A
     controller = get_task_controller()
     rows = await run_sync(controller.plugin_success_counts)
     stat = next((r for r in rows if r["task_name"] == plugin_name), None)
-    completed = int(stat["completed"]) if stat else 0
+    completed = _plugin_success_completed(stat)
     threshold = int(entry.manifest.distill_threshold or 3)
 
     threshold_payload = _legacy_distill_threshold_payload(
@@ -435,22 +464,7 @@ def list_prompt_templates():
 async def plugin_success_metrics():
     controller = get_task_controller()
     rows = await run_sync(controller.plugin_success_counts)
-    result = []
-    for r in rows:
-        name = str(r["task_name"])
-        completed = int(r["completed"])
-        threshold = _distill_threshold_for(name)
-        result.append(
-            {
-                **r,
-                "distillable": _plugin_distillable(name),
-                "visible_in_task_catalog": _plugin_visible_in_task_catalog(name),
-                "distill_threshold": threshold,
-                "distill_ready": _plugin_distillable(name) and completed >= threshold,
-                "distill_remaining": max(0, threshold - completed),
-            }
-        )
-    return result
+    return [_plugin_success_metrics_row(row) for row in rows]
 
 
 @router.get("/drafts", response_model=list[WorkflowDraftSummary])

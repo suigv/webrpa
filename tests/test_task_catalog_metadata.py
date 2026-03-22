@@ -1,3 +1,6 @@
+from types import SimpleNamespace
+
+import pytest
 from fastapi.testclient import TestClient
 
 from api.routes import task_routes
@@ -76,3 +79,64 @@ def test_legacy_distill_threshold_payload_only_blocks_below_threshold():
         force=False,
     )
     assert allowed is None
+
+
+def test_plugin_metrics_route_preserves_row_shape_while_enriching_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    class _Controller:
+        def plugin_success_counts(self):
+            return [{"task_name": "demo_plugin", "completed": "2", "label": "demo"}]
+
+    monkeypatch.setattr(task_routes, "get_task_controller", lambda: _Controller())
+    monkeypatch.setattr(task_routes, "_distill_threshold_for", lambda name: 3)
+    monkeypatch.setattr(task_routes, "_plugin_distillable", lambda name: True)
+    monkeypatch.setattr(task_routes, "_plugin_visible_in_task_catalog", lambda name: False)
+
+    client = TestClient(app)
+    response = client.get("/api/tasks/metrics/plugins")
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {
+            "task_name": "demo_plugin",
+            "completed": "2",
+            "label": "demo",
+            "distillable": True,
+            "visible_in_task_catalog": False,
+            "distill_threshold": 3,
+            "distill_ready": False,
+            "distill_remaining": 1,
+        }
+    ]
+
+
+def test_distill_endpoint_keeps_threshold_payload_when_completed_count_is_string(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    class _Controller:
+        def plugin_success_counts(self):
+            return [{"task_name": "demo_plugin", "completed": "2"}]
+
+    class _Loader:
+        def get(self, name: str):
+            if name != "demo_plugin":
+                return None
+            return SimpleNamespace(
+                manifest=SimpleNamespace(distill_threshold=3, distillable=True)
+            )
+
+    monkeypatch.setattr(task_routes, "get_task_controller", lambda: _Controller())
+    monkeypatch.setattr(task_routes, "_plugin_loader", lambda refresh=False: _Loader())
+
+    client = TestClient(app)
+    response = client.post("/api/tasks/distill/demo_plugin")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "ok": False,
+        "code": "threshold_not_met",
+        "message": "插件 demo_plugin 成功次数 2 未达到蒸馏门槛 3",
+        "completed": 2,
+        "threshold": 3,
+    }
