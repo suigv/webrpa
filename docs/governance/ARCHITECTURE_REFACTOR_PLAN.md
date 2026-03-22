@@ -346,6 +346,24 @@ def pop_ready_account(self, app_id: str | None = None) -> dict[str, Any] | None:
 
 插件通过 `app_id: "${payload.app_id:-x}"` 调用 `credentials.load`，action 内部用 `app_id` 过滤账号池。
 
+### 6.4b `credentials.checkout` action 传入 `app_id`（engine/actions/credential_actions.py）
+
+`agent_executor` 通过 `credentials.checkout` 从账号池弹出账号。阶段六完成后必须同步修改，否则 agent_executor 执行登录类任务时无法取到正确账号。
+
+```python
+def credentials_checkout(params, context):
+    # 从 params 或 context.payload 读取 app_id
+    app_id = str(params.get("app_id") or context.payload.get("app_id") or "").strip()
+    url = f"http://{host}:{port}/api/data/accounts/pop"
+    if app_id:
+        url += f"?app_id={app_id}"
+    # ... 余下逻辑不变
+```
+
+`POST /api/data/accounts/pop` API 需同步支持 `?app_id=` 查询参数。
+
+**注意**：`agent_executor` 运行时 payload 里已有 `app_id`（由 `resolve_app_payload` 注入），无需 agent 显式传参，框架自动透传。
+
 ### 6.5 API 层更新
 
 - `GET /api/data/accounts`：支持 `?app_id=x` 查询参数，前端按 App 分组展示
