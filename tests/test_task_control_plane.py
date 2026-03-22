@@ -35,6 +35,7 @@ from engine.action_registry import ActionRegistry
 from engine.agent_executor import AgentExecutorRuntime
 from engine.models.runtime import ActionResult
 from engine.runner import Runner
+from models.config import ConfigStore
 
 
 def _wait_status(client: TestClient, task_id: str, timeout_s: float = 3.0) -> str:
@@ -290,7 +291,7 @@ def test_cleanup_runtime_artifacts_route_clears_hidden_task_artifacts(
     )
     override_task_controller_for_tests(controller)
     monkeypatch.setattr(
-        "core.task_control._task_visible_in_catalog",
+        "core.task_runtime_cleanup.task_visible_in_catalog",
         lambda task_name, plugin_loader: task_name != "one_click_new_device",
     )
 
@@ -559,6 +560,7 @@ def test_managed_task_submission_uses_api_surface_and_managed_execution_lifecycl
 
             dequeued = controller._queue.dequeue(timeout_seconds=1)
             assert dequeued == task_id
+            assert controller._execution_service is not None
             controller._execution_service._process_task(task_id)
 
             assert _wait_event(controller, task_id, "task.completed", timeout_s=3.0)
@@ -1494,7 +1496,7 @@ def test_running_task_fails_fast_when_active_target_probe_turns_unavailable(tmp_
     if db_path.exists():
         db_path.unlink()
 
-    backup = ConfigLoader._config
+    backup = None
     manager = DeviceManager()
     runner = _WaitForCancelRunner()
 
@@ -1506,15 +1508,6 @@ def test_running_task_fails_fast_when_active_target_probe_turns_unavailable(tmp_
             return {}
 
     try:
-        ConfigLoader._config = {
-            "schema_version": 2,
-            "allocation_version": 1,
-            "host_ip": "10.0.0.1",
-            "device_ips": {"1": "10.0.0.11"},
-            "total_devices": 1,
-            "cloud_machines_per_device": 1,
-            "sdk_port": 8000,
-        }
         _reset_device_manager_state(manager)
         manager.update_cloud_probe(1, 1, True, 5, "ok")
 
@@ -1573,7 +1566,6 @@ def test_running_task_fails_fast_when_active_target_probe_turns_unavailable(tmp_
                 assert "task.circuit_breaker" in event_types
                 assert "task.failed" in event_types
     finally:
-        ConfigLoader._config = backup
         _reset_device_manager_state(manager)
         reset_task_controller_for_tests()
         if db_path.exists():
