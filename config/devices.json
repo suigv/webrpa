@@ -1,14 +1,11 @@
 {
   "schema_version": 2,
   "allocation_version": 1,
-  "host_ip": "192.168.1.214",
-  "device_ips": {
-    "1": "192.168.1.214",
-    "2": "192.168.1.215"
-  },
-  "total_devices": 2,
+  "host_ip": "127.0.0.1",
+  "device_ips": {},
+  "total_devices": 1,
   "discovery_enabled": false,
-  "discovery_subnet": "192.168.1.0/24",
+  "discovery_subnet": "",
   "discovered_device_ips": {},
   "discovered_total_devices": 0,
   "cloud_machines_per_device": 12,
