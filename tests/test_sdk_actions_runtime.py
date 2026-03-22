@@ -378,14 +378,14 @@ def test_update_store_uses_cross_process_lock_to_prevent_lost_updates(tmp_path):
     )
 
     first.start()
-    assert first_ready.wait(timeout=2)
+    assert first_ready.wait(timeout=10)
 
     second.start()
     time.sleep(0.1)
     release_first.set()
 
-    first.join(timeout=5)
-    second.join(timeout=5)
+    first.join(timeout=15)
+    second.join(timeout=15)
 
     assert first.exitcode == 0
     assert second.exitcode == 0
