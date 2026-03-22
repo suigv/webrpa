@@ -1,6 +1,7 @@
 # pyright: reportAttributeAccessIssue=false, reportDeprecated=false, reportUnknownArgumentType=false, reportUnknownVariableType=false, reportUnusedCallResult=false, reportAny=false, reportExplicitAny=false
 
-from typing import Any, Literal, cast
+from collections.abc import Callable
+from typing import Any, Literal, TypeVar, cast
 
 from anyio import to_thread as _to_thread
 from fastapi import APIRouter, BackgroundTasks, HTTPException
@@ -27,6 +28,7 @@ to_thread = cast(Any, _to_thread)
 router = APIRouter()
 device_manager = get_device_manager()
 discovery = LanDeviceDiscovery()
+_RpcResult = TypeVar("_RpcResult")
 
 
 class TapRequest(BaseModel):
@@ -95,6 +97,26 @@ def _connect_rpc(device_ip: str, rpa_port: int):
     return connect_rpc(device_ip, rpa_port)
 
 
+async def _run_rpc_action(
+    device_id: int,
+    cloud_id: int,
+    operation: Callable[[Any], _RpcResult],
+) -> _RpcResult:
+    device_ip, rpa_port = _validate_device_target(device_id, cloud_id)
+
+    def _run() -> _RpcResult:
+        rpc = _connect_rpc(device_ip, rpa_port)
+        try:
+            return operation(rpc)
+        finally:
+            close_rpc(rpc)
+
+    try:
+        return await to_thread.run_sync(_run)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
 def _to_device_info(info: dict[str, object]) -> DeviceInfo:
     clouds_raw = info.get("cloud_machines", [])
     if not isinstance(clouds_raw, list):
@@ -151,7 +173,7 @@ async def discover_devices(background_tasks: BackgroundTasks):
     def run_scan() -> None:
         ips = discovery.scan_now(force=True)
         if ips:
-            ConfigLoader.update(
+            cast(Any, ConfigLoader).update(
                 total_devices=len(ips),
                 device_ips={str(index): ip for index, ip in enumerate(ips, start=1)},
             )
@@ -219,19 +241,11 @@ async def stop_device(device_id: int):
 
 @router.get("/{device_id}/{cloud_id}/screenshot")
 async def get_cloud_screenshot(device_id: int, cloud_id: int):
-    device_ip, rpa_port = _validate_device_target(device_id, cloud_id)
-
-    def _take_screenshot() -> bytes:
-        rpc = _connect_rpc(device_ip, rpa_port)
-        try:
-            return capture_compressed_image_bytes(rpc)
-        finally:
-            close_rpc(rpc)
-
-    try:
-        image_bytes = await to_thread.run_sync(_take_screenshot)
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    image_bytes = await _run_rpc_action(
+        device_id,
+        cloud_id,
+        lambda rpc: capture_compressed_image_bytes(rpc),
+    )
 
     media_type = "image/png" if image_bytes[:4] == b"\x89PNG" else "image/jpeg"
     return Response(content=image_bytes, media_type=media_type)
@@ -239,81 +253,62 @@ async def get_cloud_screenshot(device_id: int, cloud_id: int):
 
 @router.post("/{device_id}/{cloud_id}/tap")
 async def tap_cloud_screen(device_id: int, cloud_id: int, request: TapRequest):
-    device_ip, rpa_port = _validate_device_target(device_id, cloud_id)
+    def _tap(rpc: Any) -> dict[str, object]:
+        x, y = resolve_rpc_point(
+            x=request.x,
+            y=request.y,
+            nx=request.nx,
+            ny=request.ny,
+            rpc=rpc,
+            device_id=device_id,
+        )
+        ok = rpc.touchClick(int(request.finger_id), x, y)
+        if not ok:
+            raise RuntimeError("touchClick failed")
+        return {"x": x, "y": y, "finger_id": int(request.finger_id)}
 
-    def _tap() -> dict[str, object]:
-        rpc = _connect_rpc(device_ip, rpa_port)
-        try:
-            x, y = resolve_rpc_point(
-                x=request.x,
-                y=request.y,
-                nx=request.nx,
-                ny=request.ny,
-                rpc=rpc,
-                device_id=device_id,
-            )
-            ok = rpc.touchClick(int(request.finger_id), x, y)
-            if not ok:
-                raise RuntimeError("touchClick failed")
-            return {"x": x, "y": y, "finger_id": int(request.finger_id)}
-        finally:
-            close_rpc(rpc)
-
-    try:
-        result = await to_thread.run_sync(_tap)
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    result = await _run_rpc_action(device_id, cloud_id, _tap)
     return {"ok": True, "data": result}
 
 
 @router.post("/{device_id}/{cloud_id}/swipe")
 async def swipe_cloud_screen(device_id: int, cloud_id: int, request: SwipeRequest):
-    device_ip, rpa_port = _validate_device_target(device_id, cloud_id)
+    def _swipe(rpc: Any) -> dict[str, object]:
+        x0, y0 = resolve_rpc_point(
+            x=request.x0,
+            y=request.y0,
+            nx=request.nx0,
+            ny=request.ny0,
+            rpc=rpc,
+            device_id=device_id,
+        )
+        x1, y1 = resolve_rpc_point(
+            x=request.x1,
+            y=request.y1,
+            nx=request.nx1,
+            ny=request.ny1,
+            rpc=rpc,
+            device_id=device_id,
+        )
+        raw_result = rpc.swipe(int(request.finger_id), x0, y0, x1, y1, int(request.duration))
+        ok = bool(raw_result)
+        if not ok:
+            raise RuntimeError("swipe failed")
+        return {
+            "x0": x0,
+            "y0": y0,
+            "x1": x1,
+            "y1": y1,
+            "duration": int(request.duration),
+            "finger_id": int(request.finger_id),
+        }
 
-    def _swipe() -> dict[str, object]:
-        rpc = _connect_rpc(device_ip, rpa_port)
-        try:
-            x0, y0 = resolve_rpc_point(
-                x=request.x0,
-                y=request.y0,
-                nx=request.nx0,
-                ny=request.ny0,
-                rpc=rpc,
-                device_id=device_id,
-            )
-            x1, y1 = resolve_rpc_point(
-                x=request.x1,
-                y=request.y1,
-                nx=request.nx1,
-                ny=request.ny1,
-                rpc=rpc,
-                device_id=device_id,
-            )
-            raw_result = rpc.swipe(int(request.finger_id), x0, y0, x1, y1, int(request.duration))
-            ok = bool(raw_result)
-            if not ok:
-                raise RuntimeError("swipe failed")
-            return {
-                "x0": x0,
-                "y0": y0,
-                "x1": x1,
-                "y1": y1,
-                "duration": int(request.duration),
-                "finger_id": int(request.finger_id),
-            }
-        finally:
-            close_rpc(rpc)
-
-    try:
-        result = await to_thread.run_sync(_swipe)
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    result = await _run_rpc_action(device_id, cloud_id, _swipe)
     return {"ok": True, "data": result}
 
 
 @router.post("/{device_id}/{cloud_id}/key")
 async def press_cloud_key(device_id: int, cloud_id: int, request: KeyRequest):
-    device_ip, rpa_port = _validate_device_target(device_id, cloud_id)
     key_map = {
         "back": "pressBack",
         "home": "pressHome",
@@ -322,43 +317,27 @@ async def press_cloud_key(device_id: int, cloud_id: int, request: KeyRequest):
         "delete": "pressDelete",
     }
 
-    def _press_key() -> dict[str, str]:
-        rpc = _connect_rpc(device_ip, rpa_port)
-        try:
-            method_name = key_map[request.key]
-            method = getattr(rpc, method_name, None)
-            if not callable(method):
-                raise RuntimeError(f"{method_name} unavailable")
-            ok = bool(method())
-            if not ok:
-                raise RuntimeError(f"{request.key} key press failed")
-            return {"key": request.key}
-        finally:
-            close_rpc(rpc)
+    def _press_key(rpc: Any) -> dict[str, str]:
+        method_name = key_map[request.key]
+        method = getattr(rpc, method_name, None)
+        if not callable(method):
+            raise RuntimeError(f"{method_name} unavailable")
+        ok = bool(method())
+        if not ok:
+            raise RuntimeError(f"{request.key} key press failed")
+        return {"key": request.key}
 
-    try:
-        result = await to_thread.run_sync(_press_key)
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    result = await _run_rpc_action(device_id, cloud_id, _press_key)
     return {"ok": True, "data": result}
 
 
 @router.post("/{device_id}/{cloud_id}/text")
 async def send_cloud_text(device_id: int, cloud_id: int, request: TextRequest):
-    device_ip, rpa_port = _validate_device_target(device_id, cloud_id)
+    def _send_text(rpc: Any) -> dict[str, str]:
+        ok = bool(rpc.sendText(request.text))
+        if not ok:
+            raise RuntimeError("text input failed")
+        return {"text": request.text}
 
-    def _send_text() -> dict[str, str]:
-        rpc = _connect_rpc(device_ip, rpa_port)
-        try:
-            ok = bool(rpc.sendText(request.text))
-            if not ok:
-                raise RuntimeError("text input failed")
-            return {"text": request.text}
-        finally:
-            close_rpc(rpc)
-
-    try:
-        result = await to_thread.run_sync(_send_text)
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    result = await _run_rpc_action(device_id, cloud_id, _send_text)
     return {"ok": True, "data": result}
