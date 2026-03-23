@@ -4,7 +4,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from .config_loader import get_discovery_enabled, get_discovery_subnet, get_sdk_port
+from .config_loader import get_discovery_subnet, get_host_ip, get_sdk_port
 
 
 class LanDeviceDiscovery:
@@ -74,18 +74,97 @@ class LanDeviceDiscovery:
         except Exception:
             return False
 
+    def _candidate_local_ipv4s(self) -> list[str]:
+        candidates: list[str] = []
+
+        # UDP connect does not send traffic, but gives us the active outbound IPv4.
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            try:
+                sock.connect(("8.8.8.8", 80))
+                ip = str(sock.getsockname()[0]).strip()
+                if ip:
+                    candidates.append(ip)
+            finally:
+                sock.close()
+        except Exception:
+            pass
+
+        try:
+            hostname = socket.gethostname()
+            for family, _socktype, _proto, _canonname, sockaddr in socket.getaddrinfo(
+                hostname, None, family=socket.AF_INET
+            ):
+                if family != socket.AF_INET:
+                    continue
+                ip = str(sockaddr[0]).strip()
+                if ip:
+                    candidates.append(ip)
+        except Exception:
+            pass
+
+        host_ip = str(get_host_ip()).strip()
+        if host_ip:
+            candidates.append(host_ip)
+
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for ip in candidates:
+            try:
+                parsed = ipaddress.ip_address(ip)
+            except ValueError:
+                continue
+            if parsed.version != 4 or parsed.is_loopback:
+                continue
+            text = str(parsed)
+            if text in seen:
+                continue
+            seen.add(text)
+            deduped.append(text)
+        return deduped
+
+    def _auto_detect_subnet(self) -> str:
+        for ip in self._candidate_local_ipv4s():
+            try:
+                return str(ipaddress.ip_network(f"{ip}/24", strict=False))
+            except Exception:
+                continue
+        return ""
+
+    def get_effective_subnet(self) -> str:
+        auto_subnet = self._auto_detect_subnet()
+        if auto_subnet:
+            return auto_subnet
+
+        configured_subnet = str(get_discovery_subnet()).strip()
+        if configured_subnet:
+            try:
+                return str(ipaddress.ip_network(configured_subnet, strict=False))
+            except Exception:
+                pass
+
+        host_ip = str(get_host_ip()).strip()
+        try:
+            return str(ipaddress.ip_network(f"{host_ip}/24", strict=False))
+        except Exception:
+            return ""
+
     def scan_now(self, force: bool = False) -> list[str]:
-        if not force and not get_discovery_enabled():
-            with self._scan_lock:
-                self._last_scan_at = time.time()
+        now = time.time()
+        with self._scan_lock:
+            if (
+                not force
+                and self._last_scan_at is not None
+                and (now - self._last_scan_at) < self._scan_interval_seconds
+            ):
                 return list(self._discovered_ips)
 
-        subnet = get_discovery_subnet()
+        subnet = self.get_effective_subnet()
         targets = self._scan_targets(subnet)
         if not targets:
             with self._scan_lock:
                 self._discovered_ips = []
-                self._last_scan_at = time.time()
+                self._last_scan_at = now
             return []
 
         sdk_port = get_sdk_port()
@@ -107,7 +186,7 @@ class LanDeviceDiscovery:
         )
         with self._scan_lock:
             self._discovered_ips = hits_sorted
-            self._last_scan_at = time.time()
+            self._last_scan_at = now
         return hits_sorted
 
     def get_discovered_ips(self) -> list[str]:
@@ -115,6 +194,14 @@ class LanDeviceDiscovery:
             return list(self._discovered_ips)
 
     def get_discovered_device_map(self) -> dict[str, str]:
+        with self._scan_lock:
+            should_refresh = (
+                self._last_scan_at is None
+                or not self._discovered_ips
+                or (time.time() - self._last_scan_at) >= self._scan_interval_seconds
+            )
+        if should_refresh:
+            self.scan_now()
         ips = self.get_discovered_ips()
         return {str(index): ip for index, ip in enumerate(ips, start=1)}
 

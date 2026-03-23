@@ -10,6 +10,7 @@ from core.config_loader import (
     get_device_ips,
     get_discovery_enabled,
     get_discovery_subnet,
+    get_discovered_device_ips,
     get_host_ip,
     get_humanization_delay_ms,
     get_humanization_enabled,
@@ -92,7 +93,7 @@ def _normalize_and_validate_device_ips(
 @router.get("/", response_model=Config)
 def get_config():
     discovery = LanDeviceDiscovery()
-    discovered = discovery.get_discovered_device_map()
+    discovered = get_discovered_device_ips()
     discovery_enabled = get_discovery_enabled()
     total_devices = len(discovered) if discovery_enabled and discovered else get_total_devices()
     return Config(
@@ -102,7 +103,7 @@ def get_config():
         device_ips=get_device_ips(),
         total_devices=total_devices,
         discovery_enabled=discovery_enabled,
-        discovery_subnet=get_discovery_subnet(),
+        discovery_subnet=discovery.get_effective_subnet(),
         discovered_device_ips=discovered,
         discovered_total_devices=len(discovered),
         cloud_machines_per_device=get_cloud_machines_per_device(),

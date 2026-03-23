@@ -347,13 +347,14 @@ def _normalize_config_payload(raw: dict[str, object], humanized: BaseModel) -> d
     normalized["discovery_enabled"] = discovery_enabled
 
     discovery_subnet_raw = str(raw.get("discovery_subnet", "")).strip()
-    if not discovery_subnet_raw:
-        discovery_subnet_raw = f"{host_ip}/24"
-    try:
-        subnet = ipaddress.ip_network(discovery_subnet_raw, strict=False)
-        normalized["discovery_subnet"] = str(subnet)
-    except Exception:
-        normalized["discovery_subnet"] = f"{host_ip}/24"
+    if discovery_subnet_raw:
+        try:
+            subnet = ipaddress.ip_network(discovery_subnet_raw, strict=False)
+            normalized["discovery_subnet"] = str(subnet)
+        except Exception:
+            normalized["discovery_subnet"] = ""
+    else:
+        normalized["discovery_subnet"] = ""
 
     total_devices = _coerce_int(
         raw.get("total_devices", DEFAULT_TOTAL_DEVICES), DEFAULT_TOTAL_DEVICES

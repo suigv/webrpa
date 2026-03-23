@@ -1,14 +1,17 @@
 # pyright: reportPrivateUsage=false
 
+import asyncio
 import time
 from contextlib import asynccontextmanager
 from typing import cast
 
 import pytest
 from _pytest.monkeypatch import MonkeyPatch
+from fastapi import BackgroundTasks
 from fastapi.testclient import TestClient
 
 import api.server as server
+from api.routes import config as config_route
 from api.routes import devices as devices_route
 from api.server import app
 from core.config_loader import ConfigLoader
@@ -139,7 +142,6 @@ def test_api_devices_discover_endpoint(monkeypatch: MonkeyPatch):
 
 
 def test_api_devices_discover_updates_config_mapping(monkeypatch: MonkeyPatch):
-    _disable_lifespan(monkeypatch)
     backup = ConfigLoader._config
     try:
         ConfigLoader._config = ConfigStore.model_validate({
@@ -152,17 +154,27 @@ def test_api_devices_discover_updates_config_mapping(monkeypatch: MonkeyPatch):
             "discovery_enabled": False,
             "discovery_subnet": "192.168.1.0/24",
         })
-        monkeypatch.setattr(devices_route.discovery, "scan_now", _scan_one_ip)
+        def _scan_one_ip_and_cache(force: bool = False) -> list[str]:
+            hits = _scan_one_ip(force)
+            devices_route.discovery._discovered_ips = list(hits)
+            devices_route.discovery._last_scan_at = time.time()
+            return hits
 
-        with TestClient(app) as client:
-            response = client.post("/api/devices/discover")
-            assert response.status_code == 200
-            payload = cast(dict[str, object], response.json())
-            assert payload["status"] == "started"
+        devices_route.discovery._discovered_ips = []
+        devices_route.discovery._last_scan_at = None
+        monkeypatch.setattr(devices_route.discovery, "scan_now", _scan_one_ip_and_cache)
 
-            cfg = cast(dict[str, object], client.get("/api/config/").json())
-            assert cfg["total_devices"] == 1
-            assert cfg["device_ips"] == {"1": "192.168.1.214"}
+        background_tasks = BackgroundTasks()
+        payload = asyncio.run(devices_route.discover_devices(background_tasks))
+        assert payload["status"] == "started"
+
+        for task in background_tasks.tasks:
+            task.func(*task.args, **task.kwargs)
+
+        cfg = config_route.get_config().model_dump(mode="python")
+        assert cfg["device_ips"] == {"1": "192.168.1.214", "2": "192.168.1.215"}
+        assert cfg["discovered_total_devices"] == 1
+        assert cfg["discovered_device_ips"] == {"1": "192.168.1.214"}
     finally:
         ConfigLoader._config = backup
 
@@ -540,12 +552,15 @@ def test_api_devices_available_only_excludes_stale_available_clouds(monkeypatch:
         ConfigLoader._config = backup
 
 
+@pytest.mark.real_lifespan
 def test_api_lifespan_wires_cloud_probe_service(monkeypatch: MonkeyPatch):
     fake_controller, fake_manager, fake_probe = _patch_lifespan_services(monkeypatch)
 
-    with TestClient(app) as client:
-        response = client.get("/health")
-        assert response.status_code == 200
+    async def _run_lifespan() -> None:
+        async with server.lifespan(app):
+            return None
+
+    asyncio.run(_run_lifespan())
 
     assert fake_manager.validated == 1
     assert fake_controller.started == 1

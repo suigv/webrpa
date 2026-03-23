@@ -218,11 +218,10 @@ async def list_devices(availability: Literal["all", "available_only"] = "all"):
 async def discover_devices(background_tasks: BackgroundTasks):
     def run_scan() -> None:
         ips = discovery.scan_now(force=True)
-        if ips:
-            cast(Any, ConfigLoader).update(
-                total_devices=len(ips),
-                device_ips={str(index): ip for index, ip in enumerate(ips, start=1)},
-            )
+        cast(Any, ConfigLoader).update(
+            discovered_device_ips={str(index): ip for index, ip in enumerate(ips, start=1)},
+            discovered_total_devices=len(ips),
+        )
 
     background_tasks.add_task(run_scan)
     return {"status": "started", "message": "Background scan initiated"}

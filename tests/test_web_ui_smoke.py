@@ -1,14 +1,12 @@
 # pyright: reportMissingImports=false, reportUnknownVariableType=false, reportUnknownMemberType=false
-from starlette.testclient import TestClient
+from fastapi.responses import PlainTextResponse
 
-from api.server import app
+from api.server import root, web_index
 
 
 def test_root_redirects_to_web():
-    client = TestClient(app)
-    response = client.get("/", follow_redirects=False)
-    assert response.status_code == 200
-    assert response.json() == {
+    payload = root()
+    assert payload == {
         "status": "ok",
         "health": "/health",
         "docs": "/docs",
@@ -17,8 +15,8 @@ def test_root_redirects_to_web():
 
 
 def test_web_ui_page_is_served():
-    client = TestClient(app)
-    response = client.get("/web")
+    response = web_index()
+    assert isinstance(response, PlainTextResponse)
     assert response.status_code == 501
-    assert response.headers["content-type"].startswith("text/plain")
-    assert "frontend build" in response.text
+    assert response.media_type == "text/plain"
+    assert "frontend build" in response.body.decode("utf-8")

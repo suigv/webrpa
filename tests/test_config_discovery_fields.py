@@ -1,6 +1,4 @@
-from fastapi.testclient import TestClient
-
-from api.server import app
+from api.routes import config as config_route
 from core.config_loader import ConfigLoader
 from core.lan_discovery import LanDeviceDiscovery
 
@@ -23,11 +21,13 @@ def test_config_response_includes_discovery_metadata(monkeypatch):
             "get_discovered_device_map",
             lambda self: {"1": "192.168.1.214", "2": "192.168.1.216"},
         )
+        monkeypatch.setattr(
+            LanDeviceDiscovery,
+            "get_effective_subnet",
+            lambda self: "192.168.1.0/24",
+        )
 
-        client = TestClient(app)
-        response = client.get("/api/config/")
-        assert response.status_code == 200
-        payload = response.json()
+        payload = config_route.get_config().model_dump(mode="python")
         assert payload["discovery_enabled"] is True
         assert payload["discovery_subnet"] == "192.168.1.0/24"
         assert payload["discovered_total_devices"] == 2

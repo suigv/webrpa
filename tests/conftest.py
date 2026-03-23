@@ -3,10 +3,12 @@ import shutil
 import sys
 import time
 from collections.abc import Generator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import pytest
 
+from api.server import app
 from engine.action_registry import reset_registry
 from engine.plugin_loader import clear_shared_plugin_loader_cache
 
@@ -42,3 +44,24 @@ def isolate_engine_globals() -> Generator[None, None, None]:
     yield
     clear_shared_plugin_loader_cache()
     reset_registry()
+
+
+@asynccontextmanager
+async def _noop_lifespan(_app: object):
+    yield
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    config.addinivalue_line(
+        "markers",
+        "real_lifespan: run the FastAPI app with its real lifespan hooks enabled",
+    )
+
+
+@pytest.fixture(autouse=True)
+def disable_app_lifespan_by_default(
+    monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest
+) -> Generator[None, None, None]:
+    if request.node.get_closest_marker("real_lifespan") is None:
+        monkeypatch.setattr(app.router, "lifespan_context", _noop_lifespan)
+    yield

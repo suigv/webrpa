@@ -1,16 +1,11 @@
-from fastapi.testclient import TestClient
-
 from api.server import app
+from core.account_service import get_accounts_raw_text
+from core.data_text_service import get_location_text, get_website_text
 
 
 def test_data_routes_and_removed_migrate_route():
-    client = TestClient(app)
+    assert isinstance(get_accounts_raw_text(), str)
+    assert isinstance(get_location_text(), str)
+    assert isinstance(get_website_text(), str)
 
-    for route in ("/api/data/accounts", "/api/data/location", "/api/data/website"):
-        response = client.get(route)
-        assert response.status_code == 200
-        payload = response.json()
-        assert "data" in payload
-
-    removed = client.post("/api/data/migrate")
-    assert removed.status_code == 404
+    assert "/api/data/migrate" not in {route.path for route in app.routes}

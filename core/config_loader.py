@@ -104,11 +104,41 @@ def get_device_ips() -> dict[str, str]:
     return _c().device_ips
 
 
+def get_persisted_discovered_device_ips() -> dict[str, str]:
+    return dict(_c().discovered_device_ips)
+
+
+def get_discovered_device_ips() -> dict[str, str]:
+    try:
+        from core.lan_discovery import LanDeviceDiscovery
+
+        discovered = LanDeviceDiscovery().get_discovered_device_map()
+        if discovered:
+            return discovered
+    except Exception:
+        pass
+
+    return get_persisted_discovered_device_ips()
+
+
+def get_runtime_device_ips() -> dict[str, str]:
+    discovered = get_discovered_device_ips()
+    if discovered:
+        return discovered
+    return get_device_ips()
+
+
 def get_device_ip(device_id: int) -> str:
+    discovered = get_discovered_device_ips()
+    if discovered:
+        return discovered.get(str(device_id), "") or get_host_ip()
     return get_device_ips().get(str(device_id), "") or get_host_ip()
 
 
 def get_total_devices() -> int:
+    discovered = get_discovered_device_ips()
+    if discovered:
+        return len(discovered)
     return _c().total_devices
 
 
