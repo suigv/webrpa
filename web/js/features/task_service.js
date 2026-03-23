@@ -1,6 +1,7 @@
 import { fetchJson } from '../utils/api.js';
 import { toast } from '../ui/toast.js';
 import { sysLog } from './logs.js';
+import { buildCredentialsRef } from './credential_payload.js';
 
 let catalogCache = null;
 let catalogPromise = null;
@@ -9,6 +10,7 @@ const LEGACY_ACCOUNT_KEYS = ['acc', 'pwd', 'fa2_secret'];
 const ACCOUNT_INPUT_KEYS = new Set([
     ...CANONICAL_ACCOUNT_KEYS,
     ...LEGACY_ACCOUNT_KEYS,
+    'credentials_ref',
     'two_factor_code',
 ]);
 const RUNTIME_ONLY_PAYLOAD_KEYS = new Set([
@@ -168,15 +170,14 @@ export async function resolveTaskAppContext(taskName, {
         return explicitAppId;
     }
     const normalizedFallback = String(fallbackAppId || '').trim();
-    if (normalizedFallback) {
-        return normalizedFallback;
-    }
     const declared = await getTaskInputDefinition(taskName, 'app_id');
-    if (!declared) {
-        return '';
+    if (declared) {
+        const declaredDefault = String(declared.default || '').trim();
+        if (declaredDefault && (!normalizedFallback || normalizedFallback === 'default')) {
+            return declaredDefault;
+        }
     }
-    const declaredDefault = String(declared.default || '').trim();
-    return declaredDefault;
+    return normalizedFallback;
 }
 
 function _setAccountFields(payload, account, declaredKeys, mode) {
@@ -227,13 +228,21 @@ export async function injectAccountPayload(taskName, payload = {}, account = nul
         ? LEGACY_ACCOUNT_KEYS.some((key) => declaredKeys.has(key))
         : false;
 
+    let nextPayload = { ...payload };
+    if (!declaredKeys || declaredKeys.has('credentials_ref')) {
+        const credentialsRef = buildCredentialsRef(account);
+        if (credentialsRef) {
+            nextPayload.credentials_ref = credentialsRef;
+        }
+    }
+
     if (prefersCanonical) {
-        return _setAccountFields(payload, account, declaredKeys, 'canonical');
+        return _setAccountFields(nextPayload, account, declaredKeys, 'canonical');
     }
     if (prefersLegacy || !declaredKeys) {
-        return _setAccountFields(payload, account, declaredKeys, 'legacy');
+        return _setAccountFields(nextPayload, account, declaredKeys, 'legacy');
     }
-    return _setAccountFields(payload, account, declaredKeys, 'canonical');
+    return _setAccountFields(nextPayload, account, declaredKeys, 'canonical');
 }
 
 export async function prepareTaskPayload(taskName, {

@@ -408,7 +408,6 @@ export function openUnitDetail({
     clearElement(logBox);
     store.setState({ currentUnitLogTarget: buildUnitLogTarget(unit) });
     renderUnitPluginFields();
-    void loadUnitAccounts();
     const submitButton = $('submitSingleTask');
     if (submitButton) submitButton.onclick = () => {
         void submitUnitTask(unit);

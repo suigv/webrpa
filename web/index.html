@@ -88,6 +88,14 @@
                   <option value="default">默认 (系统)</option>
                 </select>
               </div>
+              <div class="form-group mb-4" id="taskAccountGroup" style="display:none;">
+                <label>绑定账号（可选）</label>
+                <div class="flex gap-2">
+                  <select id="taskAccountSelect" class="flex-1"></select>
+                  <button type="button" id="taskAccountRefresh" class="btn btn-secondary btn-sm">刷新</button>
+                </div>
+                <div id="taskAccountHint" class="text-muted" style="font-size:12px; margin-top:6px;">选择后账号信息将自动注入任务</div>
+              </div>
               <div id="taskPluginHost"></div>
               <div id="taskGuideCard" class="task-guide-card mt-4" style="display:none;"></div>
               <div id="taskPayloadFields" class="form-grid mt-6"></div>

@@ -1,6 +1,8 @@
 import { fetchJson } from '../utils/api.js';
 import { toast } from '../ui/toast.js';
 import { openAiTaskOverlay } from './ai_task_overlay.js';
+import { resolveAiDialogSubmitState } from './ai_dialog_submit_state.js';
+import { buildAiDialogPayload } from './credential_payload.js';
 import { unitLog } from './logs.js';
 import { setUnitTakeoverTraceContext } from './device_unit_detail.js';
 import { apiSubmitTask, buildTaskRequest, prepareTaskPayload } from './task_service.js';
@@ -190,7 +192,17 @@ function renderPlannerStateLoading() {
         badge.className = 'badge';
         badge.textContent = '分析中';
     }
+    applyAiSubmitState(null);
     clearElement(followUp);
+}
+
+function applyAiSubmitState(plan) {
+    const button = $('submitUnitAiTask');
+    if (!button) return;
+    const state = resolveAiDialogSubmitState(plan);
+    button.disabled = Boolean(state.disabled);
+    button.textContent = state.label || '下发任务';
+    button.title = state.title || '';
 }
 
 function renderPlannerResult(plan) {
@@ -209,11 +221,15 @@ function renderPlannerResult(plan) {
         badge.className = `badge ${missing > 0 ? 'badge-error' : 'badge-ok'}`;
         badge.textContent = missing > 0 ? '待补充' : '已就绪';
     }
+    applyAiSubmitState(plan);
 
     clearElement(followUp);
     const lines = [];
     if (plan.resolved_app?.app_id) {
         lines.push(`应用上下文：${plan.resolved_app.app_id}`);
+    }
+    if (plan.account?.execution_hint) {
+        lines.push(String(plan.account.execution_hint).trim());
     }
     if (plan.account?.strategy === 'selected' && plan.account?.selected_account) {
         lines.push(`执行账号：${plan.account.selected_account}`);
@@ -237,6 +253,7 @@ function renderPlannerResult(plan) {
 function clearPlannerCard() {
     const card = $('unitAiPlannerCard');
     if (card) card.style.display = 'none';
+    applyAiSubmitState(null);
     clearElement($('unitAiPlannerFollowUp'));
 }
 
@@ -378,34 +395,16 @@ function schedulePlanner() {
 }
 
 function buildAiTaskPayload() {
-    const goal = getSelectedAiDialogGoal();
-    if (!goal) {
+    const payload = buildAiDialogPayload({
+        goal: getSelectedAiDialogGoal(),
+        appId: getSelectedAiDialogAppId(),
+        account: getSelectedAiAccount(),
+        advancedPrompt: getSelectedAdvancedPrompt(),
+    });
+    if (!payload) {
         toast.warn('请填写任务描述');
         return null;
     }
-
-    const payload = { goal };
-    const appId = getSelectedAiDialogAppId();
-    if (appId) {
-        payload.app_id = appId;
-    }
-
-    const account = getSelectedAiAccount();
-    if (account) {
-        if (account.account) payload.account = account.account;
-        if (account.password) payload.password = account.password;
-        if (account.twofa) {
-            payload.two_factor_code = account.twofa;
-            payload.twofa_secret = account.twofa;
-        }
-    }
-
-    const advancedPrompt = getSelectedAdvancedPrompt();
-    if (advancedPrompt) {
-        payload.advanced_prompt = advancedPrompt;
-    }
-
-    payload._workflow_source = 'ai_dialog';
     return payload;
 }
 
@@ -639,6 +638,7 @@ export function closeUnitAiDialog() {
     if (modal) modal.style.display = 'none';
     const advanced = $('unitAiAdvanced');
     if (advanced) advanced.style.display = 'none';
+    applyAiSubmitState(null);
     currentAiDialogUnit = null;
     if (plannerTimer) {
         clearTimeout(plannerTimer);
@@ -653,6 +653,12 @@ export async function submitUnitAiTask(unit, { onSuccess = null, onFailure = nul
 
     const plan = await requestPlanner({ force: true });
     if (!plan) return { ok: false, reason: 'planner_failed' };
+    if (plan?.account?.can_execute === false) {
+        toast.warn(String(plan.account.execution_hint || plan.follow_up?.message || '当前规划未满足执行条件'));
+        const blocked = { ok: false, reason: 'planner_blocked' };
+        onFailure?.(blocked);
+        return blocked;
+    }
 
     const payload = await prepareTaskPayload('agent_executor', {
         rawPayload: {

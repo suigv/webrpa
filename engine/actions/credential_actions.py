@@ -29,27 +29,37 @@ def _serialize_credentials(creds: Any) -> dict[str, Any]:
 
 
 def credentials_load(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
-    """从引用或 JSON 字符串加载凭据。"""
+    """从显式引用加载凭据；若未提供则按 app_id 从账号池取号。"""
     credentials_ref = str(
-        params.get("credentials_ref") or context.get_session_default("credentials_ref") or ""
+        params.get("credentials_ref")
+        or context.get_session_default("credentials_ref")
+        or (context.payload.get("credentials_ref") if isinstance(context.payload, dict) else "")
+        or ""
     )
     save_as = str(params.get("save_as", "creds"))
 
-    if not credentials_ref:
-        return ActionResult(ok=False, code="missing_ref", message="credentials_ref param required")
+    if credentials_ref:
+        try:
+            creds = load_credentials_from_ref(credentials_ref)
+            context.vars[save_as] = _serialize_credentials(creds)
+            context.vars[f"{save_as}_obj"] = creds
+            return ActionResult(ok=True, code="ok", message=f"credentials loaded as {save_as}")
+        except Exception as exc:
+            return ActionResult(ok=False, code="credential_error", message=str(exc))
 
-    try:
-        creds = load_credentials_from_ref(credentials_ref)
-        context.vars[save_as] = _serialize_credentials(creds)
-        context.vars[f"{save_as}_obj"] = creds
-        return ActionResult(ok=True, code="ok", message=f"credentials loaded as {save_as}")
-    except Exception as exc:
-        return ActionResult(ok=False, code="credential_error", message=str(exc))
+    return _checkout_credentials_from_pool(params, context, save_as=save_as)
 
 
 def credentials_checkout(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
     """从账号池中‘弹出’（POP）下一个可用账号。实现‘池子-1’逻辑。"""
     save_as = str(params.get("save_as", "creds"))
+    return _checkout_credentials_from_pool(params, context, save_as=save_as)
+
+
+def _checkout_credentials_from_pool(
+    params: dict[str, Any], context: ExecutionContext, *, save_as: str
+) -> ActionResult:
+    """共享账号池取号逻辑，供 checkout/load 两条兼容路径复用。"""
 
     # 获取本地 API 基地址，默认 8001 (匹配 AGENTS.md 验证命令)
     port = os.environ.get("MYT_API_PORT", "8001")

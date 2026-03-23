@@ -9,6 +9,7 @@ import {
     prepareTaskPayload,
     resolveTaskDisplayName,
     resolveTaskAppContext,
+    taskAcceptsAccount,
 } from './task_service.js';
 import { FetchSseClient } from '../utils/sse.js';
 import { getDevicesSnapshot, refreshDevicesSnapshot } from '../state/devices.js';
@@ -20,6 +21,7 @@ let selectedTaskName = '';
 let currentEventStream = null;
 let taskSubmissionListenerBound = false;
 const submittedTaskMonitors = new Map();
+let taskAccounts = [];
 
 let submissionOverrides = null;
 let pipelineComposerState = [];
@@ -29,6 +31,64 @@ function clearElement(element) {
     if (element) {
         element.replaceChildren();
     }
+}
+
+function renderEmptyTaskAccountSelect(label) {
+    const select = $('taskAccountSelect');
+    if (!select) return;
+    select.replaceChildren();
+    const emptyOpt = document.createElement('option');
+    emptyOpt.value = '';
+    emptyOpt.textContent = label;
+    select.appendChild(emptyOpt);
+}
+
+async function loadTaskAccounts(appId = '') {
+    const select = $('taskAccountSelect');
+    const hint = $('taskAccountHint');
+    if (!select) return;
+    const normalizedAppId = String(appId || '').trim();
+    const params = new URLSearchParams();
+    if (normalizedAppId) {
+        params.set('app_id', normalizedAppId);
+    }
+    try {
+        const query = params.toString();
+        const response = await fetchJson(`/api/data/accounts/parsed${query ? `?${query}` : ''}`);
+        if (!response.ok) {
+            taskAccounts = [];
+            renderEmptyTaskAccountSelect('-- 账号加载失败 --');
+            if (hint) hint.textContent = '加载账号失败';
+            return;
+        }
+        taskAccounts = (response.data?.accounts || []).filter((account) => account.status === 'ready');
+        select.replaceChildren();
+        const emptyOpt = document.createElement('option');
+        emptyOpt.value = '';
+        emptyOpt.textContent = `-- 不绑定账号 (${taskAccounts.length} 个就绪) --`;
+        select.appendChild(emptyOpt);
+        taskAccounts.forEach((account, index) => {
+            const option = document.createElement('option');
+            option.value = String(index);
+            option.textContent = account.account;
+            select.appendChild(option);
+        });
+        if (hint) {
+            hint.textContent = normalizedAppId
+                ? `${normalizedAppId} 账号池共 ${taskAccounts.length} 个就绪账号`
+                : `全部账号池共 ${taskAccounts.length} 个就绪账号`;
+        }
+    } catch (_error) {
+        taskAccounts = [];
+        renderEmptyTaskAccountSelect('-- 账号加载失败 --');
+        if (hint) hint.textContent = '加载账号失败';
+    }
+}
+
+function getSelectedTaskAccount() {
+    const select = $('taskAccountSelect');
+    if (!select || select.value === '') return null;
+    return taskAccounts[Number.parseInt(select.value, 10)] || null;
 }
 
 function pipelineChildCatalog() {
@@ -727,6 +787,19 @@ export function initTasks() {
     if (refreshTargetsBtn) refreshTargetsBtn.onclick = loadTaskTargets;
     loadTaskTargets();
 
+    const accountRefreshBtn = $('taskAccountRefresh');
+    if (accountRefreshBtn) {
+        accountRefreshBtn.onclick = () => {
+            void syncTaskAccountScope(selectedTaskName);
+        };
+    }
+    const appSelector = $('taskAppSelector');
+    if (appSelector) {
+        appSelector.onchange = () => {
+            void syncTaskAccountScope(selectedTaskName);
+        };
+    }
+
     document.querySelectorAll('.close-task-modal-btn').forEach(btn => {
         btn.onclick = closeTaskModal;
     });
@@ -898,6 +971,63 @@ async function initAppSelector() {
             select.appendChild(opt);
         });
     }
+}
+
+async function syncTaskAppSelector(taskName) {
+    const select = $('taskAppSelector');
+    if (!select || !taskName) return;
+    if (select.options.length <= 1) {
+        await initAppSelector();
+    }
+    const currentAppId = String(select.value || '').trim();
+    const desiredAppId = await resolveTaskAppContext(taskName, {
+        fallbackAppId: currentAppId && currentAppId !== 'default' ? currentAppId : '',
+    });
+    if (!desiredAppId) return;
+    const hasOption = Array.from(select.options).some((option) => option.value === desiredAppId);
+    if (hasOption) {
+        select.value = desiredAppId;
+    }
+}
+
+async function syncTaskAccountScope(taskName) {
+    const accountRow = $('taskAccountGroup');
+    const fieldsContainer = $('taskPayloadFields');
+    if (!fieldsContainer) return;
+    const acceptsAccount = await taskAcceptsAccount(taskName);
+    if (accountRow) {
+        accountRow.style.display = acceptsAccount ? '' : 'none';
+    }
+    if (!acceptsAccount) {
+        taskAccounts = [];
+        renderEmptyTaskAccountSelect('-- 当前任务不支持绑定账号 --');
+        const hint = $('taskAccountHint');
+        if (hint) hint.textContent = '当前任务不支持绑定账号';
+        return;
+    }
+    const appId = await resolveTaskAppContext(taskName, {
+        rawPayload: collectTaskPayload(fieldsContainer),
+        fallbackAppId: $('taskAppSelector')?.value || '',
+    });
+    await loadTaskAccounts(appId);
+    const appField = fieldsContainer.querySelector('[data-payload-key="app_id"]');
+    if (appField && !appField.dataset.accountScopeBound) {
+        appField.dataset.accountScopeBound = 'true';
+        const reload = async () => {
+            const nextAppId = await resolveTaskAppContext(taskName, {
+                rawPayload: collectTaskPayload(fieldsContainer),
+                fallbackAppId: $('taskAppSelector')?.value || '',
+            });
+            await loadTaskAccounts(nextAppId);
+        };
+        appField.addEventListener('change', () => { void reload(); });
+        appField.addEventListener('input', () => { void reload(); });
+    }
+}
+
+async function syncTaskContextControls(taskName) {
+    await syncTaskAppSelector(taskName);
+    await syncTaskAccountScope(taskName);
 }
 
 function renderTasksList(tasks) {
@@ -1086,6 +1216,7 @@ function renderFields() {
         renderPipelineComposer(container);
     }
     setFormValuesFromPayload(container, preservedPayload);
+    void syncTaskContextControls(selectedTaskName);
     if (showMoreFields && container) {
         showMoreFields.onclick = () => {
             toggleAdvancedTaskFields(container, showMoreFields);
@@ -1117,7 +1248,11 @@ async function submitTask() {
             }
             rawPayload.steps = pipelinePayload.steps;
         }
-        const payload = await prepareTaskPayload(selectedTaskName, { rawPayload, appId });
+        const payload = await prepareTaskPayload(selectedTaskName, {
+            rawPayload,
+            appId,
+            account: getSelectedTaskAccount(),
+        });
 
         const taskData = buildTaskRequest({
             task: selectedTaskName,

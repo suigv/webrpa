@@ -542,12 +542,19 @@ class WorkflowDraftService:
                 resolved_name if resolved_name.endswith("_draft") else f"{resolved_name}_draft"
             )
             output_dir = plugins_dir() / ".drafts" / output_name
+            snapshot = (
+                dict(record.last_success_snapshot)
+                if isinstance(record.last_success_snapshot, dict)
+                else {}
+            )
+            identity = snapshot.get("identity") if isinstance(snapshot, dict) else None
             distilled = GoldenRunDistiller().distill(
                 context=trace_context,
                 output_dir=output_dir,
                 plugin_name=output_name,
                 display_name=record.display_name,
                 category=record.category,
+                snapshot_identity=identity if isinstance(identity, dict) else None,
             )
             record.last_distilled_manifest_path = str(distilled.manifest_path)
             record.last_distilled_script_path = str(distilled.script_path)

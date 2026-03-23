@@ -10,6 +10,15 @@ distillable: false
 visible_in_task_catalog: true
 distill_threshold: 3
 inputs:
+  - name: credentials_ref
+    type: string
+    required: false
+    default: ""
+    label: "绑定账号"
+    description: "前端账号选择器会写入结构化凭据引用。"
+    advanced: true
+    system: true
+    widget: "hidden"
   - name: credential_slot
     type: string
     required: false

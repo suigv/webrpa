@@ -38,9 +38,81 @@ def test_ai_dialog_planner_returns_resolved_defaults(monkeypatch):
         assert data["source"] == "ai_dialog"
         assert data["resolved_app"]["app_id"] == "x"
         assert data["account"]["strategy"] == "selected"
+        assert data["account"]["execution_hint"] == "执行方式：使用已选账号 demo@example.com。"
+        assert data["account"]["requires_account"] is True
+        assert data["account"]["can_execute"] is True
         assert data["resolved_payload"]["_workflow_source"] == "ai_dialog"
         assert data["resolved_payload"]["expected_state_ids"] == ["home", "login"]
         assert "allowed_actions" in data["resolved_payload"]
+    finally:
+        reset_task_controller_for_tests()
+
+
+def test_ai_dialog_planner_marks_pool_checkout_for_login_goal(monkeypatch):
+    reset_task_controller_for_tests()
+    monkeypatch.setattr(
+        "core.ai_dialog_service.list_accounts",
+        lambda app_id=None: [
+            {"account": "pool-1@example.com", "status": "ready", "app_id": app_id or "x"}
+        ],
+    )
+    monkeypatch.setattr(
+        "core.ai_dialog_service.AIDialogService._plan_with_llm",
+        lambda self, **kwargs: {},
+    )
+
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/ai_dialog/planner",
+                json={
+                    "goal": "帮我登录 X",
+                    "app_id": "x",
+                },
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["account"]["strategy"] == "pool"
+        assert (
+            data["account"]["execution_hint"]
+            == "执行方式：本次未指定具体账号，运行时会从 x 账号池领取 1 个可用账号。"
+        )
+        assert data["account"]["ready_count"] == 1
+        assert data["account"]["requires_account"] is True
+        assert data["account"]["can_execute"] is True
+    finally:
+        reset_task_controller_for_tests()
+
+
+def test_ai_dialog_planner_marks_login_without_account_as_not_executable(monkeypatch):
+    reset_task_controller_for_tests()
+    monkeypatch.setattr("core.ai_dialog_service.list_accounts", lambda app_id=None: [])
+    monkeypatch.setattr(
+        "core.ai_dialog_service.AIDialogService._plan_with_llm",
+        lambda self, **kwargs: {},
+    )
+
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/ai_dialog/planner",
+                json={
+                    "goal": "帮我登录 X",
+                    "app_id": "x",
+                },
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["account"]["strategy"] == "none"
+        assert (
+            data["account"]["execution_hint"]
+            == "执行方式：当前没有可用账号，登录类任务下发后大概率无法完成。"
+        )
+        assert data["account"]["requires_account"] is True
+        assert data["account"]["can_execute"] is False
+        assert "account" in data["follow_up"]["missing"]
     finally:
         reset_task_controller_for_tests()
 

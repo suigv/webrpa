@@ -45,6 +45,40 @@ _FRAMEWORK_OWNED_INPUT_FIELDS = frozenset(
         "_wait_max_ms",
     }
 )
+_CREDENTIAL_LITERAL_FIELDS = {
+    "account": "${vars.credential.account}",
+    "password": "${vars.credential.password}",
+    "pwd": "${vars.credential.password}",
+    "username": "${vars.credential.account}",
+    "username_or_email": "${vars.credential.account}",
+    "twofa_secret": "${vars.credential.twofa_secret:-}",
+    "twofa_code": "${vars.credential.twofa_code:-}",
+    "two_factor_code": "${vars.credential.twofa_code:-}",
+    "otp": "${vars.credential.twofa_code:-}",
+    "otp_code": "${vars.credential.twofa_code:-}",
+    "verification_code": "${vars.credential.twofa_code:-}",
+}
+_TEXT_INPUT_ACTIONS = frozenset(
+    {
+        "ui.input_text",
+        "ui.input",
+        "ui.type",
+        "ui.type_text",
+        "ui.focus_and_input_with_shell_fallback",
+        "ui.input_text_with_shell_fallback",
+    }
+)
+_ACCOUNT_HINT_TOKENS = ("account", "username", "email", "phone", "user", "login_id")
+_PASSWORD_HINT_TOKENS = ("password", "passwd", "pwd")
+_TWOFA_HINT_TOKENS = (
+    "two_factor",
+    "twofa",
+    "2fa",
+    "otp",
+    "verification",
+    "verify_code",
+    "verification_code",
+)
 
 
 def _slug(value: str, *, default: str) -> str:
@@ -88,6 +122,20 @@ class GoldenRunDraft:
     report_path: Path | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class DistillationIdentity:
+    app_id: str = ""
+    package: str = ""
+    credentials_ref_kind: str = "missing"
+    account: str = ""
+    account_source: str = "unknown"
+
+
+@dataclass(frozen=True, slots=True)
+class CredentialBinding:
+    app_id: str = ""
+
+
 class GoldenRunDistillationError(RuntimeError):
     def __init__(
         self, *, code: str, message: str, details: dict[str, object] | None = None
@@ -122,6 +170,7 @@ class GoldenRunDistiller:
         plugin_name: str | None = None,
         display_name: str | None = None,
         category: str = "AI Drafts",
+        snapshot_identity: dict[str, object] | DistillationIdentity | None = None,
     ) -> GoldenRunDraft:
         records = self._trace_store.read_records(context)
         step_records, terminal_record = self._validate_golden_run(context=context, records=records)
@@ -132,6 +181,7 @@ class GoldenRunDistiller:
             plugin_name=resolved_name,
             display_name=display_name or resolved_name.replace("_", " ").title(),
             category=category,
+            snapshot_identity=snapshot_identity,
         )
 
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -356,18 +406,37 @@ class GoldenRunDistiller:
         plugin_name: str,
         display_name: str,
         category: str,
+        snapshot_identity: dict[str, object] | DistillationIdentity | None = None,
     ) -> tuple[PluginManifest, WorkflowScript]:
         literal_counts = self._collect_literal_counts(records)
         payload_aliases: dict[str, str] = {}
         payload_inputs: dict[str, PluginInput] = {}
         produced_refs: dict[str, str] = {}
         steps: list[dict[str, object]] = []
+        identity = self._normalize_snapshot_identity(snapshot_identity)
+        credential_binding = self._resolve_credential_binding(records=records, identity=identity)
+
+        if credential_binding is not None:
+            self._register_credential_inputs(payload_inputs, credential_binding)
+            steps.append(self._build_credential_load_step(credential_binding))
 
         for index, record in enumerate(records, start=1):
             action_name = str(record.get("chosen_action") or "").strip()
             step_label = f"{_slug(action_name.split('.')[-1], default='step')}_{index}"
             raw_params = record.get("action_params")
             action_params = raw_params if isinstance(raw_params, dict) else {}
+            if credential_binding is not None:
+                action_params = cast(
+                    dict[str, object],
+                    self._rewrite_credential_literals(
+                        action_params,
+                        path=(),
+                        action_name=action_name,
+                        action_params=action_params,
+                        record=record,
+                        identity=identity,
+                    ),
+                )
             resolved_params = self._parameterize_value(
                 action_params,
                 path=(),
@@ -453,6 +522,210 @@ class GoldenRunDistiller:
         )
         return manifest, script
 
+    def _normalize_snapshot_identity(
+        self, snapshot_identity: dict[str, object] | DistillationIdentity | None
+    ) -> DistillationIdentity:
+        if isinstance(snapshot_identity, DistillationIdentity):
+            return snapshot_identity
+        if not isinstance(snapshot_identity, dict):
+            return DistillationIdentity()
+        return DistillationIdentity(
+            app_id=str(snapshot_identity.get("app_id") or "").strip().lower(),
+            package=str(snapshot_identity.get("package") or "").strip(),
+            credentials_ref_kind=(
+                str(snapshot_identity.get("credentials_ref_kind") or "").strip().lower()
+                or "missing"
+            ),
+            account=str(snapshot_identity.get("account") or "").strip(),
+            account_source=(
+                str(snapshot_identity.get("account_source") or "").strip().lower() or "unknown"
+            ),
+        )
+
+    def _resolve_credential_binding(
+        self, *, records: list[dict[str, object]], identity: DistillationIdentity
+    ) -> CredentialBinding | None:
+        if not any(
+            self._record_uses_credential_binding(record, identity=identity) for record in records
+        ):
+            return None
+
+        package = identity.package or self._extract_package_from_records(records)
+        package_app_id = app_from_package(package) if package else ""
+        app_id = identity.app_id
+        if package_app_id and (not app_id or app_id == "default"):
+            app_id = package_app_id
+
+        return CredentialBinding(app_id=app_id)
+
+    def _record_uses_credential_binding(
+        self, record: dict[str, object], *, identity: DistillationIdentity
+    ) -> bool:
+        action_name = str(record.get("chosen_action") or "").strip()
+        params = record.get("action_params")
+        if not action_name or not isinstance(params, dict):
+            return False
+        rewritten = self._rewrite_credential_literals(
+            params,
+            path=(),
+            action_name=action_name,
+            action_params=params,
+            record=record,
+            identity=identity,
+        )
+        return rewritten != params
+
+    def _register_credential_inputs(
+        self, payload_inputs: dict[str, PluginInput], binding: CredentialBinding
+    ) -> None:
+        payload_inputs["credentials_ref"] = PluginInput(
+            name="credentials_ref",
+            type=InputType.string,
+            required=False,
+            default="",
+            label="绑定账号",
+            description="前端账号选择器会写入结构化凭据引用。",
+            advanced=True,
+            system=True,
+            widget="hidden",
+        )
+        if binding.app_id:
+            payload_inputs["app_id"] = PluginInput(
+                name="app_id",
+                type=InputType.string,
+                required=False,
+                default=binding.app_id,
+                label="应用 ID",
+                advanced=True,
+                system=True,
+                widget="hidden",
+            )
+
+    def _build_credential_load_step(self, binding: CredentialBinding) -> dict[str, object]:
+        params: dict[str, object] = {
+            "credentials_ref": "${payload.credentials_ref:-}",
+        }
+        if binding.app_id:
+            params["app_id"] = f"${{payload.app_id:-{binding.app_id}}}"
+        return {
+            "label": "load_credentials",
+            "kind": "action",
+            "action": "credentials.load",
+            "save_as": "credential",
+            "params": params,
+        }
+
+    def _rewrite_credential_literals(
+        self,
+        value: object,
+        *,
+        path: tuple[str, ...],
+        action_name: str,
+        action_params: dict[str, object],
+        record: dict[str, object],
+        identity: DistillationIdentity,
+    ) -> object:
+        if isinstance(value, dict):
+            return {
+                str(key): self._rewrite_credential_literals(
+                    item,
+                    path=path + (str(key),),
+                    action_name=action_name,
+                    action_params=action_params,
+                    record=record,
+                    identity=identity,
+                )
+                for key, item in value.items()
+            }
+        if isinstance(value, list):
+            return [
+                self._rewrite_credential_literals(
+                    item,
+                    path=path + (str(index),),
+                    action_name=action_name,
+                    action_params=action_params,
+                    record=record,
+                    identity=identity,
+                )
+                for index, item in enumerate(value)
+            ]
+        ref = self._credential_ref_for_literal(
+            value,
+            path=path,
+            action_name=action_name,
+            action_params=action_params,
+            record=record,
+            identity=identity,
+        )
+        return ref if ref is not None else value
+
+    def _credential_ref_for_literal(
+        self,
+        value: object,
+        *,
+        path: tuple[str, ...],
+        action_name: str,
+        action_params: dict[str, object],
+        record: dict[str, object],
+        identity: DistillationIdentity,
+    ) -> str | None:
+        if not isinstance(value, str):
+            return None
+        raw = value.strip()
+        if not raw or raw.startswith("${vars.credential."):
+            return None
+
+        leaf = next((part for part in reversed(path) if not part.isdigit()), "")
+        direct_ref = _CREDENTIAL_LITERAL_FIELDS.get(leaf)
+        if direct_ref is not None:
+            return direct_ref
+
+        if leaf not in {"text", "value"} or action_name not in _TEXT_INPUT_ACTIONS:
+            return None
+        if identity.account and raw == identity.account:
+            return "${vars.credential.account}"
+
+        hint_text = self._build_credential_hint_text(record=record, action_params=action_params)
+        if any(token in hint_text for token in _TWOFA_HINT_TOKENS):
+            return "${vars.credential.twofa_code:-}"
+        if any(token in hint_text for token in _PASSWORD_HINT_TOKENS):
+            return "${vars.credential.password}"
+        if any(token in hint_text for token in _ACCOUNT_HINT_TOKENS):
+            return "${vars.credential.account}"
+        return None
+
+    def _build_credential_hint_text(
+        self, *, record: dict[str, object], action_params: dict[str, object]
+    ) -> str:
+        parts: list[str] = []
+        observation = record.get("observation")
+        if isinstance(observation, dict):
+            state_ids = observation.get("observed_state_ids")
+            if isinstance(state_ids, list):
+                parts.extend(str(item) for item in state_ids if str(item).strip())
+            data = observation.get("data")
+            if isinstance(data, dict):
+                state = data.get("state")
+                if isinstance(state, dict):
+                    state_id = str(state.get("state_id") or "").strip()
+                    if state_id:
+                        parts.append(state_id)
+        for key in (
+            "field_id",
+            "credential",
+            "resource_id",
+            "selector",
+            "description",
+            "query",
+            "placeholder",
+            "hint",
+        ):
+            value = action_params.get(key)
+            if isinstance(value, str) and value.strip():
+                parts.append(value)
+        normalized = " ".join(parts).strip().lower()
+        return normalized.replace("-", "_")
+
     def _collect_literal_counts(self, records: list[dict[str, object]]) -> dict[str, int]:
         counts: dict[str, int] = {}
         for record in records:
@@ -499,6 +772,8 @@ class GoldenRunDistiller:
                 for index, item in enumerate(value)
             ]
         if not isinstance(value, (str, int, float, bool)) or value in ("", None):
+            return value
+        if isinstance(value, str) and value.startswith("${") and value.endswith("}"):
             return value
 
         stable_key = _stable_key(value)

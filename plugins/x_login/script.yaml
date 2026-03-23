@@ -12,6 +12,7 @@ steps:
     action: credentials.load
     save_as: credential
     params:
+      credentials_ref: "${payload.credentials_ref:-}"
       device_ip: "${vars.cloud_container.device_ip}"
       cloud_index: "${vars.cloud_container.cloud_id}"
       app_id: "${payload.app_id:-x}"

@@ -62,6 +62,7 @@ plugins/<plugin_name>/
 - **验证失败**：返回 `status=failed_config_error`, `checkpoint=dispatch`。
 - **目录接口透传**：`GET /api/tasks/catalog` 会把 `inputs` 元数据原样透传给前端，任务面板可据此渲染文本框、数字框、复选框和下拉框。
 - **蒸馏适用性**：`distillable: false` 的插件会在目录与指标接口中明确标记为“不可蒸馏”；`POST /api/tasks/plugins/{plugin_name}/distill` 会直接拒绝这类插件。
+- **账号语义保留**：当 AI golden run 明显使用了登录账号语义（如账号/密码/2FA 输入）时，蒸馏产物应优先生成 `credentials_ref` + `credentials.load` 合同，并把 `app_id` 作为隐藏输入保留下来；不要把账号、密码当成普通业务文本输入暴露到 manifest。
 - **目录可见性**：`visible_in_task_catalog: false` 的插件默认不会出现在 `GET /api/tasks/catalog`；如需运维查看，可显式调用 `GET /api/tasks/catalog?include_hidden=true`。
 - **前端提交约束**：Web 端派发插件任务时，会按 `inputs` 白名单过滤 payload，只提交 `manifest.yaml` 已声明字段。
 - **刷新语义**：catalog refresh / distill success 只影响后续 plugin lookup；已经持有旧 `PluginLoader` 引用的对象与正在运行的任务不承诺热切换到新插件版本。

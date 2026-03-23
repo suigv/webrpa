@@ -148,6 +148,33 @@ test('prepareTaskPayload injects app_id only when the task declares it', async (
     assert.deepEqual(undeclaredPayload, {});
 });
 
+test('prepareTaskPayload injects credentials_ref when the task declares bound credentials input', async () => {
+    installGlobals([
+        {
+            task: 'x_login',
+            inputs: [{ name: 'credentials_ref' }, { name: 'app_id', default: 'x' }],
+        },
+    ]);
+
+    const { prepareTaskPayload } = await import(`./task_service.js?case=${Date.now()}-credentials-ref`);
+    const payload = await prepareTaskPayload('x_login', {
+        rawPayload: {},
+        account: {
+            account: 'demo-account',
+            password: 'demo-password',
+            twofa: 'demo-twofa',
+        },
+        appId: 'x',
+    });
+
+    assert.equal(payload.app_id, 'x');
+    assert.deepEqual(JSON.parse(payload.credentials_ref), {
+        account: 'demo-account',
+        password: 'demo-password',
+        twofa_secret: 'demo-twofa',
+    });
+});
+
 test('resolveTaskAppContext prefers explicit payload then manifest default', async () => {
     installGlobals([
         {
@@ -170,4 +197,24 @@ test('resolveTaskAppContext prefers explicit payload then manifest default', asy
     assert.equal(explicit, 'wechat');
     assert.equal(declared, 'x');
     assert.equal(undeclared, '');
+});
+
+test('resolveTaskAppContext treats default fallback as weak and preserves explicit non-default fallback', async () => {
+    installGlobals([
+        {
+            task: 'x_login',
+            inputs: [{ name: 'app_id', default: 'x' }],
+        },
+    ]);
+
+    const { resolveTaskAppContext } = await import(`./task_service.js?case=${Date.now()}-fallback`);
+    const weakDefault = await resolveTaskAppContext('x_login', {
+        fallbackAppId: 'default',
+    });
+    const explicitFallback = await resolveTaskAppContext('x_login', {
+        fallbackAppId: 'wechat',
+    });
+
+    assert.equal(weakDefault, 'x');
+    assert.equal(explicitFallback, 'wechat');
 });

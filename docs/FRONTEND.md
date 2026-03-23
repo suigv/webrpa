@@ -34,6 +34,11 @@ If you need a pure-web fallback (no devices / no native libs), start backend wit
 - Frontend task forms must be rendered from `GET /api/tasks/catalog` metadata rather than hardcoded field lists.
 - Frontend task submission must treat `manifest.inputs` as the only allowed plugin payload schema.
 - Do not inject implicit payload fields such as `app_id`, `device_ip`, `package`, account aliases, or target metadata unless the selected plugin explicitly declares them in `inputs`.
+- If a plugin wants to support the shared “绑定账号” picker while keeping raw credential text hidden, declare a hidden `credentials_ref` input in `manifest.inputs`; frontend selectors may then serialize the chosen account into that field.
+- Device-detail AI dialog submissions should use the same structured `credentials_ref` payload when an operator picks an account; do not submit raw `account` / `password` / `twofa_secret` fields from that UI path.
+- If AI dialog planner returns `account.can_execute=false` for a login-style task, the submit button should stay disabled and the UI should surface the returned `execution_hint` instead of allowing a blind dispatch.
+- Task pages that expose a separate app-context selector should treat `default` as a weak fallback: if the selected plugin declares a non-default `app_id` default such as `x`, the selector should auto-align to that declared app until the operator explicitly chooses another non-default app.
+- Device-scoped account pickers must always refresh against the resolved task app scope and must not issue a second unscoped reload that can overwrite the app-filtered account list.
 - Runtime context belongs in dedicated channels such as `targets` and backend-owned runtime envelopes, not in plugin `payload`.
 - Shared runtime payload knobs such as `_speed`, `_wait_min_ms`, and `_wait_max_ms` should stay aligned between the main task queue form and device-scoped task forms.
 - If a page needs task-specific context, add it to the plugin manifest first or route it through a non-payload contract; do not create page-local exceptions.

@@ -559,6 +559,143 @@ def test_golden_run_distillation_keeps_framework_owned_fields_out_of_manifest_in
     assert first_step.params["state_profile_id"] == "app_stage"
 
 
+def test_workflow_draft_distill_preserves_account_picker_for_login_flow(
+    tmp_path: Path, monkeypatch
+):
+    traces_root = tmp_path / "traces"
+    plugins_root = tmp_path / "plugins"
+    plugins_root.mkdir(parents=True, exist_ok=True)
+
+    import core.model_trace_store as model_trace_store_module
+    import core.workflow_drafts as workflow_drafts_module
+
+    monkeypatch.setattr(workflow_drafts_module, "plugins_dir", lambda: plugins_root)
+    monkeypatch.setattr(workflow_drafts_module, "traces_dir", lambda: traces_root)
+    monkeypatch.setattr(model_trace_store_module, "traces_dir", lambda: traces_root)
+    monkeypatch.setattr("core.golden_run_distillation.app_from_package", lambda package: "")
+
+    service = _build_workflow_draft_service(tmp_path)
+    record = _create_draft(service)
+    record.success_count = 3
+    record.latest_completed_task_id = "task-login"
+    record.successful_task_ids = ["task-login"]
+    record.last_success_snapshot = {
+        "identity": {
+            "app_id": "x",
+            "package": "com.twitter.android",
+            "credentials_ref_kind": "missing",
+            "account": "demo@example.com",
+            "account_source": "inline_payload",
+        },
+        "trace_context": {
+            "task_id": "task-login",
+            "run_id": "run-1",
+            "target_label": "Unit #1-1",
+            "attempt_number": 1,
+        },
+        "trace_context_count": 1,
+        "trace_context_ambiguous": False,
+    }
+    service._store.update_draft(record)
+
+    trace_store = ModelTraceStore(root_dir=traces_root)
+    context = ModelTraceContext(
+        task_id="task-login",
+        run_id="run-1",
+        target_label="Unit #1-1",
+        attempt_number=1,
+    )
+    trace_store.append_record(
+        context,
+        {
+            "sequence": 1,
+            "step_index": 1,
+            "record_type": "step",
+            "status": "action_executed",
+            "chosen_action": "ui.input_text",
+            "action_params": {"text": "demo@example.com"},
+            "action_result": {"ok": True, "data": {"typed": True}},
+            "observation": {
+                "ok": True,
+                "modality": "structured_state",
+                "observed_state_ids": ["account"],
+                "data": {
+                    "package": "com.twitter.android",
+                    "state": {"state_id": "account"},
+                },
+            },
+        },
+    )
+    trace_store.append_record(
+        context,
+        {
+            "sequence": 2,
+            "step_index": 2,
+            "record_type": "step",
+            "status": "action_executed",
+            "chosen_action": "ui.input_text",
+            "action_params": {"text": "super-secret"},
+            "action_result": {"ok": True, "data": {"typed": True}},
+            "observation": {
+                "ok": True,
+                "modality": "structured_state",
+                "observed_state_ids": ["password"],
+                "data": {
+                    "package": "com.twitter.android",
+                    "state": {"state_id": "password"},
+                },
+            },
+        },
+    )
+    trace_store.append_record(
+        context,
+        {
+            "sequence": 3,
+            "step_index": 3,
+            "record_type": "step",
+            "status": "action_executed",
+            "chosen_action": "ui.input_text",
+            "action_params": {"text": "123456"},
+            "action_result": {"ok": True, "data": {"typed": True}},
+            "observation": {
+                "ok": True,
+                "modality": "structured_state",
+                "observed_state_ids": ["two_factor"],
+                "data": {
+                    "package": "com.twitter.android",
+                    "state": {"state_id": "two_factor"},
+                },
+            },
+        },
+    )
+    trace_store.append_record(
+        context,
+        {
+            "sequence": 4,
+            "step_index": 4,
+            "record_type": "terminal",
+            "status": "completed",
+            "message": "done",
+        },
+    )
+
+    result = service.distill_draft("draft-test", force=True)
+
+    manifest = yaml.safe_load(Path(result["manifest_path"]).read_text(encoding="utf-8"))
+    script = yaml.safe_load(Path(result["script_path"]).read_text(encoding="utf-8"))
+
+    assert {item["name"] for item in manifest["inputs"]} == {"credentials_ref", "app_id"}
+    assert next(item for item in manifest["inputs"] if item["name"] == "app_id")["default"] == "x"
+
+    steps = script["steps"]
+    assert steps[0]["action"] == "credentials.load"
+    assert steps[0]["params"]["credentials_ref"] == "${payload.credentials_ref:-}"
+    assert steps[0]["params"]["app_id"] == "${payload.app_id:-x}"
+    assert steps[1]["params"]["text"] == "${vars.credential.account}"
+    assert steps[2]["params"]["text"] == "${vars.credential.password}"
+    assert steps[3]["params"]["text"] == "${vars.credential.twofa_code:-}"
+
+
 def test_golden_run_distillation_merges_stage_patterns_into_app_config(tmp_path: Path, monkeypatch):
     app_config = tmp_path / "x.yaml"
     app_config.write_text(

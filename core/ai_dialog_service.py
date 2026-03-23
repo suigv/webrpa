@@ -47,6 +47,33 @@ def _ready_accounts(app_id: str) -> list[dict[str, Any]]:
     ]
 
 
+def _account_strategy(selected_account: str, ready_count: int) -> str:
+    if selected_account:
+        return "selected"
+    if ready_count > 0:
+        return "pool"
+    return "none"
+
+
+def _account_execution_hint(
+    *,
+    strategy: str,
+    app_id: str,
+    selected_account: str,
+    ready_count: int,
+    is_login_goal: bool,
+) -> str:
+    if strategy == "selected" and selected_account:
+        return f"执行方式：使用已选账号 {selected_account}。"
+    if strategy == "pool":
+        if is_login_goal:
+            return f"执行方式：本次未指定具体账号，运行时会从 {app_id} 账号池领取 1 个可用账号。"
+        return f"账号资源：当前 {app_id} 账号池有 {ready_count} 个可用账号。"
+    if is_login_goal:
+        return "执行方式：当前没有可用账号，登录类任务下发后大概率无法完成。"
+    return "账号资源：当前未选择账号，也没有可复用的账号池资源。"
+
+
 def _llm_planner_system_prompt() -> str:
     return (
         "你是 WebRPA 的 ai_dialog_planner。"
@@ -111,11 +138,20 @@ class AIDialogService:
 
         app_config = get_app_config(resolved_app_id)
         ready_accounts = _ready_accounts(resolved_app_id)
+        ready_count = len(ready_accounts)
         selected_account_text = str(selected_account or "").strip()
         missing: list[str] = []
         suggestions: list[str] = []
 
         is_login_goal = _looks_like_login_goal(normalized_goal)
+        strategy = _account_strategy(selected_account_text, ready_count)
+        execution_hint = _account_execution_hint(
+            strategy=strategy,
+            app_id=resolved_app_id,
+            selected_account=selected_account_text,
+            ready_count=ready_count,
+            is_login_goal=is_login_goal,
+        )
         if is_login_goal and not selected_account_text and not ready_accounts:
             missing.append("account")
             suggestions.append("当前账号池没有可用账号，先导入或选择目标应用账号。")
@@ -139,7 +175,7 @@ class AIDialogService:
             selected_account=selected_account_text,
             advanced_prompt=str(advanced_prompt or "").strip(),
             expected_state_ids=list(config.expected_state_ids),
-            ready_count=len(ready_accounts),
+            ready_count=ready_count,
         )
         if (
             isinstance(llm_plan.get("operator_summary"), str)
@@ -186,10 +222,11 @@ class AIDialogService:
             },
             "account": {
                 "selected_account": selected_account_text or None,
-                "ready_count": len(ready_accounts),
-                "strategy": (
-                    "selected" if selected_account_text else ("pool" if ready_accounts else "none")
-                ),
+                "ready_count": ready_count,
+                "strategy": strategy,
+                "execution_hint": execution_hint,
+                "requires_account": is_login_goal,
+                "can_execute": not (is_login_goal and strategy == "none"),
             },
         }
 
