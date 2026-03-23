@@ -4,36 +4,15 @@ from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
 
-
-CANONICAL_TASK_REQUEST_FIELDS = frozenset(
-    {
-        "script",
-        "task",
-        "payload",
-        "targets",
-        "priority",
-        "max_retries",
-        "retry_backoff_seconds",
-        "run_at",
-        "idempotency_key",
-    }
-)
-COMPATIBILITY_TASK_REQUEST_FIELDS = frozenset(
-    {
-        "devices",
-        "display_name",
-        "draft_id",
-        "success_threshold",
-        "ai_type",
-    }
-)
 MISPLACED_TOP_LEVEL_TASK_FIELDS = {
+    "ai_type": "put AI selection inside payload instead of the top-level task contract",
+    "devices": "declare execution targets with targets only",
     "allowed_actions": "put payload business inputs inside payload",
     "expected_state_ids": "put payload business inputs inside payload",
     "app_id": "put plugin inputs inside payload only when the plugin declares them",
-    "device_id": "declare execution targets with targets or compatibility devices",
-    "device_ip": "declare execution targets with targets or compatibility devices",
-    "cloud_id": "declare execution targets with targets or compatibility devices",
+    "device_id": "declare execution targets with targets only",
+    "device_ip": "declare execution targets with targets only",
+    "cloud_id": "declare execution targets with targets only",
     "_runtime_profile": "keep runtime-only overrides out of the primary top-level contract",
 }
 
@@ -71,6 +50,7 @@ class WorkflowDraftSummary(BaseModel):
     task_name: str
     status: str
     plugin_name_candidate: str
+    source: str = "generic"
     success_count: int = 0
     failure_count: int = 0
     cancelled_count: int = 0
@@ -104,11 +84,9 @@ class TaskRequest(BaseModel):
     task: str | None = Field(default=None, min_length=1)
     payload: dict[str, Any] = Field(default_factory=dict)
     targets: list[TaskTarget] = Field(default_factory=list)
-    devices: list[int] = Field(default_factory=list)
     display_name: str | None = Field(default=None, min_length=1, max_length=120)
     draft_id: str | None = Field(default=None, min_length=1, max_length=64)
     success_threshold: int | None = Field(default=None, ge=1, le=20)
-    ai_type: str = "default"
     idempotency_key: str | None = Field(default=None, min_length=1, max_length=128)
     max_retries: int = Field(default=0, ge=0, le=20)
     retry_backoff_seconds: int = Field(default=2, ge=0, le=3600)
@@ -133,8 +111,8 @@ class TaskRequest(BaseModel):
     def validate_submission_mode(self):
         if self.script is None and (self.task is None or not str(self.task).strip()):
             raise ValueError("either script or task must be provided")
-        if not self.targets and not self.devices:
-            raise ValueError("either targets or devices must be provided")
+        if not self.targets:
+            raise ValueError("targets must be provided")
         return self
 
     def controller_submission_kwargs(
@@ -145,9 +123,7 @@ class TaskRequest(BaseModel):
     ) -> dict[str, Any]:
         return {
             "payload": script_payload,
-            "devices": [int(device_id) for device_id in self.devices],
-            "targets": [target.model_dump() for target in self.targets] if self.targets else None,
-            "ai_type": self.ai_type,
+            "targets": [target.model_dump() for target in self.targets],
             "max_retries": self.max_retries,
             "retry_backoff_seconds": self.retry_backoff_seconds,
             "priority": self.priority,
@@ -167,7 +143,6 @@ class TaskResponse(BaseModel):
     workflow_draft: WorkflowDraftSummary | None = None
     devices: list[int]
     targets: list[TaskTarget] = Field(default_factory=list)
-    ai_type: str
     idempotency_key: str | None = None
     status: TaskStatus
     created_at: datetime

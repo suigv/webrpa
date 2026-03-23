@@ -6,6 +6,11 @@ let catalogCache = null;
 let catalogPromise = null;
 const CANONICAL_ACCOUNT_KEYS = ['account', 'password', 'twofa_secret'];
 const LEGACY_ACCOUNT_KEYS = ['acc', 'pwd', 'fa2_secret'];
+const ACCOUNT_INPUT_KEYS = new Set([
+    ...CANONICAL_ACCOUNT_KEYS,
+    ...LEGACY_ACCOUNT_KEYS,
+    'two_factor_code',
+]);
 const RUNTIME_ONLY_PAYLOAD_KEYS = new Set([
     'device_ip',
     'device_id',
@@ -45,8 +50,30 @@ function getCatalogTask(taskName) {
     return catalogCache.find(item => item.task === taskName) || null;
 }
 
-export async function taskDeclaresInput(taskName, inputName) {
+export function getTaskCatalogEntry(taskName) {
+    return getCatalogTask(taskName);
+}
+
+export async function getTaskInputDefinition(taskName, inputName) {
     if (!taskName || !inputName) {
+        return null;
+    }
+    if (!catalogCache) {
+        await getTaskCatalog();
+    }
+    const task = getCatalogTask(taskName);
+    if (!task || !Array.isArray(task.inputs)) {
+        return null;
+    }
+    return task.inputs.find((item) => item?.name === inputName) || null;
+}
+
+export async function taskDeclaresInput(taskName, inputName) {
+    return Boolean(await getTaskInputDefinition(taskName, inputName));
+}
+
+export async function taskAcceptsAccount(taskName) {
+    if (!taskName) {
         return false;
     }
     if (!catalogCache) {
@@ -56,7 +83,7 @@ export async function taskDeclaresInput(taskName, inputName) {
     if (!task || !Array.isArray(task.inputs)) {
         return false;
     }
-    return task.inputs.some((item) => item?.name === inputName);
+    return task.inputs.some((item) => ACCOUNT_INPUT_KEYS.has(String(item?.name || '').trim()));
 }
 
 export function collectTaskPayload(container) {
@@ -129,6 +156,27 @@ export function stripRuntimeOnlyPayloadFields(payload = {}) {
     return Object.fromEntries(
         Object.entries(payload).filter(([key]) => !RUNTIME_ONLY_PAYLOAD_KEYS.has(key))
     );
+}
+
+export async function resolveTaskAppContext(taskName, {
+    rawPayload = {},
+    fallbackAppId = '',
+} = {}) {
+    const payload = rawPayload && typeof rawPayload === 'object' ? rawPayload : {};
+    const explicitAppId = String(payload.app_id || payload.app || '').trim();
+    if (explicitAppId) {
+        return explicitAppId;
+    }
+    const normalizedFallback = String(fallbackAppId || '').trim();
+    if (normalizedFallback) {
+        return normalizedFallback;
+    }
+    const declared = await getTaskInputDefinition(taskName, 'app_id');
+    if (!declared) {
+        return '';
+    }
+    const declaredDefault = String(declared.default || '').trim();
+    return declaredDefault;
 }
 
 function _setAccountFields(payload, account, declaredKeys, mode) {
@@ -212,22 +260,10 @@ export async function prepareTaskPayload(taskName, {
     return sanitizePayloadForTask(taskName, nextPayload);
 }
 
-function resolveCompatibilityDevices(compatibilityDevices, devices) {
-    if (Array.isArray(compatibilityDevices) && compatibilityDevices.length) {
-        return compatibilityDevices;
-    }
-    if (Array.isArray(devices) && devices.length) {
-        return devices;
-    }
-    return null;
-}
-
 export function buildTaskRequest({
     task,
     payload = {},
     targets,
-    compatibilityDevices,
-    devices,
     priority = 50,
     maxRetries = 0,
     runAt = null,
@@ -241,11 +277,6 @@ export function buildTaskRequest({
     };
     if (Array.isArray(targets) && targets.length) {
         request.targets = targets;
-    } else {
-        const legacyDevices = resolveCompatibilityDevices(compatibilityDevices, devices);
-        if (legacyDevices) {
-            request.devices = legacyDevices;
-        }
     }
     return request;
 }

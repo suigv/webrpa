@@ -13,6 +13,7 @@ from api.routes import devices as devices_route
 from api.server import app
 from core.config_loader import ConfigLoader
 from core.device_manager import DeviceManager
+from core.model_trace_store import ModelTraceContext, ModelTraceStore
 from core.port_calc import calculate_ports
 from models.config import ConfigStore
 
@@ -210,7 +211,6 @@ def test_api_devices_list_preserves_payload_shape_for_available_only(monkeypatch
             "ip",
             "sdk_port",
             "sdk_port_role",
-            "ai_type",
             "status",
             "cloud_slots_total",
             "available_cloud_count",
@@ -320,6 +320,47 @@ def test_api_device_tap_accepts_normalized_coordinates(monkeypatch: MonkeyPatch)
     assert fake_rpc.closed == 1
 
 
+def test_api_device_tap_writes_human_guided_trace_when_context_provided(
+    monkeypatch: MonkeyPatch, tmp_path
+):
+    _disable_lifespan(monkeypatch)
+    fake_rpc = _FakeRpcControl()
+    trace_store = ModelTraceStore(root_dir=tmp_path / "traces")
+    monkeypatch.setattr(
+        devices_route, "_validate_device_target", lambda *_args: ("10.0.0.11", 30002)
+    )
+    monkeypatch.setattr(devices_route, "_connect_rpc", lambda *_args: fake_rpc)
+    monkeypatch.setattr(devices_route, "ModelTraceStore", lambda: trace_store)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/devices/1/1/tap",
+            json={
+                "nx": 500,
+                "ny": 500,
+                "trace_context": {
+                    "task_id": "task-1",
+                    "run_id": "task-1-run-1",
+                    "attempt_number": 1,
+                },
+            },
+        )
+
+    assert response.status_code == 200
+    records = trace_store.read_records(
+        ModelTraceContext(
+            task_id="task-1",
+            run_id="task-1-run-1",
+            target_label="Unit #1-1",
+            attempt_number=1,
+        )
+    )
+    assert len(records) == 1
+    assert records[0]["source"] == "human"
+    assert records[0]["human_guided"] is True
+    assert records[0]["action_name"] == "ui.click"
+
+
 def test_api_device_swipe_accepts_normalized_coordinates(monkeypatch: MonkeyPatch):
     _disable_lifespan(monkeypatch)
     fake_rpc = _FakeRpcControl()
@@ -338,6 +379,27 @@ def test_api_device_swipe_accepts_normalized_coordinates(monkeypatch: MonkeyPatc
     payload = cast(dict[str, object], response.json())
     assert payload["ok"] is True
     assert fake_rpc.swipe_calls == [(0, 540, 1536, 540, 384, 450)]
+    assert fake_rpc.closed == 1
+
+
+def test_api_device_swipe_accepts_zero_transport_code(monkeypatch: MonkeyPatch):
+    _disable_lifespan(monkeypatch)
+    fake_rpc = _FakeRpcControl()
+    fake_rpc.swipe = lambda finger_id, x0, y0, x1, y1, duration: 0
+    monkeypatch.setattr(
+        devices_route, "_validate_device_target", lambda *_args: ("10.0.0.11", 30002)
+    )
+    monkeypatch.setattr(devices_route, "_connect_rpc", lambda *_args: fake_rpc)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/devices/1/1/swipe",
+            json={"x0": 10, "y0": 20, "x1": 30, "y1": 40, "duration": 450},
+        )
+
+    assert response.status_code == 200
+    payload = cast(dict[str, object], response.json())
+    assert payload["ok"] is True
     assert fake_rpc.closed == 1
 
 

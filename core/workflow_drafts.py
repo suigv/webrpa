@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import re
 import json
+import re
 import sqlite3
 import uuid
 from pathlib import Path
@@ -109,7 +109,7 @@ def _list_trace_contexts(task_id: str) -> list[ModelTraceContext]:
             )
         )
     contexts: list[ModelTraceContext] = []
-    for _, run_id, target_label, attempt_number, path in sorted(trace_paths, reverse=True):
+    for _, run_id, target_label, attempt_number, _path in sorted(trace_paths, reverse=True):
         contexts.append(
             ModelTraceContext(
                 task_id=task_id,
@@ -163,8 +163,11 @@ def _trace_context_from_dict(value: object) -> ModelTraceContext | None:
 
 
 def _trace_context_exists(context: ModelTraceContext) -> bool:
-    path = traces_dir() / context.task_id / context.run_id / (
-        f"{context.target_label}.attempt-{context.attempt_number}.jsonl"
+    path = (
+        traces_dir()
+        / context.task_id
+        / context.run_id
+        / (f"{context.target_label}.attempt-{context.attempt_number}.jsonl")
     )
     return path.is_file()
 
@@ -186,18 +189,18 @@ def _build_snapshot_identity(payload: dict[str, Any]) -> dict[str, Any]:
             except Exception:
                 creds_payload = None
             if isinstance(creds_payload, dict):
-                account_from_creds = str(
-                    creds_payload.get("account")
-                    or creds_payload.get("username_or_email")
-                    or ""
-                ).strip() or None
+                account_from_creds = (
+                    str(
+                        creds_payload.get("account") or creds_payload.get("username_or_email") or ""
+                    ).strip()
+                    or None
+                )
         else:
             credentials_ref_kind = "path"
             credentials_ref_path = credentials_ref_raw
 
     account_inline = (
-        str(payload.get("account") or "").strip()
-        or str(payload.get("acc") or "").strip()
+        str(payload.get("account") or "").strip() or str(payload.get("acc") or "").strip()
     ).strip() or None
     account = account_inline or account_from_creds
 
@@ -225,9 +228,7 @@ class WorkflowDraftService:
         self,
         *,
         payload: dict[str, Any],
-        devices: list[int],
         targets: list[dict[str, int]] | None,
-        ai_type: str,
         max_retries: int,
         retry_backoff_seconds: int,
         priority: int,
@@ -271,6 +272,7 @@ class WorkflowDraftService:
                     plugin_name_candidate=_plugin_name_candidate(
                         resolved_display_name, task_name, new_draft_id
                     ),
+                    source=str(payload.get("_workflow_source") or "generic").strip() or "generic",
                     success_threshold=threshold,
                 )
                 self._store.create_draft(record, conn=tx_conn)
@@ -320,6 +322,7 @@ class WorkflowDraftService:
             "task_name": record.task_name,
             "status": record.status,
             "plugin_name_candidate": record.plugin_name_candidate,
+            "source": record.source,
             "success_count": record.success_count,
             "failure_count": record.failure_count,
             "cancelled_count": record.cancelled_count,
@@ -363,13 +366,54 @@ class WorkflowDraftService:
         return summary
 
     def list_summaries(
-        self, limit: int = 100, conn: sqlite3.Connection | None = None
+        self,
+        limit: int = 100,
+        conn: sqlite3.Connection | None = None,
+        *,
+        source: str | None = None,
     ) -> list[dict[str, Any]]:
         return [
             summary
             for record in self._store.list_drafts(limit=limit, conn=conn)
+            if source is None or record.source == source
             if (summary := self.summary(record.draft_id, conn=conn)) is not None
         ]
+
+    def list_ai_dialog_history(
+        self, limit: int = 20, conn: sqlite3.Connection | None = None
+    ) -> list[dict[str, Any]]:
+        items: list[dict[str, Any]] = []
+        for record in self._store.list_drafts(limit=max(limit * 4, 50), conn=conn):
+            if record.source != "ai_dialog":
+                continue
+            summary = self.summary(record.draft_id, conn=conn)
+            if summary is None:
+                continue
+            snapshot = (
+                dict(record.last_success_snapshot)
+                if isinstance(record.last_success_snapshot, dict)
+                else {}
+            )
+            identity = dict(snapshot.get("identity") or {}) if snapshot else {}
+            items.append(
+                {
+                    "draft_id": record.draft_id,
+                    "display_name": record.display_name,
+                    "status": record.status,
+                    "updated_at": record.updated_at or None,
+                    "app_id": str(identity.get("app_id") or "").strip() or None,
+                    "account": str(identity.get("account") or "").strip() or None,
+                    "last_task_id": record.latest_completed_task_id
+                    or record.latest_terminal_task_id
+                    or None,
+                    "can_replay": bool(record.last_success_snapshot),
+                    "can_edit": bool(record.last_success_snapshot),
+                    "workflow_draft": summary,
+                }
+            )
+            if len(items) >= limit:
+                break
+        return items
 
     def record_terminal(
         self,
@@ -417,7 +461,6 @@ class WorkflowDraftService:
                     "payload": payload,
                     "devices": list(getattr(task_record, "devices", []) or []),
                     "targets": list(getattr(task_record, "targets", []) or []),
-                    "ai_type": str(getattr(task_record, "ai_type", "") or ""),
                     "max_retries": int(getattr(task_record, "max_retries", 0) or 0),
                     "retry_backoff_seconds": int(
                         getattr(task_record, "retry_backoff_seconds", 2) or 2
@@ -518,6 +561,7 @@ class WorkflowDraftService:
                 "output_dir": str(output_dir),
                 "manifest_path": str(distilled.manifest_path),
                 "script_path": str(distilled.script_path),
+                "report_path": str(distilled.report_path),
                 "success_count": record.success_count,
                 "success_threshold": record.success_threshold,
             }

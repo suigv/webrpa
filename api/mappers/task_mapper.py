@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-
 from typing import Any
 
 from core.task_store import TaskRecord
@@ -65,7 +64,6 @@ def _base_task_fields(record: TaskRecord) -> dict[str, Any]:
         "display_name": display_name,
         "devices": record.devices,
         "targets": extract_targets(record),
-        "ai_type": record.ai_type,
         "idempotency_key": record.idempotency_key,
         "status": TaskStatus(record.status),
         "created_at": parse_datetime(record.created_at) or datetime.now(UTC),

@@ -91,3 +91,18 @@ def test_native_click_respects_disabled_config():
         # 禁用时，坐标应保持 500, 500
         assert args[1] == 500
         assert args[2] == 500
+
+
+def test_execution_context_humanized_respects_speed_profile():
+    config = HumanizedConfig(
+        enabled=True,
+        click_hold_min=0.1,
+        click_hold_max=0.1,
+    )
+    context = ExecutionContext(payload={"_speed": "slow", "humanized": {"click_hold_min": 0.1, "click_hold_max": 0.1}})
+
+    with patch("core.config_loader.get_humanized_wrapper_config", return_value=config):
+        hold = context.humanized.get_click_hold_time()
+
+    assert context.humanized.speed_profile == "slow"
+    assert hold == 0.2

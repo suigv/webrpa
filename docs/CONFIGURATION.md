@@ -118,7 +118,7 @@ AI/Agent 路径会从 `config/apps/*.yaml` 动态加载 UI 状态配置（按 `p
 
 ## 7. 账号运营角色 (ai_type)
 
-`ai_type` 是账号级别的**运营角色标识**，用于选取文案、关键词策略和候选人评分权重。与 LLM provider 无关。
+`ai_type` 是插件 payload 内的**运营角色标识**，用于选取文案、关键词策略和候选人评分权重。与 LLM provider 无关。
 
 | 值 | 含义 |
 |---|---|
@@ -126,7 +126,8 @@ AI/Agent 路径会从 `config/apps/*.yaml` 动态加载 UI 状态配置（按 `p
 | `part_time` | 兼职/辅助角色，使用更简短克制的互动风格 |
 | `default` | 兜底默认风格（未匹配时的回退） |
 
-设备默认值通过 `config/devices.json` 中每台设备的 `default_ai` 字段指定，全局兜底为 `default`。
+当前没有系统级或设备级 `default_ai` 公共配置。
+如需指定运营角色，应由调用方在任务 `payload.ai_type` 中显式传入；未传入时相关动作自行回退到 `default`。
 
 ### 配置文件
 

@@ -23,6 +23,28 @@ def _noop_audio_cb(data: ctypes.c_void_p, length: int) -> None:
     _ = (data, length)
 
 
+def swipe_transport_acknowledged(result: object) -> bool:
+    if isinstance(result, bool):
+        return result
+    if result is None:
+        return False
+    if isinstance(result, (int, float)):
+        try:
+            code = int(result)
+        except Exception:
+            return False
+        return code >= 0
+    text = str(result).strip().lower()
+    if not text:
+        return False
+    if text in {"false", "fail", "failed", "error", "none", "null"}:
+        return False
+    try:
+        return int(text) >= 0
+    except Exception:
+        return True
+
+
 class MytRpc:
     def __init__(self) -> None:
         root = Path(__file__).resolve().parents[1]

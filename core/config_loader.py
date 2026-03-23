@@ -4,98 +4,15 @@ from __future__ import annotations
 import json
 import logging
 import threading
-from pathlib import Path
 from typing import Any
 
 from core.paths import project_root
-from models.config import ConfigStore, ConfigStoreUpdate, HumanizedConfigSchema
-from models.humanized import (
-    HumanizedWrapperConfig,
-)
+from models.config import ConfigStore, ConfigStoreUpdate
+from models.humanized import HumanizedWrapperConfig
 
 logger = logging.getLogger(__name__)
 
-
-def _project_root() -> Path:
-    return project_root()
-
-
-CONFIG_FILE = _project_root() / "config" / "devices.json"
-
-DEFAULT_SCHEMA_VERSION = 2
-DEFAULT_ALLOCATION_VERSION = 1
-DEFAULT_CLOUD_MACHINES_PER_DEVICE = 12
-DEFAULT_SDK_PORT = 8000  # Device-level control API port
-
-
-def _to_int(value: Any, default: int) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
-
-
-def _to_optional_int(value: Any, default: int | None) -> int | None:
-    try:
-        if value is None:
-            return default
-        return int(value)
-    except (TypeError, ValueError):
-        return default
-
-
-def _to_float(value: Any, default: float) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return default
-
-
-def _to_bool(value: Any, default: bool) -> bool:
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        lowered = value.strip().lower()
-        if lowered in {"1", "true", "yes", "on"}:
-            return True
-        if lowered in {"0", "false", "no", "off"}:
-            return False
-    return default
-
-
-def _normalize_humanized(raw: Any, legacy: dict[str, Any]) -> dict[str, Any]:
-    source = dict(raw) if isinstance(raw, dict) else {}
-    if "enabled" not in source and "humanization_enabled" in legacy:
-        source["enabled"] = legacy.get("humanization_enabled")
-    if "random_seed" not in source and "humanization_seed" in legacy:
-        source["random_seed"] = legacy.get("humanization_seed")
-    try:
-        model = HumanizedConfigSchema.model_validate(source)
-        return model.model_dump()
-    except Exception as exc:
-        logger.debug(f"Humanized config validation failed, using defaults: {exc}")
-        return HumanizedConfigSchema().model_dump()
-
-
-def _normalize_device_ips(raw: Any) -> dict[str, str]:
-    if isinstance(raw, dict):
-        return {
-            str(k).strip(): str(v).strip()
-            for k, v in raw.items()
-            if str(k).strip() and str(v).strip()
-        }
-    if isinstance(raw, (list, tuple)):
-        return {str(i): str(v).strip() for i, v in enumerate(raw, start=1) if str(v).strip()}
-    return {}
-
-
-def normalize_config(config: dict[str, Any]) -> dict[str, Any]:
-    try:
-        model = ConfigStore.model_validate(config)
-        return model.model_dump(mode="python")
-    except Exception as exc:
-        logger.debug(f"Config validation failed, using defaults: {exc}")
-        return ConfigStore().model_dump(mode="python")
+CONFIG_FILE = project_root() / "config" / "devices.json"
 
 
 class ConfigLoader:
@@ -117,17 +34,14 @@ class ConfigLoader:
             return cls._config
 
     @classmethod
-    def load_dict(cls, refresh: bool = False) -> dict[str, Any]:
-        """向后兼容接口，返回 dict（供需要序列化的场景使用）。"""
-        result = cls.load(refresh=refresh)
-        if isinstance(result, dict):
-            return result
-        return result.model_dump(mode="python")
-
-    @classmethod
     def update(cls, **kwargs) -> dict[str, Any]:
         with cls._lock:
-            current = cls.load_dict()
+            current_state = cls.load()
+            current = (
+                current_state
+                if isinstance(current_state, dict)
+                else current_state.model_dump(mode="python")
+            )
             try:
                 update_payload = ConfigStoreUpdate.model_validate(kwargs).model_dump(
                     mode="python",
@@ -204,10 +118,6 @@ def get_cloud_machines_per_device() -> int:
 
 def get_sdk_port() -> int:
     return _c().sdk_port
-
-
-def get_default_ai() -> str:
-    return _c().default_ai
 
 
 def get_schema_version() -> int:

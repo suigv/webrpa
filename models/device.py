@@ -37,7 +37,6 @@ class DeviceInfo(BaseModel):
         default=8000, description="Device-level control API port, shared across all clouds"
     )
     sdk_port_role: str = Field(default="device_control_api", description="Role of sdk_port")
-    ai_type: str
     status: DeviceStatus = DeviceStatus.IDLE
     cloud_slots_total: int = 12
     available_cloud_count: int = 0

@@ -3,6 +3,7 @@ import { fetchJson } from '../utils/api.js';
 const $ = (id) => document.getElementById(id);
 
 let unitAccounts = [];
+let activeUnitAccountScope = '';
 
 function renderEmptyAccountSelect(select, label) {
     if (!select) return;
@@ -13,12 +14,18 @@ function renderEmptyAccountSelect(select, label) {
     select.appendChild(emptyOpt);
 }
 
-export async function loadUnitAccounts() {
+export async function loadUnitAccounts(appId = activeUnitAccountScope) {
     const select = $('unitAccountSelect');
     const hint = $('unitAccountHint');
     if (!select) return;
+    activeUnitAccountScope = String(appId || '').trim();
+    const params = new URLSearchParams();
+    if (activeUnitAccountScope) {
+        params.set('app_id', activeUnitAccountScope);
+    }
+    const query = params.toString();
     try {
-        const response = await fetchJson('/api/data/accounts/parsed');
+        const response = await fetchJson(`/api/data/accounts/parsed${query ? `?${query}` : ''}`);
         if (!response.ok) {
             unitAccounts = [];
             renderEmptyAccountSelect(select, '-- 账号加载失败 --');
@@ -37,7 +44,11 @@ export async function loadUnitAccounts() {
             opt.textContent = account.account;
             select.appendChild(opt);
         });
-        if (hint) hint.textContent = `账号池共 ${unitAccounts.length} 个就绪账号`;
+        if (hint) {
+            hint.textContent = activeUnitAccountScope
+                ? `${activeUnitAccountScope} 账号池共 ${unitAccounts.length} 个就绪账号`
+                : `全部账号池共 ${unitAccounts.length} 个就绪账号`;
+        }
     } catch (_error) {
         unitAccounts = [];
         renderEmptyAccountSelect(select, '-- 账号加载失败 --');

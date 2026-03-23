@@ -24,6 +24,92 @@ def test_runner_unsupported_task_returns_controlled_error():
     assert "timestamp" in result
 
 
+def test_runner_pipeline_executes_repeated_steps_and_emits_progress_events(monkeypatch):
+    runner = Runner()
+    events: list[tuple[str, dict[str, object]]] = []
+    seen_steps: list[str] = []
+    sleep_calls: list[float] = []
+
+    def _fake_run_pipeline_step(step, *, should_cancel=None, runtime=None):
+        _ = (should_cancel, runtime)
+        seen_steps.append(str(step["plugin"]))
+        return {
+            "ok": True,
+            "task": str(step["plugin"]),
+            "status": "completed",
+            "message": f"{step['label']} done",
+        }
+
+    monkeypatch.setattr(runner, "_run_pipeline_step", _fake_run_pipeline_step)
+    monkeypatch.setattr("engine.runner.time.sleep", lambda seconds: sleep_calls.append(seconds))
+
+    result = runner.run(
+        {
+            "task": "_pipeline",
+            "steps": [
+                {"plugin": "x_scrape_blogger", "label": "采集博主", "payload": {}},
+                {"plugin": "x_clone_profile", "label": "克隆资料", "payload": {}},
+            ],
+            "repeat": 2,
+            "repeat_interval_ms": 250,
+        },
+        runtime={"emit_event": lambda event_type, data: events.append((event_type, dict(data)))},
+    )
+
+    assert result["ok"] is True
+    assert result["status"] == "completed"
+    assert result["data"]["rounds_completed"] == 2
+    assert seen_steps == [
+        "x_scrape_blogger",
+        "x_clone_profile",
+        "x_scrape_blogger",
+        "x_clone_profile",
+    ]
+    assert [event[0] for event in events] == [
+        "pipeline.step_done",
+        "pipeline.step_done",
+        "pipeline.step_done",
+        "pipeline.step_done",
+    ]
+    assert sleep_calls == [0.2, 0.04999999999999999]
+
+
+def test_runner_pipeline_cancellation_stops_before_next_child_step(monkeypatch):
+    runner = Runner()
+    calls: list[str] = []
+    cancel_state = {"cancelled": False}
+
+    def _fake_run_pipeline_step(step, *, should_cancel=None, runtime=None):
+        _ = (runtime,)
+        calls.append(str(step["plugin"]))
+        cancel_state["cancelled"] = True
+        assert should_cancel is not None
+        return {
+            "ok": True,
+            "task": str(step["plugin"]),
+            "status": "completed",
+            "message": "done",
+        }
+
+    monkeypatch.setattr(runner, "_run_pipeline_step", _fake_run_pipeline_step)
+
+    result = runner.run(
+        {
+            "task": "_pipeline",
+            "steps": [
+                {"plugin": "x_scrape_blogger", "payload": {}},
+                {"plugin": "x_clone_profile", "payload": {}},
+            ],
+            "repeat": 1,
+        },
+        should_cancel=lambda: cancel_state["cancelled"],
+    )
+
+    assert calls == ["x_scrape_blogger"]
+    assert result["ok"] is False
+    assert result["status"] == "cancelled"
+
+
 def test_anonymous_task_stays_backward_compatible():
     result = Runner().run({"task": "anonymous", "steps": []})
     assert result["ok"] is True
@@ -110,6 +196,66 @@ def test_interpreter_session_defaults_expose_injected_hidden_app_defaults():
     assert defaults["package"] == "com.twitter.android"
     assert defaults["_app_stage_patterns"] == {"home": {"text_markers": ["For you"]}}
     assert defaults["_app_selectors"] == {"home_tab": {"type": "id", "value": "home"}}
+
+
+def test_interpreter_applies_speed_scaled_post_action_wait(monkeypatch):
+    import engine.interpreter as interpreter_module
+
+    sleeps: list[float] = []
+
+    def _fake_dispatch_action(action, params, context, registry=None):
+        _ = (action, params, context, registry)
+        return ActionResult(ok=True, code="ok")
+
+    monkeypatch.setattr(interpreter_module, "dispatch_action", _fake_dispatch_action)
+    monkeypatch.setattr(interpreter_module.time, "sleep", lambda seconds: sleeps.append(seconds))
+
+    script = WorkflowScript(
+        version="v1",
+        workflow="wait_probe",
+        steps=[
+            ActionStep(kind="action", action="ui.click", params={}),
+            StopStep(kind="stop", status="success", message="done"),
+        ],
+    )
+
+    result = interpreter_module.Interpreter().execute(
+        script,
+        payload={"_speed": "fast", "_wait_min_ms": 100, "_wait_max_ms": 100},
+    )
+
+    assert result["ok"] is True
+    assert sleeps == [0.05]
+
+
+def test_interpreter_skips_post_action_wait_for_ui_wait_until_action(monkeypatch):
+    import engine.interpreter as interpreter_module
+
+    sleeps: list[float] = []
+
+    def _fake_dispatch_action(action, params, context, registry=None):
+        _ = (action, params, context, registry)
+        return ActionResult(ok=True, code="ok")
+
+    monkeypatch.setattr(interpreter_module, "dispatch_action", _fake_dispatch_action)
+    monkeypatch.setattr(interpreter_module.time, "sleep", lambda seconds: sleeps.append(seconds))
+
+    script = WorkflowScript(
+        version="v1",
+        workflow="wait_until_probe",
+        steps=[
+            ActionStep(kind="action", action="ui.wait_until", params={}),
+            StopStep(kind="stop", status="success", message="done"),
+        ],
+    )
+
+    result = interpreter_module.Interpreter().execute(
+        script,
+        payload={"_speed": "slow", "_wait_min_ms": 100, "_wait_max_ms": 100},
+    )
+
+    assert result["ok"] is True
+    assert sleeps == []
 
 
 def test_app_open_uses_injected_package_when_action_param_absent(monkeypatch):
@@ -232,20 +378,38 @@ def test_runner_rechecks_shared_loader_after_cached_miss(monkeypatch):
         def get(self, name: str):
             return self._entries.get(name)
 
-    plugin = type("PluginEntry", (), {"manifest": type("Manifest", (), {"inputs": []})(), "script_path": Path("/tmp/demo.yaml")})()
-    loaders = [_Loader({}), _Loader({"new_plugin": plugin})]
+    plugin = type(
+        "PluginEntry",
+        (),
+        {"manifest": type("Manifest", (), {"inputs": []})(), "script_path": Path("/tmp/demo.yaml")},
+    )()
+    loaders = [_Loader({}), _Loader({}), _Loader({"new_plugin": plugin})]
 
-    monkeypatch.setattr("engine.runner.get_shared_plugin_loader", lambda: loaders.pop(0))
+    calls: list[bool] = []
+
+    def _fake_get_shared_plugin_loader(*, refresh: bool = False):
+        calls.append(refresh)
+        return loaders.pop(0)
+
+    monkeypatch.setattr("engine.runner.get_shared_plugin_loader", _fake_get_shared_plugin_loader)
 
     runner = Runner(agent_executor_runtime=None)
-    monkeypatch.setattr(runner, "_run_yaml_plugin", lambda *args, **kwargs: {"ok": True, "task": "new_plugin", "status": "completed"})
-    monkeypatch.setattr("engine.runner.parse_script", lambda path: WorkflowScript(version="v1", workflow="demo", steps=[]))
+    monkeypatch.setattr(
+        runner,
+        "_run_yaml_plugin",
+        lambda *args, **kwargs: {"ok": True, "task": "new_plugin", "status": "completed"},
+    )
+    monkeypatch.setattr(
+        "engine.runner.parse_script",
+        lambda path: WorkflowScript(version="v1", workflow="demo", steps=[]),
+    )
     monkeypatch.setattr(runner, "_validate_script_actions", lambda script: None)
 
     result = runner.run({"task": "new_plugin"})
 
     assert result["ok"] is True
     assert result["task"] == "new_plugin"
+    assert calls == [False, False, True]
 
 
 def test_runner_uses_latest_shared_loader_for_same_named_plugin(monkeypatch):
@@ -258,20 +422,43 @@ def test_runner_uses_latest_shared_loader_for_same_named_plugin(monkeypatch):
                 return None
             return self._entry
 
-    old_plugin = type("PluginEntry", (), {"manifest": type("Manifest", (), {"inputs": [], "version": "old"})(), "script_path": Path("/tmp/old.yaml")})()
-    new_plugin = type("PluginEntry", (), {"manifest": type("Manifest", (), {"inputs": [], "version": "new"})(), "script_path": Path("/tmp/new.yaml")})()
+    old_plugin = type(
+        "PluginEntry",
+        (),
+        {
+            "manifest": type("Manifest", (), {"inputs": [], "version": "old"})(),
+            "script_path": Path("/tmp/old.yaml"),
+        },
+    )()
+    new_plugin = type(
+        "PluginEntry",
+        (),
+        {
+            "manifest": type("Manifest", (), {"inputs": [], "version": "new"})(),
+            "script_path": Path("/tmp/new.yaml"),
+        },
+    )()
     loaders = [_Loader(old_plugin), _Loader(new_plugin)]
 
-    monkeypatch.setattr("engine.runner.get_shared_plugin_loader", lambda: loaders.pop(0))
+    monkeypatch.setattr(
+        "engine.runner.get_shared_plugin_loader",
+        lambda *, refresh=False: loaders.pop(0),
+    )
 
     runner = Runner(agent_executor_runtime=None)
     seen: dict[str, object] = {}
     monkeypatch.setattr(
         runner,
         "_run_yaml_plugin",
-        lambda task_name, payload, plugin, *args, **kwargs: seen.update({"version": plugin.manifest.version}) or {"ok": True, "task": task_name, "status": "completed"},
+        lambda task_name, payload, plugin, *args, **kwargs: (
+            seen.update({"version": plugin.manifest.version})
+            or {"ok": True, "task": task_name, "status": "completed"}
+        ),
     )
-    monkeypatch.setattr("engine.runner.parse_script", lambda path: WorkflowScript(version="v1", workflow="demo", steps=[]))
+    monkeypatch.setattr(
+        "engine.runner.parse_script",
+        lambda path: WorkflowScript(version="v1", workflow="demo", steps=[]),
+    )
     monkeypatch.setattr(runner, "_validate_script_actions", lambda script: None)
 
     result = runner.run({"task": "demo_plugin"})

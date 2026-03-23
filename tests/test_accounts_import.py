@@ -1,9 +1,10 @@
+import sqlite3
 from pathlib import Path
 from typing import cast
 
 import pytest
-from fastapi.testclient import TestClient
 from _pytest.monkeypatch import MonkeyPatch
+from fastapi.testclient import TestClient
 
 from api.server import app
 from core.account_parser import parse_accounts_text
@@ -168,3 +169,53 @@ def test_accounts_pop_without_app_id_preserves_global_behavior(
     assert popped.status_code == 200
     popped_payload = cast(dict[str, dict[str, object]], popped.json())
     assert popped_payload["account"]["account"] == "first_user"
+
+
+def test_account_store_migrates_app_id_out_of_metadata_json(tmp_path: Path):
+    db_path = tmp_path / "accounts-legacy.db"
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE accounts (
+                account TEXT PRIMARY KEY,
+                password TEXT NOT NULL,
+                twofa TEXT,
+                email TEXT,
+                email_password TEXT,
+                token TEXT,
+                email_token TEXT,
+                status TEXT NOT NULL DEFAULT 'ready',
+                last_used TEXT,
+                error_msg TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                metadata_json TEXT
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO accounts (
+                account, password, status, created_at, updated_at, metadata_json
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "wx_user",
+                "wx_pass",
+                "ready",
+                "2026-03-23T00:00:00+00:00",
+                "2026-03-23T00:00:00+00:00",
+                '{"app_id":"wechat","note":"legacy"}',
+            ),
+        )
+        conn.commit()
+
+    store = AccountStore(db_path)
+    account = cast(dict[str, object], store.get_account("wx_user"))
+
+    assert account["app_id"] == "wechat"
+    assert account["note"] == "legacy"
+
+    with sqlite3.connect(db_path) as conn:
+        row = conn.execute("SELECT app_id FROM accounts WHERE account = ?", ("wx_user",)).fetchone()
+    assert row == ("wechat",)

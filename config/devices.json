@@ -1,18 +1,18 @@
 {
   "schema_version": 2,
   "allocation_version": 1,
-  "host_ip": "127.0.0.1",
+  "host_ip": "192.168.1.214",
   "device_ips": {
-    "1": "192.168.10.3"
+    "1": "192.168.1.214",
+    "2": "192.168.1.215"
   },
-  "total_devices": 1,
+  "total_devices": 2,
   "discovery_enabled": false,
-  "discovery_subnet": "192.168.10.0/24",
+  "discovery_subnet": "192.168.1.0/24",
   "discovered_device_ips": {},
   "discovered_total_devices": 0,
   "cloud_machines_per_device": 12,
   "sdk_port": 8000,
-  "default_ai": "volc",
   "stop_hour": 18,
   "cycle_interval": 15,
   "judge_mode": "lite",
@@ -66,6 +66,6 @@
     "move_steps_max": 24,
     "fallback_policy": "raw",
     "fallback_retry_count": 0,
-    "random_seed": 0
+    "random_seed": null
   }
 }

@@ -7,6 +7,7 @@ from collections.abc import Iterable
 from typing import Any
 
 from engine.models.runtime import ActionResult, ExecutionContext
+from hardware_adapters.mytRpc import swipe_transport_acknowledged
 
 logger = logging.getLogger(__name__)
 
@@ -665,7 +666,9 @@ def collect_blogger_candidates(
             swipe = getattr(rpc, "swipe", None)
             if not callable(swipe):
                 break
-            if not swipe(0, swipe_x0, swipe_y0, swipe_x1, swipe_y1, swipe_duration_ms):
+            if not swipe_transport_acknowledged(
+                swipe(0, swipe_x0, swipe_y0, swipe_x1, swipe_y1, swipe_duration_ms)
+            ):
                 break
             swipe_count += 1
             if settle_ms:

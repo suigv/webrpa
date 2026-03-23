@@ -1,6 +1,7 @@
 # pyright: reportAttributeAccessIssue=false, reportDeprecated=false, reportUnknownArgumentType=false, reportUnknownVariableType=false, reportUnusedCallResult=false, reportAny=false, reportExplicitAny=false
 
 from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Any, Literal, TypeVar, cast
 
 from anyio import to_thread as _to_thread
@@ -13,16 +14,17 @@ from core.device_control import (
     CloudNotFoundError,
     DeviceNotFoundError,
     RpcDisabledError,
-    capture_compressed_image_bytes,
     close_rpc,
     connect_rpc,
     resolve_rpc_point,
     validate_api_target,
     validate_rpc_target,
 )
-from hardware_adapters.android_api_client import AndroidApiClient
 from core.device_manager import get_device_manager
 from core.lan_discovery import LanDeviceDiscovery
+from core.model_trace_store import ModelTraceContext, ModelTraceStore
+from hardware_adapters.android_api_client import AndroidApiClient
+from hardware_adapters.mytRpc import swipe_transport_acknowledged
 from models.device import CloudMachineInfo, DeviceInfo, DeviceStatus, DeviceStatusResponse
 
 to_thread = cast(Any, _to_thread)
@@ -33,12 +35,20 @@ discovery = LanDeviceDiscovery()
 _RpcResult = TypeVar("_RpcResult")
 
 
+class TraceContextRequest(BaseModel):
+    task_id: str = Field(min_length=1, max_length=128)
+    run_id: str = Field(min_length=1, max_length=128)
+    target_label: str | None = Field(default=None, min_length=1, max_length=200)
+    attempt_number: int = Field(default=1, ge=1, le=100)
+
+
 class TapRequest(BaseModel):
     x: int | None = None
     y: int | None = None
     nx: int | None = Field(default=None, description="normalized x (0-1000)")
     ny: int | None = Field(default=None, description="normalized y (0-1000)")
     finger_id: int = 0
+    trace_context: TraceContextRequest | None = None
 
     @model_validator(mode="after")
     def _validate_coords(self) -> "TapRequest":
@@ -60,6 +70,7 @@ class SwipeRequest(BaseModel):
     ny1: int | None = Field(default=None, description="normalized end y (0-1000)")
     duration: int = 300
     finger_id: int = 0
+    trace_context: TraceContextRequest | None = None
 
     @model_validator(mode="after")
     def _validate_coords(self) -> "SwipeRequest":
@@ -72,10 +83,12 @@ class SwipeRequest(BaseModel):
 
 class KeyRequest(BaseModel):
     key: Literal["back", "home", "enter", "recent", "delete"]
+    trace_context: TraceContextRequest | None = None
 
 
 class TextRequest(BaseModel):
     text: str = Field(min_length=1, max_length=500, description="single-line text to send")
+    trace_context: TraceContextRequest | None = None
 
     @model_validator(mode="after")
     def _validate_text(self) -> "TextRequest":
@@ -143,7 +156,6 @@ def _to_device_info(info: dict[str, object]) -> DeviceInfo:
     ip = str(ip_raw)
     sdk_raw = info.get("sdk_port", 8000)
     sdk_port = int(sdk_raw) if isinstance(sdk_raw, (int, float, str)) else 8000
-    ai_raw = str(info.get("ai_type", "default"))
     status_raw = str(info.get("status", DeviceStatus.IDLE.value))
 
     return DeviceInfo(
@@ -152,13 +164,45 @@ def _to_device_info(info: dict[str, object]) -> DeviceInfo:
         device_id=device_id,
         ip=ip,
         sdk_port=sdk_port,
-        ai_type=ai_raw,
         status=DeviceStatus(status_raw),
         cloud_slots_total=cloud_slots_total,
         available_cloud_count=available_cloud_count,
         probe_stale=bool(info.get("probe_stale", False)),
         probe_partial=bool(info.get("probe_partial", False)),
         cloud_machines=cloud_machines,
+    )
+
+
+def _append_human_trace(
+    *,
+    device_id: int,
+    cloud_id: int,
+    trace_context: TraceContextRequest | None,
+    action_name: str,
+    action_params: dict[str, object],
+    action_result: dict[str, object],
+) -> None:
+    if trace_context is None:
+        return
+    now = datetime.now(UTC)
+    context = ModelTraceContext(
+        task_id=trace_context.task_id,
+        run_id=trace_context.run_id,
+        target_label=trace_context.target_label or f"Unit #{device_id}-{cloud_id}",
+        attempt_number=int(trace_context.attempt_number),
+    )
+    ModelTraceStore().append_record(
+        context,
+        {
+            "sequence": int(now.timestamp() * 1000),
+            "timestamp": now.isoformat(),
+            "record_type": "step",
+            "source": "human",
+            "human_guided": True,
+            "action_name": action_name,
+            "action_params": action_params,
+            "action_result": {"ok": True, "data": action_result},
+        },
     )
 
 
@@ -284,6 +328,14 @@ async def tap_cloud_screen(device_id: int, cloud_id: int, request: TapRequest):
         return {"x": x, "y": y, "finger_id": int(request.finger_id)}
 
     result = await _run_rpc_action(device_id, cloud_id, _tap)
+    _append_human_trace(
+        device_id=device_id,
+        cloud_id=cloud_id,
+        trace_context=request.trace_context,
+        action_name="ui.click",
+        action_params={"x": request.x, "y": request.y, "nx": request.nx, "ny": request.ny},
+        action_result=cast(dict[str, object], result),
+    )
     return {"ok": True, "data": result}
 
 
@@ -307,7 +359,7 @@ async def swipe_cloud_screen(device_id: int, cloud_id: int, request: SwipeReques
             device_id=device_id,
         )
         raw_result = rpc.swipe(int(request.finger_id), x0, y0, x1, y1, int(request.duration))
-        ok = bool(raw_result)
+        ok = swipe_transport_acknowledged(raw_result)
         if not ok:
             raise RuntimeError("swipe failed")
         return {
@@ -320,6 +372,24 @@ async def swipe_cloud_screen(device_id: int, cloud_id: int, request: SwipeReques
         }
 
     result = await _run_rpc_action(device_id, cloud_id, _swipe)
+    _append_human_trace(
+        device_id=device_id,
+        cloud_id=cloud_id,
+        trace_context=request.trace_context,
+        action_name="ui.swipe",
+        action_params={
+            "x0": request.x0,
+            "y0": request.y0,
+            "x1": request.x1,
+            "y1": request.y1,
+            "nx0": request.nx0,
+            "ny0": request.ny0,
+            "nx1": request.nx1,
+            "ny1": request.ny1,
+            "duration": int(request.duration),
+        },
+        action_result=cast(dict[str, object], result),
+    )
     return {"ok": True, "data": result}
 
 
@@ -344,6 +414,14 @@ async def press_cloud_key(device_id: int, cloud_id: int, request: KeyRequest):
         return {"key": request.key}
 
     result = await _run_rpc_action(device_id, cloud_id, _press_key)
+    _append_human_trace(
+        device_id=device_id,
+        cloud_id=cloud_id,
+        trace_context=request.trace_context,
+        action_name="ui.key_press",
+        action_params={"key": request.key},
+        action_result=cast(dict[str, object], result),
+    )
     return {"ok": True, "data": result}
 
 
@@ -356,4 +434,12 @@ async def send_cloud_text(device_id: int, cloud_id: int, request: TextRequest):
         return {"text": request.text}
 
     result = await _run_rpc_action(device_id, cloud_id, _send_text)
+    _append_human_trace(
+        device_id=device_id,
+        cloud_id=cloud_id,
+        trace_context=request.trace_context,
+        action_name="ui.input_text",
+        action_params={"text": request.text},
+        action_result=cast(dict[str, object], result),
+    )
     return {"ok": True, "data": result}

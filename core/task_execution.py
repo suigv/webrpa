@@ -131,6 +131,25 @@ def _trip_result(task_name: str, trip: TargetCircuitBreakerTrip) -> dict[str, An
     }
 
 
+def _stagnation_pause_payload(result: dict[str, Any]) -> dict[str, Any] | None:
+    status = str(result.get("status") or "").strip().lower()
+    code = str(result.get("code") or "").strip().lower()
+    if status != "failed_circuit_breaker" or code != "stagnant_structured_state":
+        return None
+    message = str(result.get("message") or "ai paused due to stagnant state").strip()
+    return {
+        **result,
+        "ok": False,
+        "status": "paused",
+        "checkpoint": str(result.get("checkpoint") or "observe"),
+        "code": "task_paused_for_intervention",
+        "message": message,
+        "pause_reason": "stagnant_structured_state",
+        "intervention_required": True,
+        "intervention_options": ["resume", "takeover", "cancel"],
+    }
+
+
 def _probe_target_rpa_port(
     device_id: int,
     cloud_id: int,
@@ -562,6 +581,9 @@ def _execute_task(
                             "code": "task_paused",
                             "message": "task paused by operator",
                         }
+                    stagnation_pause = _stagnation_pause_payload(single_result)
+                    if stagnation_pause is not None:
+                        single_result = stagnation_pause
                     active_trip = _current_trip()
                     if active_trip is not None:
                         single_result = _trip_result(task_name, active_trip)
@@ -573,21 +595,46 @@ def _execute_task(
                     local_breaker.close()
 
             target_results.append({"target": prepared.target, "result": single_result})
-            if str(single_result.get("status") or "") == "paused" and not _combined_cancel():
-                with store.transaction(immediate=True) as conn:
-                    store.mark_paused(task_id, conn=conn)
-                    events.append_event(
-                        task_id,
-                        "task.paused",
-                        {
-                            "target": prepared.target,
-                            "run_id": str(runtime.get("run_id") or ""),
-                            "message": str(single_result.get("message") or "task paused by operator"),
-                        },
-                        conn=conn,
-                    )
-                store.set_active_run_id(task_id, str(runtime.get("run_id") or run_id))
-                return
+            if str(single_result.get("status") or "") == "paused":
+                # A late cancel can arrive after the runner already yielded a pause-shaped
+                # result. Re-check here so we do not leave the task stranded in paused
+                # status with cancel_requested still set.
+                if _combined_cancel():
+                    single_result = {
+                        **single_result,
+                        "ok": False,
+                        "status": "cancelled",
+                        "checkpoint": str(single_result.get("checkpoint") or "pause"),
+                        "code": "task_cancelled",
+                        "message": "cancelled by user",
+                    }
+                else:
+                    with store.transaction(immediate=True) as conn:
+                        store.mark_paused(task_id, conn=conn)
+                        events.append_event(
+                            task_id,
+                            "task.paused",
+                            {
+                                "target": prepared.target,
+                                "run_id": str(runtime.get("run_id") or ""),
+                                "message": str(
+                                    single_result.get("message") or "task paused by operator"
+                                ),
+                                "code": str(single_result.get("code") or "task_paused"),
+                                "pause_reason": str(
+                                    single_result.get("pause_reason") or "operator"
+                                ),
+                                "intervention_required": bool(
+                                    single_result.get("intervention_required", False)
+                                ),
+                                "intervention_options": list(
+                                    single_result.get("intervention_options") or []
+                                ),
+                            },
+                            conn=conn,
+                        )
+                    store.set_active_run_id(task_id, str(runtime.get("run_id") or run_id))
+                    return
             if not bool(single_result.get("ok")) and first_failure is None:
                 first_failure = single_result
 

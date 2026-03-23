@@ -1,6 +1,6 @@
 from anyio.to_thread import run_sync
 from fastapi import APIRouter
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from core.account_service import (
     get_accounts_raw_text,
@@ -36,7 +36,7 @@ class AccountsImportRequest(BaseModel):
     overwrite: bool = True
     delimiter: str | None = None
     mapping: dict[int, str] | None = None
-    app_id: str | None = "default"
+    app_id: str = Field(default="default", min_length=1)
 
 
 class AccountStatusUpdate(BaseModel):

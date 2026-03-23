@@ -8,7 +8,7 @@ from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any
 
 from ai_services.llm_client import LLMClient
-from core.app_config import get_app_agent_hint, resolve_app_id
+from core.app_config import AppConfigManager, get_app_agent_hint, resolve_app_id
 from engine.action_dispatcher import dispatch_action
 from engine.action_registry import ActionRegistry, get_registry
 from engine.models.runtime import ExecutionContext
@@ -55,6 +55,8 @@ _LOADING_WAIT_TIMEOUT_MS = 5000
 _LOADING_WAIT_INTERVAL_MS = 400
 _DYNAMIC_STEP_EXTENSION_MAX_ROUNDS = 1
 _EMPTY_ACTION_DEFER_LIMIT = 3
+_DEFAULT_EXECUTOR_ACTION_PREFIXES = ("ai.", "ui.", "app.")
+_DEFAULT_EXECUTOR_ACTION_EXCLUSIONS = {"ui.match_state", "ui.observe_transition"}
 
 _ = sys.modules.setdefault(f"{__name__}.time", time)
 
@@ -423,7 +425,9 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
                         "message": str(plan.get("message") or ""),
                     },
                 )
-            action_result = dispatch_action(action_name, action_params, context, registry=self._registry)
+            action_result = dispatch_action(
+                action_name, action_params, context, registry=self._registry
+            )
             action_result_payload = action_result.model_dump(mode="python")
             if context.emit_event:
                 context.emit_event(
@@ -438,9 +442,7 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
 
             current_action_fp = _action_fingerprint(action_name, action_params)
             repeated_action_count = (
-                repeated_action_count + 1
-                if current_action_fp == previous_action_fingerprint
-                else 1
+                repeated_action_count + 1 if current_action_fp == previous_action_fingerprint else 1
             )
             previous_action_fingerprint = current_action_fp
             last_action = {
@@ -995,6 +997,11 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
             return {"code": "invalid_params", "message": str(exc)}
         return None
 
+    def preview_config(
+        self, payload: Mapping[str, object], *, runtime: Mapping[str, object] | None = None
+    ) -> AgentExecutorConfig:
+        return self._parse_config(payload, runtime=runtime)
+
     def _parse_config(
         self, payload: Mapping[str, object], *, runtime: Mapping[str, object] | None = None
     ) -> AgentExecutorConfig:
@@ -1006,9 +1013,13 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
             payload.get("expected_state_ids") or payload.get("state_ids")
         )
         if not expected_state_ids:
+            expected_state_ids = self._infer_expected_state_ids(payload)
+        if not expected_state_ids:
             raise ValueError("agent_executor requires expected_state_ids")
 
         allowed_actions = _string_list(payload.get("allowed_actions"))
+        if not allowed_actions:
+            allowed_actions = self._infer_allowed_actions(payload)
         if not allowed_actions:
             raise ValueError("agent_executor requires allowed_actions")
         unknown_actions = [action for action in allowed_actions if not self._registry.has(action)]
@@ -1029,7 +1040,9 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
         llm_runtime = {**runtime_llm, **payload_llm} if runtime_llm or payload_llm else {}
         app_id = resolve_app_id(dict(payload))
         app_hint = get_app_agent_hint(app_id)
-        advanced_prompt = str(payload.get("advanced_prompt") or payload.get("system_prompt") or "").strip()
+        advanced_prompt = str(
+            payload.get("advanced_prompt") or payload.get("system_prompt") or ""
+        ).strip()
         goal_text_parts = [goal]
         if app_hint:
             goal_text_parts.append(f"App hint: {app_hint}")
@@ -1058,6 +1071,49 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
             fallback_modalities=_string_list(payload.get("fallback_modalities", [])),
             observation_params=observation_params,
         )
+
+    def _infer_expected_state_ids(self, payload: Mapping[str, object]) -> list[str]:
+        states = payload.get("_app_states")
+        inferred: list[str] = []
+        if isinstance(states, list):
+            for item in states:
+                if not isinstance(item, Mapping):
+                    continue
+                state_id = str(item.get("state_id") or item.get("id") or "").strip()
+                if state_id and state_id not in inferred:
+                    inferred.append(state_id)
+        if inferred:
+            return inferred
+
+        stage_patterns = payload.get("_app_stage_patterns")
+        if isinstance(stage_patterns, Mapping):
+            for key in stage_patterns:
+                state_id = str(key or "").strip()
+                if state_id and state_id not in inferred:
+                    inferred.append(state_id)
+        return inferred or ["unknown"]
+
+    def _infer_allowed_actions(self, payload: Mapping[str, object]) -> list[str]:
+        app_id = resolve_app_id(dict(payload), default_app="")
+        if app_id:
+            config = AppConfigManager.load_app_config(app_id)
+            configured = _string_list(config.get("allowed_actions"))
+            if configured:
+                return [
+                    action
+                    for action in configured
+                    if self._registry.has(action)
+                    and action not in _DEFAULT_EXECUTOR_ACTION_EXCLUSIONS
+                ]
+
+        inferred: list[str] = []
+        for action in self._registry.names:
+            if action in _DEFAULT_EXECUTOR_ACTION_EXCLUSIONS:
+                continue
+            if not action.startswith(_DEFAULT_EXECUTOR_ACTION_PREFIXES):
+                continue
+            inferred.append(action)
+        return inferred
 
     def _cancelled(self, *, step_index: int, history: list[dict[str, object]]) -> dict[str, Any]:
         return self._result(

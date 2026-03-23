@@ -398,13 +398,15 @@ def load_ui_scheme_action(
     load_ui_config_document: Callable[[], dict[str, Any]],
     load_app_config_document: Callable[[str], dict[str, Any]],
     resolve_ui_key: Callable[[Any, str], Any],
+    context: ExecutionContext | None = None,
     rpc: Any | None = None,
 ) -> ActionResult:
     key = str(params.get("key") or "").strip()
     if not key:
         return ActionResult(ok=False, code="invalid_params", message="key is required")
-    payload = {}
+    payload = context.payload if context is not None and isinstance(context.payload, dict) else {}
     if "package" in params:
+        payload = dict(payload)
         payload["package"] = params.get("package")
     app = _resolve_app(params, payload)
     try:

@@ -74,7 +74,10 @@ class ExecutionContext:
                 filtered = {k: v for k, v in override.items() if k in valid}
                 if filtered:
                     config = dataclasses.replace(config, **filtered)
-            self._humanized = HumanizedHelper(config)
+            self._humanized = HumanizedHelper(
+                config,
+                speed_profile=self.payload.get("_speed") or self.runtime.get("_speed") or "normal",
+            )
         return self._humanized
 
     @property

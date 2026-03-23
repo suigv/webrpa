@@ -50,3 +50,16 @@ def test_swipe_accepts_x1_x2_aliases(monkeypatch):
 
     assert result.ok is True
     assert rpc.calls == [(0, 100, 200, 300, 400, 300)]
+
+
+def test_swipe_treats_zero_transport_code_as_success(monkeypatch):
+    rpc = _FakeRpc()
+    rpc.swipe = lambda finger_id, x0, y0, x1, y1, duration: 0
+    monkeypatch.setattr(ui_touch_actions, "_get_rpc", lambda params, context: (rpc, None))
+
+    context = ExecutionContext(payload={})
+    result = ui_touch_actions.swipe({"direction": "up"}, context)
+
+    assert result.ok is True
+    assert result.code == "ok"
+    assert result.data["raw_result"] == 0

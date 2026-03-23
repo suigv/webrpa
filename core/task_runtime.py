@@ -131,7 +131,6 @@ class TaskTargetRuntimeResolver:
                 "message": f"cloud_id out of range for device {device_id}: {cloud_id}",
             }
 
-        assert cloud is not None
         availability_state = str(cloud.get("availability_state") or "unknown")
         if enforce_availability and availability_state != "available":
             return None, {
@@ -156,14 +155,6 @@ class TaskTargetRuntimeResolver:
                     }
             except Exception:
                 pass
-
-        if cloud is None or not isinstance(info, dict):
-            return None, {
-                "ok": False,
-                "status": "failed_target_validation",
-                "code": "cloud_not_found",
-                "message": f"unexpected state reflecting cloud {device_id}-{cloud_id}",
-            }
 
         return {
             "device_id": device_id,

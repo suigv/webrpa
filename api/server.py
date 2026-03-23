@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 
 from api.auth import get_jwt_settings, require_http_jwt
+from api.routes import ai_dialog as ai_dialog_route
 from api.routes import config as config_route
 from api.routes import data as data_route
 from api.routes import devices as devices_route
@@ -129,6 +130,7 @@ app.add_middleware(
 
 app.include_router(devices_route.router, prefix="/api/devices", tags=["devices"])
 app.include_router(tasks_route.router, prefix="/api/tasks", tags=["tasks"])
+app.include_router(ai_dialog_route.router, prefix="/api/ai_dialog", tags=["ai_dialog"])
 app.include_router(config_route.router, prefix="/api/config", tags=["config"])
 app.include_router(data_route.router, prefix="/api/data", tags=["data"])
 app.include_router(engine_routes.router, prefix="/api/engine", tags=["engine"])

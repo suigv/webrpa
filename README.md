@@ -9,6 +9,8 @@
 - Web 控制台入口与日志 WebSocket 路由（`/web` + `/ws/logs`，推荐由 Nginx 托管前端并反代 API）
 - **Account Store (SQLite)**: 账号池全面迁移至 SQLite (BaseStore)，支持高并发原子化抽号与状态管理。
 - 云机详情页提供 AI 对话入口，可用自然语言下发 `agent_executor` 任务。
+- AI 对话入口已包含轻量 planner、快捷历史重放和执行浮层，普通用户无需再手动填写状态集合、动作集合或步数上限。
+- AI 执行浮层现在直接展示当前云机截图流和轻控制面板，任务暂停或需要人工介入时无需切回设备详情页。
 
 ---
 
@@ -65,9 +67,8 @@
 说明：
 - `task` 与 `payload` 是异步任务的主入口
 - `payload` 只承载插件 `manifest.inputs` 中声明的业务输入；运行时上下文如 `device_id/cloud_id/device_ip` 不应混入其中
-- 托管任务提交必须显式提供 `targets` 或兼容输入 `devices`；两者都缺失时请求会被拒绝
-- `targets` 是推荐目标声明方式；每项为 `{device_id, cloud_id}`
-- `devices` 仍可作为兼容输入，但控制面内部会归一到显式 `targets`
+- 托管任务提交必须显式提供 `targets`；缺失时请求会被拒绝
+- `targets` 是唯一目标声明方式；每项为 `{device_id, cloud_id}`
 - HTTP 调用方应以 `Content-Type: application/json` 发送该请求体；前端共享提交入口已按此契约对齐
 - `app_id` 不是通用保留字段；只有插件显式声明 `app_id` 输入时，才允许出现在 `payload`
 - `script` 仅用于匿名脚本直提交流程；常规插件任务优先使用 `task + payload`
@@ -126,6 +127,8 @@
 - workflow draft 蒸馏输出默认位于 `plugins/.drafts/<plugin_name>_draft/`，避免未审核草稿被立即当作正式插件加载
 - workflow draft 成功回放支持“历史查看 / 编辑并重放”，并会冻结最近成功样本的 `app_id` 与显式身份引用，确保后续 replay 更可预测
 - `agent_executor` 现在显式构造 planner artifact：把任务目标、可见输入、可选 app hint、可选 advanced prompt 分层后交给 planner，而不是继续把对话意图隐式散落在 executor 热路径里
+- `agent_executor` 现已支持从 app payload 自动推断 `expected_state_ids` 和 `allowed_actions`，云机 AI 对话入口默认只暴露 `goal`、`app_id`、账号和可选高级提示
+- 新增 `POST /api/ai_dialog/planner` 与 `GET /api/ai_dialog/history`：前者负责轻量意图归一和参数建议，后者提供 AI 对话快捷历史的一键执行 / 编辑后执行入口
 - 任务控制面新增 `pause` / `resume` / `takeover` 显式契约；其目标是管理型任务的可观测控制边界，而不是承诺任意运行中热编辑
 - `wait_until` 已补齐 success-before-timeout、`on_timeout goto`、`on_fail`、取消态与动态重轮询语义
 - `ExecutionContext.session.defaults` 已作为最小任务级默认值接缝落地，保持显式 action 参数优先，其次 session defaults，最后回退到原始 payload
@@ -156,7 +159,9 @@
 - 共享 RPC 启动/关闭逻辑已收敛到 `engine/actions/_rpc_bootstrap.py`
 - selector/node 子系统与状态提取逻辑已拆到内部 helper，避免动作模块继续膨胀
 - `core/task_control.py` 中的账号反馈策略已下沉到 `core/account_feedback.py`
+- 设备轻控制接口（tap/swipe/key/text）支持 `trace_context`，人工接管操作会写入同一条 `ModelTraceStore` 轨迹并标记 `source=human` / `human_guided=true`
 - `hardware_adapters/mytRpc.py` 已补齐 pointer ownership / timeout / failure-safe 处理，RPC 启用与 `MYT_ENABLE_RPC=0` 禁用路径均已支持
+- `swipe` 成功判定已兼容底层传输返回 `0/1/True`，避免滑动已执行但上层被误判为 `swipe_failed`
 
 ### 7) 已内置插件示例
 

@@ -9,8 +9,8 @@ from datetime import UTC, datetime
 from typing import Any
 
 from engine.action_dispatcher import dispatch_action
-from engine.actions._context_value_support import merge_legacy_payload_device_ip
 from engine.action_registry import get_registry, register_defaults
+from engine.actions._context_value_support import merge_legacy_payload_device_ip
 from engine.conditions import browser_condition_state_id
 from engine.conditions import evaluate as eval_condition
 from engine.models.manifest import PluginInput
@@ -206,6 +206,22 @@ class Interpreter:
                     "message": result.message,
                 }
             )
+
+        self._apply_post_action_wait(step, context)
+
+    def _apply_post_action_wait(self, step: ActionStep, context: ExecutionContext) -> None:
+        if step.action == "ui.wait_until":
+            return
+        helper = context.humanized
+        wait_seconds = helper.action_wait_seconds(
+            context.payload.get("_wait_min_ms", 0),
+            context.payload.get("_wait_max_ms", 0),
+        )
+        if wait_seconds <= 0:
+            return
+        self._check_cancelled(context)
+        time.sleep(wait_seconds)
+        self._check_cancelled(context)
 
     @staticmethod
     def _payload_scope(context: ExecutionContext) -> dict[str, Any]:

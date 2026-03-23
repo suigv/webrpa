@@ -4,8 +4,7 @@ import threading
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime
-from enum import Enum
-from typing import Any, Literal, cast
+from typing import Any, Literal
 
 from models.device import DeviceStatus
 
@@ -26,9 +25,8 @@ ProbeSubscriber = Callable[[dict[str, Any]], None]
 
 
 class Device:
-    def __init__(self, device_id: int, ai_type: str = "default"):
+    def __init__(self, device_id: int):
         self.device_id = device_id
-        self.ai_type = ai_type
         self.status = DeviceStatus.IDLE
         self.current_task: str | None = None
         self.message: str | None = None
@@ -286,14 +284,12 @@ class DeviceManager:
                 next_devices[device_id] = existing.get(device_id, Device(device_id))
             self._devices = next_devices
 
-    def get_device(self, device_id: int, ai_type: str = "default") -> Device:
+    def get_device(self, device_id: int) -> Device:
         self._sync_devices_with_config()
         with self._devices_lock:
             if device_id not in self._devices:
                 raise KeyError(f"device_id out of range: {device_id}")
-            device = self._devices[device_id]
-            device.ai_type = ai_type
-            return device
+            return self._devices[device_id]
 
     def get_all_devices(self) -> dict[int, Device]:
         self._sync_devices_with_config()
@@ -424,9 +420,6 @@ class DeviceManager:
         for cloud in clouds:
             cloud["status"] = effective_status.value
 
-        ai_type_raw = cast(Any, device.ai_type)
-        ai_type_value = ai_type_raw.value if isinstance(ai_type_raw, Enum) else ai_type_raw
-
         return {
             "schema_version": get_schema_version(),
             "allocation_version": get_allocation_version(),
@@ -434,7 +427,6 @@ class DeviceManager:
             "ip": device_ip,
             "sdk_port": get_sdk_port(),
             "sdk_port_role": "device_control_api",
-            "ai_type": ai_type_value,
             "status": effective_status.value,
             "cloud_slots_total": cloud_machines_per_device,
             "available_cloud_count": available_count,

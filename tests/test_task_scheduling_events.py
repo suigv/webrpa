@@ -94,7 +94,9 @@ class StaticDispatchRuntimeResolver:
             PreparedTaskTarget(
                 target=dispatch_target,
                 payload=dict(payload),
-                runtime={"cloud_target": f"Unit #{dispatch_target['device_id']}-{dispatch_target['cloud_id']}"},
+                runtime={
+                    "cloud_target": f"Unit #{dispatch_target['device_id']}-{dispatch_target['cloud_id']}"
+                },
             )
         ]
 
@@ -167,8 +169,7 @@ def test_run_at_delays_execution():
             "/api/tasks/",
             json={
                 "script": {"task": "anonymous", "steps": []},
-                "devices": [1],
-                "ai_type": "volc",
+                "targets": [{"device_id": 1, "cloud_id": 1}],
                 "priority": 50,
                 "run_at": run_at,
                 "max_retries": 0,
@@ -212,8 +213,7 @@ def test_priority_prefers_higher_first_when_same_run_at(tmp_path: Path, monkeypa
                 "/api/tasks/",
                 json={
                     "script": {"task": "anonymous", "steps": [], "label": "low"},
-                    "devices": [1],
-                    "ai_type": "volc",
+                    "targets": [{"device_id": 1, "cloud_id": 1}],
                     "priority": 1,
                     "run_at": run_at,
                     "max_retries": 0,
@@ -224,8 +224,7 @@ def test_priority_prefers_higher_first_when_same_run_at(tmp_path: Path, monkeypa
                 "/api/tasks/",
                 json={
                     "script": {"task": "anonymous", "steps": [], "label": "high"},
-                    "devices": [1],
-                    "ai_type": "volc",
+                    "targets": [{"device_id": 1, "cloud_id": 1}],
                     "priority": 99,
                     "run_at": run_at,
                     "max_retries": 0,
@@ -264,8 +263,7 @@ def test_task_events_sse_stream_contains_lifecycle_events(tmp_path: Path):
                 "/api/tasks/",
                 json={
                     "script": {"task": "anonymous", "steps": []},
-                    "devices": [1],
-                    "ai_type": "volc",
+                    "targets": [{"device_id": 1, "cloud_id": 1}],
                     "priority": 50,
                     "max_retries": 0,
                     "retry_backoff_seconds": 0,
@@ -318,8 +316,7 @@ def test_task_events_sse_stream_contains_retry_and_failed_terminal_events(tmp_pa
                 "/api/tasks/",
                 json={
                     "script": {"task": "nonexistent_task"},
-                    "devices": [1],
-                    "ai_type": "volc",
+                    "targets": [{"device_id": 1, "cloud_id": 1}],
                     "priority": 50,
                     "max_retries": 2,
                     "retry_backoff_seconds": 0,
@@ -423,8 +420,7 @@ def test_pending_task_cancel_emits_cancel_requested_and_cancelled_without_starti
             "/api/tasks/",
             json={
                 "script": {"task": "anonymous", "steps": []},
-                "devices": [1],
-                "ai_type": "volc",
+                "targets": [{"device_id": 1, "cloud_id": 1}],
                 "priority": 50,
                 "run_at": run_at,
                 "max_retries": 0,
@@ -560,7 +556,6 @@ def test_trace_managed_gpt_execution_persists_jsonl_without_raw_trace_events(tmp
                         "max_steps": 4,
                     },
                     "targets": [{"device_id": 7, "cloud_id": 2}],
-                    "ai_type": "volc",
                 },
             )
             assert create.status_code == 200
@@ -629,7 +624,6 @@ def test_trace_persistence_failure_propagates_through_existing_task_failure_path
                         "max_steps": 4,
                     },
                     "targets": [{"device_id": 7, "cloud_id": 2}],
-                    "ai_type": "volc",
                     "max_retries": 0,
                     "retry_backoff_seconds": 0,
                 },
@@ -705,7 +699,6 @@ def test_trace_managed_gpt_execution_uses_browser_observation_modality(tmp_path:
                         "max_steps": 4,
                     },
                     "targets": [{"device_id": 7, "cloud_id": 2}],
-                    "ai_type": "volc",
                 },
             )
             assert create.status_code == 200

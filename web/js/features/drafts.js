@@ -334,7 +334,6 @@ async function openReplayInTasksTab(draft) {
         displayName: String(draft?.display_name || '').trim(),
         draftId,
         successThreshold: Number(draft?.success_threshold || 3),
-        aiType: String(snapshot.ai_type || 'default'),
     });
     toast.info('已载入草稿快照，可修改后提交');
 }
@@ -381,7 +380,6 @@ async function applySuggestion(draft) {
         displayName: String(draft?.display_name || '').trim(),
         draftId,
         successThreshold: Number(draft?.success_threshold || 3),
-        aiType: String(snapshot.ai_type || 'default'),
     });
     toast.info('已应用建议到任务表单');
 }

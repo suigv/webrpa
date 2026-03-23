@@ -8,7 +8,7 @@ import core.config_loader as config_loader
 
 
 def test_normalize_config_preserves_legacy_humanization_compatibility() -> None:
-    normalized = config_loader.normalize_config(
+    normalized = config_loader.ConfigStore.model_validate(
         {
             "host_ip": "127.0.0.1",
             "device_ips": {},
@@ -20,7 +20,7 @@ def test_normalize_config_preserves_legacy_humanization_compatibility() -> None:
             "humanization_delay_ms": "12",
             "humanization_jitter_ms": "7",
         }
-    )
+    ).model_dump(mode="python")
 
     assert normalized["humanized"]["enabled"] is False
     assert normalized["humanized"]["random_seed"] == 17
@@ -56,7 +56,7 @@ def test_config_loader_update_uses_cached_config_seam_and_writes_normalized_payl
         persisted_humanized = cast(dict[str, object], persisted["humanized"])
         assert isinstance(config_loader.ConfigLoader._config, config_loader.ConfigStore)
         assert config_loader.ConfigLoader._config.model_dump(mode="python") == persisted
-        assert persisted["default_ai"] == "openai"
+        assert "default_ai" not in persisted
         assert persisted_humanized["enabled"] is False
         assert persisted_humanized["random_seed"] == 41
         assert persisted["humanization_enabled"] is False

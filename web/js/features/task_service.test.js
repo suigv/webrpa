@@ -147,3 +147,27 @@ test('prepareTaskPayload injects app_id only when the task declares it', async (
     assert.deepEqual(declaredPayload, { app_id: 'wechat' });
     assert.deepEqual(undeclaredPayload, {});
 });
+
+test('resolveTaskAppContext prefers explicit payload then manifest default', async () => {
+    installGlobals([
+        {
+            task: 'x_follow_followers',
+            inputs: [{ name: 'app_id', default: 'x' }],
+        },
+        {
+            task: 'plain_task',
+            inputs: [{ name: 'keyword' }],
+        },
+    ]);
+
+    const { resolveTaskAppContext } = await import(`./task_service.js?case=${Date.now()}-context`);
+    const explicit = await resolveTaskAppContext('x_follow_followers', {
+        rawPayload: { app_id: 'wechat' },
+    });
+    const declared = await resolveTaskAppContext('x_follow_followers');
+    const undeclared = await resolveTaskAppContext('plain_task');
+
+    assert.equal(explicit, 'wechat');
+    assert.equal(declared, 'x');
+    assert.equal(undeclared, '');
+});

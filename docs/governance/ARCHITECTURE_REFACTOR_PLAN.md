@@ -1,6 +1,6 @@
 # 架构重构执行计划
 
-> 状态：待执行 | 最后更新：2026-03-22
+> 状态：已落地 | 最后更新：2026-03-23
 
 ## 已完成的前置修复（勿重复）
 
@@ -262,12 +262,12 @@ if stage_patterns:
 
 #### 实现要点
 
-- [ ] 5A.1 新增 `_pipeline` 内置 runner，按顺序依次调用各插件
-- [ ] 5A.2 支持 `repeat: N`（重复 N 次，`0` 表示无限循环直到取消）
-- [ ] 5A.3 支持 `repeat_interval_ms`：每轮之间的等待时间
-- [ ] 5A.4 任务事件：每个子步骤完成时发出 `pipeline.step_done` 事件
-- [ ] 5A.5 取消支持：取消 pipeline 时，当前执行中的子步骤也能感知并停止
-- [ ] 5A.6 前端 UI：Pipeline 编排界面，拖拽排序插件，设置重复次数
+- [x] 5A.1 新增 `_pipeline` 内置 runner，按顺序依次调用各插件
+- [x] 5A.2 支持 `repeat: N`（重复 N 次，`0` 表示无限循环直到取消）
+- [x] 5A.3 支持 `repeat_interval_ms`：每轮之间的等待时间
+- [x] 5A.4 任务事件：每个子步骤完成时发出 `pipeline.step_done` 事件
+- [x] 5A.5 取消支持：取消 pipeline 时，当前执行中的子步骤也能感知并停止
+- [x] 5A.6 前端 UI：Pipeline 编排界面，拖拽排序插件，设置重复次数
 
 ### 5B：全局执行速度控制
 
@@ -285,11 +285,11 @@ if stage_patterns:
 
 #### 实现要点
 
-- [ ] 5B.1 拟真引擎（HumanizedHelper）读取这些参数，调整操作间隔倍率
-- [ ] 5B.2 Interpreter 在每个 action 执行后，追加 `random.uniform(_wait_min_ms, _wait_max_ms)` ms 等待
-- [ ] 5B.3 `_` 前缀为框架保留命名空间，蒸馏不应硬编码这些值
-- [ ] 5B.4 `_speed` 不影响 `ui.wait_until` 超时，只影响操作间主动等待
-- [ ] 5B.5 前端 UI：任务提交界面统一展示速度滑块和高级等待参数
+- [x] 5B.1 拟真引擎（HumanizedHelper）读取这些参数，调整操作间隔倍率
+- [x] 5B.2 Interpreter 在每个 action 执行后，追加 `random.uniform(_wait_min_ms, _wait_max_ms)` ms 等待
+- [x] 5B.3 `_` 前缀为框架保留命名空间，蒸馏不应硬编码这些值
+- [x] 5B.4 `_speed` 不影响 `ui.wait_until` 超时，只影响操作间主动等待
+- [x] 5B.5 前端 UI：任务提交界面统一展示速度滑块和高级等待参数
 
 ---
 

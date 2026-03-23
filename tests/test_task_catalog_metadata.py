@@ -31,6 +31,24 @@ def test_task_catalog_returns_input_metadata_for_new_device_plugin():
     assert all(item["name"] != "app_id" for item in inputs)
 
 
+def test_task_catalog_exposes_builtin_pipeline_entry():
+    client = TestClient(app)
+    response = client.get("/api/tasks/catalog")
+
+    assert response.status_code == 200
+    tasks = response.json()["tasks"]
+    pipeline = next(item for item in tasks if item["task"] == "_pipeline")
+
+    assert pipeline["display_name"] == "Pipeline 编排"
+    assert pipeline["distillable"] is False
+    assert pipeline["visible_in_task_catalog"] is True
+    assert pipeline["required"] == ["steps"]
+    inputs = {item["name"]: item for item in pipeline["inputs"]}
+    assert inputs["steps"]["widget"] == "hidden"
+    assert inputs["repeat"]["default"] == 1
+    assert inputs["repeat_interval_ms"]["advanced"] is True
+
+
 def test_task_catalog_device_reboot_does_not_expose_app_id_input():
     client = TestClient(app)
     response = client.get("/api/tasks/catalog")

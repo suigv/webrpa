@@ -2,6 +2,11 @@ version: v1
 package_name: com.twitter.android
 activity_name: com.twitter.android.StartActivity
 app_launch_timeout: 15
+agent_hint: |
+  界面语言可能为中文或日文。
+  登录入口通常显示为「ログイン」或「登录」。
+  若出现权限弹窗，优先处理「今はしない」「許可しない」「許可」这类按钮。
+  成功进入主页后，底部导航或主页时间线通常可见。
 
 schemes:
   home: "twitter://timeline"

@@ -3,13 +3,15 @@ from __future__ import annotations
 # pyright: reportUnknownParameterType=false, reportUnknownArgumentType=false, reportUnknownVariableType=false, reportUnknownMemberType=false, reportUnusedCallResult=false
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol, cast
 
 import yaml
 
+from core.app_config_writer import AppConfigWriter
 from core.model_trace_store import ModelTraceContext, ModelTraceStore
+from core.trace_learner import TraceLearner
 from engine.actions.sdk_config_support import (
     app_config_path,
     app_from_package,
@@ -38,6 +40,9 @@ _FRAMEWORK_OWNED_INPUT_FIELDS = frozenset(
         "state_profile_id",
         "target_label",
         "task_id",
+        "_speed",
+        "_wait_min_ms",
+        "_wait_max_ms",
     }
 )
 
@@ -79,6 +84,8 @@ class GoldenRunDraft:
     output_dir: Path
     manifest_path: Path
     script_path: Path
+    report: dict[str, object] = field(default_factory=dict)
+    report_path: Path | None = None
 
 
 class GoldenRunDistillationError(RuntimeError):
@@ -130,6 +137,7 @@ class GoldenRunDistiller:
         output_dir.mkdir(parents=True, exist_ok=True)
         manifest_path = output_dir / "manifest.yaml"
         script_path = output_dir / "script.yaml"
+        report_path = output_dir / "report.yaml"
         manifest_path.write_text(
             yaml.safe_dump(manifest.model_dump(mode="json"), sort_keys=False, allow_unicode=True),
             encoding="utf-8",
@@ -139,13 +147,26 @@ class GoldenRunDistiller:
             encoding="utf-8",
         )
         self._merge_selectors_to_app_config(step_records, script)
-        self._merge_agent_hint_candidates_to_app_config(step_records)
+        agent_hint_update = self._merge_agent_hint_candidates_to_app_config(step_records)
+        report = self._build_distillation_report(
+            context=context,
+            records=records,
+            distilled_records=step_records,
+            terminal_record=terminal_record,
+            agent_hint_update=agent_hint_update,
+        )
+        report_path.write_text(
+            yaml.safe_dump(report, sort_keys=False, allow_unicode=True),
+            encoding="utf-8",
+        )
         return GoldenRunDraft(
             manifest=manifest,
             script=script,
+            report=report,
             output_dir=output_dir,
             manifest_path=manifest_path,
             script_path=script_path,
+            report_path=report_path,
         )
 
     def _validate_golden_run(
@@ -186,7 +207,9 @@ class GoldenRunDistiller:
             )
 
         step_records = [
-            record for record in records if str(record.get("record_type") or "") == "step"
+            self._normalize_step_record(record)
+            for record in records
+            if str(record.get("record_type") or "") == "step"
         ]
         if not step_records:
             raise GoldenRunDistillationError(
@@ -195,9 +218,17 @@ class GoldenRunDistiller:
                 details={"reason": "missing_step_records"},
             )
 
+        distillable_records: list[dict[str, object]] = []
         for index, record in enumerate(step_records, start=1):
             chosen_action = str(record.get("chosen_action") or "").strip()
+            status = str(record.get("status") or "").strip().lower()
+            source = str(record.get("source") or "ai").strip().lower() or "ai"
+            human_guided = bool(record.get("human_guided"))
             if not chosen_action:
+                if status and status != "action_executed":
+                    continue
+                if source == "human" or human_guided:
+                    continue
                 raise GoldenRunDistillationError(
                     code="bad_golden_run",
                     message="golden run step is missing chosen_action",
@@ -205,6 +236,8 @@ class GoldenRunDistiller:
                 )
             params = record.get("action_params")
             if not isinstance(params, dict):
+                if source == "human" or human_guided:
+                    continue
                 raise GoldenRunDistillationError(
                     code="bad_golden_run",
                     message="golden run step is missing action_params",
@@ -212,6 +245,8 @@ class GoldenRunDistiller:
                 )
             observation = record.get("observation")
             if not isinstance(observation, dict):
+                if source == "human" or human_guided:
+                    continue
                 raise GoldenRunDistillationError(
                     code="bad_golden_run",
                     message="golden run step is missing observation payload",
@@ -220,12 +255,98 @@ class GoldenRunDistiller:
             data = observation.get("data")
             modality = str(observation.get("modality") or "").strip().lower()
             if not isinstance(data, dict) and modality not in {"vision", "vlm"}:
+                if source == "human" or human_guided:
+                    continue
                 raise GoldenRunDistillationError(
                     code="bad_golden_run",
                     message="golden run step is missing structured observation data",
                     details={"reason": "missing_structured_observation", "step_index": index},
                 )
-        return step_records, terminal_record
+            distillable_records.append(record)
+
+        if not distillable_records:
+            raise GoldenRunDistillationError(
+                code="bad_golden_run",
+                message="golden run trace must contain at least one distillable action step",
+                details={"reason": "missing_distillable_steps"},
+            )
+        return distillable_records, terminal_record
+
+    def _normalize_step_record(self, record: dict[str, object]) -> dict[str, object]:
+        normalized = dict(record)
+        action_name = str(
+            normalized.get("chosen_action") or normalized.get("action_name") or ""
+        ).strip()
+        if action_name:
+            normalized["chosen_action"] = action_name
+        source = str(normalized.get("source") or "").strip().lower() or "ai"
+        normalized["source"] = source
+        normalized["human_guided"] = bool(normalized.get("human_guided") or source == "human")
+        return normalized
+
+    def _build_distillation_report(
+        self,
+        *,
+        context: ModelTraceContext,
+        records: list[dict[str, object]],
+        distilled_records: list[dict[str, object]],
+        terminal_record: dict[str, object],
+        agent_hint_update: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        step_records = [
+            self._normalize_step_record(record)
+            for record in records
+            if str(record.get("record_type") or "") == "step"
+        ]
+        source_counts: dict[str, int] = {}
+        included_keys = {
+            (
+                int(record.get("sequence") or 0),
+                int(record.get("step_index") or 0),
+                str(record.get("chosen_action") or "").strip(),
+            )
+            for record in distilled_records
+        }
+        human_guided_steps: list[dict[str, object]] = []
+        for record in step_records:
+            source = str(record.get("source") or "ai").strip() or "ai"
+            source_counts[source] = source_counts.get(source, 0) + 1
+            if bool(record.get("human_guided")) or source == "human":
+                action_name = str(
+                    record.get("chosen_action") or record.get("action_name") or ""
+                ).strip()
+                human_guided_steps.append(
+                    {
+                        "sequence": int(record.get("sequence") or 0),
+                        "step_index": int(record.get("step_index") or 0),
+                        "action": action_name,
+                        "status": str(record.get("status") or "").strip(),
+                        "source": source,
+                        "human_guided": True,
+                        "included_in_script": (
+                            (
+                                int(record.get("sequence") or 0),
+                                int(record.get("step_index") or 0),
+                                action_name,
+                            )
+                            in included_keys
+                        ),
+                    }
+                )
+
+        return {
+            "task_id": context.task_id,
+            "run_id": context.run_id,
+            "target_label": context.target_label,
+            "attempt_number": context.attempt_number,
+            "step_records_total": len(step_records),
+            "distilled_step_count": len(distilled_records),
+            "terminal_status": str(terminal_record.get("status") or ""),
+            "terminal_code": str(terminal_record.get("code") or ""),
+            "source_counts": source_counts,
+            "human_guided_steps": human_guided_steps,
+            "agent_hint_update": dict(agent_hint_update or {}),
+        }
 
     def _build_draft(
         self,
@@ -616,7 +737,9 @@ class GoldenRunDistiller:
         # merge selectors
         if new_selectors:
             raw_selectors = doc.get("selectors")
-            existing_sel: dict[str, object] = raw_selectors if isinstance(raw_selectors, dict) else {}
+            existing_sel: dict[str, object] = (
+                raw_selectors if isinstance(raw_selectors, dict) else {}
+            )
             for key, selector in new_selectors.items():
                 if key not in existing_sel:
                     existing_sel[key] = selector
@@ -644,23 +767,27 @@ class GoldenRunDistiller:
                 doc["xml_filter"] = xml_filter
                 changed = True
 
-        if not changed:
-            return
+        if changed:
+            config_path = app_config_path(app)
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+            config_path.write_text(
+                yaml.safe_dump(doc, sort_keys=False, allow_unicode=True),
+                encoding="utf-8",
+            )
 
-        config_path = app_config_path(app)
-        config_path.parent.mkdir(parents=True, exist_ok=True)
-        config_path.write_text(
-            yaml.safe_dump(doc, sort_keys=False, allow_unicode=True),
-            encoding="utf-8",
-        )
+        learned_stage_patterns = TraceLearner().learn_from_records(records)
+        if learned_stage_patterns:
+            AppConfigWriter(threshold=1).merge_stage_resource_ids(app, learned_stage_patterns)
 
-    def _merge_agent_hint_candidates_to_app_config(self, records: list[dict[str, object]]) -> None:
+    def _merge_agent_hint_candidates_to_app_config(
+        self, records: list[dict[str, object]]
+    ) -> dict[str, object]:
         package = self._extract_package_from_records(records)
         if not package:
-            return
+            return {}
         app = app_from_package(package)
         if not app:
-            return
+            return {}
 
         candidates: list[str] = []
         for record in records:
@@ -675,7 +802,7 @@ class GoldenRunDistiller:
                 candidates.append(advanced_prompt)
 
         if not candidates:
-            return
+            return {}
 
         try:
             doc = load_app_config_document(app)
@@ -683,15 +810,28 @@ class GoldenRunDistiller:
             doc = {"version": "v1", "package_name": package}
 
         existing_raw = doc.get("agent_hint_candidates")
-        existing = [item for item in existing_raw if isinstance(item, str) and item.strip()] if isinstance(existing_raw, list) else []
+        existing = (
+            [item for item in existing_raw if isinstance(item, str) and item.strip()]
+            if isinstance(existing_raw, list)
+            else []
+        )
         merged = existing[:]
         changed = False
         for candidate in candidates:
             if candidate not in merged:
                 merged.append(candidate)
                 changed = True
+        promoted_agent_hint = str(doc.get("agent_hint") or "").strip()
+        if not promoted_agent_hint and merged:
+            promoted_agent_hint = merged[-1]
+            doc["agent_hint"] = promoted_agent_hint
+            changed = True
         if not changed:
-            return
+            return {
+                "app_id": app,
+                "candidate_count": len(merged),
+                "promoted_agent_hint": promoted_agent_hint or None,
+            }
         doc["agent_hint_candidates"] = merged[-10:]
         config_path = app_config_path(app)
         config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -699,6 +839,12 @@ class GoldenRunDistiller:
             yaml.safe_dump(doc, sort_keys=False, allow_unicode=True),
             encoding="utf-8",
         )
+        return {
+            "app_id": app,
+            "candidate_count": len(doc["agent_hint_candidates"]),
+            "promoted_agent_hint": promoted_agent_hint or None,
+            "config_path": str(config_path),
+        }
 
     # ------------------------------------------------------------------
     # LLM Draft Refiner (旁路增强)

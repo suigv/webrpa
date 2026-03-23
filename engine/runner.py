@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
+import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
@@ -16,6 +18,8 @@ from engine.parser import ScriptParser, parse_script
 from engine.plugin_loader import get_shared_plugin_loader
 
 logger = logging.getLogger(__name__)
+_PIPELINE_TASK_NAME = "_pipeline"
+_PIPELINE_WAIT_POLL_SECONDS = 0.2
 
 ALLOWED_ACTION_PREFIXES = (
     "app.",
@@ -47,7 +51,215 @@ class Runner:
 
     def _resolve_plugin_entry(self, task_name: str):
         self._plugin_loader = get_shared_plugin_loader()
+        plugin = self._plugin_loader.get(task_name)
+        if plugin is not None:
+            return plugin
+        self._plugin_loader = get_shared_plugin_loader(refresh=True)
         return self._plugin_loader.get(task_name)
+
+    def _normalize_pipeline_steps(self, raw_steps: object) -> list[dict[str, Any]]:
+        if isinstance(raw_steps, str):
+            try:
+                raw_steps = json.loads(raw_steps)
+            except Exception as exc:
+                raise ValueError("pipeline steps must be valid JSON when provided as string") from exc
+        if not isinstance(raw_steps, list) or not raw_steps:
+            raise ValueError("pipeline steps must be a non-empty list")
+        normalized: list[dict[str, Any]] = []
+        for index, item in enumerate(raw_steps, start=1):
+            if not isinstance(item, dict):
+                raise ValueError(f"pipeline step #{index} must be an object")
+            plugin_name = str(item.get("plugin") or item.get("task") or "").strip()
+            if not plugin_name:
+                raise ValueError(f"pipeline step #{index} is missing plugin")
+            if plugin_name == _PIPELINE_TASK_NAME:
+                raise ValueError("nested _pipeline steps are not supported")
+            payload = item.get("payload")
+            if payload is None:
+                payload_dict: dict[str, Any] = {}
+            elif isinstance(payload, dict):
+                payload_dict = dict(payload)
+            else:
+                raise ValueError(f"pipeline step #{index} payload must be an object")
+            label = str(item.get("label") or item.get("display_name") or plugin_name).strip()
+            normalized.append(
+                {
+                    "plugin": plugin_name,
+                    "label": label or plugin_name,
+                    "payload": payload_dict,
+                }
+            )
+        return normalized
+
+    @staticmethod
+    def _pipeline_cancelled_result(*, steps_completed: int, rounds_completed: int) -> dict[str, Any]:
+        return {
+            "ok": False,
+            "task": _PIPELINE_TASK_NAME,
+            "status": "cancelled",
+            "code": "task_cancelled",
+            "message": "pipeline cancelled by user",
+            "data": {
+                "steps_completed": steps_completed,
+                "rounds_completed": rounds_completed,
+            },
+            "timestamp": datetime.now(UTC).isoformat(),
+        }
+
+    def _run_pipeline_step(
+        self,
+        step: dict[str, Any],
+        *,
+        should_cancel: Callable[[], bool] | None = None,
+        runtime: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        child_payload = {"task": str(step["plugin"]), **dict(step.get("payload") or {})}
+        return self.run(child_payload, should_cancel=should_cancel, runtime=runtime)
+
+    def _sleep_pipeline_interval(
+        self,
+        *,
+        interval_ms: int,
+        should_cancel: Callable[[], bool] | None,
+    ) -> bool:
+        remaining = max(0.0, interval_ms / 1000.0)
+        while remaining > 0:
+            if should_cancel is not None and should_cancel():
+                return False
+            chunk = min(remaining, _PIPELINE_WAIT_POLL_SECONDS)
+            time.sleep(chunk)
+            remaining -= chunk
+        return True
+
+    def _run_pipeline(
+        self,
+        payload: dict[str, Any],
+        *,
+        should_cancel: Callable[[], bool] | None = None,
+        runtime: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        try:
+            steps = self._normalize_pipeline_steps(payload.get("steps"))
+            repeat = int(payload.get("repeat", 1) or 1)
+            repeat_interval_ms = int(payload.get("repeat_interval_ms", 0) or 0)
+        except ValueError as exc:
+            return self._dispatch_error(
+                task_name=_PIPELINE_TASK_NAME,
+                code="pipeline_config_error",
+                message=str(exc),
+            )
+        except Exception as exc:
+            return self._dispatch_error(
+                task_name=_PIPELINE_TASK_NAME,
+                code="pipeline_config_error",
+                message=f"invalid pipeline configuration: {exc}",
+            )
+
+        if repeat < 0:
+            return self._dispatch_error(
+                task_name=_PIPELINE_TASK_NAME,
+                code="pipeline_config_error",
+                message="pipeline repeat must be >= 0",
+            )
+        if repeat_interval_ms < 0:
+            return self._dispatch_error(
+                task_name=_PIPELINE_TASK_NAME,
+                code="pipeline_config_error",
+                message="pipeline repeat_interval_ms must be >= 0",
+            )
+
+        emit_event = runtime.get("emit_event") if runtime else None
+        total_steps = len(steps)
+        rounds_completed = 0
+        steps_completed = 0
+        round_index = 0
+        collected_results: list[dict[str, Any]] = []
+
+        while repeat == 0 or round_index < repeat:
+            round_index += 1
+            for step_index, step in enumerate(steps, start=1):
+                if should_cancel is not None and should_cancel():
+                    return self._pipeline_cancelled_result(
+                        steps_completed=steps_completed,
+                        rounds_completed=rounds_completed,
+                    )
+
+                child_result = self._run_pipeline_step(
+                    step,
+                    should_cancel=should_cancel,
+                    runtime=runtime,
+                )
+                steps_completed += 1
+                child_status = str(child_result.get("status") or "")
+                collected_results.append(
+                    {
+                        "round": round_index,
+                        "step": step_index,
+                        "plugin": step["plugin"],
+                        "label": step["label"],
+                        "status": child_status,
+                        "ok": bool(child_result.get("ok")),
+                        "message": str(child_result.get("message") or ""),
+                    }
+                )
+                if emit_event:
+                    emit_event(
+                        "pipeline.step_done",
+                        {
+                            "round": round_index,
+                            "repeat": repeat,
+                            "step": step_index,
+                            "total_steps": total_steps,
+                            "plugin": step["plugin"],
+                            "label": step["label"],
+                            "ok": bool(child_result.get("ok")),
+                            "status": child_status,
+                            "message": str(child_result.get("message") or ""),
+                        },
+                    )
+                if not bool(child_result.get("ok")):
+                    return {
+                        **child_result,
+                        "task": _PIPELINE_TASK_NAME,
+                        "message": (
+                            f"pipeline stopped at round {round_index} step {step_index} "
+                            f"({step['label']}): {str(child_result.get('message') or '').strip()}"
+                        ).strip(),
+                        "data": {
+                            **(
+                                child_result.get("data")
+                                if isinstance(child_result.get("data"), dict)
+                                else {}
+                            ),
+                            "steps_completed": steps_completed,
+                            "rounds_completed": rounds_completed,
+                            "pipeline_results": collected_results,
+                        },
+                    }
+            rounds_completed += 1
+            if repeat != 0 and round_index >= repeat:
+                break
+            if repeat_interval_ms > 0 and not self._sleep_pipeline_interval(
+                interval_ms=repeat_interval_ms,
+                should_cancel=should_cancel,
+            ):
+                return self._pipeline_cancelled_result(
+                    steps_completed=steps_completed,
+                    rounds_completed=rounds_completed,
+                )
+
+        return {
+            "ok": True,
+            "task": _PIPELINE_TASK_NAME,
+            "status": "completed",
+            "message": "pipeline completed",
+            "data": {
+                "steps_completed": steps_completed,
+                "rounds_completed": rounds_completed,
+                "pipeline_results": collected_results,
+            },
+            "timestamp": datetime.now(UTC).isoformat(),
+        }
 
     def run(
         self,
@@ -68,6 +280,9 @@ class Runner:
                 "message": "task cancelled by user",
                 "timestamp": datetime.now(UTC).isoformat(),
             }
+
+        if task_name == _PIPELINE_TASK_NAME:
+            return self._run_pipeline(script_payload, should_cancel=should_cancel, runtime=runtime)
 
         if task_name == self._agent_executor_runtime.task_name:
             app_id = resolve_app_id(script_payload)
@@ -223,6 +438,7 @@ class Runner:
         package = str(payload.get("package") or "").strip()
         if package:
             from core.app_config import AppConfigManager
+
             mapped = AppConfigManager.find_app_by_package(package)
             if mapped:
                 return mapped

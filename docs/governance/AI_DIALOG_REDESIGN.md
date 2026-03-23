@@ -1,6 +1,6 @@
 # AI 对话交互重构设计
 
-> 状态：设计阶段 | 最后更新：2026-03-22
+> 状态：已落地 | 最后更新：2026-03-23
 
 ## 设计原则
 
@@ -114,10 +114,10 @@ AI 操作  → trace_record(source="ai",    action="ui.click", ...)
 
 ### 实现要点
 
-- [ ] `api/routes/devices.py` tap/swipe/key_press 等接口：可选写入 trace record
-- [ ] 接管模式前端：操作时携带 `trace_context`（task_id、run_id）
-- [ ] agent_executor 暂停/恢复 API
-- [ ] trace record 新增 `source` 字段和 `human_guided` 标记
+- [x] `api/routes/devices.py` tap/swipe/key_press 等接口：可选写入 trace record
+- [x] 接管模式前端：操作时携带 `trace_context`（task_id、run_id）
+- [x] agent_executor 暂停/恢复 API
+- [x] trace record 新增 `source` 字段和 `human_guided` 标记
 
 ---
 
@@ -180,40 +180,40 @@ agent_hint: |
 ## 八、实现任务计划
 
 ### Phase 0：移除不合理参数（前置清理）
-- [ ] 0.1 前端移除 `allowed_actions` 复选框组
-- [ ] 0.2 前端移除「使用 VLM」开关
-- [ ] 0.3 前端移除 `unitAiSystemPrompt` 顶层输入框（降级为高级选项折叠区域）
-- [ ] 0.4 前端移除 `unitAiState` 状态复选框组（由框架推断）
-- [ ] 0.5 前端移除 `max_steps`、`stagnant_limit` 显式输入（保留为高级选项）
+- [x] 0.1 前端移除 `allowed_actions` 复选框组
+- [x] 0.2 前端移除「使用 VLM」开关
+- [x] 0.3 前端移除 `unitAiSystemPrompt` 顶层输入框（降级为高级选项折叠区域）
+- [x] 0.4 前端移除 `unitAiState` 状态复选框组（由框架推断）
+- [x] 0.5 前端移除 `max_steps`、`stagnant_limit` 显式输入（保留为高级选项）
 
 ### Phase 1：执行状态浮层（最高价值，独立可交付）
-- [ ] 1.1 前端新增 AI 执行浮层组件，消费 WebSocket `task.action_result` 事件
-- [ ] 1.2 浮层展示：步骤序号、label（人话描述）、成功/失败/进行中状态
-- [ ] 1.3 停滞检测触发时弹出干预选项（继续等待/我来接管/放弃）
-- [ ] 1.4 取消按钮调用现有取消任务 API
+- [x] 1.1 前端新增 AI 执行浮层组件，消费任务事件流中的 `task.action_result` 事件
+- [x] 1.2 浮层展示：步骤序号、label（人话描述）、成功/失败/进行中状态
+- [x] 1.3 停滞检测触发时弹出干预选项（继续等待/我来接管/放弃）
+- [x] 1.4 取消按钮调用现有取消任务 API
 
 ### Phase 2：交互式对话下发
-- [ ] 2.1 新增 `ai_dialog_planner` 轻量 LLM 调用：意图识别 + 参数推断
+- [x] 2.1 新增 `ai_dialog_planner` 轻量 LLM 调用：意图识别 + 参数推断
   - 使用轻量模型（Haiku 级别），控制调用成本，不用 agent_executor 同款重模型
-- [ ] 2.2 `expected_state_ids` 从 app yaml states 自动推断，无 yaml 时用 `["unknown"]`
-- [ ] 2.3 对话式账号选择（从账号池列表，按 app_id 过滤）
-- [ ] 2.4 `allowed_actions` 从 app yaml 读取，无 yaml 时用框架全集
-- [ ] 2.5 任务完成后询问是否保存为快捷任务
+- [x] 2.2 `expected_state_ids` 从 app yaml states 自动推断，无 yaml 时用 `["unknown"]`
+- [x] 2.3 对话式账号选择（从账号池列表，按 app_id 过滤）
+- [x] 2.4 `allowed_actions` 从 app yaml 读取，无 yaml 时用框架全集
+- [x] 2.5 任务完成后写入快捷任务历史
 
 ### Phase 3：历史任务快捷重放
-- [ ] 3.1 `workflow_drafts` 新增 `source: ai_dialog` 标记
-- [ ] 3.2 `GET /api/ai_dialog/history` 接口
-- [ ] 3.3 前端历史任务卡片（按 App 分组，一键执行/编辑执行）
+- [x] 3.1 `workflow_drafts` 新增 `source: ai_dialog` 标记
+- [x] 3.2 `GET /api/ai_dialog/history` 接口
+- [x] 3.3 前端历史任务卡片（按 App 分组，一键执行/编辑执行）
 
 ### Phase 4：用户接管与统一 Trace
-- [ ] 4.1 `ModelTraceStore` trace record 新增 `source`（`ai`/`human`）和 `human_guided` 字段
-- [ ] 4.2 `api/routes/devices.py` tap/swipe/key_press 接口支持可选 `trace_context` 参数，传入时写入 trace record
-- [ ] 4.3 前端接管模式持有当前 `task_id` 和 `run_id`，操作时透传
-- [ ] 4.4 agent_executor 暂停/恢复 API（接管时暂停，交还时从当前 UI 状态重新观察继续）
-- [ ] 4.5 蒸馏器不过滤 `source`，`human_guided` 步骤在蒸馏报告中标注
+- [x] 4.1 `ModelTraceStore` trace record 新增 `source`（`ai`/`human`）和 `human_guided` 字段
+- [x] 4.2 `api/routes/devices.py` tap/swipe/key_press 接口支持可选 `trace_context` 参数，传入时写入 trace record
+- [x] 4.3 前端接管模式持有当前 `task_id` 和 `run_id`，操作时透传
+- [x] 4.4 agent_executor 暂停/恢复 API（接管时暂停，交还时从当前 UI 状态重新观察继续）
+- [x] 4.5 蒸馏器不过滤 `source`，`human_guided` 步骤在蒸馏报告中标注
 
 ### Phase 5：系统提示词分层
-- [ ] 5.1 app yaml 新增 `agent_hint` 字段
-- [ ] 5.2 agent_executor 合并各层 system prompt
-- [ ] 5.3 蒸馏时从执行记录提取 agent_hint 沉淀到 app yaml
-- [ ] 5.4 前端移除顶层 system prompt 输入框，降级为高级选项
+- [x] 5.1 app yaml 新增 `agent_hint` 字段
+- [x] 5.2 agent_executor 合并各层 system prompt
+- [x] 5.3 蒸馏时从执行记录提取 agent_hint 沉淀到 app yaml
+- [x] 5.4 前端移除顶层 system prompt 输入框，降级为高级选项

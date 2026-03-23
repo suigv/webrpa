@@ -470,6 +470,7 @@ def load_ui_scheme(params: dict[str, Any], context: ExecutionContext) -> ActionR
             load_ui_config_document=_load_ui_config_document,
             load_app_config_document=_load_app_config_document,
             resolve_ui_key=_resolve_ui_key,
+            context=context,
             rpc=rpc,
         )
     finally:

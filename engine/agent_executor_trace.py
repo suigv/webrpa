@@ -117,7 +117,10 @@ class AgentExecutorTraceMixin:
         )
 
     def _append_trace(self, context: ModelTraceContext, record: dict[str, object]) -> None:
-        _ = self._trace_store.append_record(context, record)
+        payload = dict(record)
+        payload.setdefault("source", "ai")
+        payload.setdefault("human_guided", False)
+        _ = self._trace_store.append_record(context, payload)
 
     @staticmethod
     def _resolve_learning_package(target_package: str, observation: object) -> str:

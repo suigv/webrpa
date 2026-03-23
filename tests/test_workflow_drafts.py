@@ -7,12 +7,12 @@ from typing import cast
 
 import pytest
 import yaml
-
 from fastapi.testclient import TestClient
 
 from ai_services.llm_client import LLMResponse
 from api.server import app
 from core.golden_run_distillation import GoldenRunDistiller
+from core.model_trace_store import ModelTraceContext, ModelTraceStore
 from core.task_control import (
     TaskController,
     override_task_controller_for_tests,
@@ -24,9 +24,9 @@ from core.task_store import TaskStore
 from core.workflow_draft_store import WorkflowDraftRecord, WorkflowDraftStore
 from core.workflow_drafts import WorkflowDraftService
 from engine.action_registry import ActionRegistry, register_defaults, resolve_action
-from engine.models.workflow import ActionStep
 from engine.agent_executor import AgentExecutorRuntime
 from engine.models.runtime import ActionResult, ExecutionContext
+from engine.models.workflow import ActionStep, WorkflowScript
 from engine.runner import Runner
 
 
@@ -122,7 +122,9 @@ def _build_workflow_draft_service(tmp_path: Path) -> WorkflowDraftService:
     return WorkflowDraftService(store=store)
 
 
-def _create_draft(service: WorkflowDraftService, *, draft_id: str = "draft-test") -> WorkflowDraftRecord:
+def _create_draft(
+    service: WorkflowDraftService, *, draft_id: str = "draft-test"
+) -> WorkflowDraftRecord:
     record = WorkflowDraftRecord(
         draft_id=draft_id,
         display_name="X 登录",
@@ -175,8 +177,7 @@ def test_workflow_draft_failure_advice_is_exposed(tmp_path: Path):
                     "task": "missing-task",
                     "display_name": "X 登录",
                     "payload": {"goal": "帮我登录 X"},
-                    "devices": [1],
-                    "ai_type": "volc",
+                    "targets": [{"device_id": 1, "cloud_id": 1}],
                 },
             )
             assert create.status_code == 200
@@ -235,7 +236,6 @@ def test_workflow_draft_continue_and_distill_flow(tmp_path: Path, monkeypatch):
                         "max_steps": 4,
                     },
                     "targets": [{"device_id": 7, "cloud_id": 2}],
-                    "ai_type": "volc",
                 },
             )
             assert create.status_code == 200
@@ -290,6 +290,7 @@ def test_workflow_draft_continue_and_distill_flow(tmp_path: Path, monkeypatch):
             assert payload["ok"] is True
             assert Path(payload["manifest_path"]).exists()
             assert Path(payload["script_path"]).exists()
+            assert Path(payload["report_path"]).exists()
             assert str(payload["output_dir"]).startswith(str(plugins_root))
 
             distilled_detail = client.get(f"/api/tasks/drafts/{draft_id}")
@@ -321,8 +322,7 @@ def test_workflow_draft_rejects_identity_mismatch(tmp_path: Path):
                     "task": "agent_executor",
                     "display_name": "X 登录",
                     "payload": {"goal": "用绑定账号登录 X"},
-                    "devices": [1],
-                    "ai_type": "volc",
+                    "targets": [{"device_id": 1, "cloud_id": 1}],
                 },
             )
             assert create.status_code == 200
@@ -335,8 +335,7 @@ def test_workflow_draft_rejects_identity_mismatch(tmp_path: Path):
                     "display_name": "Y 登录",
                     "draft_id": draft_id,
                     "payload": {"goal": "用绑定账号登录 Y"},
-                    "devices": [1],
-                    "ai_type": "volc",
+                    "targets": [{"device_id": 1, "cloud_id": 1}],
                 },
             )
             assert mismatch_name.status_code == 400
@@ -349,8 +348,7 @@ def test_workflow_draft_rejects_identity_mismatch(tmp_path: Path):
                     "display_name": "X 登录",
                     "draft_id": draft_id,
                     "payload": {"goal": "执行别的任务"},
-                    "devices": [1],
-                    "ai_type": "volc",
+                    "targets": [{"device_id": 1, "cloud_id": 1}],
                 },
             )
             assert mismatch_task.status_code == 400
@@ -372,9 +370,7 @@ def test_workflow_draft_cancel_and_cleanup_keep_state_consistent(tmp_path: Path)
     try:
         created = controller.submit_with_retry(
             payload={"task": "agent_executor", "goal": "用绑定账号登录 X"},
-            devices=[1],
-            targets=None,
-            ai_type="volc",
+            targets=[{"device_id": 1, "cloud_id": 1}],
             max_retries=0,
             retry_backoff_seconds=0,
             priority=50,
@@ -430,7 +426,6 @@ def test_workflow_draft_records_ambiguous_latest_success_without_trace_context(
         payload={"task": "agent_executor", "_workflow_draft_id": "draft-test", "goal": "登录 X"},
         devices=[7],
         targets=[{"device_id": 7, "cloud_id": 2}],
-        ai_type="default",
         max_retries=0,
         retry_backoff_seconds=2,
         priority=50,
@@ -486,7 +481,9 @@ def test_workflow_draft_distill_falls_back_to_latest_unambiguous_success_when_sn
     assert resolved.target_label == "target-b"
 
 
-def test_list_trace_contexts_orders_equal_mtime_entries_deterministically(tmp_path: Path, monkeypatch):
+def test_list_trace_contexts_orders_equal_mtime_entries_deterministically(
+    tmp_path: Path, monkeypatch
+):
     traces_root = tmp_path / "traces"
 
     import core.workflow_drafts as workflow_drafts_module
@@ -562,6 +559,215 @@ def test_golden_run_distillation_keeps_framework_owned_fields_out_of_manifest_in
     assert first_step.params["state_profile_id"] == "app_stage"
 
 
+def test_golden_run_distillation_merges_stage_patterns_into_app_config(tmp_path: Path, monkeypatch):
+    app_config = tmp_path / "x.yaml"
+    app_config.write_text(
+        yaml.safe_dump(
+            {
+                "version": "v1",
+                "package_name": "com.twitter.android",
+                "stage_patterns": {},
+                "states": [],
+                "selectors": {},
+            },
+            sort_keys=False,
+            allow_unicode=True,
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        "core.golden_run_distillation.app_from_package", lambda package: "x" if package else ""
+    )
+    monkeypatch.setattr("core.golden_run_distillation.app_config_path", lambda app_id: app_config)
+    monkeypatch.setattr(
+        "core.golden_run_distillation.load_app_config_document",
+        lambda app_id: yaml.safe_load(app_config.read_text(encoding="utf-8")),
+    )
+    monkeypatch.setattr(
+        "core.app_config.AppConfigManager.load_app_config",
+        lambda app_id: yaml.safe_load(app_config.read_text(encoding="utf-8")),
+    )
+    monkeypatch.setattr(
+        "core.app_config.AppConfigManager.write_app_config",
+        lambda app_id, document: (
+            app_config.write_text(
+                yaml.safe_dump(document, sort_keys=False, allow_unicode=True),
+                encoding="utf-8",
+            )
+            or app_config
+        ),
+    )
+    monkeypatch.setattr(
+        "core.app_config_writer._learned_ids_path",
+        lambda: tmp_path / "learned_ids.json",
+    )
+
+    distiller = GoldenRunDistiller()
+    distiller._merge_selectors_to_app_config(
+        records=[
+            {
+                "record_type": "step",
+                "observation": {
+                    "data": {
+                        "package": "com.twitter.android",
+                        "state": {"state_id": "home"},
+                    }
+                },
+                "action_params": {},
+                "action_result": {"data": {"resource_id": "com.twitter.android:id/tabs"}},
+            },
+            {
+                "record_type": "step",
+                "observation": {
+                    "data": {
+                        "package": "com.twitter.android",
+                        "state": {"state_id": "home"},
+                    }
+                },
+                "action_params": {"resource_id": "com.twitter.android:id/composer_write"},
+                "action_result": {"data": {}},
+            },
+        ],
+        script=WorkflowScript(version="v1", workflow="x_distilled_test", steps=[]),
+    )
+
+    document = yaml.safe_load(app_config.read_text(encoding="utf-8"))
+    assert document["stage_patterns"]["home"]["resource_ids"] == [
+        "com.twitter.android:id/tabs",
+        "com.twitter.android:id/composer_write",
+    ]
+
+
+def test_golden_run_distillation_reports_human_guided_steps_without_blocking_distill(
+    tmp_path: Path, monkeypatch
+):
+    trace_store = ModelTraceStore(root_dir=tmp_path / "traces")
+    context = ModelTraceContext(
+        task_id="task-1",
+        run_id="run-1",
+        target_label="Unit #1-1",
+        attempt_number=1,
+    )
+    trace_store.append_record(
+        context,
+        {
+            "sequence": 1,
+            "step_index": 1,
+            "record_type": "step",
+            "status": "action_executed",
+            "chosen_action": "ui.click",
+            "action_params": {"text": "登录"},
+            "action_result": {"ok": True, "data": {"clicked": True}},
+            "observation": {
+                "ok": True,
+                "modality": "structured_state",
+                "observed_state_ids": ["login"],
+                "data": {"package": "com.twitter.android", "state": {"state_id": "login"}},
+            },
+        },
+    )
+    trace_store.append_record(
+        context,
+        {
+            "sequence": 2,
+            "step_index": 2,
+            "record_type": "step",
+            "status": "action_executed",
+            "source": "human",
+            "human_guided": True,
+            "action_name": "ui.click",
+            "action_params": {"nx": 500, "ny": 500},
+            "action_result": {"ok": True, "data": {"nx": 500, "ny": 500}},
+        },
+    )
+    trace_store.append_record(
+        context,
+        {
+            "sequence": 3,
+            "step_index": 2,
+            "record_type": "terminal",
+            "status": "completed",
+            "message": "done",
+        },
+    )
+    monkeypatch.setattr("core.golden_run_distillation.app_from_package", lambda package: "")
+
+    draft = GoldenRunDistiller(trace_store=trace_store).distill(
+        context=context,
+        output_dir=tmp_path / "draft",
+        plugin_name="x_distilled_test",
+        display_name="X Distilled Test",
+    )
+
+    report = yaml.safe_load(draft.report_path.read_text(encoding="utf-8"))
+    assert report["source_counts"] == {"ai": 1, "human": 1}
+    assert report["distilled_step_count"] == 1
+    assert report["human_guided_steps"] == [
+        {
+            "sequence": 2,
+            "step_index": 2,
+            "action": "ui.click",
+            "status": "action_executed",
+            "source": "human",
+            "human_guided": True,
+            "included_in_script": False,
+        }
+    ]
+    first_step = cast(ActionStep, draft.script.steps[0])
+    assert first_step.action == "ui.click"
+
+
+def test_golden_run_distillation_promotes_agent_hint_candidate_when_missing(
+    tmp_path: Path, monkeypatch
+):
+    app_config = tmp_path / "x.yaml"
+    app_config.write_text(
+        yaml.safe_dump(
+            {
+                "version": "v1",
+                "package_name": "com.twitter.android",
+                "selectors": {},
+                "states": [],
+            },
+            sort_keys=False,
+            allow_unicode=True,
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        "core.golden_run_distillation.app_from_package", lambda package: "x" if package else ""
+    )
+    monkeypatch.setattr("core.golden_run_distillation.app_config_path", lambda app_id: app_config)
+    monkeypatch.setattr(
+        "core.golden_run_distillation.load_app_config_document",
+        lambda app_id: yaml.safe_load(app_config.read_text(encoding="utf-8")),
+    )
+
+    result = GoldenRunDistiller()._merge_agent_hint_candidates_to_app_config(
+        [
+            {
+                "observation": {
+                    "data": {
+                        "package": "com.twitter.android",
+                    }
+                },
+                "planner": {
+                    "planner_artifact": {
+                        "advanced_prompt": "首页优先检查是否有升级弹窗，有则先关闭。",
+                    }
+                },
+            }
+        ]
+    )
+
+    document = yaml.safe_load(app_config.read_text(encoding="utf-8"))
+    assert document["agent_hint_candidates"] == ["首页优先检查是否有升级弹窗，有则先关闭。"]
+    assert document["agent_hint"] == "首页优先检查是否有升级弹窗，有则先关闭。"
+    assert result["promoted_agent_hint"] == "首页优先检查是否有升级弹窗，有则先关闭。"
+
+
 def test_ui_wait_until_infers_app_stage_from_injected_patterns(monkeypatch):
     import engine.actions.ui_state_actions as ui_state_actions
 
@@ -574,7 +780,9 @@ def test_ui_wait_until_infers_app_stage_from_injected_patterns(monkeypatch):
             captured["binding_id"] = binding_id
             captured["action_params"] = dict(action_params or {})
 
-        def wait_until(self, context: ExecutionContext, *, expected_state_ids, timeout_ms, interval_ms):
+        def wait_until(
+            self, context: ExecutionContext, *, expected_state_ids, timeout_ms, interval_ms
+        ):
             _ = (context, expected_state_ids, timeout_ms, interval_ms)
 
             class _Result:

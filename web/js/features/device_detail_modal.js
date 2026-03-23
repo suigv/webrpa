@@ -44,7 +44,6 @@ export function openDeviceDetail(unit) {
     grid.append(createTextBlock('ADB 端口', unit.rpa_port));
     grid.append(createTextBlock('API 端口', unit.api_port));
     grid.append(createTextBlock('云机型号', unit.machine_model_name || '标准型'));
-    grid.append(createTextBlock('AI 引擎', unit.ai_type));
     grid.append(
         createTextBlock(
             '状态',

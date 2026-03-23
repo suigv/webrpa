@@ -8,7 +8,7 @@ from core.device_manager import get_device_manager
 from engine.action_registry import ActionMetadata
 from engine.actions import _rpc_bootstrap
 from engine.models.runtime import ActionResult, ErrorType, ExecutionContext
-from hardware_adapters.mytRpc import MytRpc
+from hardware_adapters.mytRpc import MytRpc, swipe_transport_acknowledged
 
 CLICK_METADATA = ActionMetadata(
     description="点击屏幕坐标 (x, y)",
@@ -277,7 +277,7 @@ def swipe(
         x0, y0, x1, y1 = coords["x0"], coords["y0"], coords["x1"], coords["y1"]
         duration = int(normalized.get("duration", 300))
         raw_result = rpc.swipe(finger_id, x0, y0, x1, y1, duration) if rpc is not None else False
-        ok = bool(raw_result)
+        ok = swipe_transport_acknowledged(raw_result)
         data = {
             "x0": x0,
             "y0": y0,

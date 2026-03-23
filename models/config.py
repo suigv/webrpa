@@ -15,7 +15,6 @@ DEFAULT_CLOUD_MACHINES_PER_DEVICE = 12
 DEFAULT_SDK_PORT = 8000
 DEFAULT_HOST_IP = "127.0.0.1"
 DEFAULT_TOTAL_DEVICES = 1
-DEFAULT_DEFAULT_AI = "volc"
 DEFAULT_STOP_HOUR = 18
 DEFAULT_CYCLE_INTERVAL = 15
 DEFAULT_JUDGE_MODE = "lite"
@@ -338,6 +337,7 @@ def _normalize_humanized_runtime(
 
 def _normalize_config_payload(raw: dict[str, object], humanized: BaseModel) -> dict[str, object]:
     normalized: dict[str, object] = dict(raw)
+    normalized.pop("default_ai", None)
 
     host_ip = str(raw.get("host_ip", DEFAULT_HOST_IP))
     normalized["host_ip"] = host_ip
@@ -381,7 +381,6 @@ def _normalize_config_payload(raw: dict[str, object], humanized: BaseModel) -> d
         sdk_port = DEFAULT_SDK_PORT
     normalized["sdk_port"] = sdk_port
 
-    normalized["default_ai"] = str(raw.get("default_ai", DEFAULT_DEFAULT_AI))
     stop_hour = _coerce_optional_int(raw.get("stop_hour"))
     if stop_hour is None or not (0 <= stop_hour <= 23):
         stop_hour = DEFAULT_STOP_HOUR
@@ -462,7 +461,7 @@ def _normalize_config_payload(raw: dict[str, object], humanized: BaseModel) -> d
 
 
 class Config(BaseModel):
-    model_config: ClassVar[ConfigDict] = ConfigDict(extra="allow")
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore")
 
     schema_version: int = DEFAULT_SCHEMA_VERSION
     allocation_version: int = DEFAULT_ALLOCATION_VERSION
@@ -475,7 +474,6 @@ class Config(BaseModel):
     discovered_total_devices: int = 0
     cloud_machines_per_device: int = DEFAULT_CLOUD_MACHINES_PER_DEVICE
     sdk_port: int = DEFAULT_SDK_PORT
-    default_ai: str = DEFAULT_DEFAULT_AI
     stop_hour: int | None = DEFAULT_STOP_HOUR
     cycle_interval: int = DEFAULT_CYCLE_INTERVAL
     judge_mode: str = DEFAULT_JUDGE_MODE
@@ -523,7 +521,6 @@ class ConfigStore(BaseModel):
     discovered_total_devices: int = 0
     cloud_machines_per_device: int = DEFAULT_CLOUD_MACHINES_PER_DEVICE
     sdk_port: int = DEFAULT_SDK_PORT
-    default_ai: str = DEFAULT_DEFAULT_AI
     stop_hour: int | None = DEFAULT_STOP_HOUR
     cycle_interval: int = DEFAULT_CYCLE_INTERVAL
     judge_mode: str = DEFAULT_JUDGE_MODE
@@ -560,6 +557,7 @@ def _normalize_update_payload(
     normalize_humanized: Callable[[object, dict[str, object]], object],
 ) -> dict[str, object]:
     normalized: dict[str, object] = dict(raw)
+    normalized.pop("default_ai", None)
 
     if "schema_version" in raw:
         normalized["schema_version"] = _coerce_int(
@@ -588,8 +586,6 @@ def _normalize_update_payload(
         normalized["cloud_machines_per_device"] = max(1, cloud_machines_per_device)
     if "sdk_port" in raw:
         normalized["sdk_port"] = _coerce_int(raw.get("sdk_port"), DEFAULT_SDK_PORT)
-    if "default_ai" in raw:
-        normalized["default_ai"] = str(raw.get("default_ai"))
     if "stop_hour" in raw:
         stop_hour = _coerce_optional_int(raw.get("stop_hour"))
         if stop_hour is None or not (0 <= stop_hour <= 23):
@@ -664,7 +660,7 @@ def _normalize_update_payload(
 
 
 class ConfigUpdate(BaseModel):
-    model_config: ClassVar[ConfigDict] = ConfigDict(extra="allow")
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore")
 
     schema_version: int | None = None
     allocation_version: int | None = None
@@ -675,7 +671,6 @@ class ConfigUpdate(BaseModel):
     discovery_subnet: str | None = None
     cloud_machines_per_device: int | None = None
     sdk_port: int | None = None
-    default_ai: str | None = None
     stop_hour: int | None = DEFAULT_STOP_HOUR
     cycle_interval: int | None = None
     judge_mode: str | None = None
@@ -718,7 +713,6 @@ class ConfigStoreUpdate(BaseModel):
     discovery_subnet: str | None = None
     cloud_machines_per_device: int | None = None
     sdk_port: int | None = None
-    default_ai: str | None = None
     stop_hour: int | None = DEFAULT_STOP_HOUR
     cycle_interval: int | None = None
     judge_mode: str | None = None

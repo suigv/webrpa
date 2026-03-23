@@ -9,13 +9,13 @@ from fastapi.testclient import TestClient
 from api.server import app
 from core.account_feedback import AccountFeedbackService
 from core.device_manager import DeviceManager
-from core.task_events import TaskEventStore
-from core.task_finalizer import TaskAttemptFinalizer
 from core.task_control import (
     TaskController,
     override_task_controller_for_tests,
     reset_task_controller_for_tests,
 )
+from core.task_events import TaskEventStore
+from core.task_finalizer import TaskAttemptFinalizer
 from core.task_queue import InMemoryTaskQueue
 from core.task_store import TaskStore
 
@@ -67,6 +67,30 @@ class ExceptionAfterCancelRunner:
         return {"ok": True, "status": "completed", "message": "done"}
 
 
+class StagnationThenSuccessRunner:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def run(self, script_payload, should_cancel=None, runtime=None):
+        _ = (should_cancel, runtime)
+        self.calls += 1
+        if self.calls == 1 and str(script_payload.get("task") or "") == "agent_executor":
+            return {
+                "ok": False,
+                "task": "agent_executor",
+                "status": "failed_circuit_breaker",
+                "checkpoint": "observe",
+                "code": "stagnant_structured_state",
+                "message": "structured state observation did not change across repeated actions",
+                "circuit_breaker": {
+                    "code": "stagnant_structured_state",
+                    "step_index": 2,
+                    "stagnant_limit": 1,
+                },
+            }
+        return {"ok": True, "status": "completed", "message": "done"}
+
+
 def _wait_until_status(
     client: TestClient, task_id: str, wanted: str, timeout_s: float = 4.0
 ) -> bool:
@@ -79,7 +103,9 @@ def _wait_until_status(
     return False
 
 
-def _wait_for_run_id(controller: TaskController, task_id: str, timeout_s: float = 3.0) -> str | None:
+def _wait_for_run_id(
+    controller: TaskController, task_id: str, timeout_s: float = 3.0
+) -> str | None:
     deadline = time.time() + timeout_s
     while time.time() < deadline:
         record = controller.get(task_id)
@@ -108,8 +134,7 @@ def test_running_task_can_be_cancelled_via_api(tmp_path: Path):
                 "/api/tasks/",
                 json={
                     "script": {"task": "anonymous", "steps": []},
-                    "devices": [1],
-                    "ai_type": "volc",
+                    "targets": [{"device_id": 1, "cloud_id": 1}],
                     "max_retries": 0,
                     "retry_backoff_seconds": 0,
                 },
@@ -156,8 +181,7 @@ def test_cancel_requested_with_runner_exception_marks_cancelled_not_failed(tmp_p
                 "/api/tasks/",
                 json={
                     "script": {"task": "anonymous", "steps": []},
-                    "devices": [1],
-                    "ai_type": "volc",
+                    "targets": [{"device_id": 1, "cloud_id": 1}],
                     "max_retries": 0,
                     "retry_backoff_seconds": 0,
                 },
@@ -199,8 +223,7 @@ def test_running_task_can_be_paused_and_resumed_via_api(tmp_path: Path):
                 "/api/tasks/",
                 json={
                     "script": {"task": "anonymous", "steps": []},
-                    "devices": [1],
-                    "ai_type": "volc",
+                    "targets": [{"device_id": 1, "cloud_id": 1}],
                     "max_retries": 0,
                     "retry_backoff_seconds": 0,
                 },
@@ -211,12 +234,15 @@ def test_running_task_can_be_paused_and_resumed_via_api(tmp_path: Path):
 
             pause = client.post(f"/api/tasks/{task_id}/pause", json={"reason": "operator_pause"})
             assert pause.status_code == 200
-            assert pause.json()["paused"] is True
+            assert pause.json()["pause_state"] == "pause_requested"
+            assert pause.json()["paused"] is False
+            assert pause.json()["pause_requested"] is True
             assert _wait_until_status(client, task_id, "paused", timeout_s=3.0)
 
             resume = client.post(f"/api/tasks/{task_id}/resume", json={"reason": "operator_resume"})
             assert resume.status_code == 200
             assert resume.json()["resumed"] is True
+            assert resume.json()["resume_requested"] is False
             assert _wait_until_status(client, task_id, "completed", timeout_s=4.0)
     finally:
         reset_task_controller_for_tests()
@@ -238,8 +264,7 @@ def test_running_task_takeover_requires_matching_run_id(tmp_path: Path):
                 "/api/tasks/",
                 json={
                     "script": {"task": "anonymous", "steps": []},
-                    "devices": [1],
-                    "ai_type": "volc",
+                    "targets": [{"device_id": 1, "cloud_id": 1}],
                     "max_retries": 0,
                     "retry_backoff_seconds": 0,
                 },
@@ -284,8 +309,7 @@ def test_paused_task_can_be_cancelled_via_api(tmp_path: Path):
                 "/api/tasks/",
                 json={
                     "script": {"task": "anonymous", "steps": []},
-                    "devices": [1],
-                    "ai_type": "volc",
+                    "targets": [{"device_id": 1, "cloud_id": 1}],
                     "max_retries": 0,
                     "retry_backoff_seconds": 0,
                 },
@@ -295,12 +319,98 @@ def test_paused_task_can_be_cancelled_via_api(tmp_path: Path):
 
             pause = client.post(f"/api/tasks/{task_id}/pause", json={"reason": "operator_pause"})
             assert pause.status_code == 200
-            assert pause.json()["paused"] is True
+            assert pause.json()["pause_state"] in {"paused", "pause_requested"}
+            assert _wait_until_status(client, task_id, "paused", timeout_s=3.0)
 
             cancel = client.post(f"/api/tasks/{task_id}/cancel")
             assert cancel.status_code == 200
             assert cancel.json()["cancelled"] is True
             assert _wait_until_status(client, task_id, "cancelled", timeout_s=3.0)
+    finally:
+        reset_task_controller_for_tests()
+
+
+def test_pause_requested_task_can_still_be_cancelled(tmp_path: Path):
+    reset_task_controller_for_tests()
+    db_path = tmp_path / "tasks_pause_requested_cancel_test.db"
+    controller = TaskController(
+        store=TaskStore(db_path=db_path),
+        queue_backend=InMemoryTaskQueue(),
+        runner=CancellableFakeRunner(),
+    )
+    override_task_controller_for_tests(controller)
+
+    try:
+        with TestClient(app) as client:
+            create = client.post(
+                "/api/tasks/",
+                json={
+                    "script": {"task": "anonymous", "steps": []},
+                    "targets": [{"device_id": 1, "cloud_id": 1}],
+                    "max_retries": 0,
+                    "retry_backoff_seconds": 0,
+                },
+            )
+            assert create.status_code == 200
+            task_id = create.json()["task_id"]
+            assert _wait_until_status(client, task_id, "running", timeout_s=2.0)
+
+            pause = client.post(f"/api/tasks/{task_id}/pause", json={"reason": "operator_pause"})
+            assert pause.status_code == 200
+            assert pause.json()["pause_state"] == "pause_requested"
+            assert pause.json()["paused"] is False
+            assert pause.json()["pause_requested"] is True
+
+            cancel = client.post(f"/api/tasks/{task_id}/cancel")
+            assert cancel.status_code == 200
+            assert cancel.json()["cancelled"] is True
+            assert cancel.json()["cancel_state"] in {"cancelling", "cancelled"}
+            assert _wait_until_status(client, task_id, "cancelled", timeout_s=3.0)
+    finally:
+        reset_task_controller_for_tests()
+
+
+def test_stagnant_agent_executor_pauses_for_intervention_and_can_resume(tmp_path: Path):
+    reset_task_controller_for_tests()
+    db_path = tmp_path / "tasks_stagnant_pause_resume_test.db"
+    controller = TaskController(
+        store=TaskStore(db_path=db_path),
+        queue_backend=InMemoryTaskQueue(),
+        runner=StagnationThenSuccessRunner(),
+    )
+    override_task_controller_for_tests(controller)
+
+    try:
+        with TestClient(app) as client:
+            create = client.post(
+                "/api/tasks/",
+                json={
+                    "task": "agent_executor",
+                    "payload": {"goal": "登录 X"},
+                    "targets": [{"device_id": 1, "cloud_id": 1}],
+                    "max_retries": 0,
+                    "retry_backoff_seconds": 0,
+                },
+            )
+            assert create.status_code == 200
+            task_id = create.json()["task_id"]
+
+            assert _wait_until_status(client, task_id, "paused", timeout_s=3.0)
+
+            paused_events = controller.list_events(task_id)
+            paused_payload = next(
+                event.payload for event in paused_events if event.event_type == "task.paused"
+            )
+            assert paused_payload["pause_reason"] == "stagnant_structured_state"
+            assert paused_payload["intervention_required"] is True
+            assert paused_payload["intervention_options"] == ["resume", "takeover", "cancel"]
+
+            resume = client.post(
+                f"/api/tasks/{task_id}/resume", json={"reason": "continue_waiting"}
+            )
+            assert resume.status_code == 200
+            assert resume.json()["resumed"] is True
+            assert _wait_until_status(client, task_id, "completed", timeout_s=4.0)
     finally:
         reset_task_controller_for_tests()
 
@@ -333,7 +443,6 @@ def test_finalizer_exception_after_cancel_uses_user_reason(tmp_path: Path):
             payload={"task": "anonymous"},
             devices=[1],
             targets=[{"device_id": 1, "cloud_id": 1}],
-            ai_type="default",
             max_retries=0,
             retry_backoff_seconds=0,
             priority=0,

@@ -73,6 +73,32 @@ def _build_runtime(
     )
 
 
+def test_agent_executor_infers_expected_states_and_allowed_actions_from_app_context(
+    monkeypatch,
+):
+    runtime = AgentExecutorRuntime()
+    monkeypatch.setattr(
+        "engine.agent_executor.AppConfigManager.load_app_config",
+        lambda app_id: (
+            {"allowed_actions": ["ui.click", "ui.input_text", "ui.match_state"]}
+            if app_id == "x"
+            else {}
+        ),
+    )
+
+    config = runtime._parse_config(
+        {
+            "task": "agent_executor",
+            "goal": "登录 X",
+            "app_id": "x",
+            "_app_states": [{"state_id": "account"}, {"state_id": "password"}],
+        }
+    )
+
+    assert config.expected_state_ids == ["account", "password"]
+    assert config.allowed_actions == ["ui.click", "ui.input_text"]
+
+
 def _coerce_action_result(item: ActionResult | Mapping[str, object]) -> ActionResult:
     if isinstance(item, ActionResult):
         return item

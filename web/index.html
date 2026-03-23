@@ -103,6 +103,25 @@
                 <div id="taskTargetList" class="form-grid columns-2" style="max-height:200px; overflow-y:auto; border:1px solid var(--border); border-radius:var(--radius-sm); padding:8px; margin-top:6px;"></div>
                 <div class="text-muted" id="taskTargetHint" style="font-size:12px; margin-top:6px;">请勾选要执行的云机</div>
               </div>
+              <div class="form-grid columns-3 mt-4" id="taskRuntimePayloadFields">
+                <div class="form-group">
+                  <label>执行速度</label>
+                  <select id="taskSpeed" data-payload-key="_speed" data-payload-type="string">
+                    <option value="normal" selected>标准</option>
+                    <option value="fast">快速</option>
+                    <option value="slow">慢速</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>步间等待最小值 (ms)</label>
+                  <input type="number" id="taskWaitMinMs" value="0" min="0" step="50" data-payload-key="_wait_min_ms" data-payload-type="integer">
+                </div>
+                <div class="form-group">
+                  <label>步间等待最大值 (ms)</label>
+                  <input type="number" id="taskWaitMaxMs" value="0" min="0" step="50" data-payload-key="_wait_max_ms" data-payload-type="integer">
+                </div>
+              </div>
+              <div class="text-muted" style="font-size:12px; margin-top:6px;">速度档位会统一缩放拟真点击/输入节奏；步间等待会在普通 action 之间追加随机等待，不改变 `ui.wait_until` 本身超时。</div>
               <div class="form-grid columns-2 mt-4">
                 <div class="form-group"><label>优先级调度</label><input type="number" id="taskPriority" value="50"></div>
                 <div class="form-group"><label>失败重试上限</label><input type="number" id="taskMaxRetries" value="0"></div>
@@ -316,14 +335,6 @@
                 <div class="form-group">
                   <label>已发现设备数</label>
                   <div id="cfgDiscoveredCount" class="text-primary font-bold" style="line-height:2.2rem;">-</div>
-                </div>
-                <div class="form-group">
-                  <label>默认运营角色</label>
-                  <select id="cfgDefaultAi">
-                    <option value="default">default（通用）</option>
-                    <option value="volc">volc（主力）</option>
-                    <option value="part_time">part_time（兼职）</option>
-                  </select>
                 </div>
                 <div class="form-group col-span-2">
                   <label>API Token (JWT Bearer)</label>
@@ -581,6 +592,13 @@
         </div>
 
         <div class="form-group mt-4">
+          <label>目标应用</label>
+          <select id="unitAiAppSelect" class="select-full">
+            <option value="default">默认 (系统)</option>
+          </select>
+        </div>
+
+        <div class="form-group mt-4">
           <label>绑定账号（可选）</label>
           <div class="flex gap-2">
             <select id="unitAiAccountSelect" class="flex-1"></select>
@@ -589,72 +607,31 @@
           <div id="unitAiAccountHint" class="text-muted" style="font-size:12px; margin-top:6px;">选择后账号信息将自动注入任务</div>
         </div>
 
-        <div class="form-group mt-4">
-          <label class="mb-2 display-block">可能出现的界面状态（勾选）</label>
-          <div class="flex flex-wrap gap-3" id="unitAiStateCheckboxes">
-            <label class="custom-checkbox inline-flex items-center gap-1">
-              <input type="checkbox" name="aiState" value="home" checked>
-              <span class="checkmark"></span><span>首页</span>
-            </label>
-            <label class="custom-checkbox inline-flex items-center gap-1">
-              <input type="checkbox" name="aiState" value="account" checked>
-              <span class="checkmark"></span><span>账号输入</span>
-            </label>
-            <label class="custom-checkbox inline-flex items-center gap-1">
-              <input type="checkbox" name="aiState" value="password" checked>
-              <span class="checkmark"></span><span>密码输入</span>
-            </label>
-            <label class="custom-checkbox inline-flex items-center gap-1">
-              <input type="checkbox" name="aiState" value="two_factor" checked>
-              <span class="checkmark"></span><span>二步验证</span>
-            </label>
-            <label class="custom-checkbox inline-flex items-center gap-1">
-              <input type="checkbox" name="aiState" value="captcha">
-              <span class="checkmark"></span><span>验证码</span>
-            </label>
-            <label class="custom-checkbox inline-flex items-center gap-1">
-              <input type="checkbox" name="aiState" value="unknown" checked>
-              <span class="checkmark"></span><span>未知</span>
-            </label>
+        <div id="unitAiPlannerCard" class="task-summary-card mt-4" style="display:none;">
+          <div class="task-summary-target-header">
+            <div id="unitAiPlannerTitle" class="task-summary-title">AI 任务规划</div>
+            <span id="unitAiPlannerBadge" class="badge">待分析</span>
           </div>
+          <div id="unitAiPlannerSummary" class="task-summary-text"></div>
+          <div id="unitAiPlannerFollowUp" class="task-summary-list mt-2"></div>
+        </div>
+
+        <div class="divider mt-6 mb-4"></div>
+        <div class="panel-header panel-header-inline">
+          <h3>快捷历史</h3>
+          <span class="text-xs text-muted">成功过的 AI 对话可直接重放</span>
+        </div>
+        <div id="unitAiHistoryList" class="task-summary-list mt-4">
+          <div id="unitAiHistoryEmpty" class="text-muted">暂无 AI 对话快捷历史</div>
         </div>
 
         <div class="divider mt-6 mb-4"></div>
          <button type="button" id="toggleUnitAiAdvancedBtn" class="btn btn-text text-muted px-0">高级参数</button>
          <div id="unitAiAdvanced" class="collapsible-section mt-4">
-           <div class="form-grid columns-2">
-             <div class="form-group col-span-2">
-               <label>附加状态 ID（逗号分隔，可选）</label>
-               <input id="unitAiExtraStates" type="text" placeholder="例如：loading, login_entry, home_ready">
-             </div>
-             <div class="form-group col-span-2">
-               <label class="mb-2 display-block">允许 AI 使用的操作</label>
-               <div class="flex flex-wrap gap-3" id="unitAiActionCheckboxes">
-                 <span class="text-muted text-xs">正在加载动作能力...</span>
-               </div>
-             </div>
-             <div class="form-group">
-               <label>最大执行步数</label>
-               <input id="unitAiMaxSteps" type="number" value="15">
-             </div>
-             <div class="form-group">
-               <label>停滞熔断阈值</label>
-               <input id="unitAiStagnantLimit" type="number" value="4">
-             </div>
-             <div class="form-group col-span-2" style="display:none;">
-               <label>模型配置文件（留空使用默认）</label>
-               <input id="unitAiProfile" type="text" placeholder="留空使用系统默认，填写后读取 config/&lt;名称&gt;.json">
-             </div>
-             <div class="form-group col-span-2" style="display:none;">
-               <label>默认提示词</label>
-               <textarea id="unitAiSystemPrompt" rows="4" placeholder="默认提示词会自动填充，也可按需微调"></textarea>
-             </div>
-             <div class="form-group col-span-2" style="display:none;">
-               <label class="flex items-center gap-2">
-                 <input id="unitAiUseVlm" type="checkbox">
-                 启用视觉模型回退（Vision / VLM）
-               </label>
-             </div>
+           <div class="form-group">
+             <label>用户补充提示（可选）</label>
+             <textarea id="unitAiAdvancedPrompt" rows="4" placeholder="仅在需要强调限制、偏好或禁忌时填写"></textarea>
+             <div class="text-muted text-xs mt-2">界面状态、动作集合、步数和 VLM 回退由系统自动管理。</div>
            </div>
          </div>
        </div>
@@ -699,6 +676,64 @@
       <div class="p-4 border-t bg-panel flex gap-3">
           <button type="button" id="saveAccountBtn" class="btn btn-primary flex-1">保存修改</button>
           <button type="button" class="btn btn-secondary flex-1 close-account-modal-btn">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="aiTaskOverlay" class="modal-overlay" style="display: none;">
+    <div class="modal ai-task-overlay-modal">
+      <div class="modal-header">
+        <div>
+          <h3 id="aiTaskOverlayTitle">AI 正在执行</h3>
+          <div id="aiTaskOverlayProgress" class="text-xs text-muted mt-2">等待任务启动…</div>
+        </div>
+        <span id="aiTaskOverlayStatus" class="badge">PENDING</span>
+      </div>
+      <div class="modal-body">
+        <div class="ai-task-overlay-layout">
+          <div id="aiTaskOverlayConsole" class="ai-task-overlay-console" style="display:none;">
+            <div class="ai-task-overlay-console-header">
+              <div>
+                <div class="task-summary-title">当前云机画面</div>
+                <div id="aiTaskOverlayTarget" class="task-summary-text">当前任务未绑定云机目标</div>
+              </div>
+              <button type="button" id="aiTaskOverlayRefreshScreenshot" class="btn btn-secondary btn-sm" data-unit-control>刷新截图</button>
+            </div>
+            <div class="ai-task-overlay-screen">
+              <img id="aiTaskOverlayScreenshotImg" src="" alt="" class="ai-task-overlay-screen-image">
+              <div id="aiTaskOverlayScreenshotPlaceholder" class="text-muted ai-task-overlay-screen-placeholder">正在加载截图...</div>
+            </div>
+            <div class="device-control-panel ai-task-overlay-control-panel">
+              <div class="device-control-actions">
+                <button type="button" id="aiTaskOverlayKeyBack" class="btn btn-secondary btn-sm" data-unit-control>返回</button>
+                <button type="button" id="aiTaskOverlayKeyHome" class="btn btn-secondary btn-sm" data-unit-control>Home</button>
+                <button type="button" id="aiTaskOverlayKeyEnter" class="btn btn-secondary btn-sm" data-unit-control>Enter</button>
+                <button type="button" id="aiTaskOverlayKeyDelete" class="btn btn-secondary btn-sm" data-unit-control>退格键</button>
+              </div>
+              <div class="device-swipe-pad">
+                <button type="button" id="aiTaskOverlaySwipeUp" class="btn btn-secondary btn-sm" data-unit-control>上滑</button>
+                <button type="button" id="aiTaskOverlaySwipeLeft" class="btn btn-secondary btn-sm" data-unit-control>左滑</button>
+                <button type="button" id="aiTaskOverlaySwipeDown" class="btn btn-secondary btn-sm" data-unit-control>下滑</button>
+                <button type="button" id="aiTaskOverlaySwipeRight" class="btn btn-secondary btn-sm" data-unit-control>右滑</button>
+              </div>
+              <div class="device-text-input-row">
+                <input id="aiTaskOverlayTextInput" type="text" placeholder="向当前焦点输入框发送单行文本" autocomplete="off" data-unit-control>
+                <button type="button" id="aiTaskOverlaySendText" class="btn btn-secondary btn-sm" data-unit-control>发送文本</button>
+              </div>
+              <div class="text-muted text-xs">点击截图发送轻触；接管后所有操作会继续写入同一条蒸馏轨迹。</div>
+            </div>
+          </div>
+          <div class="ai-task-overlay-stream">
+            <div id="aiTaskOverlayHint" class="task-summary-text">系统会持续更新 AI 的执行步骤与终态。</div>
+            <div id="aiTaskOverlaySteps" class="task-summary-list mt-4"></div>
+          </div>
+        </div>
+      </div>
+      <div class="p-4 border-t bg-panel flex gap-3 ai-task-overlay-actions">
+        <button type="button" id="aiTaskOverlayResume" class="btn btn-primary flex-1">继续等待</button>
+        <button type="button" id="aiTaskOverlayTakeover" class="btn btn-secondary flex-1">我来接管</button>
+        <button type="button" id="aiTaskOverlayCancel" class="btn btn-danger flex-1">停止任务</button>
+        <button type="button" id="aiTaskOverlayClose" class="btn btn-secondary flex-1">关闭</button>
       </div>
     </div>
   </div>

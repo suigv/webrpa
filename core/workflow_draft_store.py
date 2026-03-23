@@ -34,6 +34,7 @@ class WorkflowDraftRecord:
     display_name: str
     task_name: str
     plugin_name_candidate: str
+    source: str = "generic"
     category: str = "AI Drafts"
     status: str = "collecting"
     success_threshold: int = 3
@@ -66,6 +67,7 @@ class WorkflowDraftStore(BaseStore):
                     display_name TEXT NOT NULL,
                     task_name TEXT NOT NULL,
                     plugin_name_candidate TEXT NOT NULL,
+                    source TEXT NOT NULL DEFAULT 'generic',
                     category TEXT NOT NULL DEFAULT 'AI Drafts',
                     status TEXT NOT NULL DEFAULT 'collecting',
                     success_threshold INTEGER NOT NULL DEFAULT 3,
@@ -90,6 +92,7 @@ class WorkflowDraftStore(BaseStore):
                 str(row[1]) for row in conn.execute("PRAGMA table_info(workflow_drafts)").fetchall()
             }
             migrations = {
+                "source": "ALTER TABLE workflow_drafts ADD COLUMN source TEXT NOT NULL DEFAULT 'generic'",
                 "category": "ALTER TABLE workflow_drafts ADD COLUMN category TEXT NOT NULL DEFAULT 'AI Drafts'",
                 "status": "ALTER TABLE workflow_drafts ADD COLUMN status TEXT NOT NULL DEFAULT 'collecting'",
                 "success_threshold": "ALTER TABLE workflow_drafts ADD COLUMN success_threshold INTEGER NOT NULL DEFAULT 3",
@@ -153,14 +156,14 @@ class WorkflowDraftStore(BaseStore):
             tx_conn.execute(
                 """
                 INSERT INTO workflow_drafts (
-                    draft_id, display_name, task_name, plugin_name_candidate, category,
+                    draft_id, display_name, task_name, plugin_name_candidate, source, category,
                     status, success_threshold, success_count, failure_count, cancelled_count,
                     latest_prompt_text, prompt_history_json, last_failure_advice_json,
                     last_success_snapshot_json, successful_task_ids_json,
                     latest_terminal_task_id, latest_completed_task_id,
                     last_distilled_manifest_path, last_distilled_script_path,
                     created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 self._record_params(record),
             )
@@ -179,6 +182,7 @@ class WorkflowDraftStore(BaseStore):
                 SET display_name = ?,
                     task_name = ?,
                     plugin_name_candidate = ?,
+                    source = ?,
                     category = ?,
                     status = ?,
                     success_threshold = ?,
@@ -201,6 +205,7 @@ class WorkflowDraftStore(BaseStore):
                     record.display_name,
                     record.task_name,
                     record.plugin_name_candidate,
+                    record.source,
                     record.category,
                     record.status,
                     record.success_threshold,
@@ -240,6 +245,7 @@ class WorkflowDraftStore(BaseStore):
             record.display_name,
             record.task_name,
             record.plugin_name_candidate,
+            record.source,
             record.category,
             record.status,
             record.success_threshold,
@@ -269,6 +275,7 @@ class WorkflowDraftStore(BaseStore):
             display_name=str(row["display_name"]),
             task_name=str(row["task_name"]),
             plugin_name_candidate=str(row["plugin_name_candidate"]),
+            source=str(row["source"] or "generic"),
             category=str(row["category"] or "AI Drafts"),
             status=str(row["status"] or "collecting"),
             success_threshold=int(row["success_threshold"] or 3),
