@@ -8,6 +8,9 @@
 
 - 阶段补充（2026-03-22）：`v1-launch-readiness` 执行状态已完成，当前 **1.0 launch scope** 以设备管理、任务调度、插件执行为边界；该完成态不包含 M5/WebRTC。
 - 验证结论（2026-03-22）：`./.venv/bin/python tools/check_no_legacy_imports.py`、`./.venv/bin/python -m pytest tests -q`、默认 `uvicorn api.server:app` + `/health`、以及 `MYT_ENABLE_RPC=0` 的兼容启动 + `/health` 均已通过。
+- 前端契约补充（2026-03-23）：任务页、设备页、批量派发、AI 对话与 Pipeline 子步骤现统一复用共享 task payload helper；设备页账号池会按插件 app 上下文过滤，账号仓库按 `app_id` 分组展示，App 选择器显式保留 `系统资产 / default`，并移除继续诱导用户在 Pipeline 子步骤手写框架字段的占位文案。
+- 前端负载收敛补充（2026-03-23）：`/api/devices/` 已开始收敛到共享前端快照与单一轮询源，任务目标选择 / 配置页在线计数 / AI 浮层云机解析 / 批量派发不再各自直接拉设备列表；云机截图面板也新增了页面隐藏暂停与请求去重，避免后台页面继续高频刷图。
+- 前端负载收敛补充（2026-03-23）：AI 对话重开恢复路径不再用 `/api/tasks?limit=100` 扫描全量任务，而是改走按 `device_id + cloud_id + task_name` 精确查询当前活跃任务的控制面接口，进一步降低设备页重复读压力。
 - W1.2 状态（2026-03-22）：设备详情弹窗的停止确认文案已经对齐到 **device-scoped** 1.0 合同，`node --test "web/js/features/device_detail_modal.test.js"` 通过，`npm --prefix web run typecheck` 通过；但浏览器实操 QA 仍受环境阻塞，当前环境缺少 Chrome/Chromium，且 Playwright 安装尝试超时，因此这里只记录代码与测试对齐完成，不宣称浏览器实操验证通过。
 - 当前真相补充（2026-03-22）：仓库当前会加载 10 个插件（`device_reboot`、`one_click_new_device` 与 8 个 `x_*` 工作流）；但“仓库里存在插件”不等于“这些插件都已被本文件或 `docs/STATUS.md` 作为 1.0 workflow 逐个验收”。
 - 当前真相补充（2026-03-22）：后端 `/web` 仍只是控制台入口 shim；若未设置 `MYT_FRONTEND_URL`，它返回 `501` 并提示前端部署方式，而不是直接托管 Vite 构建产物。
@@ -257,7 +260,17 @@
     - **旁路蒸馏增强 (防波堤 2)**：在 `core/golden_run_distillation.py` 中新增 `LLMDraftRefiner`。在启发式参数化完成后，通过可选的 LLM 旁路分析 YAML 寻找额外的硬编码业务参数并抽取为 `${payload.xxx}`。完全静默失败回退机制保证了核心蒸馏流程的绝对稳定性（新增 `--use-llm-refiner` CLI 支持）。
 
 - 最近重点 (本会话)：
-- **默认提示词服务化**：
+  - **公开契约继续收口**：
+    - `/api/config` 公开响应与更新入口已移除 `default_ai`，避免前端继续把内部兼容存储字段当成实时调参主契约。
+    - `TaskRequest` 不再接收顶层 `ai_type` 兼容注入；若仍需指定模型类型，必须放到 `payload.ai_type`。
+    - `POST /api/tasks` 也已移除顶层 `devices` 兼容入口；任务创建现在必须显式提交 `targets`，草稿续跑仅对历史快照做一次内部 fallback 推导。
+    - `TaskStore.create_task()` 也已移除无生产调用的 `ai_type` 兼容参数，避免内部存储边界继续保留历史入口。
+    - 仓库默认 `config/devices.json` 与配置说明已去掉 `default_ai` 样例，`core/config_loader.py` 里的无调用 `get_default_ai()` accessor 也已删除，减少旧字段再次扩散。
+    - 顺手清理了同一轮重构后已无调用的契约常量、配置归一化 helper 和失效防御分支，避免后续继续围绕死代码打补丁。
+    - 补充配置路由、任务请求契约与任务存储边界测试，锁住“公开入口收紧、内部主路径收口”的边界。
+
+- 最近重点 (本会话)：
+  - **默认提示词服务化**：
 - `engine/prompt_templates.py` 继续作为项目唯一提示词数据源，但当前仅暴露一个默认模板。
 - `GET /api/tasks/prompt_templates` 仍返回模板列表（key/name/content），供前端拉取默认提示词内容。
 - 前端 AI 对话框已移除场景模板选择，仅在打开时自动填充默认提示词，用户仍可手动微调。
@@ -289,7 +302,7 @@
   - **App 上下文与 AI 类型默认值对齐**：
     - `core.app_config.py` 新增共享 app 解析 helper，统一 `app_id` 为主字段、`app` 为兼容别名，并让 `runner` 与 `sdk_*` 配置读取链共用同一顺序。
     - `resolve_app_payload()` 现在会把归一化后的 `app_id` 写回 payload，并在旧 `app` 与 canonical 值相同的情况下去掉冗余别名，减少运行时继续携带双字段。
-    - `models/task.py` 将 `TaskRequest.ai_type` 默认值从历史 `"volc"` 对齐为 `"default"`；前端设备卡片的缺省展示文案也同步对齐，避免新旧默认值混用。
+    - 任务系统内部 AI 兜底值已从历史 `"volc"` 对齐为 `"default"`；前端设备卡片的缺省展示文案也同步对齐，避免新旧默认值混用。
 
 - 最近重点 (本会话)：
   - **任务系统内部 AI 默认值收口**：

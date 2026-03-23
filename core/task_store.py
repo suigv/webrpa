@@ -34,7 +34,6 @@ class TaskRecord:
     payload: dict[str, Any]
     devices: list[int]
     targets: list[dict[str, int]] | None = None
-    ai_type: str = ""
     idempotency_key: str | None = None
     status: str = "pending"
     created_at: str = ""
@@ -73,7 +72,6 @@ class TaskStore(BaseStore):
                     payload_json TEXT NOT NULL,
                     devices_json TEXT NOT NULL,
                     targets_json TEXT,
-                    ai_type TEXT NOT NULL,
                     idempotency_key TEXT,
                     status TEXT NOT NULL,
                     created_at TEXT NOT NULL,
@@ -96,9 +94,7 @@ class TaskStore(BaseStore):
                 """
             )
             columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(tasks)").fetchall()}
-            # 自动迁移缺失列
-            if "targets_json" not in columns:
-                conn.execute("ALTER TABLE tasks ADD COLUMN targets_json TEXT")
+            # 旧 schema 可能同时缺失后续新增列。先在原表补齐，再安全执行 ai_type 删除迁移。
             if "retry_count" not in columns:
                 conn.execute("ALTER TABLE tasks ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0")
             if "max_retries" not in columns:
@@ -113,12 +109,6 @@ class TaskStore(BaseStore):
                 conn.execute(
                     "ALTER TABLE tasks ADD COLUMN cancel_requested INTEGER NOT NULL DEFAULT 0"
                 )
-            if "priority" not in columns:
-                conn.execute("ALTER TABLE tasks ADD COLUMN priority INTEGER NOT NULL DEFAULT 50")
-            if "run_at" not in columns:
-                conn.execute("ALTER TABLE tasks ADD COLUMN run_at TEXT")
-            if "idempotency_key" not in columns:
-                conn.execute("ALTER TABLE tasks ADD COLUMN idempotency_key TEXT")
             if "pause_requested" not in columns:
                 conn.execute(
                     "ALTER TABLE tasks ADD COLUMN pause_requested INTEGER NOT NULL DEFAULT 0"
@@ -127,6 +117,110 @@ class TaskStore(BaseStore):
                 conn.execute("ALTER TABLE tasks ADD COLUMN takeover_owner TEXT")
             if "active_run_id" not in columns:
                 conn.execute("ALTER TABLE tasks ADD COLUMN active_run_id TEXT")
+            if "priority" not in columns:
+                conn.execute("ALTER TABLE tasks ADD COLUMN priority INTEGER NOT NULL DEFAULT 50")
+            if "run_at" not in columns:
+                conn.execute("ALTER TABLE tasks ADD COLUMN run_at TEXT")
+            if "idempotency_key" not in columns:
+                conn.execute("ALTER TABLE tasks ADD COLUMN idempotency_key TEXT")
+            if "targets_json" not in columns:
+                conn.execute("ALTER TABLE tasks ADD COLUMN targets_json TEXT")
+            if "started_at" not in columns:
+                conn.execute("ALTER TABLE tasks ADD COLUMN started_at TEXT")
+            if "finished_at" not in columns:
+                conn.execute("ALTER TABLE tasks ADD COLUMN finished_at TEXT")
+            if "result_json" not in columns:
+                conn.execute("ALTER TABLE tasks ADD COLUMN result_json TEXT")
+            if "error" not in columns:
+                conn.execute("ALTER TABLE tasks ADD COLUMN error TEXT")
+            columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(tasks)").fetchall()}
+            if "ai_type" in columns:
+                conn.execute("DROP TABLE IF EXISTS tasks__migrated")
+                conn.execute(
+                    """
+                    CREATE TABLE tasks__migrated (
+                        task_id TEXT PRIMARY KEY,
+                        payload_json TEXT NOT NULL,
+                        devices_json TEXT NOT NULL,
+                        targets_json TEXT,
+                        idempotency_key TEXT,
+                        status TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        started_at TEXT,
+                        finished_at TEXT,
+                        result_json TEXT,
+                        error TEXT,
+                        retry_count INTEGER NOT NULL DEFAULT 0,
+                        max_retries INTEGER NOT NULL DEFAULT 0,
+                        retry_backoff_seconds INTEGER NOT NULL DEFAULT 2,
+                        next_retry_at TEXT,
+                        cancel_requested INTEGER NOT NULL DEFAULT 0,
+                        pause_requested INTEGER NOT NULL DEFAULT 0,
+                        takeover_owner TEXT,
+                        active_run_id TEXT,
+                        priority INTEGER NOT NULL DEFAULT 50,
+                        run_at TEXT
+                    )
+                    """
+                )
+                conn.execute(
+                    """
+                    INSERT INTO tasks__migrated (
+                        task_id,
+                        payload_json,
+                        devices_json,
+                        targets_json,
+                        idempotency_key,
+                        status,
+                        created_at,
+                        updated_at,
+                        started_at,
+                        finished_at,
+                        result_json,
+                        error,
+                        retry_count,
+                        max_retries,
+                        retry_backoff_seconds,
+                        next_retry_at,
+                        cancel_requested,
+                        pause_requested,
+                        takeover_owner,
+                        active_run_id,
+                        priority,
+                        run_at
+                    )
+                    SELECT
+                        task_id,
+                        payload_json,
+                        devices_json,
+                        targets_json,
+                        idempotency_key,
+                        status,
+                        created_at,
+                        updated_at,
+                        started_at,
+                        finished_at,
+                        result_json,
+                        error,
+                        retry_count,
+                        max_retries,
+                        retry_backoff_seconds,
+                        next_retry_at,
+                        cancel_requested,
+                        pause_requested,
+                        takeover_owner,
+                        active_run_id,
+                        priority,
+                        run_at
+                    FROM tasks
+                    """
+                )
+                conn.execute("DROP TABLE tasks")
+                conn.execute("ALTER TABLE tasks__migrated RENAME TO tasks")
+                columns = {
+                    str(row[1]) for row in conn.execute("PRAGMA table_info(tasks)").fetchall()
+                }
 
             conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)")
             conn.execute(
@@ -142,7 +236,6 @@ class TaskStore(BaseStore):
         payload: dict[str, Any],
         devices: list[int],
         targets: list[dict[str, int]] | None = None,
-        ai_type: str = "default",
         max_retries: int = 0,
         retry_backoff_seconds: int = 2,
         priority: int = 50,
@@ -157,7 +250,6 @@ class TaskStore(BaseStore):
             payload=payload,
             devices=devices,
             targets=targets,
-            ai_type=ai_type,
             idempotency_key=idempotency_key,
             status="pending",
             created_at=now,
@@ -169,18 +261,17 @@ class TaskStore(BaseStore):
         )
         sql = """
             INSERT INTO tasks (
-                task_id, payload_json, devices_json, targets_json, ai_type,
+                task_id, payload_json, devices_json, targets_json,
                 idempotency_key, status, created_at, updated_at,
                 max_retries, retry_backoff_seconds, pause_requested,
                 takeover_owner, active_run_id, priority, run_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
         params = (
             record.task_id,
             json.dumps(record.payload, ensure_ascii=False),
             json.dumps(record.devices),
             json.dumps(record.targets) if record.targets else None,
-            record.ai_type,
             record.idempotency_key,
             record.status,
             record.created_at,
@@ -258,13 +349,49 @@ class TaskStore(BaseStore):
                     continue
             return None
 
+    def find_active_task_by_target(
+        self,
+        device_id: int,
+        cloud_id: int,
+        *,
+        task_name: str | None = None,
+        conn: sqlite3.Connection | None = None,
+    ) -> TaskRecord | None:
+        with self._tx(conn) as tx_conn:
+            params: list[Any] = []
+            sql = """
+                SELECT * FROM tasks
+                WHERE status NOT IN ('completed', 'failed', 'cancelled')
+            """
+            normalized_task_name = str(task_name or "").strip()
+            if normalized_task_name:
+                sql += " AND json_extract(payload_json, '$.task') = ?"
+                params.append(normalized_task_name)
+            sql += " ORDER BY created_at DESC"
+            rows = tx_conn.execute(sql, tuple(params)).fetchall()
+            for row in rows:
+                try:
+                    targets = json.loads(row["targets_json"] or "[]")
+                except Exception:
+                    continue
+                if not isinstance(targets, list):
+                    continue
+                for target in targets:
+                    if not isinstance(target, dict):
+                        continue
+                    if (
+                        int(target.get("device_id", 0)) == int(device_id)
+                        and int(target.get("cloud_id", 0)) == int(cloud_id)
+                    ):
+                        return self._row_to_record(row)
+        return None
+
     def _row_to_record(self, row: sqlite3.Row) -> TaskRecord:
         return TaskRecord(
             task_id=row["task_id"],
             payload=json.loads(row["payload_json"]),
             devices=json.loads(row["devices_json"]),
             targets=json.loads(row["targets_json"]) if row["targets_json"] else None,
-            ai_type=row["ai_type"],
             idempotency_key=row["idempotency_key"],
             status=row["status"],
             created_at=row["created_at"],
@@ -400,7 +527,7 @@ class TaskStore(BaseStore):
                 tx_conn.execute(
                     "UPDATE tasks SET status = 'pending', pause_requested = 0, updated_at = ? WHERE task_id = ?",
                     (_now_iso(), task_id),
-                    )
+                )
                 return "pending"
             if status == "running":
                 tx_conn.execute(

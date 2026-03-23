@@ -19,11 +19,22 @@ import {
     runBulkPluginTasks,
     submitUnitPluginTask,
 } from './device_task_panel.js';
-import { closeUnitDetail, openUnitDetail } from './device_unit_detail.js';
+import {
+    closeUnitDetail,
+    openUnitDetail,
+} from './device_unit_detail.js';
 import {
     buildTaskRequest,
     apiSubmitTask,
+    collectTaskPayload,
+    resolveTaskAppContext,
+    taskAcceptsAccount,
 } from './task_service.js';
+import {
+    refreshDevicesSnapshot,
+    startDevicesPolling,
+    subscribeDevices,
+} from '../state/devices.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -31,6 +42,8 @@ let selectedUnits = new Set();
 let currentCatalog = [];
 let currentUnitsById = new Map();
 let currentUnitDetail = null;
+let devicesSubscriptionCleanup = null;
+let devicesPollingStarted = false;
 
 const UNIT_ADVANCED_COLLAPSED_TEXT = '配置高级属性';
 const UNIT_ADVANCED_EXPANDED_TEXT = '收起高级属性';
@@ -169,9 +182,17 @@ export function initDevices() {
         };
     }
 
+    if (!devicesSubscriptionCleanup) {
+        devicesSubscriptionCleanup = subscribeDevices((devices) => {
+            renderUnits(devices);
+        });
+    }
+    if (!devicesPollingStarted) {
+        startDevicesPolling('devices-view');
+        devicesPollingStarted = true;
+    }
     loadDevices();
     void loadPluginCatalog();
-    setInterval(loadDevices, 5000);
 }
 
 async function loadPluginCatalog() {
@@ -184,7 +205,7 @@ async function loadPluginCatalog() {
 }
 
 export async function loadDevices() {
-    const r = await fetchJson("/api/devices/");
+    const r = await refreshDevicesSnapshot({ force: true, silentErrors: true });
     if (r.ok) renderUnits(r.data);
 }
 
@@ -205,7 +226,7 @@ export async function scanDevices() {
             toast.success("扫描指令已下发");
             let ticks = 0;
             const fastSync = setInterval(async () => {
-                await loadDevices();
+                await refreshDevicesSnapshot({ force: true, silentErrors: true });
                 ticks++;
                 if (ticks >= 4) clearInterval(fastSync);
             }, 2000);
@@ -235,7 +256,7 @@ function renderUnits(devices) {
 
     devices.forEach(d => {
         (d.cloud_machines || []).forEach(u => {
-            const unit = { ...u, parent_ip: d.ip, parent_id: d.device_id, ai_type: d.ai_type };
+            const unit = { ...u, parent_ip: d.ip, parent_id: d.device_id };
             currentUnitsById.set(`${d.device_id}-${u.cloud_id}`, unit);
             if (u.availability_state === "available") onlineUnits.push(unit);
             else offlineUnits.push(unit);
@@ -274,10 +295,6 @@ function renderUnitCard(container, u) {
     title.className = 'device-id';
     title.textContent = `云机 #${unitId}`;
 
-    const badge = document.createElement('span');
-    badge.className = 'badge badge-sm';
-    badge.textContent = u.ai_type || "default";
-
     const infoBtn = document.createElement('button');
     infoBtn.className = 'btn btn-text text-primary p-0 ml-auto';
     infoBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>';
@@ -287,7 +304,7 @@ function renderUnitCard(container, u) {
         openDeviceDetail(u);
     };
 
-    header.append(title, badge, infoBtn);
+    header.append(title, infoBtn);
 
     const meta = document.createElement('div');
     meta.className = 'device-meta';
@@ -380,6 +397,35 @@ function renderBulkPluginFields() {
     });
 }
 
+async function syncUnitAccountScope(taskName) {
+    const accountRow = $('unitAccountSelect')?.closest('.form-group');
+    const fieldsContainer = $('unitPluginFields');
+    if (!fieldsContainer) return;
+    const acceptsAccount = await taskAcceptsAccount(taskName);
+    if (accountRow) {
+        accountRow.style.display = acceptsAccount ? '' : 'none';
+    }
+    if (!acceptsAccount) {
+        return;
+    }
+    const appId = await resolveTaskAppContext(taskName, {
+        rawPayload: collectTaskPayload(fieldsContainer),
+    });
+    await loadUnitAccounts(appId);
+    const appField = fieldsContainer.querySelector('[data-payload-key="app_id"]');
+    if (appField && !appField.dataset.accountScopeBound) {
+        appField.dataset.accountScopeBound = 'true';
+        const reload = async () => {
+            const nextAppId = await resolveTaskAppContext(taskName, {
+                rawPayload: collectTaskPayload(fieldsContainer),
+            });
+            await loadUnitAccounts(nextAppId);
+        };
+        appField.addEventListener('change', () => { void reload(); });
+        appField.addEventListener('input', () => { void reload(); });
+    }
+}
+
 function renderUnitPluginFields() {
     const select = $("unitPluginSelect");
     const container = $("unitPluginFields");
@@ -393,6 +439,7 @@ function renderUnitPluginFields() {
         collapsedText: UNIT_ADVANCED_COLLAPSED_TEXT,
         expandedText: UNIT_ADVANCED_EXPANDED_TEXT,
     });
+    void syncUnitAccountScope(select.value);
 }
 
 export function closeDetail(restoreMainTab = true) {
@@ -480,13 +527,8 @@ async function initializeAllDevices() {
 
 async function submitCurrentUnitAiTask() {
     if (!currentUnitDetail) return;
-    await submitUnitAiTask(currentUnitDetail, {
-        onSuccess: () => {
-            unitLog(">>> AI 对话任务已下发");
-            closeUnitAiDialog();
-        },
-        onFailure: () => {
-            unitLog("❌ AI 对话任务提交失败", "error");
-        },
-    });
+    const result = await submitUnitAiTask(currentUnitDetail);
+    if (!result?.ok) {
+        unitLog("❌ AI 对话任务提交失败", "error");
+    }
 }

@@ -15,12 +15,12 @@ from core.task_execution import RunnerLike, TaskExecutionService
 from core.task_finalizer import AccountFeedbackLike, TaskAttemptFinalizer
 from core.task_metrics import TaskMetricsService, build_task_metrics_payload
 from core.task_queue import QueueBackend, create_task_queue
-from core.task_runtime_cleanup import TaskRuntimeCleanupService, remove_task_traces
 from core.task_runtime import (
     TaskDispatchRuntimeResolver,
     TaskTargetRuntimeResolver,
     normalize_dispatch_targets,
 )
+from core.task_runtime_cleanup import TaskRuntimeCleanupService, remove_task_traces
 from core.task_store import TaskRecord, TaskStore
 from core.workflow_draft_store import WorkflowDraftStore
 from core.workflow_drafts import WorkflowDraftService
@@ -47,28 +47,14 @@ def _dedupe_ints(values: list[int]) -> list[int]:
     return ordered
 
 
-def _normalize_targets_and_devices(
-    devices: list[int],
+def _normalize_targets(
     targets: list[dict[str, int]] | None,
 ) -> tuple[list[int], list[dict[str, int]]]:
-    has_targets = bool(targets)
     normalized_targets = normalize_dispatch_targets(targets or [], [])
-    if has_targets and not normalized_targets:
-        raise ValueError("either targets or devices must be provided")
-
-    if normalized_targets:
-        target_device_ids = _dedupe_ints([item.get("device_id", 0) for item in normalized_targets])
-        if devices:
-            device_ids = _dedupe_ints(devices)
-            if set(device_ids) != set(target_device_ids):
-                raise ValueError("devices and targets must refer to the same device set")
-        return target_device_ids, normalized_targets
-
-    device_ids = _dedupe_ints(devices)
-    if not device_ids:
-        raise ValueError("either targets or devices must be provided")
-    normalized_targets = normalize_dispatch_targets([], device_ids)
-    return device_ids, normalized_targets
+    if not normalized_targets:
+        raise ValueError("targets must be provided")
+    target_device_ids = _dedupe_ints([item.get("device_id", 0) for item in normalized_targets])
+    return target_device_ids, normalized_targets
 
 
 class TaskController:
@@ -156,9 +142,7 @@ class TaskController:
     def submit_with_retry(
         self,
         payload: dict[str, Any],
-        devices: list[int],
         targets: list[dict[str, int]] | None,
-        ai_type: str,
         max_retries: int,
         retry_backoff_seconds: int,
         priority: int,
@@ -170,7 +154,7 @@ class TaskController:
         success_threshold: int | None = None,
     ) -> TaskRecord:
         self._ensure_services()
-        normalized_devices, normalized_targets = _normalize_targets_and_devices(devices, targets)
+        normalized_devices, normalized_targets = _normalize_targets(targets)
         task_name = str(payload.get("task") or "anonymous")
         loader = self._resolve_plugin_loader()
         is_named_plugin = loader.has(task_name)
@@ -183,9 +167,7 @@ class TaskController:
         with self._store.transaction(immediate=True) as conn:
             enriched_payload, workflow_summary = self._workflow_drafts.prepare_submission(
                 payload=payload,
-                devices=normalized_devices,
                 targets=normalized_targets,
-                ai_type=ai_type,
                 max_retries=max_retries,
                 retry_backoff_seconds=retry_backoff_seconds,
                 priority=priority,
@@ -200,7 +182,6 @@ class TaskController:
                 payload=enriched_payload,
                 devices=normalized_devices,
                 targets=normalized_targets,
-                ai_type=ai_type,
                 max_retries=max_retries,
                 retry_backoff_seconds=retry_backoff_seconds,
                 priority=priority,
@@ -232,6 +213,19 @@ class TaskController:
 
     def get(self, task_id: str) -> TaskRecord | None:
         return self._store.get_task(task_id)
+
+    def find_active_task_for_target(
+        self,
+        device_id: int,
+        cloud_id: int,
+        *,
+        task_name: str | None = None,
+    ) -> TaskRecord | None:
+        return self._store.find_active_task_by_target(
+            device_id,
+            cloud_id,
+            task_name=task_name,
+        )
 
     def list_events(self, task_id: str, after_event_id: int = 0, limit: int = 200):
         return self._events.list_events(task_id=task_id, after_event_id=after_event_id, limit=limit)
@@ -375,6 +369,9 @@ class TaskController:
     def list_workflow_drafts(self, limit: int = 100) -> list[dict[str, Any]]:
         return self._workflow_drafts.list_summaries(limit=limit)
 
+    def list_ai_dialog_history(self, limit: int = 20) -> list[dict[str, Any]]:
+        return self._workflow_drafts.list_ai_dialog_history(limit=limit)
+
     def workflow_draft_snapshot(self, draft_id: str) -> dict[str, Any]:
         return self._workflow_drafts.continuation_snapshot(draft_id)
 
@@ -459,9 +456,10 @@ class TaskController:
         snapshot_bundle = self._workflow_drafts.continuation_snapshot(draft_id)
         snapshot = dict(snapshot_bundle["snapshot"])
         payload = dict(snapshot.get("payload") or {})
-        devices = [int(item) for item in snapshot.get("devices") or []]
         targets = snapshot.get("targets")
-        ai_type = str(snapshot.get("ai_type") or "default")
+        if not isinstance(targets, list) or not targets:
+            legacy_devices = [int(item) for item in snapshot.get("devices") or []]
+            targets = normalize_dispatch_targets([], legacy_devices)
         max_retries = int(snapshot.get("max_retries") or 0)
         retry_backoff_seconds = int(snapshot.get("retry_backoff_seconds") or 2)
         priority = int(snapshot.get("priority") or 50)
@@ -470,9 +468,7 @@ class TaskController:
             created.append(
                 self.submit_with_retry(
                     payload=dict(payload),
-                    devices=devices,
                     targets=targets if isinstance(targets, list) else None,
-                    ai_type=ai_type,
                     max_retries=max_retries,
                     retry_backoff_seconds=retry_backoff_seconds,
                     priority=priority,

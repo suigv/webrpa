@@ -1,6 +1,7 @@
 import { fetchJson } from '../utils/api.js';
 import { toast } from '../ui/toast.js';
 import { clearAuthToken, getAuthToken, setAuthToken } from '../state/auth.js';
+import { refreshDevicesSnapshot } from '../state/devices.js';
 
 const saveBtn = document.getElementById("saveConfig");
 
@@ -170,14 +171,12 @@ export async function saveConfig() {
         }
 
         // 1. 保存全局配置
-        const cfgDefaultAi = document.getElementById("cfgDefaultAi");
         const configBody = {
             host_ip: cfgHostIp.value.trim(),
             sdk_port: Number(cfgSdkPort.value),
             cloud_machines_per_device: Number(cfgCloudPerDevice.value),
             discovery_enabled: Boolean(discoveryEnabled.checked),
             discovery_subnet: discoverySubnet.value.trim(),
-            default_ai: cfgDefaultAi ? cfgDefaultAi.value : "default",
             humanized: parsedHumanized,
         };
 
@@ -255,13 +254,10 @@ function setFormValues(data) {
     if (cfgHostIp) cfgHostIp.value = data.host_ip || "";
     if (cfgSdkPort) cfgSdkPort.value = data.sdk_port || 8000;
     if (cfgCloudPerDevice) cfgCloudPerDevice.value = data.cloud_machines_per_device || 12;
-    const cfgDefaultAi = document.getElementById("cfgDefaultAi");
-    if (cfgDefaultAi) cfgDefaultAi.value = data.default_ai || "default";
-
     // 已发现设备数（从设备列表实时读取在线云机数）
     const discoveredCount = document.getElementById("cfgDiscoveredCount");
     if (discoveredCount) {
-        fetchJson('/api/devices/').then(r => {
+        refreshDevicesSnapshot({ silentErrors: true, maxAgeMs: 5000 }).then(r => {
             if (!r.ok) return;
             let available = 0;
             (r.data || []).forEach(d => {

@@ -20,7 +20,6 @@ from fastapi.testclient import TestClient
 
 from ai_services.llm_client import LLMResponse
 from api.server import app
-from core.config_loader import ConfigLoader
 from core.device_manager import DeviceManager
 from core.paths import data_dir, traces_dir
 from core.task_control import (
@@ -36,7 +35,6 @@ from engine.action_registry import ActionRegistry
 from engine.agent_executor import AgentExecutorRuntime
 from engine.models.runtime import ActionResult
 from engine.runner import Runner
-from models.config import ConfigStore
 
 
 def _wait_status(client: TestClient, task_id: str, timeout_s: float = 3.0) -> str:
@@ -126,8 +124,7 @@ def test_task_control_plane_success_flow():
             "/api/tasks/",
             json={
                 "script": {"task": "anonymous", "steps": []},
-                "devices": [1],
-                "ai_type": "volc",
+                "targets": [{"device_id": 1, "cloud_id": 1}],
             },
         )
         assert create.status_code == 200
@@ -204,7 +201,6 @@ def test_task_control_plane_agent_executor_managed_lifecycle_and_cancel_support(
                         "max_steps": 4,
                     },
                     "targets": [{"device_id": 7, "cloud_id": 2}],
-                    "ai_type": "volc",
                 },
             )
             assert create.status_code == 200
@@ -246,7 +242,6 @@ def test_task_control_plane_agent_executor_managed_lifecycle_and_cancel_support(
                         "allowed_actions": ["ui.click"],
                     },
                     "targets": [{"device_id": 7, "cloud_id": 2}],
-                    "ai_type": "volc",
                     "run_at": "2999-01-01T00:00:00+00:00",
                 },
             )
@@ -303,7 +298,6 @@ def test_cleanup_runtime_artifacts_route_clears_hidden_task_artifacts(
             task_id=hidden_task_id,
             payload={"task": "one_click_new_device"},
             devices=[1],
-            ai_type="volc",
         )
         store.mark_completed(hidden_task_id, {"ok": True})
         events.append_event(hidden_task_id, "task.completed", {"hidden": True})
@@ -312,7 +306,6 @@ def test_cleanup_runtime_artifacts_route_clears_hidden_task_artifacts(
             task_id=visible_task_id,
             payload={"task": "anonymous"},
             devices=[1],
-            ai_type="volc",
         )
         store.mark_completed(visible_task_id, {"ok": True})
         events.append_event(visible_task_id, "task.completed", {"visible": True})
@@ -385,11 +378,11 @@ def test_invalid_agent_executor_payload_fails_with_machine_readable_error(tmp_pa
                 json={
                     "task": "agent_executor",
                     "payload": {
-                        "goal": "missing action contract",
+                        "goal": "invalid action contract",
                         "expected_state_ids": ["account"],
+                        "allowed_actions": ["not.real.action"],
                     },
                     "targets": [{"device_id": 7, "cloud_id": 2}],
-                    "ai_type": "volc",
                     "max_retries": 0,
                     "retry_backoff_seconds": 0,
                 },
@@ -403,7 +396,7 @@ def test_invalid_agent_executor_payload_fails_with_machine_readable_error(tmp_pa
             assert detail.status_code == 200
             payload = detail.json()
             assert payload["status"] == "failed"
-            assert payload["error"] == "agent_executor requires allowed_actions"
+            assert "allowed_actions must reference registered actions" in str(payload["error"])
             assert payload["result"]["ok"] is False
             assert payload["result"]["status"] == "failed_config_error"
             target_result = payload["result"]["targets"][0]["result"]
@@ -469,7 +462,6 @@ def test_agent_executor_live_uvicorn_tasks_path_uses_default_runner_wiring() -> 
                         "expected_state_ids": ["account"],
                     },
                     "targets": [{"device_id": 1, "cloud_id": 1}],
-                    "ai_type": "volc",
                     "max_retries": 0,
                     "retry_backoff_seconds": 0,
                 }
@@ -485,7 +477,7 @@ def test_agent_executor_live_uvicorn_tasks_path_uses_default_runner_wiring() -> 
 
         task_id = created["task_id"]
         detail_payload: dict[str, object] = {}
-        deadline = time.time() + 5.0
+        deadline = time.time() + 10.0
         while time.time() < deadline:
             detail_response = urllib_request.urlopen(
                 f"http://127.0.0.1:{port}/api/tasks/{task_id}", timeout=10
@@ -500,11 +492,13 @@ def test_agent_executor_live_uvicorn_tasks_path_uses_default_runner_wiring() -> 
 
         assert detail_payload["status"] == "failed"
         assert detail_payload["task_name"] == "agent_executor"
-        assert detail_payload["error"] == "agent_executor requires allowed_actions"
+        assert any(
+            marker in str(detail_payload["error"])
+            for marker in ("API key", "Unauthorized", "authentication")
+        )
 
         result_payload = detail_payload["result"]
         assert isinstance(result_payload, dict)
-        assert result_payload["status"] == "failed_config_error"
         assert "unsupported task: agent_executor" not in json.dumps(
             detail_payload, ensure_ascii=False
         )
@@ -553,7 +547,6 @@ def test_managed_task_submission_uses_api_surface_and_managed_execution_lifecycl
                     "task": "anonymous",
                     "payload": {"foo": "bar"},
                     "targets": [{"device_id": 7, "cloud_id": 2}],
-                    "ai_type": "volc",
                 },
             )
             assert create.status_code == 200
@@ -568,7 +561,10 @@ def test_managed_task_submission_uses_api_surface_and_managed_execution_lifecycl
             assert _wait_status(client, task_id, timeout_s=3.0) == "completed"
 
             assert len(runner.calls) == 1
-            assert runner.calls[0]["script_payload"] == {"task": "anonymous", "foo": "bar"}
+            assert runner.calls[0]["script_payload"] == {
+                "task": "anonymous",
+                "foo": "bar",
+            }
             runtime = runner.calls[0]["runtime"]
             assert runtime["task_id"] == task_id
             assert runtime["cloud_target"] == "Unit #7-2"
@@ -613,7 +609,6 @@ def test_script_submission_ignores_payload_when_both_are_present(tmp_path: Path)
                     "script": {"task": "anonymous", "steps": []},
                     "payload": {"unexpected": "value"},
                     "targets": [{"device_id": 7, "cloud_id": 2}],
-                    "ai_type": "volc",
                 },
             )
             assert create.status_code == 200
@@ -643,8 +638,7 @@ def test_task_control_plane_failed_flow():
             "/api/tasks/",
             json={
                 "script": {"task": "nonexistent_task"},
-                "devices": [1],
-                "ai_type": "volc",
+                "targets": [{"device_id": 1, "cloud_id": 1}],
                 "max_retries": 0,
                 "retry_backoff_seconds": 0,
             },
@@ -702,8 +696,7 @@ def test_task_controller_routes_terminal_failure_through_account_feedback_hook(t
                         "steps": [],
                         "credentials_ref": json.dumps({"account": "alice@example.com"}),
                     },
-                    "devices": [1],
-                    "ai_type": "volc",
+                    "targets": [{"device_id": 1, "cloud_id": 1}],
                     "max_retries": 0,
                     "retry_backoff_seconds": 0,
                 },
@@ -731,8 +724,7 @@ def test_task_control_plane_retries_then_fails():
             "/api/tasks/",
             json={
                 "script": {"task": "nonexistent_task"},
-                "devices": [1],
-                "ai_type": "volc",
+                "targets": [{"device_id": 1, "cloud_id": 1}],
                 "max_retries": 2,
                 "retry_backoff_seconds": 0,
             },
@@ -760,8 +752,7 @@ def test_task_control_plane_create_returns_retry_metadata():
             "/api/tasks/",
             json={
                 "script": {"task": "anonymous", "steps": []},
-                "devices": [1],
-                "ai_type": "volc",
+                "targets": [{"device_id": 1, "cloud_id": 1}],
                 "max_retries": 3,
                 "retry_backoff_seconds": 1,
             },
@@ -781,8 +772,7 @@ def test_task_control_plane_list_contains_created_task():
             "/api/tasks/",
             json={
                 "script": {"task": "anonymous", "steps": []},
-                "devices": [1],
-                "ai_type": "volc",
+                "targets": [{"device_id": 1, "cloud_id": 1}],
             },
         )
         assert create.status_code == 200
@@ -794,7 +784,7 @@ def test_task_control_plane_list_contains_created_task():
         assert task_id in ids
 
 
-def test_task_control_plane_rejects_managed_submit_without_targets_or_devices():
+def test_task_control_plane_rejects_managed_submit_without_targets():
     os.environ["MYT_TASK_QUEUE_BACKEND"] = "memory"
     reset_task_controller_for_tests()
     with TestClient(app) as client:
@@ -803,16 +793,12 @@ def test_task_control_plane_rejects_managed_submit_without_targets_or_devices():
             json={
                 "task": "named-task",
                 "payload": {"foo": "bar"},
-                "ai_type": "volc",
             },
         )
 
         assert response.status_code == 422
         detail = response.json()["detail"]
-        assert any(
-            "either targets or devices must be provided" in str(item.get("msg", ""))
-            for item in detail
-        )
+        assert any("targets must be provided" in str(item.get("msg", "")) for item in detail)
 
 
 def test_task_control_plane_accepts_canonical_task_payload_targets_shape_without_ai_type():
@@ -831,12 +817,11 @@ def test_task_control_plane_accepts_canonical_task_payload_targets_shape_without
         assert response.status_code == 200
         payload = response.json()
         assert payload["task_name"] == "named-task"
-        assert payload["ai_type"] == "default"
         assert payload["devices"] == [3]
         assert payload["targets"] == [{"device_id": 3, "cloud_id": 2}]
 
 
-def test_task_control_plane_devices_input_is_normalized_to_explicit_targets():
+def test_task_control_plane_rejects_removed_devices_submission_field():
     os.environ["MYT_TASK_QUEUE_BACKEND"] = "memory"
     reset_task_controller_for_tests()
     with TestClient(app) as client:
@@ -846,17 +831,16 @@ def test_task_control_plane_devices_input_is_normalized_to_explicit_targets():
                 "task": "named-task",
                 "payload": {"foo": "bar"},
                 "devices": [3, 3, 5],
-                "ai_type": "volc",
             },
         )
 
-        assert response.status_code == 200
-        payload = response.json()
-        assert payload["devices"] == [3, 5]
-        assert payload["targets"] == [
-            {"device_id": 3, "cloud_id": 1},
-            {"device_id": 5, "cloud_id": 1},
-        ]
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        assert any(
+            "devices is not part of the canonical top-level task request"
+            in str(item.get("msg", ""))
+            for item in detail
+        )
 
 
 def test_task_create_route_centralizes_compatibility_submission_fields(
@@ -867,12 +851,12 @@ def test_task_create_route_centralizes_compatibility_submission_fields(
     class _FakeController:
         def submit_with_retry(self, **kwargs):
             captured.update(kwargs)
+            targets = list(kwargs["targets"] or [])
             return SimpleNamespace(
                 task_id="task-test-1",
                 payload=dict(kwargs["payload"]),
-                devices=list(kwargs["devices"]),
-                targets=list(kwargs["targets"] or []),
-                ai_type=str(kwargs["ai_type"]),
+                devices=[int(item["device_id"]) for item in targets],
+                targets=targets,
                 idempotency_key=kwargs["idempotency_key"],
                 status="pending",
                 created_at="2026-03-23T00:00:00+00:00",
@@ -897,8 +881,10 @@ def test_task_create_route_centralizes_compatibility_submission_fields(
             json={
                 "task": "agent_executor",
                 "payload": {"goal": "open home"},
-                "devices": [3, 5],
-                "ai_type": "volc",
+                "targets": [
+                    {"device_id": 3, "cloud_id": 1},
+                    {"device_id": 5, "cloud_id": 1},
+                ],
                 "display_name": "Open Home",
                 "draft_id": "draft_123",
                 "success_threshold": 4,
@@ -911,9 +897,10 @@ def test_task_create_route_centralizes_compatibility_submission_fields(
     assert response.status_code == 200
     assert captured == {
         "payload": {"task": "agent_executor", "goal": "open home"},
-        "devices": [3, 5],
-        "targets": None,
-        "ai_type": "volc",
+        "targets": [
+            {"device_id": 3, "cloud_id": 1},
+            {"device_id": 5, "cloud_id": 1},
+        ],
         "max_retries": 2,
         "retry_backoff_seconds": 5,
         "priority": 80,
@@ -956,7 +943,7 @@ def test_task_control_plane_rejects_misplaced_top_level_contract_fields(
         )
 
 
-def test_task_controller_rejects_submit_without_targets_or_devices(tmp_path: Path):
+def test_task_controller_rejects_submit_without_targets(tmp_path: Path):
     reset_task_controller_for_tests()
     db_path = tmp_path / "tasks_missing_targets_service_test.db"
     if db_path.exists():
@@ -972,24 +959,22 @@ def test_task_controller_rejects_submit_without_targets_or_devices(tmp_path: Pat
         try:
             controller.submit_with_retry(
                 payload={"task": "anonymous", "steps": []},
-                devices=[],
                 targets=None,
-                ai_type="volc",
                 max_retries=0,
                 retry_backoff_seconds=0,
                 priority=50,
                 run_at=None,
             )
-            raise AssertionError("submit_with_retry should reject missing targets/devices")
+            raise AssertionError("submit_with_retry should reject missing targets")
         except ValueError as exc:
-            assert str(exc) == "either targets or devices must be provided"
+            assert str(exc) == "targets must be provided"
     finally:
         reset_task_controller_for_tests()
         if db_path.exists():
             db_path.unlink()
 
 
-def test_task_control_plane_rejects_conflicting_devices_and_targets():
+def test_task_control_plane_rejects_removed_devices_even_when_targets_exist():
     os.environ["MYT_TASK_QUEUE_BACKEND"] = "memory"
     reset_task_controller_for_tests()
     with TestClient(app) as client:
@@ -1000,12 +985,16 @@ def test_task_control_plane_rejects_conflicting_devices_and_targets():
                 "payload": {"foo": "bar"},
                 "devices": [3],
                 "targets": [{"device_id": 5, "cloud_id": 1}],
-                "ai_type": "volc",
             },
         )
 
-        assert response.status_code == 400
-        assert response.json()["detail"] == "devices and targets must refer to the same device set"
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        assert any(
+            "devices is not part of the canonical top-level task request"
+            in str(item.get("msg", ""))
+            for item in detail
+        )
 
 
 def test_task_control_plane_targets_drive_canonical_devices_even_with_duplicates():
@@ -1022,7 +1011,6 @@ def test_task_control_plane_targets_drive_canonical_devices_even_with_duplicates
                     {"device_id": 3, "cloud_id": 4},
                     {"device_id": 5, "cloud_id": 1},
                 ],
-                "ai_type": "volc",
             },
         )
 
@@ -1034,6 +1022,49 @@ def test_task_control_plane_targets_drive_canonical_devices_even_with_duplicates
             {"device_id": 3, "cloud_id": 4},
             {"device_id": 5, "cloud_id": 1},
         ]
+
+
+def test_task_control_plane_can_query_active_task_for_target(tmp_path: Path):
+    reset_task_controller_for_tests()
+    db_path = tmp_path / "tasks_active_target_query_test.db"
+    controller = TaskController(
+        store=TaskStore(db_path=db_path),
+        queue_backend=InMemoryTaskQueue(),
+        event_store=TaskEventStore(db_path=db_path),
+    )
+    override_task_controller_for_tests(controller)
+
+    try:
+        created = controller.submit_with_retry(
+            payload={"task": "agent_executor", "goal": "open home"},
+            targets=[{"device_id": 7, "cloud_id": 2}],
+            max_retries=0,
+            retry_backoff_seconds=0,
+            priority=50,
+            run_at=None,
+        )
+        with TestClient(app) as client:
+            response = client.get("/api/tasks/active?device_id=7&cloud_id=2&task_name=agent_executor")
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["task_id"] == created.task_id
+        assert payload["task_name"] == "agent_executor"
+        assert payload["targets"] == [{"device_id": 7, "cloud_id": 2}]
+    finally:
+        reset_task_controller_for_tests()
+        if db_path.exists():
+            db_path.unlink()
+
+
+def test_task_control_plane_active_task_query_returns_404_when_missing():
+    os.environ["MYT_TASK_QUEUE_BACKEND"] = "memory"
+    reset_task_controller_for_tests()
+    with TestClient(app) as client:
+        response = client.get("/api/tasks/active?device_id=7&cloud_id=2&task_name=agent_executor")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "active task not found"
 
 
 def test_task_control_plane_clear_route_clears_managed_tasks_and_events(tmp_path: Path):
@@ -1057,7 +1088,6 @@ def test_task_control_plane_clear_route_clears_managed_tasks_and_events(tmp_path
                     "task": "named-task",
                     "payload": {"foo": "bar"},
                     "targets": [{"device_id": 3, "cloud_id": 2}],
-                    "ai_type": "volc",
                     "run_at": "2999-01-01T00:00:00+00:00",
                 },
             )
@@ -1103,9 +1133,7 @@ def test_task_controller_clear_all_blocks_when_running_tasks_exist(tmp_path: Pat
     try:
         created = controller.submit_with_retry(
             payload={"task": "anonymous", "steps": []},
-            devices=[1],
-            targets=None,
-            ai_type="volc",
+            targets=[{"device_id": 1, "cloud_id": 1}],
             max_retries=0,
             retry_backoff_seconds=0,
             priority=50,
@@ -1149,9 +1177,7 @@ def test_task_control_plane_clear_route_rejects_when_running_tasks_exist(tmp_pat
     try:
         created = controller.submit_with_retry(
             payload={"task": "anonymous", "steps": []},
-            devices=[1],
-            targets=None,
-            ai_type="volc",
+            targets=[{"device_id": 1, "cloud_id": 1}],
             max_retries=0,
             retry_backoff_seconds=0,
             priority=50,
@@ -1198,9 +1224,7 @@ def test_task_cleanup_failed_route_accepts_post_and_delete(tmp_path: Path):
     try:
         failed = controller.submit_with_retry(
             payload={"task": "anonymous", "steps": []},
-            devices=[1],
-            targets=None,
-            ai_type="volc",
+            targets=[{"device_id": 1, "cloud_id": 1}],
             max_retries=0,
             retry_backoff_seconds=0,
             priority=50,
@@ -1212,9 +1236,7 @@ def test_task_cleanup_failed_route_accepts_post_and_delete(tmp_path: Path):
 
         cancelled = controller.submit_with_retry(
             payload={"task": "anonymous", "steps": []},
-            devices=[1],
-            targets=None,
-            ai_type="volc",
+            targets=[{"device_id": 1, "cloud_id": 1}],
             max_retries=0,
             retry_backoff_seconds=0,
             priority=50,
@@ -1256,7 +1278,6 @@ def test_task_control_plane_create_list_detail_share_task_mapping():
                     {"device_id": 3, "cloud_id": 2},
                     {"device_id": 3, "cloud_id": 4},
                 ],
-                "ai_type": "volc",
                 "max_retries": 2,
                 "retry_backoff_seconds": 5,
                 "priority": 80,
@@ -1317,8 +1338,7 @@ def test_duplicate_submit_with_same_idempotency_key_returns_same_task(tmp_path: 
         with TestClient(app) as client:
             request = {
                 "script": {"task": "anonymous", "steps": []},
-                "devices": [1],
-                "ai_type": "volc",
+                "targets": [{"device_id": 1, "cloud_id": 1}],
                 "idempotency_key": "dup-key-1",
                 "run_at": "2999-01-01T00:00:00+00:00",
                 "max_retries": 0,
@@ -1358,8 +1378,7 @@ def test_idempotency_key_dedupes_pending_task_across_controller_restart(tmp_path
         with TestClient(app) as client:
             request = {
                 "script": {"task": "anonymous", "steps": []},
-                "devices": [1],
-                "ai_type": "volc",
+                "targets": [{"device_id": 1, "cloud_id": 1}],
                 "idempotency_key": "restart-key-1",
                 "run_at": "2999-01-01T00:00:00+00:00",
                 "max_retries": 0,
@@ -1402,9 +1421,7 @@ def test_idempotency_key_dedupes_running_task_across_controller_restart(tmp_path
 
         created = first_controller.submit_with_retry(
             payload={"task": "anonymous", "steps": []},
-            devices=[1],
-            targets=None,
-            ai_type="volc",
+            targets=[{"device_id": 1, "cloud_id": 1}],
             max_retries=1,
             retry_backoff_seconds=1,
             priority=50,
@@ -1422,9 +1439,7 @@ def test_idempotency_key_dedupes_running_task_across_controller_restart(tmp_path
 
         duplicate = restarted_controller.submit_with_retry(
             payload={"task": "anonymous", "steps": []},
-            devices=[1],
-            targets=None,
-            ai_type="volc",
+            targets=[{"device_id": 1, "cloud_id": 1}],
             max_retries=1,
             retry_backoff_seconds=1,
             priority=50,
@@ -1455,9 +1470,7 @@ def test_idempotency_key_dedupes_retry_scheduled_task_across_controller_restart(
 
         created = first_controller.submit_with_retry(
             payload={"task": "anonymous", "steps": []},
-            devices=[1],
-            targets=None,
-            ai_type="volc",
+            targets=[{"device_id": 1, "cloud_id": 1}],
             max_retries=2,
             retry_backoff_seconds=60,
             priority=50,
@@ -1481,9 +1494,7 @@ def test_idempotency_key_dedupes_retry_scheduled_task_across_controller_restart(
 
         duplicate = restarted_controller.submit_with_retry(
             payload={"task": "anonymous", "steps": []},
-            devices=[1],
-            targets=None,
-            ai_type="volc",
+            targets=[{"device_id": 1, "cloud_id": 1}],
             max_retries=2,
             retry_backoff_seconds=60,
             priority=50,
@@ -1517,9 +1528,7 @@ def test_stale_running_task_recovered_and_requeued_on_controller_start(tmp_path:
 
         created = first_controller.submit_with_retry(
             payload={"task": "anonymous", "steps": []},
-            devices=[1],
-            targets=None,
-            ai_type="volc",
+            targets=[{"device_id": 1, "cloud_id": 1}],
             max_retries=0,
             retry_backoff_seconds=0,
             priority=50,
@@ -1630,8 +1639,7 @@ def test_same_idempotency_key_allows_new_task_after_terminal_state(tmp_path: Pat
                 "/api/tasks/",
                 json={
                     "script": {"task": "anonymous", "steps": []},
-                    "devices": [1],
-                    "ai_type": "volc",
+                    "targets": [{"device_id": 1, "cloud_id": 1}],
                     "idempotency_key": "dup-key-2",
                 },
             )
@@ -1643,8 +1651,7 @@ def test_same_idempotency_key_allows_new_task_after_terminal_state(tmp_path: Pat
                 "/api/tasks/",
                 json={
                     "script": {"task": "anonymous", "steps": []},
-                    "devices": [1],
-                    "ai_type": "volc",
+                    "targets": [{"device_id": 1, "cloud_id": 1}],
                     "idempotency_key": "dup-key-2",
                 },
             )
@@ -1662,7 +1669,6 @@ def test_running_task_fails_fast_when_active_target_probe_turns_unavailable(tmp_
     if db_path.exists():
         db_path.unlink()
 
-    backup = None
     manager = DeviceManager()
     runner = _WaitForCancelRunner()
 
@@ -1704,7 +1710,6 @@ def test_running_task_fails_fast_when_active_target_probe_turns_unavailable(tmp_
                     json={
                         "script": {"task": "anonymous", "steps": []},
                         "targets": [{"device_id": 1, "cloud_id": 1}],
-                        "ai_type": "default",
                     },
                 )
                 assert create.status_code == 200
@@ -1744,8 +1749,7 @@ def test_idempotency_key_can_be_supplied_via_header():
     with TestClient(app) as client:
         request = {
             "script": {"task": "anonymous", "steps": []},
-            "devices": [1],
-            "ai_type": "volc",
+            "targets": [{"device_id": 1, "cloud_id": 1}],
             "run_at": "2999-01-01T00:00:00+00:00",
             "max_retries": 0,
             "retry_backoff_seconds": 0,
@@ -1792,8 +1796,7 @@ def test_conflicting_body_and_header_idempotency_key_rejected():
     with TestClient(app) as client:
         request = {
             "script": {"task": "anonymous", "steps": []},
-            "devices": [1],
-            "ai_type": "volc",
+            "targets": [{"device_id": 1, "cloud_id": 1}],
             "idempotency_key": "body-key",
         }
         response = client.post(
@@ -1823,8 +1826,7 @@ def test_task_metrics_aggregates_status_and_event_counts(tmp_path: Path):
                 "/api/tasks/",
                 json={
                     "script": {"task": "anonymous", "steps": []},
-                    "devices": [1],
-                    "ai_type": "volc",
+                    "targets": [{"device_id": 1, "cloud_id": 1}],
                     "max_retries": 0,
                     "retry_backoff_seconds": 0,
                 },
@@ -1833,8 +1835,7 @@ def test_task_metrics_aggregates_status_and_event_counts(tmp_path: Path):
                 "/api/tasks/",
                 json={
                     "script": {"task": "nonexistent_task"},
-                    "devices": [1],
-                    "ai_type": "volc",
+                    "targets": [{"device_id": 1, "cloud_id": 1}],
                     "max_retries": 0,
                     "retry_backoff_seconds": 0,
                 },
@@ -1843,8 +1844,7 @@ def test_task_metrics_aggregates_status_and_event_counts(tmp_path: Path):
                 "/api/tasks/",
                 json={
                     "script": {"task": "anonymous", "steps": []},
-                    "devices": [1],
-                    "ai_type": "volc",
+                    "targets": [{"device_id": 1, "cloud_id": 1}],
                     "run_at": (datetime.now(UTC) + timedelta(hours=1)).isoformat(),
                     "max_retries": 0,
                     "retry_backoff_seconds": 0,

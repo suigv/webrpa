@@ -35,6 +35,7 @@ If you need a pure-web fallback (no devices / no native libs), start backend wit
 - Frontend task submission must treat `manifest.inputs` as the only allowed plugin payload schema.
 - Do not inject implicit payload fields such as `app_id`, `device_ip`, `package`, account aliases, or target metadata unless the selected plugin explicitly declares them in `inputs`.
 - Runtime context belongs in dedicated channels such as `targets` and backend-owned runtime envelopes, not in plugin `payload`.
+- Shared runtime payload knobs such as `_speed`, `_wait_min_ms`, and `_wait_max_ms` should stay aligned between the main task queue form and device-scoped task forms.
 - If a page needs task-specific context, add it to the plugin manifest first or route it through a non-payload contract; do not create page-local exceptions.
 - Current backend still carries a small deprecated compatibility seam for legacy `device_ip` payload fallback. Treat that as migration-only behavior: frontend code must not rely on it or reintroduce it.
 
@@ -47,6 +48,14 @@ If you need a pure-web fallback (no devices / no native libs), start backend wit
 - Continuing validation and distillation are triggered via:
   - `POST /api/tasks/drafts/{draft_id}/continue`
   - `POST /api/tasks/drafts/{draft_id}/distill`
+
+## AI execution overlay
+
+- Device-detail AI dialog submissions should open the execution overlay with the bound unit context.
+- The execution overlay now embeds the same screenshot preview and light controls used by the device detail page.
+- When AI pauses for intervention, operators should be able to inspect the current cloud screen, request takeover, perform light controls, and then resume from the same overlay.
+- If the operator closes the execution overlay while the same unit still has a running/paused AI task, clicking `AI 对话` again should reopen that execution overlay instead of starting a fresh submission form.
+- Device inventory reads should converge through a shared frontend snapshot instead of each feature directly polling `/api/devices/`; screenshot surfaces should pause refresh while the page is hidden to reduce backend pressure.
 
 ## Editor / TypeScript language server
 

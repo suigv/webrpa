@@ -38,6 +38,68 @@ router = APIRouter()
 _PLUGIN_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 
 
+def _pipeline_catalog_entry() -> dict[str, object]:
+    return {
+        "task": "_pipeline",
+        "display_name": "Pipeline 编排",
+        "category": "系统编排",
+        "description": "按顺序串联多个插件任务，支持重复执行与轮次间等待。",
+        "distillable": False,
+        "visible_in_task_catalog": True,
+        "required": ["steps"],
+        "defaults": {"repeat": 1, "repeat_interval_ms": 0},
+        "example_payload": {
+            "steps": [
+                {"plugin": "x_scrape_blogger", "payload": {}},
+                {"plugin": "x_clone_profile", "payload": {}},
+            ],
+            "repeat": 1,
+            "repeat_interval_ms": 0,
+        },
+        "inputs": [
+            {
+                "name": "steps",
+                "type": "string",
+                "required": True,
+                "default": None,
+                "label": "Pipeline Steps",
+                "description": "Ordered pipeline step definitions.",
+                "placeholder": None,
+                "advanced": False,
+                "system": True,
+                "widget": "hidden",
+                "options": [],
+            },
+            {
+                "name": "repeat",
+                "type": "integer",
+                "required": False,
+                "default": 1,
+                "label": "重复轮次",
+                "description": "0 表示无限循环直到取消。",
+                "placeholder": None,
+                "advanced": False,
+                "system": False,
+                "widget": "number",
+                "options": [],
+            },
+            {
+                "name": "repeat_interval_ms",
+                "type": "integer",
+                "required": False,
+                "default": 0,
+                "label": "轮次等待 (ms)",
+                "description": "每轮 pipeline 之间的等待时间。",
+                "placeholder": None,
+                "advanced": True,
+                "system": False,
+                "widget": "number",
+                "options": [],
+            },
+        ],
+    }
+
+
 def _plugin_loader(*, refresh: bool = False):
     from engine.plugin_loader import clear_shared_plugin_loader_cache, get_shared_plugin_loader
 
@@ -275,6 +337,25 @@ async def list_tasks(limit: int = Query(default=100, ge=1, le=500)):
     return [_task_response_for(controller, item) for item in records]
 
 
+@router.get("/active", response_model=TaskResponse)
+async def get_active_task_for_target(
+    device_id: int = Query(ge=1),
+    cloud_id: int = Query(ge=1),
+    task_name: str | None = Query(default=None, min_length=1),
+):
+    controller = get_task_controller()
+    record = await run_sync(
+        lambda: controller.find_active_task_for_target(
+            device_id,
+            cloud_id,
+            task_name=task_name,
+        )
+    )
+    if record is None:
+        raise HTTPException(status_code=404, detail="active task not found")
+    return _task_response_for(controller, record)
+
+
 async def _cleanup_failed_tasks_response() -> dict[str, object]:
     """清理所有已停止但未成功的任务轨迹与记录。"""
     controller = get_task_controller()
@@ -367,7 +448,7 @@ def task_catalog(include_hidden: bool = Query(default=False)):
 
     clear_shared_plugin_loader_cache()
     loader = get_shared_plugin_loader()
-    catalog: list[dict[str, object]] = []
+    catalog: list[dict[str, object]] = [_pipeline_catalog_entry()]
     for name in loader.names:
         entry = loader.get(name)
         if entry is None:
@@ -614,13 +695,24 @@ async def pause_task(task_id: str, request: TaskControlRequest | None = None):
     record = await run_sync(controller.get, task_id)
     if record is None:
         raise HTTPException(status_code=404, detail="task not found")
-    if record.status in {TaskStatus.COMPLETED.value, TaskStatus.FAILED.value, TaskStatus.CANCELLED.value}:
+    if record.status in {
+        TaskStatus.COMPLETED.value,
+        TaskStatus.FAILED.value,
+        TaskStatus.CANCELLED.value,
+    }:
         return {"task_id": task_id, "status": record.status, "paused": False}
-    state = await run_sync(lambda: controller.pause_state(task_id, reason=request.reason if request else None))
+    state = await run_sync(
+        lambda: controller.pause_state(task_id, reason=request.reason if request else None)
+    )
     if state is None:
         raise HTTPException(status_code=404, detail="task not found")
-    changed = state in {"paused", "pause_requested"}
-    return {"task_id": task_id, "status": state, "pause_state": state, "paused": changed}
+    return {
+        "task_id": task_id,
+        "status": state,
+        "pause_state": state,
+        "paused": state == "paused",
+        "pause_requested": state == "pause_requested",
+    }
 
 
 @router.post("/{task_id}/resume")
@@ -629,11 +721,20 @@ async def resume_task(task_id: str, request: TaskControlRequest | None = None):
     record = await run_sync(controller.get, task_id)
     if record is None:
         raise HTTPException(status_code=404, detail="task not found")
-    state = await run_sync(lambda: controller.resume_state(task_id, reason=request.reason if request else None))
+    state = await run_sync(
+        lambda: controller.resume_state(task_id, reason=request.reason if request else None)
+    )
     if state is None:
         raise HTTPException(status_code=404, detail="task not found")
-    changed = state in {"pending", "running"} and record.status != state
-    return {"task_id": task_id, "status": state, "resume_state": state, "resumed": changed}
+    resumed = record.status == "paused" and state == "pending"
+    resume_requested = record.status == "running" and state == "running"
+    return {
+        "task_id": task_id,
+        "status": state,
+        "resume_state": state,
+        "resumed": resumed,
+        "resume_requested": resume_requested,
+    }
 
 
 @router.post("/{task_id}/takeover")

@@ -8,8 +8,10 @@ import {
     collectTaskPayload,
     prepareTaskPayload,
     resolveTaskDisplayName,
+    resolveTaskAppContext,
 } from './task_service.js';
 import { FetchSseClient } from '../utils/sse.js';
+import { getDevicesSnapshot, refreshDevicesSnapshot } from '../state/devices.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -20,11 +22,243 @@ let taskSubmissionListenerBound = false;
 const submittedTaskMonitors = new Map();
 
 let submissionOverrides = null;
+let pipelineComposerState = [];
+let pipelineDraggedIndex = null;
 
 function clearElement(element) {
     if (element) {
         element.replaceChildren();
     }
+}
+
+function pipelineChildCatalog() {
+    return Array.isArray(pluginCatalog)
+        ? pluginCatalog.filter((item) => item?.task && item.task !== '_pipeline')
+        : [];
+}
+
+function pipelineOptionLabel(taskName) {
+    const matched = pipelineChildCatalog().find((item) => item.task === taskName);
+    return matched?.display_name || taskName;
+}
+
+function setPipelineComposerSteps(steps) {
+    pipelineComposerState = Array.isArray(steps)
+        ? steps
+            .filter((item) => item && typeof item === 'object' && String(item.plugin || item.task || '').trim())
+            .map((item) => ({
+                plugin: String(item.plugin || item.task || '').trim(),
+                label: String(item.label || item.display_name || item.plugin || item.task || '').trim(),
+                payloadText: item.payload && typeof item.payload === 'object'
+                    ? JSON.stringify(item.payload, null, 2)
+                    : '',
+            }))
+        : [];
+}
+
+async function buildPipelineComposerPayload() {
+    if (!Array.isArray(pipelineComposerState) || pipelineComposerState.length === 0) {
+        return { ok: false, error: '请至少添加一个 Pipeline 步骤' };
+    }
+    const steps = [];
+    for (const [index, step] of pipelineComposerState.entries()) {
+        const plugin = String(step?.plugin || '').trim();
+        if (!plugin) {
+            return { ok: false, error: `第 ${index + 1} 个步骤缺少插件` };
+        }
+        const label = String(step?.label || pipelineOptionLabel(plugin) || plugin).trim();
+        const rawPayload = String(step?.payloadText || '').trim();
+        let payload = {};
+        if (rawPayload) {
+            try {
+                payload = JSON.parse(rawPayload);
+            } catch {
+                return { ok: false, error: `第 ${index + 1} 个步骤的 JSON payload 格式无效` };
+            }
+            if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+                return { ok: false, error: `第 ${index + 1} 个步骤的 payload 必须是 JSON 对象` };
+            }
+        }
+        const sanitizedPayload = await prepareTaskPayload(plugin, {
+            rawPayload: payload,
+            stripRuntimeOnly: true,
+        });
+        steps.push({ plugin, label, payload: sanitizedPayload });
+    }
+    return { ok: true, steps };
+}
+
+function renderPipelineComposer(container) {
+    if (!container) return;
+
+    const composer = document.createElement('div');
+    composer.className = 'pipeline-composer';
+
+    const intro = document.createElement('div');
+    intro.className = 'text-muted';
+    intro.style.fontSize = '12px';
+    intro.textContent = '把多个插件串成一条任务链。可拖拽排序；每一步的 payload 会按目标插件 manifest 自动过滤，运行时字段不会透传。';
+    composer.appendChild(intro);
+
+    const selectorTitle = document.createElement('div');
+    selectorTitle.className = 'text-sm font-medium';
+    selectorTitle.textContent = '勾选要纳入编排的任务';
+    composer.appendChild(selectorTitle);
+
+    const selectorGrid = document.createElement('div');
+    selectorGrid.className = 'form-grid columns-2';
+    pipelineChildCatalog().forEach((task) => {
+        const label = document.createElement('label');
+        label.className = 'custom-checkbox inline-flex items-center gap-1';
+
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.checked = pipelineComposerState.some((item) => item.plugin === task.task);
+        checkbox.onchange = () => {
+            const taskName = String(task.task || '').trim();
+            if (!taskName) return;
+            if (checkbox.checked) {
+                if (!pipelineComposerState.some((item) => item.plugin === taskName)) {
+                    pipelineComposerState.push({
+                        plugin: taskName,
+                        label: pipelineOptionLabel(taskName),
+                        payloadText: '',
+                    });
+                }
+            } else {
+                pipelineComposerState = pipelineComposerState.filter(
+                    (item) => item.plugin !== taskName
+                );
+            }
+            renderFields();
+        };
+
+        const checkmark = document.createElement('span');
+        checkmark.className = 'checkmark';
+
+        const text = document.createElement('span');
+        text.textContent = String(task.display_name || task.task || '');
+
+        label.append(checkbox, checkmark, text);
+        selectorGrid.appendChild(label);
+    });
+    composer.appendChild(selectorGrid);
+
+    const list = document.createElement('div');
+    list.className = 'pipeline-step-list';
+
+    if (pipelineComposerState.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'text-muted';
+        empty.style.fontSize = '12px';
+        empty.textContent = '当前没有步骤，先从上方选择一个插件加入编排。';
+        list.appendChild(empty);
+    }
+
+    pipelineComposerState.forEach((step, index) => {
+        const card = document.createElement('div');
+        card.className = 'pipeline-step-card';
+        card.draggable = true;
+        card.dataset.index = String(index);
+        card.addEventListener('dragstart', () => {
+            pipelineDraggedIndex = index;
+            card.classList.add('dragging');
+        });
+        card.addEventListener('dragend', () => {
+            pipelineDraggedIndex = null;
+            card.classList.remove('dragging');
+        });
+        card.addEventListener('dragover', (event) => {
+            event.preventDefault();
+        });
+        card.addEventListener('drop', (event) => {
+            event.preventDefault();
+            if (pipelineDraggedIndex === null || pipelineDraggedIndex === index) return;
+            const next = [...pipelineComposerState];
+            const [moved] = next.splice(pipelineDraggedIndex, 1);
+            next.splice(index, 0, moved);
+            pipelineComposerState = next;
+            pipelineDraggedIndex = null;
+            renderFields();
+        });
+
+        const header = document.createElement('div');
+        header.className = 'pipeline-step-header';
+
+        const title = document.createElement('div');
+        title.className = 'task-summary-target-label';
+        title.textContent = `步骤 ${index + 1}`;
+        header.appendChild(title);
+
+        const removeButton = document.createElement('button');
+        removeButton.type = 'button';
+        removeButton.className = 'btn btn-text btn-sm text-error';
+        removeButton.textContent = '移除';
+        removeButton.onclick = () => {
+            pipelineComposerState.splice(index, 1);
+            renderFields();
+        };
+        header.appendChild(removeButton);
+        card.appendChild(header);
+
+        const pluginLabel = document.createElement('label');
+        pluginLabel.textContent = '插件';
+        card.appendChild(pluginLabel);
+
+        const pluginSelect = document.createElement('select');
+        pipelineChildCatalog().forEach((task) => {
+            const option = document.createElement('option');
+            option.value = String(task.task || '');
+            option.textContent = String(task.display_name || task.task || '');
+            if (option.value === step.plugin) {
+                option.selected = true;
+            }
+            pluginSelect.appendChild(option);
+        });
+        pluginSelect.onchange = () => {
+            const previousPlugin = step.plugin;
+            step.plugin = String(pluginSelect.value || '').trim();
+            if (
+                !String(step.label || '').trim()
+                || step.label === pipelineOptionLabel(previousPlugin)
+            ) {
+                step.label = pipelineOptionLabel(step.plugin);
+            }
+            renderFields();
+        };
+        card.appendChild(pluginSelect);
+
+        const nameLabel = document.createElement('label');
+        nameLabel.textContent = '显示名称';
+        card.appendChild(nameLabel);
+
+        const nameInput = document.createElement('input');
+        nameInput.type = 'text';
+        nameInput.value = String(step.label || pipelineOptionLabel(step.plugin));
+        nameInput.oninput = () => {
+            step.label = nameInput.value;
+        };
+        card.appendChild(nameInput);
+
+        const payloadLabel = document.createElement('label');
+        payloadLabel.textContent = '步骤 payload JSON';
+        card.appendChild(payloadLabel);
+
+        const payloadInput = document.createElement('textarea');
+        payloadInput.className = 'textarea-large';
+        payloadInput.style.minHeight = '96px';
+        payloadInput.placeholder = '{\n  "screen_name": "jack"\n}';
+        payloadInput.value = String(step.payloadText || '');
+        payloadInput.oninput = () => {
+            step.payloadText = payloadInput.value;
+        };
+        card.appendChild(payloadInput);
+
+        list.appendChild(card);
+    });
+
+    composer.appendChild(list);
+    container.prepend(composer);
 }
 
 function formatTargetText(targets) {
@@ -652,7 +886,12 @@ async function initAppSelector() {
     const select = $('taskAppSelector');
     if (select) {
         clearElement(select);
+        const defaultOpt = document.createElement('option');
+        defaultOpt.value = 'default';
+        defaultOpt.textContent = '系统资产 / default';
+        select.appendChild(defaultOpt);
         (r.data.apps || []).forEach(app => {
+            if (String(app.id || '').trim() === 'default') return;
             const opt = document.createElement('option');
             opt.value = app.id;
             opt.textContent = app.name;
@@ -834,6 +1073,7 @@ function renderFields() {
     const p = pluginCatalog.find(x => x.task === selectedTaskName);
     const container = $('taskPayloadFields');
     const showMoreFields = $('showMoreFields');
+    const preservedPayload = collectTaskPayload(container);
     renderTaskFormPanel({
         task: p || null,
         guideCard: $('taskGuideCard'),
@@ -842,6 +1082,10 @@ function renderFields() {
         collapsedText: '显示高级参数',
         expandedText: '收起高级参数',
     });
+    if (selectedTaskName === '_pipeline') {
+        renderPipelineComposer(container);
+    }
+    setFormValuesFromPayload(container, preservedPayload);
     if (showMoreFields && container) {
         showMoreFields.onclick = () => {
             toggleAdvancedTaskFields(container, showMoreFields);
@@ -861,7 +1105,18 @@ async function submitTask() {
     if (btn) btn.disabled = true;
 
     try {
-        const rawPayload = collectTaskPayload($('taskPayloadFields'));
+        const rawPayload = {
+            ...collectTaskPayload($('taskPayloadFields')),
+            ...collectTaskPayload($('taskRuntimePayloadFields')),
+        };
+        if (selectedTaskName === '_pipeline') {
+            const pipelinePayload = await buildPipelineComposerPayload();
+            if (!pipelinePayload.ok) {
+                toast.warn(pipelinePayload.error);
+                return;
+            }
+            rawPayload.steps = pipelinePayload.steps;
+        }
         const payload = await prepareTaskPayload(selectedTaskName, { rawPayload, appId });
 
         const taskData = buildTaskRequest({
@@ -879,7 +1134,6 @@ async function submitTask() {
             if (typeof submissionOverrides.success_threshold === 'number') {
                 taskData.success_threshold = submissionOverrides.success_threshold;
             }
-            if (submissionOverrides.ai_type) taskData.ai_type = submissionOverrides.ai_type;
         }
 
         const result = await apiSubmitTask(taskData);
@@ -940,7 +1194,6 @@ export async function prefillTaskFromDraft({
     displayName,
     draftId,
     successThreshold,
-    aiType,
 } = {}) {
     const resolvedTaskName = String(taskName || '').trim();
     if (!resolvedTaskName) return;
@@ -951,6 +1204,9 @@ export async function prefillTaskFromDraft({
     }
 
     selectedTaskName = resolvedTaskName;
+    if (resolvedTaskName === '_pipeline') {
+        setPipelineComposerSteps(payload?.steps);
+    }
     renderPluginSelector();
     renderFields();
 
@@ -959,11 +1215,10 @@ export async function prefillTaskFromDraft({
         await initAppSelector();
     }
     if (appSelect) {
-        const desired = String(
-            appId
-            || (payload && typeof payload === 'object' ? (payload.app_id || payload.app) : '')
-            || ''
-        ).trim();
+        const desired = await resolveTaskAppContext(resolvedTaskName, {
+            rawPayload: payload,
+            fallbackAppId: appId,
+        });
         if (desired) {
             const has = Array.from(appSelect.options).some((opt) => opt.value === desired);
             if (has) {
@@ -974,6 +1229,8 @@ export async function prefillTaskFromDraft({
 
     const container = $('taskPayloadFields');
     setFormValuesFromPayload(container, payload);
+    const runtimeContainer = $('taskRuntimePayloadFields');
+    setFormValuesFromPayload(runtimeContainer, payload);
 
     if (typeof priority === 'number' || (typeof priority === 'string' && String(priority).trim())) {
         const el = $('taskPriority');
@@ -991,7 +1248,6 @@ export async function prefillTaskFromDraft({
         display_name: String(displayName || '').trim() || null,
         draft_id: String(draftId || '').trim() || null,
         success_threshold: Number.isFinite(Number(successThreshold)) ? Number(successThreshold) : null,
-        ai_type: String(aiType || '').trim() || null,
     };
 }
 
@@ -1000,10 +1256,13 @@ async function loadTaskTargets() {
     const hint = $('taskTargetHint');
     if (!container) return;
     try {
-        const r = await fetchJson('/api/devices/');
-        if (!r.ok) return;
+        const r = await refreshDevicesSnapshot({ silentErrors: true, maxAgeMs: 5000 });
+        if (!r.ok) {
+            if (hint) hint.textContent = '加载节点失败';
+            return;
+        }
         const units = [];
-        (r.data || []).forEach(d => {
+        (r.data || getDevicesSnapshot()).forEach(d => {
             (d.cloud_machines || []).forEach(u => {
                 if (u.availability_state === 'available') {
                     units.push({ device_id: d.device_id, cloud_id: u.cloud_id, label: `#${d.device_id}-${u.cloud_id}` });

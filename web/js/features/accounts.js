@@ -3,8 +3,11 @@ import { toast } from '../ui/toast.js';
 import {
     apiSubmitTask,
     buildTaskRequest,
+    getTaskCatalog,
     prepareTaskPayload,
+    resolveTaskAppContext,
 } from './task_service.js';
+import { refreshDevicesSnapshot } from '../state/devices.js';
 
 const accountsInput = document.getElementById("accountsInput");
 const accountsPreview = document.getElementById("accountsPreview");
@@ -191,7 +194,12 @@ async function initImportAppSelector() {
     const select = document.getElementById('accountImportAppId');
     if (select) {
         clearElement(select);
+        const systemOpt = document.createElement('option');
+        systemOpt.value = 'default';
+        systemOpt.textContent = '系统资产 / default';
+        select.appendChild(systemOpt);
         (r.data.apps || []).forEach(app => {
+            if (String(app.id || '').trim() === 'default') return;
             const opt = document.createElement('option');
             opt.value = app.id;
             opt.textContent = app.name;
@@ -234,86 +242,115 @@ function renderInventory(accounts) {
     let progressCount = 0;
     let errorCount = 0;
 
-    const wrapper = document.createElement('div');
-    wrapper.style.cssText = 'overflow-x:auto;';
-
-    const table = document.createElement('table');
-    table.style.cssText = 'width: 100%; border-collapse: collapse; font-size: 0.75rem; text-align: left;';
-
-    const thead = document.createElement('thead');
-    thead.style.cssText = 'position: sticky; top: 0; background: var(--bg-sidebar); z-index: 10;';
-    const headerRow = document.createElement('tr');
-    headerRow.append(
-        makeTableCell('th', '账号', 'padding: 10px; border-bottom: 1px solid var(--border); width: 120px;'),
-        makeTableCell('th', '当前状态', 'padding: 10px; border-bottom: 1px solid var(--border); width: 80px;'),
-        makeTableCell('th', '快捷标记', 'padding: 10px; border-bottom: 1px solid var(--border); width: 140px;'),
-        makeTableCell('th', '异常追踪', 'padding: 10px; border-bottom: 1px solid var(--border);'),
-    );
-    thead.appendChild(headerRow);
-
-    const tbody = document.createElement('tbody');
+    const grouped = new Map();
 
     accounts.forEach(a => {
         const status = a.status || 'ready';
         if (status === 'ready') readyCount++;
         else if (status === 'in_progress') progressCount++;
         else errorCount++;
-
-        const row = document.createElement('tr');
-        row.style.cssText = `border-bottom: 1px solid var(--border); background: ${status === 'ready' ? 'transparent' : 'rgba(255,255,255,0.01)'}`;
-
-        // 1. 账号列 (可点击编辑)
-        const accountCell = document.createElement('td');
-        accountCell.style.cssText = 'padding: 10px; font-weight: 600; color: var(--primary); cursor: pointer; text-decoration: underline;';
-        accountCell.textContent = a.account || '';
-        accountCell.onclick = () => openAccountModal(a);
-
-        // 2. 状态列
-        const statusCell = document.createElement('td');
-        statusCell.style.cssText = 'padding: 10px;';
-        statusCell.appendChild(buildStatusBadge(status));
-
-        // 3. 快捷标记列
-        const quickCell = document.createElement('td');
-        quickCell.style.cssText = 'padding: 10px; display: flex; gap: 4px;';
-        
-        const createQuickBtn = (targetStatus) => {
-            const btn = document.createElement('button');
-            btn.className = 'btn btn-text p-1 text-xs';
-            btn.innerHTML = STATUS_META[targetStatus].icon;
-            btn.title = `标记为${STATUS_META[targetStatus].text}`;
-            btn.onclick = (e) => {
-                e.stopPropagation();
-                updateAccountStatus(a.account, targetStatus);
-            };
-            if (status === targetStatus) {
-                btn.style.opacity = '1';
-                btn.style.background = 'var(--bg-sidebar)';
-                btn.style.borderRadius = '4px';
-            } else {
-                btn.style.opacity = '0.3';
-            }
-            return btn;
-        };
-
-        quickCell.append(
-            createQuickBtn('ready'),
-            createQuickBtn('bad_auth'),
-            createQuickBtn('banned'),
-            createQuickBtn('2fa_issue')
-        );
-
-        // 4. 异常详情列
-        const errorCell = makeTableCell('td', a.error_msg || '-', 'padding: 10px; color: var(--error); font-size: 0.7rem; max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;');
-        errorCell.title = a.error_msg || '';
-
-        row.append(accountCell, statusCell, quickCell, errorCell);
-        tbody.appendChild(row);
+        const groupKey = String(a.app_id || 'default').trim() || 'default';
+        if (!grouped.has(groupKey)) {
+            grouped.set(groupKey, []);
+        }
+        grouped.get(groupKey).push(a);
     });
 
-    table.append(thead, tbody);
-    wrapper.appendChild(table);
-    accountsInventoryList.appendChild(wrapper);
+    const orderedGroups = Array.from(grouped.entries()).sort(([left], [right]) => {
+        if (left === 'default') return -1;
+        if (right === 'default') return 1;
+        return left.localeCompare(right);
+    });
+
+    orderedGroups.forEach(([groupKey, items]) => {
+        const section = document.createElement('div');
+        section.style.cssText = 'border-top: 1px solid var(--border);';
+
+        const sectionHeader = document.createElement('div');
+        sectionHeader.className = 'flex items-center justify-between px-4 py-3';
+
+        const title = document.createElement('div');
+        title.className = 'text-sm font-medium';
+        title.textContent = groupKey === 'default' ? '系统资产 / default' : `应用 ${groupKey}`;
+        sectionHeader.appendChild(title);
+
+        const meta = document.createElement('div');
+        meta.className = 'text-muted text-xs';
+        meta.textContent = `${items.length} 个账号`;
+        sectionHeader.appendChild(meta);
+        section.appendChild(sectionHeader);
+
+        const wrapper = document.createElement('div');
+        wrapper.style.cssText = 'overflow-x:auto;';
+
+        const table = document.createElement('table');
+        table.style.cssText = 'width: 100%; border-collapse: collapse; font-size: 0.75rem; text-align: left;';
+
+        const thead = document.createElement('thead');
+        thead.style.cssText = 'position: sticky; top: 0; background: var(--bg-sidebar); z-index: 10;';
+        const headerRow = document.createElement('tr');
+        headerRow.append(
+            makeTableCell('th', '账号', 'padding: 10px; border-bottom: 1px solid var(--border); width: 120px;'),
+            makeTableCell('th', '当前状态', 'padding: 10px; border-bottom: 1px solid var(--border); width: 80px;'),
+            makeTableCell('th', '快捷标记', 'padding: 10px; border-bottom: 1px solid var(--border); width: 140px;'),
+            makeTableCell('th', '异常追踪', 'padding: 10px; border-bottom: 1px solid var(--border);'),
+        );
+        thead.appendChild(headerRow);
+
+        const tbody = document.createElement('tbody');
+        items.forEach((a) => {
+            const status = a.status || 'ready';
+            const row = document.createElement('tr');
+            row.style.cssText = `border-bottom: 1px solid var(--border); background: ${status === 'ready' ? 'transparent' : 'rgba(255,255,255,0.01)'}`;
+
+            const accountCell = document.createElement('td');
+            accountCell.style.cssText = 'padding: 10px; font-weight: 600; color: var(--primary); cursor: pointer; text-decoration: underline;';
+            accountCell.textContent = a.account || '';
+            accountCell.onclick = () => openAccountModal(a);
+
+            const statusCell = document.createElement('td');
+            statusCell.style.cssText = 'padding: 10px;';
+            statusCell.appendChild(buildStatusBadge(status));
+
+            const quickCell = document.createElement('td');
+            quickCell.style.cssText = 'padding: 10px; display: flex; gap: 4px;';
+            const createQuickBtn = (targetStatus) => {
+                const btn = document.createElement('button');
+                btn.className = 'btn btn-text p-1 text-xs';
+                btn.innerHTML = STATUS_META[targetStatus].icon;
+                btn.title = `标记为${STATUS_META[targetStatus].text}`;
+                btn.onclick = (e) => {
+                    e.stopPropagation();
+                    updateAccountStatus(a.account, targetStatus);
+                };
+                if (status === targetStatus) {
+                    btn.style.opacity = '1';
+                    btn.style.background = 'var(--bg-sidebar)';
+                    btn.style.borderRadius = '4px';
+                } else {
+                    btn.style.opacity = '0.3';
+                }
+                return btn;
+            };
+            quickCell.append(
+                createQuickBtn('ready'),
+                createQuickBtn('bad_auth'),
+                createQuickBtn('banned'),
+                createQuickBtn('2fa_issue')
+            );
+
+            const errorCell = makeTableCell('td', a.error_msg || '-', 'padding: 10px; color: var(--error); font-size: 0.7rem; max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;');
+            errorCell.title = a.error_msg || '';
+
+            row.append(accountCell, statusCell, quickCell, errorCell);
+            tbody.appendChild(row);
+        });
+
+        table.append(thead, tbody);
+        wrapper.appendChild(table);
+        section.appendChild(wrapper);
+        accountsInventoryList.appendChild(section);
+    });
     updateStats(readyCount, progressCount, errorCount);
 }
 
@@ -455,7 +492,7 @@ async function importAccounts(overwrite) {
 }
 
 async function bulkDispatch() {
-    const r = await fetchJson("/api/devices/");
+    const r = await refreshDevicesSnapshot({ silentErrors: true, maxAgeMs: 5000 });
     if (!r.ok) return;
 
     const onlineUnits = [];
@@ -469,28 +506,36 @@ async function bulkDispatch() {
 
     const plugin = prompt("请输入要派发的插件名称（如 one_click_new_device）", (localStorage.getItem("bulkDispatchPlugin") || ""));
     if (!plugin || !plugin.trim()) return;
-    localStorage.setItem("bulkDispatchPlugin", plugin.trim());
+    const pluginName = plugin.trim();
+    localStorage.setItem("bulkDispatchPlugin", pluginName);
+    await getTaskCatalog();
+    const scopedAppId = await resolveTaskAppContext(pluginName);
 
     bulkDispatchBtn.disabled = true;
     bulkDispatchBtn.textContent = '批量派发中...';
 
     let dispatched = 0;
     for (const u of onlineUnits) {
-        const accountRes = await fetchJson("/api/data/accounts/pop", { method: "POST" });
+        const accountRes = await fetchJson("/api/data/accounts/pop", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(scopedAppId ? { app_id: scopedAppId } : {}),
+        });
         if (!accountRes.ok || !accountRes.data || accountRes.data.status !== "ok" || !accountRes.data.account) {
             toast.warn("账号池耗尽，停止后续派发");
             break;
         }
         const account = accountRes.data.account;
-        const payload = await prepareTaskPayload(plugin.trim(), {
+        const payload = await prepareTaskPayload(pluginName, {
             rawPayload: {
                 status_hint: 'runtime',
             },
             account,
+            appId: scopedAppId,
             stripRuntimeOnly: true,
         });
         const taskData = buildTaskRequest({
-            task: plugin.trim(),
+            task: pluginName,
             payload,
             targets: [{ device_id: u.dId, cloud_id: u.cId }],
         });

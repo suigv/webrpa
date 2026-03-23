@@ -3,6 +3,8 @@ export class Store {
         this.state = {
             currentTab: 'tab-main',
             currentUnitLogTarget: '',
+            devicesSnapshot: [],
+            devicesFetchedAt: 0,
         };
         this.listeners = new Set();
     }
