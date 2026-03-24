@@ -1,6 +1,5 @@
 from api.routes import config as config_route
 from core.config_loader import ConfigLoader
-from core.lan_discovery import LanDeviceDiscovery
 
 
 def test_config_response_includes_discovery_metadata(monkeypatch):
@@ -16,15 +15,16 @@ def test_config_response_includes_discovery_metadata(monkeypatch):
             "discovery_subnet": "192.168.1.0/24",
             "sdk_port": 8000,
         }
+        discovery = config_route.LanDeviceDiscovery()
         monkeypatch.setattr(
-            LanDeviceDiscovery,
+            discovery,
             "get_discovered_device_map",
-            lambda self: {"1": "192.168.1.214", "2": "192.168.1.216"},
+            lambda: {"1": "192.168.1.214", "2": "192.168.1.216"},
         )
         monkeypatch.setattr(
-            LanDeviceDiscovery,
+            discovery,
             "get_effective_subnet",
-            lambda self: "192.168.1.0/24",
+            lambda: "192.168.1.0/24",
         )
 
         payload = config_route.get_config().model_dump(mode="python")

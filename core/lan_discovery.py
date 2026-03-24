@@ -3,8 +3,11 @@ import socket
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Any
 
-from .config_loader import get_discovery_subnet, get_host_ip, get_sdk_port
+from hardware_adapters.myt_client import MytSdkClient
+
+from .config_loader import get_discovery_enabled, get_discovery_subnet, get_host_ip, get_sdk_port
 
 
 class LanDeviceDiscovery:
@@ -67,12 +70,46 @@ class LanDeviceDiscovery:
             network = ipaddress.ip_network(f"{network.network_address}/24", strict=False)
         return [str(ip) for ip in network.hosts() if not ipaddress.ip_address(ip).is_loopback]
 
-    def _probe_ip(self, ip: str, port: int) -> bool:
+    @staticmethod
+    def _looks_like_sdk_info_payload(payload: object) -> bool:
+        if not isinstance(payload, dict):
+            return False
+
+        code = payload.get("code")
         try:
-            with socket.create_connection((ip, port), timeout=self._connect_timeout_seconds):
-                return True
+            code_value = int(code)
+        except (TypeError, ValueError):
+            return False
+        if code_value != 0:
+            return False
+
+        data = payload.get("data")
+        if not isinstance(data, dict):
+            return False
+
+        info_keys = {"latestVersion", "currentVersion"}
+        device_keys = {"deviceId", "model", "version", "ip"}
+        return bool(info_keys.intersection(data) or device_keys.intersection(data))
+
+    def _probe_ip(self, ip: str, port: int) -> bool:
+        client = MytSdkClient(
+            ip,
+            port,
+            timeout_seconds=self._connect_timeout_seconds,
+            retries=1,
+        )
+        try:
+            version_info: dict[str, Any] = client.get_api_version()
         except Exception:
             return False
+        if self._looks_like_sdk_info_payload(version_info):
+            return True
+
+        try:
+            device_info: dict[str, Any] = client.get_device_info()
+        except Exception:
+            return False
+        return self._looks_like_sdk_info_payload(device_info)
 
     def _candidate_local_ipv4s(self) -> list[str]:
         candidates: list[str] = []
@@ -158,6 +195,8 @@ class LanDeviceDiscovery:
                 and (now - self._last_scan_at) < self._scan_interval_seconds
             ):
                 return list(self._discovered_ips)
+            if not force and not get_discovery_enabled():
+                return list(self._discovered_ips)
 
         subnet = self.get_effective_subnet()
         targets = self._scan_targets(subnet)
@@ -194,14 +233,6 @@ class LanDeviceDiscovery:
             return list(self._discovered_ips)
 
     def get_discovered_device_map(self) -> dict[str, str]:
-        with self._scan_lock:
-            should_refresh = (
-                self._last_scan_at is None
-                or not self._discovered_ips
-                or (time.time() - self._last_scan_at) >= self._scan_interval_seconds
-            )
-        if should_refresh:
-            self.scan_now()
         ips = self.get_discovered_ips()
         return {str(index): ip for index, ip in enumerate(ips, start=1)}
 

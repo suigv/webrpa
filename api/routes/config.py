@@ -8,9 +8,8 @@ from core.config_loader import (
     get_cloud_machines_per_device,
     get_cycle_interval,
     get_device_ips,
-    get_discovery_enabled,
-    get_discovery_subnet,
     get_discovered_device_ips,
+    get_discovery_enabled,
     get_host_ip,
     get_humanization_delay_ms,
     get_humanization_enabled,
@@ -156,6 +155,10 @@ def update_config(config: ConfigUpdate):
         update_data["discovery_subnet"] = str(update_data["discovery_subnet"]).strip()
 
     if update_data:
+        refresh_discovery = bool(
+            update_data.get("discovery_enabled", current.discovery_enabled)
+        ) and ("discovery_enabled" in update_data or "discovery_subnet" in update_data)
         ConfigLoader.update(**update_data)
-        LanDeviceDiscovery().scan_now()
+        if refresh_discovery:
+            LanDeviceDiscovery().scan_now(force=True)
     return get_config()

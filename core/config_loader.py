@@ -109,6 +109,10 @@ def get_persisted_discovered_device_ips() -> dict[str, str]:
 
 
 def get_discovered_device_ips() -> dict[str, str]:
+    persisted = get_persisted_discovered_device_ips()
+    if not get_discovery_enabled():
+        return persisted
+
     try:
         from core.lan_discovery import LanDeviceDiscovery
 
@@ -118,25 +122,31 @@ def get_discovered_device_ips() -> dict[str, str]:
     except Exception:
         pass
 
-    return get_persisted_discovered_device_ips()
+    return persisted
+
+
+def _get_runtime_discovered_device_ips() -> dict[str, str]:
+    if not get_discovery_enabled():
+        return {}
+    return get_discovered_device_ips()
 
 
 def get_runtime_device_ips() -> dict[str, str]:
-    discovered = get_discovered_device_ips()
+    discovered = _get_runtime_discovered_device_ips()
     if discovered:
         return discovered
     return get_device_ips()
 
 
 def get_device_ip(device_id: int) -> str:
-    discovered = get_discovered_device_ips()
+    discovered = _get_runtime_discovered_device_ips()
     if discovered:
         return discovered.get(str(device_id), "") or get_host_ip()
     return get_device_ips().get(str(device_id), "") or get_host_ip()
 
 
 def get_total_devices() -> int:
-    discovered = get_discovered_device_ips()
+    discovered = _get_runtime_discovered_device_ips()
     if discovered:
         return len(discovered)
     return _c().total_devices

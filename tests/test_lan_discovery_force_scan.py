@@ -23,7 +23,6 @@ def test_scan_now_force_bypasses_discovery_enabled(monkeypatch):
         monkeypatch.setattr(discovery, "_probe_ip", lambda ip, port: ip == "192.168.1.214")
         monkeypatch.setattr(discovery, "get_effective_subnet", lambda: "192.168.1.0/24")
 
-        assert discovery.scan_now() == ["192.168.1.214"]
         assert discovery.scan_now(force=True) == ["192.168.1.214"]
         assert discovery.scan_now() == ["192.168.1.214"]
     finally:
@@ -37,19 +36,61 @@ def test_get_effective_subnet_prefers_auto_detected_local_network(monkeypatch):
     assert discovery.get_effective_subnet() == "192.168.10.0/24"
 
 
-def test_get_discovered_device_map_refreshes_when_cache_is_stale(monkeypatch):
+def test_get_discovered_device_map_returns_cached_mapping_without_refresh(monkeypatch):
     discovery = LanDeviceDiscovery()
     discovery._discovered_ips = ["192.168.1.214"]
     discovery._last_scan_at = time.time() - 30
-    calls: list[bool] = []
 
     def _fake_scan(force: bool = False) -> list[str]:
-        calls.append(force)
-        discovery._discovered_ips = ["192.168.1.215"]
-        discovery._last_scan_at = time.time()
-        return ["192.168.1.215"]
+        raise AssertionError("get_discovered_device_map should not trigger scans")
 
     monkeypatch.setattr(discovery, "scan_now", _fake_scan)
 
-    assert discovery.get_discovered_device_map() == {"1": "192.168.1.215"}
-    assert calls == [False]
+    assert discovery.get_discovered_device_map() == {"1": "192.168.1.214"}
+
+
+def test_probe_ip_accepts_valid_myt_sdk_response(monkeypatch):
+    discovery = LanDeviceDiscovery()
+
+    class _FakeSdkClient:
+        def __init__(
+            self, device_ip: str, sdk_port: int, timeout_seconds: float, retries: int
+        ) -> None:
+            assert device_ip == "192.168.1.214"
+            assert sdk_port == 8000
+            assert timeout_seconds == discovery._connect_timeout_seconds
+            assert retries == 1
+
+        def get_api_version(self) -> dict[str, object]:
+            return {
+                "code": 0,
+                "message": "ok",
+                "data": {"latestVersion": 110, "currentVersion": 108},
+            }
+
+        def get_device_info(self) -> dict[str, object]:
+            raise AssertionError("version probe should already be enough")
+
+    monkeypatch.setattr("core.lan_discovery.MytSdkClient", _FakeSdkClient)
+
+    assert discovery._probe_ip("192.168.1.214", 8000) is True
+
+
+def test_probe_ip_rejects_non_sdk_http_payload(monkeypatch):
+    discovery = LanDeviceDiscovery()
+
+    class _FakeSdkClient:
+        def __init__(
+            self, device_ip: str, sdk_port: int, timeout_seconds: float, retries: int
+        ) -> None:
+            return None
+
+        def get_api_version(self) -> dict[str, object]:
+            return {"ok": True, "data": {"status": "healthy"}}
+
+        def get_device_info(self) -> dict[str, object]:
+            return {"code": 0, "message": "ok", "data": {"status": "healthy"}}
+
+    monkeypatch.setattr("core.lan_discovery.MytSdkClient", _FakeSdkClient)
+
+    assert discovery._probe_ip("192.168.1.214", 8000) is False
