@@ -194,8 +194,9 @@ def save_blogger_candidate_action(
     candidate = params.get("candidate")
     if not isinstance(candidate, dict):
         return ActionResult(ok=False, code="invalid_params", message="candidate must be an object")
+    shared_key = params.get("key", params.get("shared_key", "blogger_pool"))
     wrapped_params = {
-        "key": params.get("key", "blogger_pool"),
+        "key": shared_key,
         "scope": params.get("scope", "device"),
         "scope_value": params.get("scope_value"),
         "identity_field": params.get("identity_field", "username"),
@@ -215,8 +216,9 @@ def get_blogger_candidate_action(
     *,
     load_shared_optional: Callable[[dict[str, Any], ExecutionContext | None], ActionResult],
 ) -> ActionResult:
+    shared_key = params.get("key", params.get("shared_key", "blogger_pool"))
     wrapped_params = {
-        "key": params.get("key", "blogger_pool"),
+        "key": shared_key,
         "scope": params.get("scope", "device"),
         "scope_value": params.get("scope_value"),
         "default": [],

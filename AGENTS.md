@@ -10,9 +10,9 @@ Hard goals:
 
 ## Codex / OpenCode Skill
 
-When working on this repository through Codex or OpenCode, explicitly invoke `$webrpa-dev` in the prompt when the task touches `api/`, `core/`, `engine/`, `models/`, `plugins/`, `tests/`, `tools/`, `config/`, or `web/`.
+When working on this repository through Codex or OpenCode, explicitly invoke `$webrpa-dev` in the prompt when the task touches `api/`, `core/`, `engine/`, `models/`, `plugins/`, `tests/`, `tools/`, `config/`, `web/`, `common/`, `hardware_adapters/`, or `ai_services/`.
 
-The purpose is to load repo-specific constraints, validation steps, and file-level heuristics before edits begin. Keep this invocation short and explicit instead of copying the full skill body into task prompts.
+The purpose is to load repo-specific constraints, validation steps, and file-level heuristics before edits begin. For day-to-day development, keep the invocation short, always load `AGENTS.md` first, and pull `README.md`, `AI_SKILL.md`, or task-specific docs only when the task actually needs them.
 
 ## Scope Rules
 

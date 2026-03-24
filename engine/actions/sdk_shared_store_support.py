@@ -79,7 +79,7 @@ def _default_scope_value(scope: str, context: ExecutionContext | None) -> str:
                 context,
                 "device_ip",
                 "",
-                source_order=("payload",),
+                source_order=("target", "payload", "runtime"),
             )
             or ""
         ).strip()

@@ -429,6 +429,9 @@ def load_ui_scheme_action(
 
     args = params.get("args")
     kwargs = params.get("kwargs")
+    if not isinstance(kwargs, dict) and isinstance(args, dict):
+        # Distilled plugins may serialize named format args under `args`.
+        kwargs = args
     url = template
     try:
         if isinstance(kwargs, dict) and kwargs:

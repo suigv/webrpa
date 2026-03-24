@@ -1,49 +1,44 @@
+---
+doc_type: current
+source_of_truth: current
+owner: repo
+last_verified_at: 2026-03-24
+stale_after_days: 14
+verification_method:
+  - repo audit
+  - tools/check_docs_freshness.py
+---
+
 # WebRPA Docs
 
-`docs/STATUS.md` is the **current truth anchor** for the frozen 1.0 launch state.
+这个目录现在只保留**当前可验证**的文档，不再保留历史日志、规划文档、外部参考副本或示例堆积。
 
-This folder is intentionally split into:
+文档系统规则：
 
-- **top-level current docs** — current contracts and launch-state truth
-- **`governance/`** — history, debt, handoff
-- **`strategy/`** — roadmap and future-facing architecture
-- **`ops/`** — operational rollout/runbook notes
-- **`reference/`** — large external/vendor API references
+- `docs/` 只放当前契约和当前状态。
+- 历史过程、路线图、未来计划不再作为仓库文档保留。
+- 当前文档必须带 freshness 元信息，并通过 `tools/check_docs_freshness.py` 校验。
+- 如果某条信息不能被当前代码、当前配置或当前验证命令支撑，就不应该写进这里。
 
-This docs landing page is intentionally conservative:
+## 当前文档
 
-- **1.0 launch scope is limited to** device management, task scheduling, and plugin execution.
-- **Browser hands-on QA remains environment-blocked**; current docs should not imply full browser live verification.
-- **M5/WebRTC is out of scope for 1.0** and belongs only to future-facing roadmap/strategy materials.
+- [STATUS.md](STATUS.md)：当前状态与最近一次验证结果。
+- [HTTP_API.md](HTTP_API.md)：当前后端 API 分组与稳定入口。
+- [PLUGIN_CONTRACT.md](PLUGIN_CONTRACT.md)：当前插件目录、manifest、payload 边界。
+- [CONFIGURATION.md](CONFIGURATION.md)：当前配置面与关键运行时开关。
+- [FRONTEND.md](FRONTEND.md)：当前前端开发、部署和提交契约。
+- [AI_ONBOARDING.md](AI_ONBOARDING.md)：新 AI 会话进入仓库时的最短阅读顺序。
 
-## Current reference
+## 使用顺序
 
-Use these first when you need the current contract, current state, or launch-readiness boundaries.
+1. 先读 [STATUS.md](STATUS.md)。
+2. 按需要读 [HTTP_API.md](HTTP_API.md)、[PLUGIN_CONTRACT.md](PLUGIN_CONTRACT.md)、[CONFIGURATION.md](CONFIGURATION.md)、[FRONTEND.md](FRONTEND.md)。
+3. AI 进入仓库前读 [AI_ONBOARDING.md](AI_ONBOARDING.md)。
 
-- **[STATUS.md](STATUS.md)** — current status matrix and launch-readiness snapshot; start here.
-- **[HTTP_API.md](HTTP_API.md)** — current backend control-plane API reference.
-- **[PLUGIN_CONTRACT.md](PLUGIN_CONTRACT.md)** — current plugin/runtime payload contract.
-- **[CONFIGURATION.md](CONFIGURATION.md)** — current configuration and environment-variable reference.
-- **[FRONTEND.md](FRONTEND.md)** — current frontend deployment contract and known constraints.
-- **[AI_ONBOARDING.md](AI_ONBOARDING.md)** — guided reading order for new AI sessions.
+## 校验
 
-## Historical / governance
+在仓库根目录执行：
 
-Use these for implementation history, debt tracking, handoff context, and governance records. They are useful, but they are **not** the primary source for the frozen 1.0 launch snapshot.
-
-- **[governance/README.md](governance/README.md)** — entry point for progress log, debt register, and handoff docs.
-- **[ops/README.md](ops/README.md)** — entry point for rollout and deployment notes.
-
-## Future / strategy
-
-Use these for direction-setting and longer-horizon planning. They should not be read as proof that those items are in the frozen 1.0 launch scope.
-
-- **[strategy/README.md](strategy/README.md)** — entry point for roadmap, goals, architecture vision, and future-facing notes.
-- **[reference/README.md](reference/README.md)** — entry point for large SDK/API reference manuals.
-
-## Quick orientation
-
-1. Read **[STATUS.md](STATUS.md)** for the current launch-ready snapshot.
-2. Use **[HTTP_API.md](HTTP_API.md)**, **[PLUGIN_CONTRACT.md](PLUGIN_CONTRACT.md)**, **[CONFIGURATION.md](CONFIGURATION.md)**, and **[FRONTEND.md](FRONTEND.md)** for current contracts.
-3. Use **[governance/README.md](governance/README.md)** for history and governance context.
-4. Read **[strategy/README.md](strategy/README.md)** only as future-facing material.
+```bash
+./.venv/bin/python tools/check_docs_freshness.py
+```

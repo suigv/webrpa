@@ -1,66 +1,34 @@
-# AI Agent Onboarding Guide
+---
+doc_type: current
+source_of_truth: current
+owner: repo
+last_verified_at: 2026-03-24
+stale_after_days: 14
+verification_method:
+  - docs structure audit
+  - manual repo audit
+---
 
-This guide is for new AI sessions entering the repository.
+# AI Onboarding
 
-Start from the **current launch-state docs**, not from strategy or vision materials.
+新 AI 会话进入仓库时，只读这组当前文档：
 
-## Current-state first rules
+1. [README.md](README.md)
+2. [STATUS.md](STATUS.md)
+3. [HTTP_API.md](HTTP_API.md)
+4. [PLUGIN_CONTRACT.md](PLUGIN_CONTRACT.md)
+5. [CONFIGURATION.md](CONFIGURATION.md)
+6. [FRONTEND.md](FRONTEND.md)
 
-- Treat **Launch 1.0 scope as frozen**: device management, task scheduling, and plugin execution.
-- Treat **`docs/STATUS.md` as the current truth anchor**.
-- Do **not** infer that browser hands-on QA is complete; it remains environment-blocked.
-- Do **not** treat M5/WebRTC as current launch scope; it is future roadmap material only.
-- Strategy docs help with direction, but they are **not** the current implementation contract.
+## 规则
 
-## Recommended reading order
+- `docs/` 里的文档都应被视为当前契约。
+- 仓库里不再保留路线图、历史日志、未来规划文档；不要自行脑补这些材料仍然存在。
+- 如果代码改动影响契约，先更新当前文档，再结束工作。
+- 不要把未验证能力写成已完成能力。
 
-### 1. Read first: current launch-state snapshot
+## 新会话首句建议
 
-- **[STATUS.md](STATUS.md)**  
-  Start here for the frozen 1.0 launch snapshot, current verification boundary, browser QA caveat, and explicit exclusion of M5/WebRTC from launch scope.
-- **[README.md](README.md)**  
-  Docs landing page that separates current reference docs from historical/governance material and future/strategy material.
-
-### 2. Read next: current contracts
-
-- **[HTTP_API.md](HTTP_API.md)**  
-  Current backend/API contract.
-- **[PLUGIN_CONTRACT.md](PLUGIN_CONTRACT.md)**  
-  Current plugin manifest, payload, and runtime contract.
-- **[CONFIGURATION.md](CONFIGURATION.md)**  
-  Current runtime configuration and environment-variable contract.
-- **[FRONTEND.md](FRONTEND.md)**  
-  Current frontend deployment model, payload boundary, and known constraints.
-
-### 3. Read after that: historical and governance context
-
-- **[governance/project_progress.md](governance/project_progress.md)**  
-  Historical/log-oriented progress record. Useful for chronology and recent changes, but not the primary current-state contract.
-- **[governance/TECHNICAL_DEBT.md](governance/TECHNICAL_DEBT.md)**  
-  Current debt register, guardrails, and anti-regression context.
-- **[governance/HANDOFF.md](governance/HANDOFF.md)**  
-  Deeper engineering handoff and continuation context.
-
-### 4. Read last: future / vision / strategy
-
-These documents are useful for long-range direction, but they should not be treated as proof of what is included in the frozen 1.0 launch state.
-
-- **[strategy/ROADMAP.md](strategy/ROADMAP.md)**  
-  Future milestone framing, including post-1.0 items such as M5/WebRTC.
-- **[strategy/PROJECT_GOALS.md](strategy/PROJECT_GOALS.md)**  
-  Long-range goals and success criteria.
-- **[strategy/architecture_2_0.md](strategy/architecture_2_0.md)**  
-  Strategic architecture vision.
-- **[strategy/SKILLS_EVOLUTION.md](strategy/SKILLS_EVOLUTION.md)**  
-  Future-facing architecture evolution analysis.
-
-## AI responsibilities
-
-- Keep recommendations aligned with the current docs hierarchy above.
-- Prefer current contracts over historical notes when they differ.
-- Update relevant docs when functional changes alter the current contract.
-- Do not over-claim completion, especially around browser hands-on QA or WebRTC takeover.
-
-## Suggested first prompt for a new session
-
-> Please read `docs/STATUS.md` and `docs/README.md` first, then review the current contract docs in `docs/AI_ONBOARDING.md` before making changes.
+```text
+请先阅读 docs/README.md 和 docs/STATUS.md，再按需阅读 HTTP_API、PLUGIN_CONTRACT、CONFIGURATION、FRONTEND 后开始修改。
+```

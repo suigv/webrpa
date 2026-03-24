@@ -450,7 +450,7 @@ def extract_follow_targets_from_xml(
     button_text_set = {text.lower() for text in _coerce_text_list(button_texts) if text}
     if not button_text_set:
         return []
-    return _extract_centered_targets(
+    targets = _extract_centered_targets(
         xml_text,
         package=package,
         min_top=min_top,
@@ -464,6 +464,9 @@ def extract_follow_targets_from_xml(
             "center": center,
         },
     )
+    if targets:
+        return targets
+    return _extract_compose_row_follow_targets(xml_text, package=package, min_top=min_top)
 
 
 def extract_unread_dm_targets_from_xml(
@@ -525,6 +528,95 @@ def _extract_centered_targets(
             continue
         seen.add(key)
         targets.append(build_target(node, bound, center))
+
+    targets.sort(key=lambda item: int(item["bound"].get("top", 0)))
+    return targets
+
+
+def _vertical_overlap(first: dict[str, int], second: dict[str, int]) -> int:
+    return max(
+        0,
+        min(int(first.get("bottom", 0)), int(second.get("bottom", 0)))
+        - max(int(first.get("top", 0)), int(second.get("top", 0))),
+    )
+
+
+def _extract_compose_row_follow_targets(
+    xml_text: str,
+    *,
+    package: str,
+    min_top: int,
+) -> list[dict[str, Any]]:
+    root = _parse_xml_root(xml_text, log_message="follow target compose XML parse failed")
+    if root is None:
+        return []
+
+    nodes_with_bounds = list(_iter_eligible_nodes_with_bounds(root, package=package))
+    if not nodes_with_bounds:
+        return []
+
+    targets: list[dict[str, Any]] = []
+    seen: set[tuple[int, int]] = set()
+
+    for node, bound in nodes_with_bounds:
+        text = str(node.attrib.get("text") or "").strip()
+        desc = str(node.attrib.get("content-desc") or "").strip()
+        if text or desc:
+            continue
+
+        left = int(bound.get("left", 0))
+        top = int(bound.get("top", 0))
+        right = int(bound.get("right", 0))
+        bottom = int(bound.get("bottom", 0))
+        width = max(0, right - left)
+        height = max(0, bottom - top)
+        if top < min_top or left < 760 or width < 160 or width > 260 or height < 80 or height > 180:
+            continue
+
+        has_avatar = False
+        middle_count = 0
+        for sibling, sibling_bound in nodes_with_bounds:
+            if sibling is node or _vertical_overlap(bound, sibling_bound) < 40:
+                continue
+            sibling_text = str(sibling.attrib.get("text") or "").strip()
+            sibling_desc = str(sibling.attrib.get("content-desc") or "").strip()
+            sibling_left = int(sibling_bound.get("left", 0))
+            sibling_right = int(sibling_bound.get("right", 0))
+            sibling_width = max(0, sibling_right - sibling_left)
+            sibling_height = max(
+                0, int(sibling_bound.get("bottom", 0)) - int(sibling_bound.get("top", 0))
+            )
+            if sibling_width <= 0 or sibling_height <= 0:
+                continue
+            if sibling_left <= 80 and sibling_right <= 220 and sibling_width >= 80:
+                has_avatar = True
+                continue
+            if (
+                sibling_left >= 140
+                and sibling_right <= 650
+                and sibling_width >= 120
+                and sibling_height >= 60
+                and not sibling_desc
+            ) or sibling_text:
+                middle_count += 1
+
+        if not has_avatar or middle_count < 2:
+            continue
+
+        center = _bound_center(bound)
+        key = (center["x"], center["y"])
+        if key in seen:
+            continue
+        seen.add(key)
+        targets.append(
+            {
+                "text": "",
+                "bound": bound,
+                "center": center,
+                "inferred": True,
+                "strategy": "compose_row_bounds",
+            }
+        )
 
     targets.sort(key=lambda item: int(item["bound"].get("top", 0)))
     return targets

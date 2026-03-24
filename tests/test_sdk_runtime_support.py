@@ -42,3 +42,18 @@ def test_load_ui_scheme_can_resolve_app_from_context_payload_package() -> None:
     assert result.data["app"] == "x"
     assert result.data["url"] == "twitter://user?screen_name=jack"
     assert seen_apps == ["x"]
+
+
+def test_load_ui_scheme_accepts_named_args_dict_for_distilled_plugins() -> None:
+    result = load_ui_scheme_action(
+        {"key": "followers", "args": {"screen_name": "CWrightbough"}},
+        load_ui_config_document=lambda: {},
+        load_app_config_document=lambda _app: {
+            "schemes": {"followers": "https://twitter.com/{screen_name}/followers"}
+        },
+        resolve_ui_key=lambda values, key: values.get(key),
+        context=ExecutionContext(payload={"app_id": "x"}),
+    )
+
+    assert result.ok is True
+    assert result.data["url"] == "https://twitter.com/CWrightbough/followers"

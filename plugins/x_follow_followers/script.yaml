@@ -51,7 +51,7 @@ steps:
       device_ip: "${vars.cloud_container.device_ip}"
       cloud_index: "${vars.cloud_container.cloud_id}"
       key: followers
-      args:
+      kwargs:
         screen_name: "${vars.blogger.username}"
 
   - label: 跳转博主粉丝页

@@ -632,6 +632,60 @@ def test_extract_and_follow_visible_targets(monkeypatch):
     assert followed.data["clicked_count"] == 2
 
 
+def test_follow_visible_targets_supports_compose_row_bounds_fallback(monkeypatch):
+    mod = _load_state_actions_module()
+    ExecutionContext = _load_execution_context()
+
+    class FakeRpc:
+        def __init__(self):
+            self.clicked = []
+
+        def init(self, ip, port, timeout):
+            _ = (ip, port, timeout)
+            return True
+
+        def close(self):
+            return None
+
+        def dump_node_xml_ex(self, work_mode, timeout_ms):
+            _ = (work_mode, timeout_ms)
+            return """
+            <hierarchy>
+              <node text="" class="android.widget.FrameLayout" package="com.twitter.android" bounds="[0,0][1080,1920]">
+                <node text="" class="android.view.View" package="com.twitter.android" bounds="[32,379][158,505]" />
+                <node text="" class="android.view.View" package="com.twitter.android" bounds="[168,357][483,481]" />
+                <node text="" class="android.view.View" package="com.twitter.android" bounds="[168,406][431,532]" />
+                <node text="" class="android.view.View" package="com.twitter.android" bounds="[828,379][1038,505]" />
+                <node text="" class="android.view.View" package="com.twitter.android" bounds="[32,548][158,674]" />
+                <node text="" class="android.view.View" package="com.twitter.android" bounds="[168,524][483,650]" />
+                <node text="" class="android.view.View" package="com.twitter.android" bounds="[168,575][431,701]" />
+                <node text="" class="android.view.View" package="com.twitter.android" bounds="[828,548][1038,674]" />
+              </node>
+            </hierarchy>
+            """
+
+        def dump_node_xml(self, dump_all):
+            _ = dump_all
+            return ""
+
+        def touchClick(self, finger_id, x, y):
+            self.clicked.append((finger_id, x, y))
+            return True
+
+    monkeypatch.setattr(mod, "MytRpc", FakeRpc)
+    monkeypatch.setattr(mod.time, "sleep", lambda *_: None)
+    ctx = ExecutionContext(payload={"device_ip": "192.168.1.214"})
+
+    extracted = mod.extract_follow_targets({"package": "com.twitter.android"}, ctx)
+    assert extracted.ok is True
+    assert extracted.data["count"] == 2
+    assert extracted.data["targets"][0]["strategy"] == "compose_row_bounds"
+
+    followed = mod.follow_visible_targets({"package": "com.twitter.android", "max_clicks": 2}, ctx)
+    assert followed.ok is True
+    assert followed.data["clicked_count"] == 2
+
+
 def test_extract_and_open_first_unread_dm(monkeypatch):
     mod = _load_state_actions_module()
     ExecutionContext = _load_execution_context()
