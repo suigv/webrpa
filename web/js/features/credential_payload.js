@@ -26,6 +26,8 @@ export function buildCredentialsRef(account) {
 export function buildAiDialogPayload({
     goal = '',
     appId = '',
+    appDisplayName = '',
+    packageName = '',
     account = null,
     advancedPrompt = '',
 } = {}) {
@@ -38,6 +40,15 @@ export function buildAiDialogPayload({
     const normalizedAppId = String(appId || '').trim();
     if (normalizedAppId) {
         payload.app_id = normalizedAppId;
+    }
+    const normalizedAppDisplayName = String(appDisplayName || '').trim();
+    if (normalizedAppDisplayName) {
+        payload.app_display_name = normalizedAppDisplayName;
+    }
+    const normalizedPackageName = String(packageName || '').trim();
+    if (normalizedPackageName) {
+        payload.package = normalizedPackageName;
+        payload.package_name = normalizedPackageName;
     }
 
     const credentialsRef = buildCredentialsRef(account);

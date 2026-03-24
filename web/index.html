@@ -205,6 +205,11 @@
                 <select id="accountImportAppId" class="select-full">
                   <option value="default">默认 (系统)</option>
                 </select>
+                <div id="accountImportCustomAppFields" class="flex-col gap-2 mt-3" style="display:none;">
+                  <input id="accountImportCustomAppId" type="text" placeholder="新应用 ID，例如 x 或 twitter_cn">
+                  <input id="accountImportCustomDisplayName" type="text" placeholder="显示名称，例如 X / Twitter">
+                  <input id="accountImportCustomPackageName" type="text" placeholder="包名（可选），例如 com.twitter.android">
+                </div>
               </div>
               <textarea id="accountsInput" class="textarea-large flex-1" placeholder="格式规范: username----password----2fa"></textarea>
               <div id="accountsPreview"></div>
@@ -604,6 +609,11 @@
           <select id="unitAiAppSelect" class="select-full">
             <option value="default">默认 (系统)</option>
           </select>
+          <div id="unitAiCustomAppFields" class="flex-col gap-2 mt-3" style="display:none;">
+            <input id="unitAiCustomAppId" type="text" placeholder="新应用 ID，例如 x 或 twitter_cn">
+            <input id="unitAiCustomDisplayName" type="text" placeholder="显示名称，例如 X / Twitter">
+            <input id="unitAiCustomPackageName" type="text" placeholder="包名（可选），例如 com.twitter.android">
+          </div>
         </div>
 
         <div class="form-group mt-4">

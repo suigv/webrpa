@@ -32,6 +32,8 @@ async def ai_dialog_planner(request: AIDialogPlannerRequest):
             lambda: service.plan(
                 goal=request.goal,
                 app_id=request.app_id,
+                app_display_name=request.app_display_name,
+                package_name=request.package_name,
                 selected_account=request.selected_account,
                 advanced_prompt=request.advanced_prompt,
             )

@@ -518,31 +518,25 @@ def task_catalog(include_hidden: bool = Query(default=False)):
 @router.get("/catalog/apps")
 def list_apps():
     """列出 config/apps/ 目录下所有已定义的应用程序。"""
-    import yaml
-
-    from core.paths import config_dir
-
-    apps_dir = config_dir() / "apps"
-    if not apps_dir.exists():
-        return {"apps": []}
+    from core.app_config import AppConfigManager
 
     apps = []
-    # 始终包含默认选项
-    apps.append({"id": "default", "name": "默认 (系统)"})
-
-    for f in apps_dir.glob("*.yaml"):
-        app_id = f.stem
-        if app_id == "default":
+    for item in AppConfigManager.list_apps(include_default=True):
+        app_id = str(item.get("app_id") or "").strip()
+        if not app_id:
             continue
-        try:
-            with open(f, encoding="utf-8") as stream:
-                data = yaml.safe_load(stream)
-                # 尝试从配置中获取友好名称，如果没有则使用 ID
-                display_name = data.get("name") or data.get("display_name") or app_id.upper()
-                apps.append({"id": app_id, "name": display_name})
-        except Exception:
-            apps.append({"id": app_id, "name": app_id.upper()})
-
+        display_name = str(item.get("display_name") or app_id.upper()).strip()
+        package_names = list(item.get("package_names") or [])
+        apps.append(
+            {
+                "id": app_id,
+                "name": display_name,
+                "display_name": display_name,
+                "aliases": list(item.get("aliases") or []),
+                "package_name": package_names[0] if package_names else None,
+                "package_names": package_names,
+            }
+        )
     return {"apps": apps}
 
 

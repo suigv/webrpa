@@ -117,6 +117,37 @@ def test_ai_dialog_planner_marks_login_without_account_as_not_executable(monkeyp
         reset_task_controller_for_tests()
 
 
+def test_ai_dialog_planner_accepts_custom_app_identity(monkeypatch):
+    reset_task_controller_for_tests()
+    monkeypatch.setattr("core.ai_dialog_service.list_accounts", lambda app_id=None: [])
+    monkeypatch.setattr(
+        "core.ai_dialog_service.AIDialogService._plan_with_llm",
+        lambda self, **kwargs: {},
+    )
+
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/ai_dialog/planner",
+                json={
+                    "goal": "打开首页并检查是否可浏览",
+                    "app_id": "twitter_cn",
+                    "app_display_name": "Twitter 中文",
+                    "package_name": "com.twitter.cn",
+                },
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["resolved_app"]["app_id"] == "twitter_cn"
+        assert data["resolved_app"]["name"] == "Twitter 中文"
+        assert data["resolved_app"]["package"] == "com.twitter.cn"
+        assert data["resolved_app"]["has_app_config"] is False
+        assert data["resolved_payload"]["package"] == "com.twitter.cn"
+    finally:
+        reset_task_controller_for_tests()
+
+
 def test_ai_dialog_history_filters_non_ai_dialog_drafts(tmp_path):
     reset_task_controller_for_tests()
     db_path = tmp_path / "tasks-ai-dialog-history.db"

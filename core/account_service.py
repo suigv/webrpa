@@ -6,6 +6,7 @@ from typing import Any
 
 from core.account_parser import parse_accounts_advanced, parse_accounts_text
 from core.account_store import AccountStore
+from core.app_config import AppConfigManager
 from core.data_store import read_lines
 
 _accounts_lock = threading.Lock()
@@ -61,8 +62,15 @@ def import_accounts_content(
     delimiter: str | None,
     mapping: dict[int, str] | None,
     app_id: str | None = "default",
+    app_display_name: str | None = None,
+    package_name: str | None = None,
 ) -> dict[str, Any]:
-    normalized_app_id = str(app_id or "").strip().lower()
+    app_identity = AppConfigManager.ensure_app_config(
+        app_id=app_id,
+        display_name=app_display_name,
+        package_name=package_name,
+    )
+    normalized_app_id = str(app_identity["app_id"]).strip().lower()
     if not normalized_app_id:
         raise ValueError("app_id is required")
 
@@ -109,6 +117,12 @@ def import_accounts_content(
         "valid": valid,
         "invalid": invalid,
         "errors": errors if isinstance(errors, list) else [],
+        "resolved_app": {
+            "app_id": normalized_app_id,
+            "display_name": app_identity.get("display_name"),
+            "package_name": app_identity.get("package_name") or None,
+            "created": bool(app_identity.get("created")),
+        },
     }
 
 
@@ -121,11 +135,17 @@ def update_account_status(account: str, status: str, error_msg: str | None = Non
 
 
 def pop_account(app_id: str | None = None) -> dict[str, Any] | None:
-    return _get_store().pop_ready_account(app_id=app_id)
+    normalized_app_id = None
+    if app_id is not None:
+        normalized_app_id = AppConfigManager.resolve_app_identity(app_id=app_id)["app_id"]
+    return _get_store().pop_ready_account(app_id=normalized_app_id)
 
 
 def list_accounts(app_id: str | None = None) -> list[dict[str, Any]]:
-    return _get_store().list_accounts(app_id=app_id)
+    normalized_app_id = None
+    if app_id is not None:
+        normalized_app_id = AppConfigManager.resolve_app_identity(app_id=app_id)["app_id"]
+    return _get_store().list_accounts(app_id=normalized_app_id)
 
 
 def reset_accounts() -> int:

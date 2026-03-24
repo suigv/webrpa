@@ -17,6 +17,7 @@ let plannerResult = null;
 let activeDraftId = '';
 let activeSuccessThreshold = null;
 const activeAiTaskByUnit = new Map();
+const CUSTOM_APP_OPTION = '__custom__';
 
 function clearElement(element) {
     if (element) {
@@ -127,7 +128,35 @@ function renderEmptyAccountSelect(select, label) {
 }
 
 function getSelectedAiDialogAppId() {
-    return String($('unitAiAppSelect')?.value || '').trim();
+    const select = $('unitAiAppSelect');
+    if (String(select?.value || '').trim() === CUSTOM_APP_OPTION) {
+        return String($('unitAiCustomAppId')?.value || '').trim();
+    }
+    return String(select?.value || '').trim();
+}
+
+function getSelectedAiDialogAppDisplayName() {
+    const select = $('unitAiAppSelect');
+    if (String(select?.value || '').trim() === CUSTOM_APP_OPTION) {
+        return String($('unitAiCustomDisplayName')?.value || '').trim();
+    }
+    return '';
+}
+
+function getSelectedAiDialogPackageName() {
+    const select = $('unitAiAppSelect');
+    if (String(select?.value || '').trim() === CUSTOM_APP_OPTION) {
+        return String($('unitAiCustomPackageName')?.value || '').trim();
+    }
+    return '';
+}
+
+function toggleAiCustomAppFields() {
+    const wrapper = $('unitAiCustomAppFields');
+    if (!wrapper) return;
+    wrapper.style.display = String($('unitAiAppSelect')?.value || '').trim() === CUSTOM_APP_OPTION
+        ? 'flex'
+        : 'none';
 }
 
 function getSelectedAiDialogGoal() {
@@ -168,6 +197,8 @@ function currentPlannerSignature() {
     return JSON.stringify({
         goal: getSelectedAiDialogGoal(),
         app_id: getSelectedAiDialogAppId(),
+        app_display_name: getSelectedAiDialogAppDisplayName(),
+        package_name: getSelectedAiDialogPackageName(),
         selected_account: getSelectedAiAccountName(),
         advanced_prompt: getSelectedAdvancedPrompt(),
         draft_id: activeDraftId,
@@ -293,11 +324,16 @@ async function loadAiDialogApps() {
             if (String(app.id || '').trim() === 'default') return;
             const option = document.createElement('option');
             option.value = String(app.id || '').trim();
-            option.textContent = String(app.name || app.id || '').trim();
+            option.textContent = String(app.display_name || app.name || app.id || '').trim();
             select.appendChild(option);
         });
+        const customOption = document.createElement('option');
+        customOption.value = CUSTOM_APP_OPTION;
+        customOption.textContent = '新建应用…';
+        select.appendChild(customOption);
         const hasPrevious = Array.from(select.options).some((option) => option.value === previous);
         select.value = hasPrevious ? previous : 'default';
+        toggleAiCustomAppFields();
     } catch (_error) {
         select.replaceChildren();
         const option = document.createElement('option');
@@ -305,12 +341,19 @@ async function loadAiDialogApps() {
         option.textContent = '系统资产 / default';
         select.appendChild(option);
         select.value = 'default';
+        toggleAiCustomAppFields();
     }
 }
 
 async function loadAiDialogAccounts(appId = getSelectedAiDialogAppId(), preferredAccount = '') {
     const select = $('unitAiAccountSelect');
     if (!select) return;
+    if (String($('unitAiAppSelect')?.value || '').trim() === CUSTOM_APP_OPTION && !String(appId || '').trim()) {
+        aiDialogAccounts = [];
+        renderEmptyAccountSelect(select, '-- 先填写应用 ID --');
+        updateAiAccountHint('default', 0);
+        return;
+    }
     const params = new URLSearchParams();
     if (appId) {
         params.set('app_id', appId);
@@ -367,6 +410,8 @@ async function requestPlanner({ force = false, silent = false } = {}) {
         body: JSON.stringify({
             goal,
             app_id: getSelectedAiDialogAppId(),
+            app_display_name: getSelectedAiDialogAppDisplayName() || null,
+            package_name: getSelectedAiDialogPackageName() || null,
             selected_account: getSelectedAiAccountName() || null,
             advanced_prompt: getSelectedAdvancedPrompt() || null,
         }),
@@ -398,6 +443,8 @@ function buildAiTaskPayload() {
     const payload = buildAiDialogPayload({
         goal: getSelectedAiDialogGoal(),
         appId: getSelectedAiDialogAppId(),
+        appDisplayName: getSelectedAiDialogAppDisplayName(),
+        packageName: getSelectedAiDialogPackageName(),
         account: getSelectedAiAccount(),
         advancedPrompt: getSelectedAdvancedPrompt(),
     });
@@ -534,6 +581,8 @@ async function loadHistoryItemIntoDialog(item) {
     const payload = snapshot.payload || {};
     const identity = snapshot.identity || {};
     const appId = String(payload.app_id || identity.app_id || 'default').trim() || 'default';
+    const appDisplayName = String(payload.app_display_name || '').trim();
+    const packageName = String(payload.package_name || payload.package || '').trim();
     const accountName = String(payload.account || identity.account || '').trim();
 
     activeDraftId = String(response.data?.draft_id || draftId);
@@ -546,7 +595,17 @@ async function loadHistoryItemIntoDialog(item) {
 
     await loadAiDialogApps();
     const appSelect = $('unitAiAppSelect');
-    if (appSelect) appSelect.value = appId;
+    if (appSelect) {
+        const hasExistingOption = Array.from(appSelect.options).some((option) => option.value === appId);
+        appSelect.value = hasExistingOption ? appId : CUSTOM_APP_OPTION;
+    }
+    const customAppId = $('unitAiCustomAppId');
+    if (customAppId) customAppId.value = appSelect?.value === CUSTOM_APP_OPTION ? appId : '';
+    const customDisplayName = $('unitAiCustomDisplayName');
+    if (customDisplayName) customDisplayName.value = appSelect?.value === CUSTOM_APP_OPTION ? appDisplayName : '';
+    const customPackageName = $('unitAiCustomPackageName');
+    if (customPackageName) customPackageName.value = appSelect?.value === CUSTOM_APP_OPTION ? packageName : '';
+    toggleAiCustomAppFields();
     await loadAiDialogAccounts(appId, accountName);
     resetPlannerState();
     await requestPlanner({ force: true, silent: true });
@@ -576,12 +635,23 @@ function bindPlannerInputs() {
     const appSelect = $('unitAiAppSelect');
     if (appSelect) {
         appSelect.onchange = () => {
+            toggleAiCustomAppFields();
             resetPlannerState();
             activeDraftId = '';
             activeSuccessThreshold = null;
             void loadAiDialogAccounts(getSelectedAiDialogAppId()).then(() => requestPlanner({ force: true, silent: true }));
         };
     }
+
+    ['unitAiCustomAppId', 'unitAiCustomDisplayName', 'unitAiCustomPackageName'].forEach((id) => {
+        const element = $(id);
+        if (element) {
+            element.oninput = () => {
+                resetPlannerState();
+                schedulePlanner();
+            };
+        }
+    });
 
     const accountSelect = $('unitAiAccountSelect');
     if (accountSelect) {
@@ -622,6 +692,12 @@ export async function openUnitAiDialog(unit) {
     if (goalInput) goalInput.value = '';
     const advancedPrompt = $('unitAiAdvancedPrompt');
     if (advancedPrompt) advancedPrompt.value = '';
+    const customAppId = $('unitAiCustomAppId');
+    if (customAppId) customAppId.value = '';
+    const customDisplayName = $('unitAiCustomDisplayName');
+    if (customDisplayName) customDisplayName.value = '';
+    const customPackageName = $('unitAiCustomPackageName');
+    if (customPackageName) customPackageName.value = '';
 
     const advanced = $('unitAiAdvanced');
     if (advanced) advanced.style.display = 'none';

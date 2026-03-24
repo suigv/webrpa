@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 import pytest
+import yaml
 from fastapi.testclient import TestClient
 
 from api.routes import task_routes
@@ -130,9 +131,7 @@ def test_distill_endpoint_keeps_threshold_payload_when_completed_count_is_string
         def get(self, name: str):
             if name != "demo_plugin":
                 return None
-            return SimpleNamespace(
-                manifest=SimpleNamespace(distill_threshold=3, distillable=True)
-            )
+            return SimpleNamespace(manifest=SimpleNamespace(distill_threshold=3, distillable=True))
 
     monkeypatch.setattr(task_routes, "get_task_controller", lambda: _Controller())
     monkeypatch.setattr(task_routes, "_plugin_loader", lambda refresh=False: _Loader())
@@ -150,7 +149,9 @@ def test_distill_endpoint_keeps_threshold_payload_when_completed_count_is_string
     }
 
 
-def test_distill_endpoint_clears_plugin_loader_cache_only_on_success(monkeypatch: pytest.MonkeyPatch):
+def test_distill_endpoint_clears_plugin_loader_cache_only_on_success(
+    monkeypatch: pytest.MonkeyPatch,
+):
     class _Controller:
         def plugin_success_counts(self):
             return [{"task_name": "demo_plugin", "completed": 3}]
@@ -159,16 +160,19 @@ def test_distill_endpoint_clears_plugin_loader_cache_only_on_success(monkeypatch
         def get(self, name: str):
             if name != "demo_plugin":
                 return None
-            return SimpleNamespace(
-                manifest=SimpleNamespace(distill_threshold=3, distillable=True)
-            )
+            return SimpleNamespace(manifest=SimpleNamespace(distill_threshold=3, distillable=True))
 
     cleared: list[bool] = []
 
     monkeypatch.setattr(task_routes, "get_task_controller", lambda: _Controller())
     monkeypatch.setattr(task_routes, "_plugin_loader", lambda refresh=False: _Loader())
-    monkeypatch.setattr("engine.plugin_loader.clear_shared_plugin_loader_cache", lambda: cleared.append(True))
-    monkeypatch.setattr("subprocess.run", lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout="ok", stderr=""))
+    monkeypatch.setattr(
+        "engine.plugin_loader.clear_shared_plugin_loader_cache", lambda: cleared.append(True)
+    )
+    monkeypatch.setattr(
+        "subprocess.run",
+        lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout="ok", stderr=""),
+    )
 
     client = TestClient(app)
     response = client.post("/api/tasks/plugins/demo_plugin/distill")
@@ -176,3 +180,37 @@ def test_distill_endpoint_clears_plugin_loader_cache_only_on_success(monkeypatch
     assert response.status_code == 200
     assert response.json()["ok"] is True
     assert cleared == [True]
+
+
+def test_task_catalog_apps_exposes_aliases_and_package_names(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    apps_dir = tmp_path / "apps"
+    apps_dir.mkdir(parents=True, exist_ok=True)
+    (apps_dir / "x.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "app_id": "x",
+                "display_name": "X",
+                "aliases": ["twitter"],
+                "package_name": "com.twitter.android",
+                "package_names": ["com.twitter.android", "com.twitter.android.beta"],
+            },
+            allow_unicode=True,
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("core.app_config.config_dir", lambda: tmp_path)
+
+    client = TestClient(app)
+    response = client.get("/api/tasks/catalog/apps")
+
+    assert response.status_code == 200
+    apps = response.json()["apps"]
+    x_app = next(item for item in apps if item["id"] == "x")
+    assert x_app["display_name"] == "X"
+    assert x_app["aliases"] == ["twitter"]
+    assert x_app["package_name"] == "com.twitter.android"
+    assert x_app["package_names"] == ["com.twitter.android", "com.twitter.android.beta"]

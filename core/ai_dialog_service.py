@@ -6,7 +6,12 @@ from typing import Any
 
 from ai_services.llm_client import LLMClient, LLMRequest
 from core.account_service import list_accounts
-from core.app_config import get_app_agent_hint, get_app_config, resolve_app_id, resolve_app_payload
+from core.app_config import (
+    AppConfigManager,
+    get_app_agent_hint,
+    get_app_config,
+    resolve_app_payload,
+)
 from core.workflow_drafts import WorkflowDraftService
 from engine.agent_executor import AgentExecutorRuntime
 
@@ -119,6 +124,8 @@ class AIDialogService:
         *,
         goal: str,
         app_id: str | None = None,
+        app_display_name: str | None = None,
+        package_name: str | None = None,
         selected_account: str | None = None,
         advanced_prompt: str | None = None,
     ) -> dict[str, Any]:
@@ -126,10 +133,16 @@ class AIDialogService:
         if not normalized_goal:
             raise ValueError("goal is required")
 
-        resolved_app_id = resolve_app_id({"app_id": app_id}, default_app="default")
+        identity = AppConfigManager.resolve_app_identity(
+            app_id=app_id,
+            display_name=app_display_name,
+            package_name=package_name,
+        )
+        resolved_app_id = str(identity["app_id"]).strip() or "default"
         planner_seed_payload = {
             "goal": normalized_goal,
             "app_id": resolved_app_id,
+            "package": str(package_name or identity.get("package_name") or "").strip() or None,
             "advanced_prompt": str(advanced_prompt or "").strip(),
             "_workflow_source": "ai_dialog",
         }
@@ -203,7 +216,11 @@ class AIDialogService:
             "operator_summary": operator_summary,
             "resolved_app": {
                 "app_id": resolved_app_id,
-                "name": str(app_config.get("display_name") or resolved_app_id).strip(),
+                "name": str(
+                    app_config.get("display_name")
+                    or identity.get("display_name")
+                    or resolved_app_id
+                ).strip(),
                 "package": str(resolved_payload.get("package") or "").strip() or None,
                 "has_app_config": bool(app_config),
                 "agent_hint": get_app_agent_hint(resolved_app_id) or None,

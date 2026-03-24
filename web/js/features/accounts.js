@@ -35,6 +35,7 @@ const editErrorMsg = document.getElementById("editErrorMsg");
 let currentEditingAccount = null;
 let currentMapping = {};
 let currentDelimiter = "----";
+const CUSTOM_APP_OPTION = '__custom__';
 
 const STATUS_META = {
     ready: { text: '就绪', className: 'badge badge-ok', icon: '✅' },
@@ -96,6 +97,45 @@ export function initAccounts() {
 
     initImportAppSelector();
     loadAccounts();
+}
+
+function isCustomAppSelection(value) {
+    return String(value || '').trim() === CUSTOM_APP_OPTION;
+}
+
+function getAccountImportCustomAppFields() {
+    return {
+        appId: document.getElementById('accountImportCustomAppId'),
+        displayName: document.getElementById('accountImportCustomDisplayName'),
+        packageName: document.getElementById('accountImportCustomPackageName'),
+        wrapper: document.getElementById('accountImportCustomAppFields'),
+    };
+}
+
+function toggleAccountImportCustomAppFields() {
+    const select = document.getElementById('accountImportAppId');
+    const fields = getAccountImportCustomAppFields();
+    const visible = isCustomAppSelection(select?.value);
+    if (fields.wrapper) {
+        fields.wrapper.style.display = visible ? 'flex' : 'none';
+    }
+}
+
+function getAccountImportAppContext() {
+    const select = document.getElementById('accountImportAppId');
+    const fields = getAccountImportCustomAppFields();
+    if (isCustomAppSelection(select?.value)) {
+        return {
+            appId: String(fields.appId?.value || '').trim(),
+            appDisplayName: String(fields.displayName?.value || '').trim(),
+            packageName: String(fields.packageName?.value || '').trim(),
+        };
+    }
+    return {
+        appId: String(select?.value || 'default').trim() || 'default',
+        appDisplayName: '',
+        packageName: '',
+    };
 }
 
 async function updateAccountStatus(account, newStatus) {
@@ -202,9 +242,15 @@ async function initImportAppSelector() {
             if (String(app.id || '').trim() === 'default') return;
             const opt = document.createElement('option');
             opt.value = app.id;
-            opt.textContent = app.name;
+            opt.textContent = app.display_name || app.name;
             select.appendChild(opt);
         });
+        const customOpt = document.createElement('option');
+        customOpt.value = CUSTOM_APP_OPTION;
+        customOpt.textContent = '新建应用…';
+        select.appendChild(customOpt);
+        select.onchange = toggleAccountImportCustomAppFields;
+        toggleAccountImportCustomAppFields();
     }
 }
 
@@ -454,8 +500,10 @@ function refreshImportPreview() {
 async function importAccounts(overwrite) {
     const text = accountsInput.value.trim();
     if(!text) return toast.warn("请先输入数据");
-
-    const appId = document.getElementById("accountImportAppId")?.value || "default";
+    const appContext = getAccountImportAppContext();
+    if (!appContext.appId) {
+        return toast.warn("请先填写应用 ID");
+    }
 
     importOverwriteBtn.disabled = true;
     const originalText = importOverwriteBtn.textContent;
@@ -470,14 +518,22 @@ async function importAccounts(overwrite) {
                 overwrite,
                 delimiter: currentDelimiter,
                 mapping: currentMapping,
-                app_id: appId
+                app_id: appContext.appId,
+                app_display_name: appContext.appDisplayName || null,
+                package_name: appContext.packageName || null,
             }),
         });
 
         if (r.ok) {
-            toast.success(`成功导入 ${r.data.valid} 条账号，数据已同步`);
+            const appName = r.data?.resolved_app?.display_name || appContext.appDisplayName || appContext.appId;
+            toast.success(`成功导入 ${r.data.valid} 条账号，已归入 ${appName}`);
             accountsInput.value = "";
             clearElement(accountsPreview);
+            const customFields = getAccountImportCustomAppFields();
+            if (customFields.appId) customFields.appId.value = '';
+            if (customFields.displayName) customFields.displayName.value = '';
+            if (customFields.packageName) customFields.packageName.value = '';
+            await initImportAppSelector();
             await loadAccounts();
         } else {
             toast.error(`导入失败: ${r.data.detail || r.status}`);

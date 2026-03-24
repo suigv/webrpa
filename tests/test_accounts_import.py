@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import cast
 
 import pytest
+import yaml
 from _pytest.monkeypatch import MonkeyPatch
 from fastapi.testclient import TestClient
 
@@ -13,6 +14,7 @@ from core.account_store import AccountStore
 
 @pytest.fixture()
 def isolated_account_store(tmp_path: Path, monkeypatch: MonkeyPatch) -> AccountStore:
+    monkeypatch.setattr("core.app_config.config_dir", lambda: tmp_path)
     store = AccountStore(tmp_path / "accounts.db")
     monkeypatch.setattr("core.account_service._account_store", store)
     return store
@@ -219,3 +221,36 @@ def test_account_store_migrates_app_id_out_of_metadata_json(tmp_path: Path):
     with sqlite3.connect(db_path) as conn:
         row = conn.execute("SELECT app_id FROM accounts WHERE account = ?", ("wx_user",)).fetchone()
     assert row == ("wechat",)
+
+
+def test_accounts_import_bootstraps_new_app_config(
+    isolated_account_store: AccountStore,
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+):
+    monkeypatch.setattr("core.app_config.config_dir", lambda: tmp_path)
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/data/accounts/import",
+        json={
+            "overwrite": True,
+            "app_id": "twitter_cn",
+            "app_display_name": "Twitter 中文",
+            "package_name": "com.twitter.cn",
+            "content": "account password\ncn_user cn_pass\n",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = cast(dict[str, object], response.json())
+    resolved_app = cast(dict[str, object], payload["resolved_app"])
+    assert resolved_app["app_id"] == "twitter_cn"
+    assert resolved_app["display_name"] == "Twitter 中文"
+    assert resolved_app["package_name"] == "com.twitter.cn"
+    assert resolved_app["created"] is True
+
+    document = yaml.safe_load((tmp_path / "apps" / "twitter_cn.yaml").read_text(encoding="utf-8"))
+    assert document["app_id"] == "twitter_cn"
+    assert document["display_name"] == "Twitter 中文"
+    assert document["package_name"] == "com.twitter.cn"

@@ -37,6 +37,8 @@ class AccountsImportRequest(BaseModel):
     delimiter: str | None = None
     mapping: dict[int, str] | None = None
     app_id: str = Field(default="default", min_length=1)
+    app_display_name: str | None = Field(default=None, max_length=120)
+    package_name: str | None = Field(default=None, max_length=255)
 
 
 class AccountStatusUpdate(BaseModel):
@@ -66,6 +68,8 @@ async def import_accounts(data: AccountsImportRequest):
         data.delimiter,
         data.mapping,
         data.app_id,
+        data.app_display_name,
+        data.package_name,
     )
 
 
