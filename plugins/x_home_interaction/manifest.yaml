@@ -9,6 +9,26 @@ entry_script: script.yaml
 distillable: false
 visible_in_task_catalog: true
 distill_threshold: 3
+ai_hints:
+  objective: "home_interaction"
+  label: "主页互动"
+  task_family: "ambient_behavior"
+  keywords: ["主页互动", "首页互动", "时间线", "点赞浏览", "刷首页", "timeline"]
+  plugin_keywords: ["主页互动", "时间线", "互动"]
+  requires_account: true
+  prefers_branch: true
+  needs_shared_resource: false
+  expects_keyword_input: false
+  expects_reply_strategy: false
+  expected_outcome: "在主页时间线执行拟人化浏览与轻互动。"
+  distill_policy:
+    completed_rules:
+      - reason: "fulfilled_main_path"
+        decision: "accepted"
+        business_outcome: "fulfilled"
+        match_always: true
+        retained_value: ["draft_memory", "branch_memory"]
+        value_level: "distillable"
 inputs:
   - name: app_id
     type: string

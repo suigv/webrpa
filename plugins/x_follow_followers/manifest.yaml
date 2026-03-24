@@ -9,6 +9,41 @@ entry_script: script.yaml
 distillable: false
 visible_in_task_catalog: true
 distill_threshold: 3
+ai_hints:
+  objective: "follow_followers"
+  label: "关注截流"
+  task_family: "traffic_capture"
+  keywords: ["关注", "粉丝", "截流", "引流", "follow", "followers"]
+  plugin_keywords: ["关注", "粉丝", "截流", "follow"]
+  requires_account: true
+  prefers_branch: true
+  needs_shared_resource: true
+  expects_keyword_input: false
+  expects_reply_strategy: false
+  expected_outcome: "使用目标博主资源池执行关注动作并控制每日配额。"
+  memory_hints:
+    empty_candidate_pool: "最近同类任务缺少可用博主资源；下次先补采集结果或切换资源池。"
+  distill_policy:
+    data_count_keys: ["followed_count", "processed_count"]
+    data_count_list_keys: ["candidates"]
+    completed_rules:
+      - reason: "fulfilled_main_path"
+        decision: "accepted"
+        business_outcome: "fulfilled"
+        match_data_count_positive: true
+        retained_value: ["draft_memory", "branch_memory", "app_candidate"]
+        value_level: "distillable"
+      - reason: "empty_candidate_pool"
+        business_outcome: "empty"
+        match_data_count_present: true
+        match_data_count_zero: true
+        retained_value: ["draft_memory", "branch_memory"]
+        value_level: "replayable"
+      - reason: "partial_path_only"
+        business_outcome: "partial"
+        match_always: true
+        retained_value: ["draft_memory", "branch_memory"]
+        value_level: "replayable"
 inputs:
   - name: app_id
     type: string

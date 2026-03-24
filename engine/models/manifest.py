@@ -41,6 +41,42 @@ class PluginInput(BaseModel):
     options: list[PluginInputOption] = Field(default_factory=list)
 
 
+class PluginDistillRule(BaseModel):
+    decision: str = Field(default="rejected")
+    business_outcome: str = Field(default="partial")
+    reason: str
+    match_message_any: list[str] = Field(default_factory=list)
+    match_data_count_positive: bool = False
+    match_data_count_zero: bool = False
+    match_data_count_present: bool = False
+    match_terminal_message_present: bool = False
+    match_always: bool = False
+    retained_value: list[str] = Field(default_factory=list)
+    value_level: str | None = None
+
+
+class PluginDistillPolicy(BaseModel):
+    data_count_keys: list[str] = Field(default_factory=list)
+    data_count_list_keys: list[str] = Field(default_factory=list)
+    completed_rules: list[PluginDistillRule] = Field(default_factory=list)
+
+
+class PluginAIHints(BaseModel):
+    objective: str
+    label: str
+    task_family: str = "exploration"
+    keywords: list[str] = Field(default_factory=list)
+    plugin_keywords: list[str] = Field(default_factory=list)
+    requires_account: bool = True
+    prefers_branch: bool = False
+    needs_shared_resource: bool = False
+    expects_keyword_input: bool = False
+    expects_reply_strategy: bool = False
+    expected_outcome: str = ""
+    memory_hints: dict[str, str] = Field(default_factory=dict)
+    distill_policy: PluginDistillPolicy | None = None
+
+
 class PluginManifest(BaseModel):
     api_version: Literal["v1"]
     kind: Literal["plugin"]
@@ -62,3 +98,4 @@ class PluginManifest(BaseModel):
     distill_threshold: int = Field(
         default=3, ge=1, description="Min completed runs required before distillation"
     )
+    ai_hints: PluginAIHints | None = None

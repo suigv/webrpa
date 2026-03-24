@@ -13,6 +13,12 @@ from core.business_profile import branch_id_from_payload, normalize_branch_id
 from core.golden_run_distillation import GoldenRunDistiller
 from core.model_trace_store import ModelTraceContext
 from core.paths import plugins_dir, traces_dir
+from core.task_semantics import (
+    match_distill_rule,
+    memory_hint_for_reason,
+    policy_data_count,
+    resolve_intent_for_payload,
+)
 from core.workflow_draft_store import (
     WorkflowDraftRecord,
     WorkflowDraftStore,
@@ -22,29 +28,7 @@ from core.workflow_draft_store import (
 _TASK_TEXT_KEYS = ("goal", "prompt", "query", "instruction", "text", "description")
 _ASCII_WORD_RE = re.compile(r"[^a-z0-9]+")
 _TRACE_FILE_RE = re.compile(r"^(?P<target>.+)\.attempt-(?P<attempt>\d+)\.jsonl$")
-_EMPTY_INBOX_MARKERS = (
-    "未发现新消息",
-    "无需回复",
-    "收件箱为空",
-    "没有新消息",
-    "inbox is empty",
-    "no new message",
-)
-_REPLY_SENT_MARKERS = (
-    "已发送",
-    "发送成功",
-    "回复完成",
-    "私信回复任务完成",
-    "reply sent",
-)
-_EMPTY_COLLECTION_REASONS = {
-    "scrape_blogger": "empty_candidate_pool",
-    "quote_intercept": "empty_candidate_pool",
-    "follow_followers": "empty_candidate_pool",
-}
 _RUN_ASSET_HINTS = {
-    "empty_inbox": "最近同类任务已进入目标收件箱，但没有可回复的新消息；下次优先准备未读私信或调整触发时机。",
-    "empty_candidate_pool": "最近同类任务缺少可用候选池；下次先补采集结果或切换关键词/分支资源。",
     "partial_path_only": "最近执行已跑通部分路径，但主目标未闭环；下次优先复用已验证入口继续补终态。",
     "useful_trace_only": "最近保留了可复用轨迹，可继续沿已有入口缩短探索路径。",
     "failed_run": "最近同类任务失败过，可结合最近终态信息先修正阻塞点。",
@@ -269,39 +253,6 @@ def _primary_target_result(result: dict[str, Any] | None) -> dict[str, Any]:
     return result
 
 
-def _objective_from_payload(payload: dict[str, Any]) -> str:
-    direct = str(payload.get("_planner_objective") or "").strip()
-    if direct:
-        return direct
-    task_name = str(payload.get("task") or "").strip().lower()
-    if task_name in {
-        "x_reply_dm",
-        "x_scrape_blogger",
-        "x_follow_followers",
-        "x_quote_intercept",
-        "x_clone_profile",
-        "x_login",
-        "x_nurture",
-        "x_home_interaction",
-    }:
-        return task_name.removeprefix("x_")
-    prompt = _extract_prompt_text(payload) or ""
-    normalized = prompt.lower()
-    if any(token in normalized for token in ("私信", "消息", "dm", "聊天")):
-        return "reply_dm"
-    if any(token in normalized for token in ("采集", "博主", "search", "关键词")):
-        return "scrape_blogger"
-    if any(token in normalized for token in ("关注", "followers", "粉丝")):
-        return "follow_followers"
-    if any(token in normalized for token in ("引用", "quote")):
-        return "quote_intercept"
-    if any(token in normalized for token in ("仿冒", "资料", "profile")):
-        return "clone_profile"
-    if any(token in normalized for token in ("登录", "login", "signin", "sign in")):
-        return "login"
-    return "exploration"
-
-
 def _history_entries(target_result: dict[str, Any]) -> list[dict[str, Any]]:
     history = target_result.get("history")
     if not isinstance(history, list):
@@ -349,28 +300,6 @@ def _terminal_data(target_result: dict[str, Any]) -> dict[str, Any]:
     return dict(data) if isinstance(data, dict) else {}
 
 
-def _message_contains_any(message: str, markers: tuple[str, ...]) -> bool:
-    lowered = message.lower()
-    return any(str(marker).lower() in lowered for marker in markers)
-
-
-def _collection_count(data: dict[str, Any]) -> int:
-    for key in ("added_count", "collected", "processed_count", "published_count", "followed_count"):
-        raw = data.get(key)
-        if isinstance(raw, bool):
-            continue
-        try:
-            value = int(raw)
-        except Exception:
-            continue
-        if value > 0:
-            return value
-    candidates = data.get("candidates")
-    if isinstance(candidates, list) and candidates:
-        return len(candidates)
-    return 0
-
-
 def _evaluate_run_asset(
     *,
     task_record: Any,
@@ -383,10 +312,14 @@ def _evaluate_run_asset(
         target_result.get("message") or (result or {}).get("message") or ""
     ).strip()
     data = _terminal_data(target_result)
-    objective = _objective_from_payload(payload)
+    intent = resolve_intent_for_payload(payload)
+    objective = str(intent.get("objective") or "").strip() or "exploration"
+    policy = intent.get("distill_policy")
     identity = _build_snapshot_identity(payload)
     observed_states = _observed_state_ids(target_result)
     entry_actions = _entry_actions(target_result)
+    has_evidence = bool(terminal_message or observed_states or entry_actions)
+    data_count_present, data_count = policy_data_count(policy, data)
 
     completion_status = task_status or "unknown"
     business_outcome = "blocked"
@@ -397,64 +330,42 @@ def _evaluate_run_asset(
     business_flags: dict[str, Any] = {}
 
     if completion_status == "completed":
-        retained_value = ["draft_memory"] if (terminal_message or observed_states or entry_actions) else []
+        retained_value = ["draft_memory"] if has_evidence else []
         value_level = "replayable" if retained_value else "discard"
         business_outcome = "partial"
         distill_reason = "partial_path_only"
-
-        if objective == "reply_dm":
-            if _message_contains_any(terminal_message, _EMPTY_INBOX_MARKERS):
-                business_outcome = "empty"
-                distill_reason = "empty_inbox"
-                business_flags["empty_inbox"] = True
-                retained_value = ["draft_memory", "app_candidate"]
-            elif _message_contains_any(terminal_message, _REPLY_SENT_MARKERS):
-                business_outcome = "fulfilled"
-                distill_decision = "accepted"
-                distill_reason = "fulfilled_main_path"
+        if data_count_present:
+            business_flags["produced_count"] = data_count
+        rule = match_distill_rule(
+            policy,
+            terminal_message=terminal_message,
+            data_count_present=data_count_present,
+            data_count=data_count,
+        )
+        if rule is not None:
+            business_outcome = rule.business_outcome
+            distill_decision = rule.decision
+            distill_reason = rule.reason
+            retained_value = list(rule.retained_value)
+            if rule.value_level:
+                value_level = rule.value_level
+            elif distill_decision == "accepted":
                 value_level = "distillable"
-                retained_value = ["draft_memory", "branch_memory", "app_candidate"]
             else:
-                retained_value = ["draft_memory", "app_candidate"] if retained_value else []
-        elif objective in _EMPTY_COLLECTION_REASONS:
-            produced = _collection_count(data)
-            business_flags["produced_count"] = produced
-            retained_value = ["draft_memory", "branch_memory"] if retained_value else []
-            if produced > 0:
-                business_outcome = "fulfilled"
-                distill_decision = "accepted"
-                distill_reason = "fulfilled_main_path"
-                value_level = "distillable"
-                retained_value = ["draft_memory", "branch_memory", "app_candidate"]
-            else:
-                business_outcome = "empty"
-                distill_reason = _EMPTY_COLLECTION_REASONS[objective]
-        elif objective in {"login", "nurture", "home_interaction"}:
-            business_outcome = "fulfilled"
-            distill_decision = "accepted"
-            distill_reason = "fulfilled_main_path"
-            value_level = "distillable"
-            retained_value = ["draft_memory", "branch_memory"]
-        elif objective == "clone_profile":
-            if terminal_message:
-                business_outcome = "fulfilled"
-                distill_decision = "accepted"
-                distill_reason = "fulfilled_main_path"
-                value_level = "distillable"
-                retained_value = ["draft_memory", "branch_memory", "app_candidate"]
+                value_level = "replayable" if retained_value else "discard"
         elif objective == "exploration":
             business_outcome = "partial"
             distill_reason = "useful_trace_only"
-            retained_value = ["draft_memory"] if retained_value else []
+            retained_value = ["draft_memory"] if has_evidence else []
     elif completion_status == "failed":
         business_outcome = "blocked"
         distill_reason = "failed_run"
-        value_level = "useful_trace" if (terminal_message or observed_states or entry_actions) else "discard"
+        value_level = "useful_trace" if has_evidence else "discard"
         retained_value = ["draft_memory"] if value_level == "useful_trace" else []
     elif completion_status == "cancelled":
         business_outcome = "blocked"
         distill_reason = "cancelled_run"
-        value_level = "useful_trace" if (terminal_message or observed_states or entry_actions) else "discard"
+        value_level = "useful_trace" if has_evidence else "discard"
         retained_value = ["draft_memory"] if value_level == "useful_trace" else []
 
     learned_assets = {
@@ -685,7 +596,21 @@ class WorkflowDraftService:
                     summary["next_action"] = "distill"
             else:
                 reason = latest_asset.distill_reason or "partial_path_only"
-                hint = _RUN_ASSET_HINTS.get(reason, "本次执行未计入蒸馏样本，但已保留可复用信息。")
+                hint = memory_hint_for_reason(
+                    resolve_intent_for_payload(
+                        (
+                            dict(record.last_replayable_snapshot.get("payload") or {})
+                            if isinstance(record.last_replayable_snapshot, dict)
+                            else {}
+                        )
+                        or (
+                            dict(record.last_success_snapshot.get("payload") or {})
+                            if isinstance(record.last_success_snapshot, dict)
+                            else {}
+                        )
+                    ),
+                    reason,
+                ) or _RUN_ASSET_HINTS.get(reason, "本次执行未计入蒸馏样本，但已保留可复用信息。")
                 summary["message"] = (
                     f"“{record.display_name}”本次已完成，但未计入蒸馏样本。{hint}"
                 )
@@ -831,9 +756,15 @@ class WorkflowDraftService:
             if str(action).strip()
         )
 
+        semantic_payload = {
+            "_planner_objective": resolved_objective,
+            "app_id": resolved_app_id,
+            "branch_id": resolved_branch_id,
+        }
+        intent = resolve_intent_for_payload(semantic_payload)
         hints: list[str] = []
         for reason, _count in reason_counts.most_common(3):
-            hint = _RUN_ASSET_HINTS.get(reason)
+            hint = memory_hint_for_reason(intent, reason) or _RUN_ASSET_HINTS.get(reason)
             if hint and hint not in hints:
                 hints.append(hint)
         if assets[0].terminal_message:
@@ -1225,7 +1156,21 @@ class WorkflowDraftService:
             summary["latest_run_asset"] = _asset_to_dict(latest_asset)
             if latest_asset.distill_decision != "accepted":
                 reason = latest_asset.distill_reason or "partial_path_only"
-                hint = _RUN_ASSET_HINTS.get(reason, "本次执行未计入蒸馏样本，但已保留可复用信息。")
+                hint = memory_hint_for_reason(
+                    resolve_intent_for_payload(
+                        (
+                            dict(record.last_replayable_snapshot.get("payload") or {})
+                            if isinstance(record.last_replayable_snapshot, dict)
+                            else {}
+                        )
+                        or (
+                            dict(record.last_success_snapshot.get("payload") or {})
+                            if isinstance(record.last_success_snapshot, dict)
+                            else {}
+                        )
+                    ),
+                    reason,
+                ) or _RUN_ASSET_HINTS.get(reason, "本次执行未计入蒸馏样本，但已保留可复用信息。")
                 summary["message"] = (
                     f"“{record.display_name}”本次已完成，但未计入蒸馏样本。{hint}"
                 )

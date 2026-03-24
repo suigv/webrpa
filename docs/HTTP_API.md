@@ -135,6 +135,7 @@ verification_method:
 - `POST /api/ai_dialog/planner` 当前支持 `app_id`、`app_display_name`、`package_name`，用于已存在 app 选择和新 app 探索式启动。
 - planner 返回当前已解析的 `intent`、`branch`、`execution`、`recommended_workflows`，用于前端展示任务意图、账号阻塞项和候选固定工作流。
 - planner 额外返回 `memory`，用于描述近期同类 AI 运行资产的最近终态、蒸馏判定、可复用状态/动作和提示语。
+- 当前 `intent` 与 `memory` 的业务语义优先来自插件 manifest 中声明的 `ai_hints`，而不是框架层写死的任务族表。
 - `POST /api/ai_dialog/annotations` 用于记录用户接管输入时声明的输入类型。
 - `GET/POST /api/ai_dialog/drafts/{draft_id}/save_*` 用于列出并应用一次执行后的可选保存项，而不是强制落库全部运行时数据。
 - `GET/PUT /api/ai_dialog/apps/{app_id}/branch_profiles` 用于读取和维护 app 级分支资料。

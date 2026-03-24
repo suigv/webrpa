@@ -9,6 +9,26 @@ entry_script: script.yaml
 distillable: false
 visible_in_task_catalog: true
 distill_threshold: 3
+ai_hints:
+  objective: "login"
+  label: "登录"
+  task_family: "account_auth"
+  keywords: ["登录", "登陆", "login", "log in", "sign in", "signin", "2fa", "验证码"]
+  plugin_keywords: ["登录", "login", "sign in", "signin"]
+  requires_account: true
+  prefers_branch: false
+  needs_shared_resource: false
+  expects_keyword_input: false
+  expects_reply_strategy: false
+  expected_outcome: "账号进入已登录状态并落在可继续操作的主页。"
+  distill_policy:
+    completed_rules:
+      - reason: "fulfilled_main_path"
+        decision: "accepted"
+        business_outcome: "fulfilled"
+        match_always: true
+        retained_value: ["draft_memory", "branch_memory"]
+        value_level: "distillable"
 inputs:
   - name: credentials_ref
     type: string

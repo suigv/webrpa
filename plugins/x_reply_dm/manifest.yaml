@@ -9,6 +9,38 @@ entry_script: script.yaml
 distillable: false
 visible_in_task_catalog: true
 distill_threshold: 3
+ai_hints:
+  objective: "reply_dm"
+  label: "私信回复"
+  task_family: "message_engagement"
+  keywords: ["私信", "私聊", "消息", "聊天", "dm", "inbox", "回复私信", "回私信"]
+  plugin_keywords: ["私信", "消息", "dm", "reply"]
+  requires_account: true
+  prefers_branch: true
+  needs_shared_resource: false
+  expects_keyword_input: false
+  expects_reply_strategy: true
+  expected_outcome: "识别未读私信并按当前分支策略生成与发送回复。"
+  memory_hints:
+    empty_inbox: "最近同类任务已进入收件箱，但没有可处理的新消息；下次先准备未读私信或调整触发时机。"
+  distill_policy:
+    completed_rules:
+      - reason: "empty_inbox"
+        business_outcome: "empty"
+        match_message_any: ["未发现新消息", "无需回复", "收件箱为空", "没有新消息", "inbox is empty", "no new message"]
+        retained_value: ["draft_memory", "app_candidate"]
+        value_level: "replayable"
+      - reason: "fulfilled_main_path"
+        decision: "accepted"
+        business_outcome: "fulfilled"
+        match_message_any: ["已发送", "发送成功", "回复完成", "私信回复任务完成", "reply sent"]
+        retained_value: ["draft_memory", "branch_memory", "app_candidate"]
+        value_level: "distillable"
+      - reason: "partial_path_only"
+        business_outcome: "partial"
+        match_always: true
+        retained_value: ["draft_memory", "app_candidate"]
+        value_level: "replayable"
 inputs:
   - name: app_id
     type: string

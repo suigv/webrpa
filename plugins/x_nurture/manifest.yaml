@@ -9,6 +9,26 @@ entry_script: script.yaml
 distillable: false
 visible_in_task_catalog: true
 distill_threshold: 3
+ai_hints:
+  objective: "nurture"
+  label: "养号"
+  task_family: "ambient_behavior"
+  keywords: ["养号", "暖号", "活跃", "浏览", "搜索互动", "养一养", "nurture"]
+  plugin_keywords: ["养号", "活跃", "浏览", "关键词"]
+  requires_account: true
+  prefers_branch: true
+  needs_shared_resource: false
+  expects_keyword_input: true
+  expects_reply_strategy: false
+  expected_outcome: "执行带关键词和停留节奏的常规活跃任务。"
+  distill_policy:
+    completed_rules:
+      - reason: "fulfilled_main_path"
+        decision: "accepted"
+        business_outcome: "fulfilled"
+        match_always: true
+        retained_value: ["draft_memory", "branch_memory"]
+        value_level: "distillable"
 inputs:
   - name: app_id
     type: string

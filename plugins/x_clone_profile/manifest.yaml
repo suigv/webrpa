@@ -9,6 +9,31 @@ entry_script: script.yaml
 distillable: false
 visible_in_task_catalog: true
 distill_threshold: 3
+ai_hints:
+  objective: "clone_profile"
+  label: "仿冒资料"
+  task_family: "profile_clone"
+  keywords: ["仿冒", "资料", "昵称", "简介", "bio", "profile", "克隆资料", "编辑资料"]
+  plugin_keywords: ["仿冒", "资料", "简介", "昵称", "profile"]
+  requires_account: true
+  prefers_branch: true
+  needs_shared_resource: true
+  expects_keyword_input: false
+  expects_reply_strategy: false
+  expected_outcome: "读取目标博主资料并回填当前账号的个人资料字段。"
+  distill_policy:
+    completed_rules:
+      - reason: "fulfilled_main_path"
+        decision: "accepted"
+        business_outcome: "fulfilled"
+        match_terminal_message_present: true
+        retained_value: ["draft_memory", "branch_memory", "app_candidate"]
+        value_level: "distillable"
+      - reason: "partial_path_only"
+        business_outcome: "partial"
+        match_always: true
+        retained_value: ["draft_memory", "branch_memory"]
+        value_level: "replayable"
 inputs:
   - name: app_id
     type: string

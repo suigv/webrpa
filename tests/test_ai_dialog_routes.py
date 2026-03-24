@@ -276,8 +276,8 @@ def test_ai_dialog_planner_reuses_recent_run_asset_memory(tmp_path, monkeypatch)
         assert data["memory"]["available"] is True
         assert data["memory"]["latest"]["distill_reason"] == "empty_inbox"
         assert data["execution"]["memory_ready"] is True
-        assert "先准备可回复消息" in data["execution"]["next_step"]
-        assert any("确保存在可处理的新私信" in item for item in data["follow_up"]["suggestions"])
+        assert "先准备未读私信" in data["execution"]["next_step"]
+        assert any("没有可处理的新消息" in item for item in data["follow_up"]["suggestions"])
     finally:
         reset_task_controller_for_tests()
 

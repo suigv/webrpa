@@ -20,6 +20,11 @@ from core.business_profile import (
     normalize_branch_id,
     resolve_branch_profile,
 )
+from core.task_semantics import (
+    infer_intent,
+    memory_hint_for_reason,
+    normalize_goal_text,
+)
 from core.workflow_drafts import WorkflowDraftService
 from engine.agent_executor import AgentExecutorRuntime
 from engine.models.manifest import PluginManifest
@@ -28,197 +33,13 @@ from engine.plugin_loader import get_shared_plugin_loader
 _WHITESPACE_RE = re.compile(r"\s+")
 _NON_WORD_RE = re.compile(r"[^0-9a-zA-Z\u4e00-\u9fff]+")
 
-_INTENT_RULES: tuple[dict[str, Any], ...] = (
-    {
-        "objective": "login",
-        "label": "登录",
-        "task_family": "account_auth",
-        "keywords": (
-            "登录",
-            "登陆",
-            "login",
-            "log in",
-            "sign in",
-            "signin",
-            "2fa",
-            "验证码",
-        ),
-        "plugin_keywords": ("登录", "login", "sign in", "signin"),
-        "requires_account": True,
-        "prefers_branch": False,
-        "needs_shared_resource": False,
-        "expects_keyword_input": False,
-        "expects_reply_strategy": False,
-        "expected_outcome": "账号进入已登录状态并落在可继续操作的主页。",
-    },
-    {
-        "objective": "scrape_blogger",
-        "label": "采集博主",
-        "task_family": "resource_collection",
-        "keywords": (
-            "采集",
-            "收集",
-            "博主",
-            "关键词",
-            "候选",
-            "搜索博主",
-            "采集博主",
-            "blogger",
-            "search",
-        ),
-        "plugin_keywords": ("采集", "博主", "搜索", "候选", "blogger"),
-        "requires_account": True,
-        "prefers_branch": True,
-        "needs_shared_resource": False,
-        "expects_keyword_input": True,
-        "expects_reply_strategy": False,
-        "expected_outcome": "产出可复用的博主候选池，供后续关注、仿冒或截流任务使用。",
-    },
-    {
-        "objective": "follow_followers",
-        "label": "关注截流",
-        "task_family": "traffic_capture",
-        "keywords": (
-            "关注",
-            "粉丝",
-            "截流",
-            "引流",
-            "follow",
-            "followers",
-        ),
-        "plugin_keywords": ("关注", "粉丝", "截流", "follow"),
-        "requires_account": True,
-        "prefers_branch": True,
-        "needs_shared_resource": True,
-        "expects_keyword_input": False,
-        "expects_reply_strategy": False,
-        "expected_outcome": "使用目标博主资源池执行关注动作并控制每日配额。",
-    },
-    {
-        "objective": "quote_intercept",
-        "label": "引用截流",
-        "task_family": "traffic_capture",
-        "keywords": (
-            "引用",
-            "quote",
-            "引用截流",
-            "转推评论",
-            "评论截流",
-        ),
-        "plugin_keywords": ("引用", "quote", "截流"),
-        "requires_account": True,
-        "prefers_branch": True,
-        "needs_shared_resource": True,
-        "expects_keyword_input": False,
-        "expects_reply_strategy": True,
-        "expected_outcome": "围绕目标博主资源执行引用发布并维持去重记录。",
-    },
-    {
-        "objective": "reply_dm",
-        "label": "私信回复",
-        "task_family": "message_engagement",
-        "keywords": (
-            "私信",
-            "私聊",
-            "消息",
-            "聊天",
-            "dm",
-            "inbox",
-            "回复私信",
-            "回私信",
-        ),
-        "plugin_keywords": ("私信", "消息", "dm", "reply"),
-        "requires_account": True,
-        "prefers_branch": True,
-        "needs_shared_resource": False,
-        "expects_keyword_input": False,
-        "expects_reply_strategy": True,
-        "expected_outcome": "识别未读私信并按当前分支策略生成与发送回复。",
-    },
-    {
-        "objective": "clone_profile",
-        "label": "仿冒资料",
-        "task_family": "profile_clone",
-        "keywords": (
-            "仿冒",
-            "资料",
-            "昵称",
-            "简介",
-            "bio",
-            "profile",
-            "克隆资料",
-            "编辑资料",
-        ),
-        "plugin_keywords": ("仿冒", "资料", "简介", "昵称", "profile"),
-        "requires_account": True,
-        "prefers_branch": True,
-        "needs_shared_resource": True,
-        "expects_keyword_input": False,
-        "expects_reply_strategy": False,
-        "expected_outcome": "读取目标博主资料并回填当前账号的个人资料字段。",
-    },
-    {
-        "objective": "nurture",
-        "label": "养号",
-        "task_family": "ambient_behavior",
-        "keywords": (
-            "养号",
-            "暖号",
-            "活跃",
-            "浏览",
-            "搜索互动",
-            "养一养",
-            "nurture",
-        ),
-        "plugin_keywords": ("养号", "活跃", "浏览", "关键词"),
-        "requires_account": True,
-        "prefers_branch": True,
-        "needs_shared_resource": False,
-        "expects_keyword_input": True,
-        "expects_reply_strategy": False,
-        "expected_outcome": "执行带关键词和停留节奏的常规活跃任务。",
-    },
-    {
-        "objective": "home_interaction",
-        "label": "主页互动",
-        "task_family": "ambient_behavior",
-        "keywords": (
-            "主页互动",
-            "首页互动",
-            "时间线",
-            "点赞浏览",
-            "刷首页",
-            "timeline",
-        ),
-        "plugin_keywords": ("主页互动", "时间线", "互动"),
-        "requires_account": True,
-        "prefers_branch": True,
-        "needs_shared_resource": False,
-        "expects_keyword_input": False,
-        "expects_reply_strategy": False,
-        "expected_outcome": "在主页时间线执行拟人化浏览与轻互动。",
-    },
-)
-_EXPLORATION_INTENT = {
-    "objective": "exploration",
-    "label": "探索执行",
-    "task_family": "exploration",
-    "requires_account": True,
-    "prefers_branch": False,
-    "needs_shared_resource": False,
-    "expects_keyword_input": False,
-    "expects_reply_strategy": False,
-    "expected_outcome": "先通过 AI 探索可执行路径，再决定是否沉淀为固定插件。",
-}
-
 
 def _collapse_ws(value: str) -> str:
     return _WHITESPACE_RE.sub(" ", str(value or "").strip())
 
 
 def _normalized_goal_text(value: str) -> str:
-    text = _collapse_ws(value).lower()
-    return _NON_WORD_RE.sub(" ", text)
+    return normalize_goal_text(value)
 
 
 def _truncate_text(value: str, *, limit: int) -> str:
@@ -235,43 +56,8 @@ def _derive_display_name(goal: str, app_id: str) -> str:
     return compact
 
 
-def _token_matches(text: str, keywords: tuple[str, ...]) -> list[str]:
-    matched: list[str] = []
-    for keyword in keywords:
-        token = str(keyword or "").strip().lower()
-        if token and token in text and token not in matched:
-            matched.append(token)
-    return matched
-
-
 def _infer_intent(goal: str) -> dict[str, Any]:
-    normalized_goal = _normalized_goal_text(goal)
-    best_rule: dict[str, Any] | None = None
-    best_score = 0
-    best_matches: list[str] = []
-    for rule in _INTENT_RULES:
-        matches = _token_matches(normalized_goal, tuple(rule["keywords"]))
-        if not matches:
-            continue
-        score = sum(2 if len(item) >= 4 else 1 for item in matches)
-        if score > best_score:
-            best_rule = rule
-            best_score = score
-            best_matches = matches
-    if best_rule is None:
-        return {
-            **_EXPLORATION_INTENT,
-            "confidence": "low",
-            "matched_keywords": [],
-            "reason": "未命中稳定任务语义，先按探索执行处理。",
-        }
-    confidence = "high" if best_score >= 4 else "medium"
-    return {
-        **best_rule,
-        "confidence": confidence,
-        "matched_keywords": best_matches,
-        "reason": f"命中意图关键词：{', '.join(best_matches[:3])}",
-    }
+    return infer_intent(goal)
 
 
 def _recommended_title(app_name: str, intent: dict[str, Any], goal: str, app_id: str) -> str:
@@ -686,7 +472,7 @@ def _operator_summary(
     return "，".join(parts) + "。"
 
 
-def _memory_suggestions(memory: dict[str, Any]) -> list[str]:
+def _memory_suggestions(memory: dict[str, Any], intent: dict[str, Any]) -> list[str]:
     if not memory.get("available"):
         return []
     suggestions: list[str] = []
@@ -697,14 +483,13 @@ def _memory_suggestions(memory: dict[str, Any]) -> list[str]:
     latest = memory.get("latest")
     if isinstance(latest, dict):
         distill_reason = str(latest.get("distill_reason") or "").strip()
-        if distill_reason == "empty_inbox":
-            suggestions.append("若要验证私信回复主路径，先确保存在可处理的新私信。")
-        elif distill_reason == "empty_candidate_pool":
-            suggestions.append("若要继续当前目标，先补充博主候选或关键词输入。")
+        hint = memory_hint_for_reason(intent, distill_reason)
+        if hint:
+            suggestions.append(hint)
     return suggestions[:5]
 
 
-def _execution_next_step(default_step: str, memory: dict[str, Any]) -> str:
+def _execution_next_step(default_step: str, memory: dict[str, Any], intent: dict[str, Any]) -> str:
     if not memory.get("available"):
         return default_step
     latest = memory.get("latest")
@@ -712,10 +497,9 @@ def _execution_next_step(default_step: str, memory: dict[str, Any]) -> str:
         return default_step
     distill_reason = str(latest.get("distill_reason") or "").strip()
     accepted_count = int(memory.get("accepted_count") or 0)
-    if distill_reason == "empty_inbox":
-        return "最近同类任务已进入私信页但没有新消息；先准备可回复消息，再下发下一次 AI 任务。"
-    if distill_reason == "empty_candidate_pool":
-        return "最近同类任务缺少可用候选池；先补采集结果或关键词，再继续执行。"
+    hint = memory_hint_for_reason(intent, distill_reason)
+    if hint and str(latest.get("distill_decision") or "").strip() != "accepted":
+        return f"最近同类任务未形成新样本；{hint}"
     if accepted_count > 0 and list(memory.get("entry_actions") or []):
         return "最近已有可复用执行资产；优先沿已验证入口继续执行，减少重复探索。"
     if str(latest.get("value_level") or "").strip() in {"replayable", "useful_trace"}:
@@ -825,7 +609,7 @@ class AIDialogService:
         ready_accounts = _ready_accounts(all_accounts)
         ready_count = len(ready_accounts)
 
-        intent = _infer_intent(normalized_goal)
+        intent = infer_intent(normalized_goal, app_id=resolved_app_id)
         branch = _branch_snapshot(
             app_id=resolved_app_id,
             goal=normalized_goal,
@@ -900,7 +684,7 @@ class AIDialogService:
             suggestions.append(
                 f"当前目标与 {top_workflow['display_name']} 接近，执行稳定后可迁移为固定插件。"
             )
-        for item in _memory_suggestions(memory):
+        for item in _memory_suggestions(memory, intent):
             if item not in suggestions:
                 suggestions.append(item)
 
@@ -931,6 +715,7 @@ class AIDialogService:
                     )
                 ),
                 memory,
+                intent,
             ),
             "migration_target": (
                 top_plugin_workflow.get("task") if top_plugin_workflow is not None else None

@@ -9,6 +9,41 @@ entry_script: script.yaml
 distillable: false
 visible_in_task_catalog: true
 distill_threshold: 3
+ai_hints:
+  objective: "scrape_blogger"
+  label: "采集博主"
+  task_family: "resource_collection"
+  keywords: ["采集", "收集", "博主", "关键词", "候选", "搜索博主", "采集博主", "blogger", "search"]
+  plugin_keywords: ["采集", "博主", "搜索", "候选", "blogger"]
+  requires_account: true
+  prefers_branch: true
+  needs_shared_resource: false
+  expects_keyword_input: true
+  expects_reply_strategy: false
+  expected_outcome: "产出可复用的博主候选池，供后续关注、仿冒或截流任务使用。"
+  memory_hints:
+    empty_candidate_pool: "最近同类任务缺少可用候选池；下次先补采集结果或切换关键词。"
+  distill_policy:
+    data_count_keys: ["added_count", "collected", "processed_count"]
+    data_count_list_keys: ["candidates"]
+    completed_rules:
+      - reason: "fulfilled_main_path"
+        decision: "accepted"
+        business_outcome: "fulfilled"
+        match_data_count_positive: true
+        retained_value: ["draft_memory", "branch_memory", "app_candidate"]
+        value_level: "distillable"
+      - reason: "empty_candidate_pool"
+        business_outcome: "empty"
+        match_data_count_present: true
+        match_data_count_zero: true
+        retained_value: ["draft_memory", "branch_memory"]
+        value_level: "replayable"
+      - reason: "partial_path_only"
+        business_outcome: "partial"
+        match_always: true
+        retained_value: ["draft_memory", "branch_memory"]
+        value_level: "replayable"
 inputs:
   - name: keyword
     type: string
