@@ -1,7 +1,7 @@
 # Plugin System Refactor Design Draft
 
 Last updated: 2026-03-24
-Status: collection complete, planning generated, Phase 1-5 core slice implemented
+Status: collection complete, planning generated, core slice and review/save authoring flow implemented
 Source: consolidated from refactor discussion
 
 ## Implementation Status
@@ -18,13 +18,11 @@ Current completed implementation slice:
 - pipeline payload can bind `branch_id`, `accepted_account_tags`, and `resource_namespace`, and child steps cannot override those inherited values
 - blogger candidate sharing now uses claim/commit/release lifecycle backed by a dedicated shared resource store instead of ad-hoc list reads only
 - AI takeover text input now supports typed annotation, and AI history supports saving reusable branch/default-input choices back into workflow draft preferences
+- distilled selectors, states, stage-pattern markers, and agent hints now enter a reviewed app-config candidate pool instead of writing directly into shared app YAML
+- operators can review or reject pending app-config candidates before promoting them into shared app skeleton config
+- arbitrary apps now support editable branch profiles with default branch, search keywords, blacklist keywords, reply texts, reply AI type, resource namespace, and payload defaults
+- post-run selective save now supports workflow default branch, branch-level search keywords, branch-level reply texts, and branch resource namespace in addition to account/draft defaults
 - X plugin manifests were cleaned up to use branch-oriented semantics, and `x_login` no longer exposes the obsolete `credential_slot` input
-
-Not completed yet:
-
-- reviewed promotion path from task-scoped candidates into audited shared app skeleton YAML
-- richer branch config authoring UI for arbitrary apps beyond the current X-oriented examples
-- broader selective-save destinations beyond account default branch and workflow-draft payload defaults
 
 ## Purpose
 

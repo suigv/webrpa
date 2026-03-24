@@ -9,13 +9,11 @@ from typing import Any, Protocol, cast
 
 import yaml
 
-from core.app_config_writer import AppConfigWriter
+from core.app_config_candidate_service import get_app_config_candidate_service
 from core.model_trace_store import ModelTraceContext, ModelTraceStore
 from core.trace_learner import TraceLearner
 from engine.actions.sdk_config_support import (
-    app_config_path,
     app_from_package,
-    load_app_config_document,
 )
 from engine.models.manifest import InputType, PluginInput, PluginManifest
 from engine.models.workflow import ActionStep, WorkflowScript
@@ -171,6 +169,7 @@ class GoldenRunDistiller:
         display_name: str | None = None,
         category: str = "AI Drafts",
         snapshot_identity: dict[str, object] | DistillationIdentity | None = None,
+        draft_id: str | None = None,
     ) -> GoldenRunDraft:
         records = self._trace_store.read_records(context)
         step_records, terminal_record = self._validate_golden_run(context=context, records=records)
@@ -196,14 +195,26 @@ class GoldenRunDistiller:
             yaml.safe_dump(script.model_dump(mode="json"), sort_keys=False, allow_unicode=True),
             encoding="utf-8",
         )
-        self._merge_selectors_to_app_config(step_records, script)
-        agent_hint_update = self._merge_agent_hint_candidates_to_app_config(step_records)
+        app_candidate_update = self._merge_selectors_to_app_config(
+            step_records,
+            script,
+            context=context,
+            snapshot_identity=snapshot_identity,
+            draft_id=draft_id,
+        )
+        agent_hint_update = self._merge_agent_hint_candidates_to_app_config(
+            step_records,
+            context=context,
+            snapshot_identity=snapshot_identity,
+            draft_id=draft_id,
+        )
         report = self._build_distillation_report(
             context=context,
             records=records,
             distilled_records=step_records,
             terminal_record=terminal_record,
             agent_hint_update=agent_hint_update,
+            app_candidate_update=app_candidate_update,
         )
         report_path.write_text(
             yaml.safe_dump(report, sort_keys=False, allow_unicode=True),
@@ -342,6 +353,7 @@ class GoldenRunDistiller:
         distilled_records: list[dict[str, object]],
         terminal_record: dict[str, object],
         agent_hint_update: dict[str, object] | None = None,
+        app_candidate_update: dict[str, object] | None = None,
     ) -> dict[str, object]:
         step_records = [
             self._normalize_step_record(record)
@@ -395,6 +407,7 @@ class GoldenRunDistiller:
             "terminal_code": str(terminal_record.get("code") or ""),
             "source_counts": source_counts,
             "human_guided_steps": human_guided_steps,
+            "app_candidate_update": dict(app_candidate_update or {}),
             "agent_hint_update": dict(agent_hint_update or {}),
         }
 
@@ -973,13 +986,14 @@ class GoldenRunDistiller:
         self,
         records: list[dict[str, object]],
         script: WorkflowScript,
-    ) -> None:
-        package = self._extract_package_from_records(records)
-        if not package:
-            return
-        app = app_from_package(package)
+        *,
+        context: ModelTraceContext | None = None,
+        snapshot_identity: dict[str, object] | DistillationIdentity | None = None,
+        draft_id: str | None = None,
+    ) -> dict[str, object]:
+        app = self._resolve_candidate_app_id(records, snapshot_identity=snapshot_identity)
         if not app:
-            return
+            return {}
 
         # collect new selectors from script steps
         new_selectors: dict[str, dict[str, str]] = {}
@@ -999,68 +1013,67 @@ class GoldenRunDistiller:
                 key = _slug(rid_val.split("/")[-1], default="") or f"rid_{len(new_selectors)}"
                 if key not in new_selectors:
                     new_selectors[key] = {"type": "resource_id", "mode": "equal", "value": rid_val}
-
-        # load existing app config
-        doc: dict[str, Any]
-        try:
-            doc = load_app_config_document(app)
-        except Exception:
-            doc = {"version": "v1", "package_name": package}
-
-        changed = False
-
-        # merge selectors
-        if new_selectors:
-            raw_selectors = doc.get("selectors")
-            existing_sel: dict[str, object] = (
-                raw_selectors if isinstance(raw_selectors, dict) else {}
+        service = get_app_config_candidate_service()
+        recorded = 0
+        for key, selector in new_selectors.items():
+            service.record_candidate(
+                app_id=app,
+                draft_id=draft_id,
+                task_id=context.task_id if context is not None else None,
+                kind="selector",
+                title=f"选择器 · {key}",
+                preview=json.dumps(selector, ensure_ascii=False),
+                value={"selector_key": key, "selector": selector},
             )
-            for key, selector in new_selectors.items():
-                if key not in existing_sel:
-                    existing_sel[key] = selector
-                    changed = True
-            doc["selectors"] = existing_sel
+            recorded += 1
 
-        # merge states
         new_states = self._extract_states_from_records(records)
-        if new_states:
-            raw_states = doc.get("states")
-            existing_states: list[dict[str, str]] = (
-                raw_states if isinstance(raw_states, list) else []
+        for state in new_states:
+            state_id = str(state.get("id") or "").strip()
+            if not state_id:
+                continue
+            service.record_candidate(
+                app_id=app,
+                draft_id=draft_id,
+                task_id=context.task_id if context is not None else None,
+                kind="state",
+                title=f"状态 · {state_id}",
+                preview=str(state.get("description") or state_id),
+                value=state,
             )
-            existing_ids = {str(s.get("id") or "") for s in existing_states}
-            for state in new_states:
-                if state["id"] not in existing_ids:
-                    existing_states.append(state)
-                    changed = True
-            doc["states"] = existing_states
-
-        # update xml_filter if not already set
-        if not doc.get("xml_filter"):
-            xml_filter = self._compute_xml_filter(records)
-            if xml_filter:
-                doc["xml_filter"] = xml_filter
-                changed = True
-
-        if changed:
-            config_path = app_config_path(app)
-            config_path.parent.mkdir(parents=True, exist_ok=True)
-            config_path.write_text(
-                yaml.safe_dump(doc, sort_keys=False, allow_unicode=True),
-                encoding="utf-8",
-            )
+            recorded += 1
 
         learned_stage_patterns = TraceLearner().learn_from_records(records)
-        if learned_stage_patterns:
-            AppConfigWriter(threshold=1).merge_stage_resource_ids(app, learned_stage_patterns)
+        for state_id, resource_ids in learned_stage_patterns.items():
+            unique_ids = [item for item in resource_ids if isinstance(item, str) and item.strip()]
+            if not state_id or not unique_ids:
+                continue
+            service.record_candidate(
+                app_id=app,
+                draft_id=draft_id,
+                task_id=context.task_id if context is not None else None,
+                kind="stage_pattern",
+                title=f"阶段识别 · {state_id}",
+                preview=" / ".join(unique_ids[:3]),
+                value={
+                    "state_id": state_id,
+                    "resource_ids": unique_ids,
+                    "focus_markers": [],
+                    "text_markers": [],
+                },
+            )
+            recorded += 1
+        return {"app_id": app, "recorded": recorded}
 
     def _merge_agent_hint_candidates_to_app_config(
-        self, records: list[dict[str, object]]
+        self,
+        records: list[dict[str, object]],
+        *,
+        context: ModelTraceContext | None = None,
+        snapshot_identity: dict[str, object] | DistillationIdentity | None = None,
+        draft_id: str | None = None,
     ) -> dict[str, object]:
-        package = self._extract_package_from_records(records)
-        if not package:
-            return {}
-        app = app_from_package(package)
+        app = self._resolve_candidate_app_id(records, snapshot_identity=snapshot_identity)
         if not app:
             return {}
 
@@ -1078,48 +1091,43 @@ class GoldenRunDistiller:
 
         if not candidates:
             return {}
-
-        try:
-            doc = load_app_config_document(app)
-        except Exception:
-            doc = {"version": "v1", "package_name": package}
-
-        existing_raw = doc.get("agent_hint_candidates")
-        existing = (
-            [item for item in existing_raw if isinstance(item, str) and item.strip()]
-            if isinstance(existing_raw, list)
-            else []
-        )
-        merged = existing[:]
-        changed = False
+        service = get_app_config_candidate_service()
+        recorded = 0
         for candidate in candidates:
-            if candidate not in merged:
-                merged.append(candidate)
-                changed = True
-        promoted_agent_hint = str(doc.get("agent_hint") or "").strip()
-        if not promoted_agent_hint and merged:
-            promoted_agent_hint = merged[-1]
-            doc["agent_hint"] = promoted_agent_hint
-            changed = True
-        if not changed:
-            return {
-                "app_id": app,
-                "candidate_count": len(merged),
-                "promoted_agent_hint": promoted_agent_hint or None,
-            }
-        doc["agent_hint_candidates"] = merged[-10:]
-        config_path = app_config_path(app)
-        config_path.parent.mkdir(parents=True, exist_ok=True)
-        config_path.write_text(
-            yaml.safe_dump(doc, sort_keys=False, allow_unicode=True),
-            encoding="utf-8",
-        )
+            service.record_candidate(
+                app_id=app,
+                draft_id=draft_id,
+                task_id=context.task_id if context is not None else None,
+                kind="agent_hint",
+                title="Agent 提示词",
+                preview=candidate[:120],
+                value={"text": candidate},
+            )
+            recorded += 1
         return {
             "app_id": app,
-            "candidate_count": len(doc["agent_hint_candidates"]),
-            "promoted_agent_hint": promoted_agent_hint or None,
-            "config_path": str(config_path),
+            "candidate_count": recorded,
+            "promoted_agent_hint": None,
         }
+
+    def _resolve_candidate_app_id(
+        self,
+        records: list[dict[str, object]],
+        *,
+        snapshot_identity: dict[str, object] | DistillationIdentity | None = None,
+    ) -> str:
+        if isinstance(snapshot_identity, DistillationIdentity):
+            app_id = str(snapshot_identity.app_id or "").strip().lower()
+            if app_id:
+                return app_id
+        elif isinstance(snapshot_identity, dict):
+            app_id = str(snapshot_identity.get("app_id") or "").strip().lower()
+            if app_id:
+                return app_id
+        package = self._extract_package_from_records(records)
+        if not package:
+            return ""
+        return app_from_package(package)
 
     # ------------------------------------------------------------------
     # LLM Draft Refiner (旁路增强)

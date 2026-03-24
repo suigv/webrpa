@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from ai_services.llm_client import LLMResponse
 from api.server import app
+from core.app_config_candidate_service import AppConfigCandidateService, AppConfigCandidateStore
 from core.golden_run_distillation import GoldenRunDistiller
 from core.model_trace_store import ModelTraceContext, ModelTraceStore
 from core.task_control import (
@@ -696,52 +697,22 @@ def test_workflow_draft_distill_preserves_account_picker_for_login_flow(
     assert steps[3]["params"]["text"] == "${vars.credential.twofa_code:-}"
 
 
-def test_golden_run_distillation_merges_stage_patterns_into_app_config(tmp_path: Path, monkeypatch):
-    app_config = tmp_path / "x.yaml"
-    app_config.write_text(
-        yaml.safe_dump(
-            {
-                "version": "v1",
-                "package_name": "com.twitter.android",
-                "stage_patterns": {},
-                "states": [],
-                "selectors": {},
-            },
-            sort_keys=False,
-            allow_unicode=True,
-        ),
-        encoding="utf-8",
+def test_golden_run_distillation_collects_stage_patterns_as_review_candidates(
+    tmp_path: Path, monkeypatch
+):
+    candidate_service = AppConfigCandidateService(
+        store=AppConfigCandidateStore(db_path=tmp_path / "app-config-candidates.db")
     )
-
     monkeypatch.setattr(
         "core.golden_run_distillation.app_from_package", lambda package: "x" if package else ""
     )
-    monkeypatch.setattr("core.golden_run_distillation.app_config_path", lambda app_id: app_config)
     monkeypatch.setattr(
-        "core.golden_run_distillation.load_app_config_document",
-        lambda app_id: yaml.safe_load(app_config.read_text(encoding="utf-8")),
-    )
-    monkeypatch.setattr(
-        "core.app_config.AppConfigManager.load_app_config",
-        lambda app_id: yaml.safe_load(app_config.read_text(encoding="utf-8")),
-    )
-    monkeypatch.setattr(
-        "core.app_config.AppConfigManager.write_app_config",
-        lambda app_id, document: (
-            app_config.write_text(
-                yaml.safe_dump(document, sort_keys=False, allow_unicode=True),
-                encoding="utf-8",
-            )
-            or app_config
-        ),
-    )
-    monkeypatch.setattr(
-        "core.app_config_writer._learned_ids_path",
-        lambda: tmp_path / "learned_ids.json",
+        "core.golden_run_distillation.get_app_config_candidate_service",
+        lambda: candidate_service,
     )
 
     distiller = GoldenRunDistiller()
-    distiller._merge_selectors_to_app_config(
+    result = distiller._merge_selectors_to_app_config(
         records=[
             {
                 "record_type": "step",
@@ -767,10 +738,23 @@ def test_golden_run_distillation_merges_stage_patterns_into_app_config(tmp_path:
             },
         ],
         script=WorkflowScript(version="v1", workflow="x_distilled_test", steps=[]),
+        context=ModelTraceContext(
+            task_id="task-distill-1",
+            run_id="run-1",
+            target_label="Unit #1-1",
+            attempt_number=1,
+        ),
+        snapshot_identity={"app_id": "x"},
+        draft_id="draft-1",
     )
 
-    document = yaml.safe_load(app_config.read_text(encoding="utf-8"))
-    assert document["stage_patterns"]["home"]["resource_ids"] == [
+    assert result == {"app_id": "x", "recorded": 1}
+    bundle = candidate_service.list_candidates(app_id="x", draft_id="draft-1")
+    assert len(bundle["candidates"]) == 1
+    candidate = bundle["candidates"][0]
+    assert candidate["kind"] == "stage_pattern"
+    assert candidate["value"]["state_id"] == "home"
+    assert candidate["value"]["resource_ids"] == [
         "com.twitter.android:id/tabs",
         "com.twitter.android:id/composer_write",
     ]
@@ -855,31 +839,18 @@ def test_golden_run_distillation_reports_human_guided_steps_without_blocking_dis
     assert first_step.action == "ui.click"
 
 
-def test_golden_run_distillation_promotes_agent_hint_candidate_when_missing(
+def test_golden_run_distillation_records_agent_hint_candidate_for_review(
     tmp_path: Path, monkeypatch
 ):
-    app_config = tmp_path / "x.yaml"
-    app_config.write_text(
-        yaml.safe_dump(
-            {
-                "version": "v1",
-                "package_name": "com.twitter.android",
-                "selectors": {},
-                "states": [],
-            },
-            sort_keys=False,
-            allow_unicode=True,
-        ),
-        encoding="utf-8",
+    candidate_service = AppConfigCandidateService(
+        store=AppConfigCandidateStore(db_path=tmp_path / "app-config-candidates.db")
     )
-
     monkeypatch.setattr(
         "core.golden_run_distillation.app_from_package", lambda package: "x" if package else ""
     )
-    monkeypatch.setattr("core.golden_run_distillation.app_config_path", lambda app_id: app_config)
     monkeypatch.setattr(
-        "core.golden_run_distillation.load_app_config_document",
-        lambda app_id: yaml.safe_load(app_config.read_text(encoding="utf-8")),
+        "core.golden_run_distillation.get_app_config_candidate_service",
+        lambda: candidate_service,
     )
 
     result = GoldenRunDistiller()._merge_agent_hint_candidates_to_app_config(
@@ -896,13 +867,26 @@ def test_golden_run_distillation_promotes_agent_hint_candidate_when_missing(
                     }
                 },
             }
-        ]
+        ],
+        context=ModelTraceContext(
+            task_id="task-hint-1",
+            run_id="run-1",
+            target_label="Unit #1-1",
+            attempt_number=1,
+        ),
+        snapshot_identity={"app_id": "x"},
+        draft_id="draft-hint-1",
     )
 
-    document = yaml.safe_load(app_config.read_text(encoding="utf-8"))
-    assert document["agent_hint_candidates"] == ["首页优先检查是否有升级弹窗，有则先关闭。"]
-    assert document["agent_hint"] == "首页优先检查是否有升级弹窗，有则先关闭。"
-    assert result["promoted_agent_hint"] == "首页优先检查是否有升级弹窗，有则先关闭。"
+    assert result == {
+        "app_id": "x",
+        "candidate_count": 1,
+        "promoted_agent_hint": None,
+    }
+    bundle = candidate_service.list_candidates(app_id="x", draft_id="draft-hint-1")
+    assert len(bundle["candidates"]) == 1
+    assert bundle["candidates"][0]["kind"] == "agent_hint"
+    assert bundle["candidates"][0]["value"]["text"] == "首页优先检查是否有升级弹窗，有则先关闭。"
 
 
 def test_ui_wait_until_infers_app_stage_from_injected_patterns(monkeypatch):

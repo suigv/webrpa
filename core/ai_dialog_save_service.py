@@ -5,6 +5,7 @@ from typing import Any
 
 from core.account_service import update_account_fields
 from core.ai_task_annotation_store import AITaskAnnotationStore
+from core.app_branch_service import AppBranchProfileService
 from core.business_profile import normalize_branch_id
 from core.workflow_drafts import WorkflowDraftService
 
@@ -32,9 +33,11 @@ class AIDialogSaveService:
         *,
         workflow_drafts: WorkflowDraftService | None = None,
         annotations: AITaskAnnotationStore | None = None,
+        branch_profiles: AppBranchProfileService | None = None,
     ) -> None:
         self._workflow_drafts = workflow_drafts or WorkflowDraftService()
         self._annotations = annotations or AITaskAnnotationStore()
+        self._branch_profiles = branch_profiles or AppBranchProfileService()
 
     def create_annotation(
         self,
@@ -77,6 +80,7 @@ class AIDialogSaveService:
         annotations = self.list_annotations(latest_task_id) if latest_task_id else []
 
         candidates: list[dict[str, Any]] = []
+        app_id = str(identity.get("app_id") or "").strip()
         branch_id = normalize_branch_id(payload.get("branch_id") or identity.get("branch_id"), default="")
         if branch_id and str(identity.get("account") or "").strip():
             candidates.append(
@@ -87,6 +91,30 @@ class AIDialogSaveService:
                     "description": f"后续该账号默认使用 {branch_id}",
                     "value_preview": branch_id,
                     "save_target": "account",
+                }
+            )
+            candidates.append(
+                {
+                    "candidate_id": "workflow_default_branch",
+                    "kind": "workflow_default_branch",
+                    "label": "保存本草稿默认业务分支",
+                    "description": f"后续从该草稿继续执行时默认使用 {branch_id}",
+                    "value_preview": branch_id,
+                    "save_target": "workflow_draft",
+                }
+            )
+
+        resource_namespace = str(payload.get("resource_namespace") or "").strip()
+        if app_id and branch_id and resource_namespace:
+            candidates.append(
+                {
+                    "candidate_id": "branch_resource_namespace",
+                    "kind": "branch_resource_namespace",
+                    "label": "保存分支资源命名空间",
+                    "description": f"写入 {app_id} / {branch_id} 分支配置",
+                    "raw_value": resource_namespace,
+                    "value_preview": resource_namespace,
+                    "save_target": "app_branch",
                 }
             )
 
@@ -110,14 +138,39 @@ class AIDialogSaveService:
                     "save_target": "workflow_draft",
                 }
             )
+            if app_id and branch_id and input_type == "search_keyword":
+                candidates.append(
+                    {
+                        "candidate_id": f'{item["annotation_id"]}:branch_keyword',
+                        "kind": "branch_keyword",
+                        "label": "保存到分支搜索关键词",
+                        "description": f"写入 {app_id} / {branch_id} 分支关键词",
+                        "raw_value": raw_value,
+                        "value_preview": raw_value[:120],
+                        "save_target": "app_branch",
+                    }
+                )
+            if app_id and branch_id and input_type == "dm_reply_text":
+                candidates.append(
+                    {
+                        "candidate_id": f'{item["annotation_id"]}:branch_reply_text',
+                        "kind": "branch_reply_text",
+                        "label": "保存到分支回复文案",
+                        "description": f"写入 {app_id} / {branch_id} 分支回复文案",
+                        "raw_value": raw_value,
+                        "value_preview": raw_value[:120],
+                        "save_target": "app_branch",
+                    }
+                )
 
         return {
             "draft_id": draft_id,
             "snapshot": {
-                "app_id": str(identity.get("app_id") or "").strip() or None,
+                "app_id": app_id or None,
                 "account": str(identity.get("account") or "").strip() or None,
                 "branch_id": branch_id or None,
                 "task_id": latest_task_id or None,
+                "resource_namespace": resource_namespace or None,
             },
             "candidates": candidates,
         }
@@ -132,7 +185,11 @@ class AIDialogSaveService:
         snapshot = candidate_bundle["snapshot"]
         saved: list[dict[str, Any]] = []
         payload_defaults: dict[str, Any] = {}
+        workflow_branch_to_save: str | None = None
         branch_to_save: str | None = None
+        branch_keywords: list[str] = []
+        branch_reply_texts: list[str] = []
+        branch_resource_namespace: str | None = None
 
         by_id = {str(item["candidate_id"]): item for item in candidates}
         for candidate_id in selected_ids:
@@ -145,18 +202,54 @@ class AIDialogSaveService:
                 if branch_to_save and account:
                     update_account_fields(account, {"default_branch": branch_to_save})
                     saved.append({"candidate_id": candidate_id, "target": "account_default_branch"})
+            elif candidate["kind"] == "workflow_default_branch":
+                workflow_branch_to_save = str(snapshot.get("branch_id") or "").strip() or None
+                if workflow_branch_to_save:
+                    saved.append({"candidate_id": candidate_id, "target": "workflow_default_branch"})
             elif candidate["kind"] == "payload_default":
                 payload_key = str(candidate.get("payload_key") or "").strip()
                 value = str(candidate.get("raw_value") or candidate.get("value_preview") or "").strip()
                 if payload_key and value:
                     payload_defaults[payload_key] = value
                     saved.append({"candidate_id": candidate_id, "target": f"payload:{payload_key}"})
+            elif candidate["kind"] == "branch_keyword":
+                value = str(candidate.get("raw_value") or "").strip()
+                if value:
+                    branch_keywords.append(value)
+                    saved.append({"candidate_id": candidate_id, "target": "app_branch:search_keywords"})
+            elif candidate["kind"] == "branch_reply_text":
+                value = str(candidate.get("raw_value") or "").strip()
+                if value:
+                    branch_reply_texts.append(value)
+                    saved.append({"candidate_id": candidate_id, "target": "app_branch:reply_texts"})
+            elif candidate["kind"] == "branch_resource_namespace":
+                branch_resource_namespace = (
+                    str(candidate.get("raw_value") or candidate.get("value_preview") or "").strip()
+                    or None
+                )
+                if branch_resource_namespace:
+                    saved.append(
+                        {"candidate_id": candidate_id, "target": "app_branch:resource_namespace"}
+                    )
 
-        if branch_to_save or payload_defaults:
+        if branch_to_save or workflow_branch_to_save or payload_defaults:
             self._workflow_drafts.save_preferences(
                 draft_id,
-                branch_id=branch_to_save,
+                branch_id=workflow_branch_to_save or branch_to_save,
                 payload_defaults=payload_defaults or None,
+            )
+
+        app_id = str(snapshot.get("app_id") or "").strip()
+        snapshot_branch = str(snapshot.get("branch_id") or "").strip()
+        if app_id and snapshot_branch and (
+            branch_keywords or branch_reply_texts or branch_resource_namespace
+        ):
+            self._branch_profiles.merge_branch_learning(
+                app_id,
+                branch_id=snapshot_branch,
+                search_keywords=branch_keywords or None,
+                reply_texts=branch_reply_texts or None,
+                resource_namespace=branch_resource_namespace,
             )
 
         return {"draft_id": draft_id, "saved": saved}

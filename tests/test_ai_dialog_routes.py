@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from api.server import app
+from core.app_config_candidate_service import AppConfigCandidateService, AppConfigCandidateStore
 from core.task_control import (
     TaskController,
     override_task_controller_for_tests,
@@ -197,7 +198,7 @@ def test_ai_dialog_history_filters_non_ai_dialog_drafts(tmp_path):
         reset_task_controller_for_tests()
 
 
-def test_ai_dialog_annotations_and_save_candidates_flow(tmp_path):
+def test_ai_dialog_annotations_and_save_candidates_flow(tmp_path, monkeypatch):
     reset_task_controller_for_tests()
     db_path = tmp_path / "tasks-ai-dialog-save.db"
     controller = TaskController(
@@ -217,13 +218,45 @@ def test_ai_dialog_annotations_and_save_candidates_flow(tmp_path):
             source="ai_dialog",
             latest_completed_task_id="task-save-1",
             last_success_snapshot={
-                "payload": {"goal": "搜索博主", "branch_id": "volc"},
+                "payload": {
+                    "goal": "搜索博主",
+                    "branch_id": "volc",
+                    "resource_namespace": "x.volc.pool",
+                },
                 "identity": {"app_id": "x", "account": "demo@example.com", "branch_id": "volc"},
             },
         )
     )
 
     try:
+        merged_learning: dict[str, object] = {}
+
+        def fake_merge_branch_learning(
+            _self,
+            app_id: str,
+            *,
+            branch_id: str,
+            search_keywords=None,
+            reply_texts=None,
+            resource_namespace=None,
+            payload_defaults=None,
+        ):
+            merged_learning.update(
+                {
+                    "app_id": app_id,
+                    "branch_id": branch_id,
+                    "search_keywords": list(search_keywords or []),
+                    "reply_texts": list(reply_texts or []),
+                    "resource_namespace": resource_namespace,
+                    "payload_defaults": dict(payload_defaults or {}),
+                }
+            )
+            return merged_learning
+
+        monkeypatch.setattr(
+            "core.ai_dialog_save_service.AppBranchProfileService.merge_branch_learning",
+            fake_merge_branch_learning,
+        )
         with TestClient(app) as client:
             created = client.post(
                 "/api/ai_dialog/annotations",
@@ -238,20 +271,180 @@ def test_ai_dialog_annotations_and_save_candidates_flow(tmp_path):
             candidates = client.get("/api/ai_dialog/drafts/draft_save/save_candidates")
             assert candidates.status_code == 200
             payload = candidates.json()
-            assert len(payload["candidates"]) == 2
+            assert {item["kind"] for item in payload["candidates"]} == {
+                "account_default_branch",
+                "workflow_default_branch",
+                "payload_default",
+                "branch_keyword",
+                "branch_resource_namespace",
+            }
 
-            selected_ids = [item["candidate_id"] for item in payload["candidates"]]
+            selected_ids = [
+                item["candidate_id"]
+                for item in payload["candidates"]
+                if item["kind"] != "account_default_branch"
+            ]
             applied = client.post(
                 "/api/ai_dialog/drafts/draft_save/save_choices",
                 json={"candidate_ids": selected_ids},
             )
             assert applied.status_code == 200
-            assert len(applied.json()["saved"]) == 2
+            assert len(applied.json()["saved"]) == 4
 
             snapshot = client.get("/api/tasks/drafts/draft_save/snapshot")
             assert snapshot.status_code == 200
             replay_payload = snapshot.json()["snapshot"]["payload"]
             assert replay_payload["branch_id"] == "volc"
             assert replay_payload["keyword"] == "#mytxx"
+            assert merged_learning == {
+                "app_id": "x",
+                "branch_id": "volc",
+                "search_keywords": ["#mytxx"],
+                "reply_texts": [],
+                "resource_namespace": "x.volc.pool",
+                "payload_defaults": {},
+            }
+    finally:
+        reset_task_controller_for_tests()
+
+
+def test_ai_dialog_app_branch_profiles_route_updates_app_config(monkeypatch):
+    reset_task_controller_for_tests()
+    app_doc = {
+        "version": "v1",
+        "app_id": "x",
+        "display_name": "X",
+        "default_branch": "default",
+        "branches": {},
+    }
+
+    monkeypatch.setattr(
+        "core.app_branch_service.AppConfigManager.ensure_app_config",
+        lambda **kwargs: {"app_id": "x"},
+    )
+    monkeypatch.setattr("core.app_branch_service.get_app_config", lambda app_id: app_doc)
+
+    def _write_branch_doc(app_id, document):
+        _ = app_id
+        snapshot = dict(document)
+        app_doc.clear()
+        app_doc.update(snapshot)
+        return None
+
+    monkeypatch.setattr(
+        "core.app_branch_service.AppConfigManager.write_app_config",
+        _write_branch_doc,
+    )
+
+    try:
+        with TestClient(app) as client:
+            response = client.put(
+                "/api/ai_dialog/apps/x/branch_profiles",
+                json={
+                    "default_branch": "volc",
+                    "branches": [
+                        {
+                            "branch_id": "volc",
+                            "label": "交友",
+                            "search_keywords": ["#太もも"],
+                            "reply_texts": ["你好呀"],
+                            "resource_namespace": "x.volc.pool",
+                            "reply_ai_type": "dating",
+                            "payload_defaults": {"keyword": "#太もも"},
+                        }
+                    ],
+                },
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["default_branch"] == "volc"
+        volc_branch = next(item for item in data["branches"] if item["branch_id"] == "volc")
+        assert volc_branch["reply_ai_type"] == "dating"
+        assert app_doc["default_branch"] == "volc"
+        assert app_doc["branches"]["volc"]["resource_namespace"] == "x.volc.pool"
+        assert app_doc["nurture_keywords"]["volc"]["core"] == ["#太もも"]
+        assert app_doc["quote_texts"]["volc"] == ["你好呀"]
+    finally:
+        reset_task_controller_for_tests()
+
+
+def test_ai_dialog_config_candidate_review_promotes_into_app_config(tmp_path, monkeypatch):
+    reset_task_controller_for_tests()
+    app_doc = {
+        "version": "v1",
+        "app_id": "x",
+        "display_name": "X",
+        "selectors": {},
+        "states": [],
+        "stage_patterns": {},
+    }
+    monkeypatch.setattr(
+        "core.app_config_candidate_service.AppConfigManager.ensure_app_config",
+        lambda **kwargs: {"app_id": "x"},
+    )
+    monkeypatch.setattr(
+        "core.app_config_candidate_service.AppConfigManager.app_config_path",
+        lambda app_id: tmp_path / "x.yaml",
+    )
+    monkeypatch.setattr(
+        "core.app_config_candidate_service.get_app_config",
+        lambda app_id: app_doc,
+    )
+
+    def _write_candidate_doc(app_id, document):
+        _ = app_id
+        snapshot = dict(document)
+        app_doc.clear()
+        app_doc.update(snapshot)
+        return None
+
+    monkeypatch.setattr(
+        "core.app_config_candidate_service.AppConfigManager.write_app_config",
+        _write_candidate_doc,
+    )
+    candidate_service = AppConfigCandidateService(
+        store=AppConfigCandidateStore(db_path=tmp_path / "app-config-candidates.db")
+    )
+    candidate = candidate_service.record_candidate(
+        app_id="x",
+        draft_id="draft-1",
+        task_id="task-1",
+        kind="selector",
+        title="选择器 · home_tab",
+        preview='{"type":"text","mode":"equal","value":"首页"}',
+        value={
+            "selector_key": "home_tab",
+            "selector": {"type": "text", "mode": "equal", "value": "首页"},
+        },
+    )
+    monkeypatch.setattr(
+        "api.routes.ai_dialog.get_app_config_candidate_service",
+        lambda: candidate_service,
+    )
+
+    try:
+        with TestClient(app) as client:
+            listed = client.get("/api/ai_dialog/apps/x/config_candidates?draft_id=draft-1")
+            assert listed.status_code == 200
+            assert len(listed.json()["candidates"]) == 1
+
+            reviewed = client.post(
+                "/api/ai_dialog/apps/x/config_candidates/review",
+                json={
+                    "candidate_ids": [candidate["candidate_id"]],
+                    "action": "promote",
+                },
+            )
+
+        assert reviewed.status_code == 200
+        assert reviewed.json()["updated"] == 1
+        assert app_doc["selectors"]["home_tab"] == {
+            "type": "text",
+            "mode": "equal",
+            "value": "首页",
+        }
+        pending = candidate_service.list_candidates(app_id="x", draft_id="draft-1")
+        assert pending["candidates"] == []
     finally:
         reset_task_controller_for_tests()

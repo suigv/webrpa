@@ -47,3 +47,25 @@ class AITaskAnnotationRequest(BaseModel):
 
 class AIDialogSaveSelectionRequest(BaseModel):
     candidate_ids: list[str] = Field(default_factory=list)
+
+
+class AppBranchProfilePayload(BaseModel):
+    branch_id: str = Field(min_length=1, max_length=64)
+    label: str | None = Field(default=None, max_length=120)
+    search_keywords: list[str] = Field(default_factory=list)
+    blacklist_keywords: list[str] = Field(default_factory=list)
+    reply_texts: list[str] = Field(default_factory=list)
+    resource_namespace: str | None = Field(default=None, max_length=160)
+    reply_ai_type: str | None = Field(default=None, max_length=64)
+    payload_defaults: dict[str, Any] = Field(default_factory=dict)
+    notes: str | None = Field(default=None, max_length=500)
+
+
+class AppBranchProfilesUpdateRequest(BaseModel):
+    default_branch: str | None = Field(default=None, max_length=64)
+    branches: list[AppBranchProfilePayload] = Field(default_factory=list)
+
+
+class AppConfigCandidateReviewRequest(BaseModel):
+    candidate_ids: list[str] = Field(default_factory=list)
+    action: str = Field(default="promote", pattern="^(promote|reject)$")

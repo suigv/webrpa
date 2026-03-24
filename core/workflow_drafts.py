@@ -592,6 +592,7 @@ class WorkflowDraftService:
                 display_name=record.display_name,
                 category=record.category,
                 snapshot_identity=identity if isinstance(identity, dict) else None,
+                draft_id=record.draft_id,
             )
             record.last_distilled_manifest_path = str(distilled.manifest_path)
             record.last_distilled_script_path = str(distilled.script_path)
