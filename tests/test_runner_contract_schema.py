@@ -327,6 +327,37 @@ def test_target_circuit_breaker_can_be_disabled():
     assert breaker.trip() is None
 
 
+def test_target_circuit_breaker_requires_available_probe_snapshot(monkeypatch):
+    subscribed: list[tuple[int, int]] = []
+
+    class _Manager:
+        def get_cloud_probe_snapshot(self, device_id: int, cloud_id: int) -> dict[str, object]:
+            return {
+                "device_id": device_id,
+                "cloud_id": cloud_id,
+                "availability_state": "unknown",
+                "stale": True,
+            }
+
+        def subscribe_cloud_probe(self, device_id: int, cloud_id: int, callback):
+            _ = callback
+            subscribed.append((device_id, cloud_id))
+            return lambda: None
+
+    monkeypatch.setattr("core.system_settings_loader.get_rpc_enabled", lambda: True)
+    monkeypatch.setattr("core.task_execution.get_device_manager", lambda: _Manager())
+
+    breaker = ActiveTargetCircuitBreaker(
+        task_id="task-1",
+        target={"device_id": 1, "cloud_id": 12},
+        enabled=True,
+    )
+
+    assert breaker.should_cancel() is False
+    assert breaker.trip() is None
+    assert subscribed == []
+
+
 def test_tolerate_target_unavailable_uses_plugin_manifest_default():
     assert _tolerate_target_unavailable("device_reboot", {}) is True
 

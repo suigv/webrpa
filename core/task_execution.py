@@ -119,6 +119,12 @@ def _snapshot_last_checked_at_epoch(snapshot: dict[str, Any]) -> float | None:
         return None
 
 
+def _snapshot_is_available(snapshot: dict[str, Any]) -> bool:
+    return str(snapshot.get("availability_state") or "unknown") == "available" and not bool(
+        snapshot.get("stale", False)
+    )
+
+
 def _trip_result(task_name: str, trip: TargetCircuitBreakerTrip) -> dict[str, Any]:
     return {
         "ok": False,
@@ -251,6 +257,9 @@ class ActiveTargetCircuitBreaker:
             return
 
         manager = get_device_manager()
+        snapshot = manager.get_cloud_probe_snapshot(self._device_id, self._cloud_id)
+        if not _snapshot_is_available(snapshot):
+            return
         self._unsubscribe = manager.subscribe_cloud_probe(
             self._device_id, self._cloud_id, self._handle_probe_update
         )

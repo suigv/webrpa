@@ -98,6 +98,7 @@ class TaskController:
         self._metrics_service: TaskMetricsService | None = None
         self._execution_service: TaskExecutionService | None = None
         self._attempt_finalizer: TaskAttemptFinalizer | None = None
+        self._auto_start_enabled = True
 
     def _resolve_plugin_loader(self, *, refresh: bool = False):
         loader = get_shared_plugin_loader(refresh=refresh)
@@ -129,15 +130,22 @@ class TaskController:
 
     def start(self) -> None:
         logger.info("Starting TaskController services...")
+        self._auto_start_enabled = True
         self._ensure_services()
         with suppress(Exception):
             self.cleanup_runtime_artifacts()
         if self._execution_service:
             self._execution_service.start()
 
-    def stop(self) -> None:
+    def stop(self, *, disable_auto_start: bool = True) -> None:
+        if disable_auto_start:
+            self._auto_start_enabled = False
         if self._execution_service:
             self._execution_service.stop()
+
+    def ensure_started_if_enabled(self) -> None:
+        if self._auto_start_enabled:
+            self.start()
 
     def submit_with_retry(
         self,
@@ -514,7 +522,7 @@ def override_task_controller_for_tests(controller: TaskController) -> None:
     global _controller
     with _controller_lock:
         if _controller is not None:
-            _controller.stop()
+            _controller.stop(disable_auto_start=False)
         _controller = controller
 
 
@@ -522,5 +530,5 @@ def reset_task_controller_for_tests() -> None:
     global _controller
     with _controller_lock:
         if _controller is not None:
-            _controller.stop()
+            _controller.stop(disable_auto_start=False)
         _controller = None

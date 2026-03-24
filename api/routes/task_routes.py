@@ -313,6 +313,9 @@ async def create_task(
     x_idempotency_key: str | None = Header(default=None, alias="X-Idempotency-Key"),
 ):
     controller = get_task_controller()
+    maybe_start = getattr(controller, "ensure_started_if_enabled", None)
+    if callable(maybe_start):
+        await run_sync(maybe_start)
     idempotency_key = _reconcile_idempotency_key(request, x_idempotency_key)
     script_payload = _script_payload_for_task_request(request)
 
@@ -586,6 +589,9 @@ async def continue_workflow_draft(
     request: WorkflowDraftContinueRequest | None = None,
 ):
     controller = get_task_controller()
+    maybe_start = getattr(controller, "ensure_started_if_enabled", None)
+    if callable(maybe_start):
+        await run_sync(maybe_start)
     try:
         records = await run_sync(
             controller.continue_workflow_draft,
