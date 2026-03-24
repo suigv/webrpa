@@ -1031,3 +1031,47 @@ def test_x_plugins_keep_manifest_app_id_but_drop_redundant_step_wiring(
             continue
         params = cast(dict[str, object], step.get("params") or {})
         assert disallowed_keys.isdisjoint(params.keys()), f"{plugin_dir}:{action}:{params}"
+
+
+@pytest.mark.parametrize(
+    "plugin_dir",
+    [
+        "x_clone_profile",
+        "x_follow_followers",
+        "x_home_interaction",
+        "x_login",
+        "x_nurture",
+        "x_quote_intercept",
+        "x_reply_dm",
+        "x_scrape_blogger",
+    ],
+)
+def test_x_plugins_do_not_force_business_branch_defaults(plugin_dir: str):
+    repo_root = Path(__file__).resolve().parents[1]
+    manifest_path = repo_root / "plugins" / plugin_dir / "manifest.yaml"
+    script_path = repo_root / "plugins" / plugin_dir / "script.yaml"
+
+    manifest = cast(dict[str, object], yaml.safe_load(manifest_path.read_text(encoding="utf-8")))
+    script = cast(dict[str, object], yaml.safe_load(script_path.read_text(encoding="utf-8")))
+
+    inputs = cast(list[dict[str, object]], manifest.get("inputs", []))
+    branch_input = next(
+        (item for item in inputs if str(item.get("name") or "") == "branch_id"),
+        None,
+    )
+    assert branch_input is not None
+    assert branch_input.get("default") == ""
+
+    if plugin_dir != "x_login":
+        options = cast(list[dict[str, object]], branch_input.get("options") or [])
+        assert any(str(item.get("value") or "") == "" for item in options)
+
+    steps = cast(list[dict[str, object]], script.get("steps", []))
+    for step in steps:
+        params = cast(dict[str, object], step.get("params") or {})
+        if "branch_id" in params:
+            assert params["branch_id"] == "${payload.branch_id:-}"
+
+    if plugin_dir == "x_scrape_blogger":
+        keyword_input = next(item for item in inputs if str(item.get("name") or "") == "keyword")
+        assert keyword_input.get("required") is False

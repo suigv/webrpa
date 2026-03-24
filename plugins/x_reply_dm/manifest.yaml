@@ -19,14 +19,23 @@ inputs:
   - name: branch_id
     type: string
     required: false
-    default: "volc"
+    default: ""
     label: "业务分支"
     widget: select
     options:
+      - value: ""
+        label: "自动（账号/应用默认）"
       - value: "volc"
         label: "交友"
       - value: "part_time"
         label: "兼职"
+  - name: reply_ai_type
+    type: string
+    required: false
+    default: ""
+    label: "回复 AI 类型"
+    description: "留空时跟随当前业务分支配置。"
+    advanced: true
   - name: pin_code
     type: string
     required: false

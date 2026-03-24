@@ -42,7 +42,7 @@ steps:
       device_ip: "${vars.cloud_container.device_ip}"
       cloud_index: "${vars.cloud_container.cloud_id}"
       shared_key: "${payload.blogger_shared_key:-blogger_candidates}"
-      branch_id: "${payload.branch_id:-volc}"
+      branch_id: "${payload.branch_id:-}"
       resource_namespace: "${payload.resource_namespace:-}"
 
   - label: 加载粉丝页 Scheme

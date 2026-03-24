@@ -16,7 +16,7 @@ steps:
       device_ip: "${vars.cloud_container.device_ip}"
       cloud_index: "${vars.cloud_container.cloud_id}"
       app_id: "${payload.app_id:-x}"
-      branch_id: "${payload.branch_id:-default}"
+      branch_id: "${payload.branch_id:-}"
       accepted_role_tags: "${payload.accepted_account_tags:-}"
 
   - label: 确保 X App 已启动

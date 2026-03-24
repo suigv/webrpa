@@ -28,7 +28,7 @@ inputs:
   - name: branch_id
     type: string
     required: false
-    default: "default"
+    default: ""
     label: "业务分支"
     advanced: true
   - name: accepted_account_tags

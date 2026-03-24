@@ -14,6 +14,14 @@ steps:
       device_ip: "${vars.cloud_container.device_ip}"
       cloud_index: "${vars.cloud_container.cloud_id}"
 
+  - label: 选择搜索关键词
+    kind: action
+    action: core.choose_blogger_search_query
+    save_as: search_query
+    params:
+      override: "${payload.keyword:-}"
+      branch_id: "${payload.branch_id:-}"
+
   - label: 加载搜索 Scheme
     kind: action
     action: core.load_ui_scheme
@@ -23,7 +31,7 @@ steps:
       cloud_index: "${vars.cloud_container.cloud_id}"
       key: search
       args:
-        query: "${payload.keyword}"
+        query: "${vars.search_query.query}"
         latest: "1"
 
   - label: 跳转搜索页
@@ -41,7 +49,7 @@ steps:
     params:
       device_ip: "${vars.cloud_container.device_ip}"
       cloud_index: "${vars.cloud_container.cloud_id}"
-      keyword: "${payload.keyword}"
+      keyword: "${vars.search_query.query}"
       max_collect: "${payload.max_collect:-10}"
       max_swipes: "${payload.max_swipes:-5}"
 
@@ -53,5 +61,5 @@ steps:
       cloud_index: "${vars.cloud_container.cloud_id}"
       candidates: "${vars.scrape_result.candidates}"
       shared_key: "${payload.shared_key:-blogger_candidates}"
-      branch_id: "${payload.branch_id:-volc}"
+      branch_id: "${payload.branch_id:-}"
       resource_namespace: "${payload.resource_namespace:-}"

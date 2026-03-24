@@ -22,7 +22,7 @@ steps:
       device_ip: "${vars.cloud_container.device_ip}"
       cloud_index: "${vars.cloud_container.cloud_id}"
       shared_key: "${payload.blogger_shared_key:-blogger_candidates}"
-      branch_id: "${payload.branch_id:-volc}"
+      branch_id: "${payload.branch_id:-}"
       resource_namespace: "${payload.resource_namespace:-}"
 
   - label: 生成引用文案
@@ -32,7 +32,7 @@ steps:
     params:
       device_ip: "${vars.cloud_container.device_ip}"
       cloud_index: "${vars.cloud_container.cloud_id}"
-      branch_id: "${payload.branch_id:-volc}"
+      branch_id: "${payload.branch_id:-}"
 
   - label: 加载搜索 Scheme
     kind: action
@@ -61,7 +61,7 @@ steps:
     params:
       device_ip: "${vars.cloud_container.device_ip}"
       cloud_index: "${vars.cloud_container.cloud_id}"
-      branch_id: "${payload.branch_id:-volc}"
+      branch_id: "${payload.branch_id:-}"
       swipe_count_min: 3
       swipe_count_max: "${payload.max_swipes:-10}"
 
@@ -83,7 +83,7 @@ steps:
       device_ip: "${vars.cloud_container.device_ip}"
       cloud_index: "${vars.cloud_container.cloud_id}"
       candidates: "${vars.candidates.candidates}"
-      branch_id: "${payload.branch_id:-volc}"
+      branch_id: "${payload.branch_id:-}"
 
   - label: 检查是否已处理
     kind: action
@@ -94,6 +94,8 @@ steps:
       cloud_index: "${vars.cloud_container.cloud_id}"
       key: "${payload.processed_shared_key:-quoted_users}"
       item: "${vars.picked.candidate.author}"
+      branch_id: "${payload.branch_id:-}"
+      resource_namespace: "${payload.resource_namespace:-}"
 
   - label: 检查处理状态
     kind: if
@@ -139,12 +141,14 @@ steps:
 
   - label: 记录已处理用户
     kind: action
-    action: core.append_shared_unique
+    action: core.mark_processed
     params:
       device_ip: "${vars.cloud_container.device_ip}"
       cloud_index: "${vars.cloud_container.cloud_id}"
       key: "${payload.processed_shared_key:-quoted_users}"
       item: "${vars.picked.candidate.author}"
+      branch_id: "${payload.branch_id:-}"
+      resource_namespace: "${payload.resource_namespace:-}"
 
   - label: 任务结束
     kind: stop

@@ -12,17 +12,20 @@ distill_threshold: 3
 inputs:
   - name: keyword
     type: string
-    required: true
+    required: false
+    default: ""
     label: "搜索关键词"
-    description: "用于搜索博主的关键词，例如 #mytxx 或 #paypay。"
-    placeholder: "例如 #mytxx"
+    description: "可手动指定；留空时自动从当前业务分支关键词池选择。"
+    placeholder: "留空时自动选择，例如 #mytxx"
   - name: branch_id
     type: string
     required: false
-    default: "volc"
+    default: ""
     label: "业务分支"
     widget: select
     options:
+      - value: ""
+        label: "自动（账号/应用默认）"
       - value: "volc"
         label: "交友"
       - value: "part_time"

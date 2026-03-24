@@ -313,6 +313,7 @@ def increment_daily_counter(params: dict[str, Any], context: ExecutionContext) -
 def pick_weighted_keyword(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
     return _sdk_business_support_module().pick_weighted_keyword_action(
         params,
+        context,
         load_strategy_document=_load_strategy_document,
     )
 
@@ -320,6 +321,7 @@ def pick_weighted_keyword(params: dict[str, Any], context: ExecutionContext) -> 
 def is_text_blacklisted(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
     return _sdk_business_support_module().is_text_blacklisted_action(
         params,
+        context,
         load_strategy_document=_load_strategy_document,
     )
 
@@ -331,6 +333,7 @@ def _select_interaction_template(section: str, ai_type: str) -> str:
 def generate_dm_reply(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
     return _sdk_business_support_module().generate_dm_reply_action(
         params,
+        context,
         select_interaction_template=_select_interaction_template,
     )
 
@@ -338,6 +341,7 @@ def generate_dm_reply(params: dict[str, Any], context: ExecutionContext) -> Acti
 def generate_quote_text(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
     return _sdk_business_support_module().generate_quote_text_action(
         params,
+        context,
         select_interaction_template=_select_interaction_template,
     )
 
@@ -377,6 +381,7 @@ def check_processed(params: dict[str, Any], context: ExecutionContext) -> Action
 def pick_candidate(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
     return _sdk_business_support_module().pick_candidate_action(
         params,
+        context,
         load_strategy_document=_load_strategy_document,
     )
 
@@ -384,7 +389,8 @@ def pick_candidate(params: dict[str, Any], context: ExecutionContext) -> ActionR
 def choose_blogger_search_query(params: dict[str, Any], context: ExecutionContext) -> ActionResult:
     return _sdk_business_support_module().choose_blogger_search_query_action(
         params,
-        load_interaction_text_document=_load_interaction_text_document,
+        context,
+        load_interaction_document=_load_interaction_text_document,
     )
 
 

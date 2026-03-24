@@ -22,7 +22,7 @@ steps:
       device_ip: "${vars.cloud_container.device_ip}"
       cloud_index: "${vars.cloud_container.cloud_id}"
       shared_key: "${payload.blogger_shared_key:-blogger_candidates}"
-      branch_id: "${payload.branch_id:-volc}"
+      branch_id: "${payload.branch_id:-}"
       resource_namespace: "${payload.resource_namespace:-}"
 
   - label: 加载博主主页 Scheme
@@ -70,7 +70,7 @@ steps:
       cloud_index: "${vars.cloud_container.cloud_id}"
       command: 'am start -a android.intent.action.VIEW -d "${vars.edit_scheme.url}" &'
 
-  - label: 检查是否俳凒昵称
+  - label: 检查是否仿冒昵称
     kind: if
     when:
       all:
@@ -88,7 +88,7 @@ steps:
       selector_key: edit_name_field
       text: "${vars.blogger_profile.display_name}"
 
-  - label: 检查是否俳凒简介
+  - label: 检查是否仿冒简介
     kind: if
     when:
       all:
@@ -106,7 +106,7 @@ steps:
       selector_key: edit_bio_field
       text: "${vars.blogger_profile.bio}"
 
-  - label: 检查是否俳凒网址
+  - label: 检查是否仿冒网址
     kind: if
     when:
       all:

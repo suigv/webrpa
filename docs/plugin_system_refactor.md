@@ -23,6 +23,7 @@ Current completed implementation slice:
 - arbitrary apps now support editable branch profiles with default branch, search keywords, blacklist keywords, reply texts, reply AI type, resource namespace, and payload defaults
 - post-run selective save now supports workflow default branch, branch-level search keywords, branch-level reply texts, and branch resource namespace in addition to account/draft defaults
 - X plugin manifests were cleaned up to use branch-oriented semantics, and `x_login` no longer exposes the obsolete `credential_slot` input
+- existing X workflow plugins now prefer app branch profiles for keyword/query/reply/resource decisions, while legacy strategy files remain compatibility fallback only
 
 ## Purpose
 

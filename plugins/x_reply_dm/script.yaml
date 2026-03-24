@@ -78,7 +78,8 @@ steps:
     params:
       device_ip: "${vars.cloud_container.device_ip}"
       cloud_index: "${vars.cloud_container.cloud_id}"
-      branch_id: "${payload.branch_id:-volc}"
+      branch_id: "${payload.branch_id:-}"
+      reply_ai_type: "${payload.reply_ai_type:-}"
       last_message: "${vars.last_message.message}"
 
   - label: 输入并发送回复

@@ -49,7 +49,7 @@ steps:
     params:
       device_ip: "${vars.cloud_container.device_ip}"
       cloud_index: "${vars.cloud_container.cloud_id}"
-      branch_id: "${payload.branch_id:-volc}"
+      branch_id: "${payload.branch_id:-}"
       swipe_count_min: 5
       swipe_count_max: "${payload.max_swipes:-15}"
 
@@ -59,7 +59,7 @@ steps:
     save_as: picked
     params:
       candidates: "${vars.timeline.candidates}"
-      branch_id: "${payload.branch_id:-volc}"
+      branch_id: "${payload.branch_id:-}"
 
   - label: 打开候选推文互动
     kind: action
