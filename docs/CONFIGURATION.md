@@ -25,6 +25,26 @@ verification_method:
 - `config/data/`
   - 运行时数据目录。
 
+## App 配置结构
+
+`config/apps/*.yaml` 当前同时承载共享 app 身份、共享骨架能力和 app 内业务分支资料。当前代码已使用的字段包括：
+
+- `app_id`、`display_name`、`aliases`
+- `package_name`、`package_names`
+- `default_branch`
+- `branches`
+- `xml_filter`
+- `states`
+- `stage_patterns`
+- `schemes`
+- `selectors`
+
+边界：
+
+- `schemes` 仍属于人工维护的共享能力，不依赖蒸馏自动写入。
+- app 级共享配置只应保留稳定、可复用的内容。
+- AI 或蒸馏学习结果先进入审核候选，再决定是否 promotion 到共享 app YAML。
+
 ## 关键环境变量
 
 这些变量直接影响当前运行形态：
@@ -52,6 +72,11 @@ verification_method:
 - 敏感信息优先通过环境变量注入，不写入仓库配置。
 - 运行时数据必须留在 `config/data/` 下。
 - app 相关静态配置统一落在 `config/apps/*.yaml`，不要把 app 特例塞回框架代码。
+
+## 当前运行时数据
+
+- 账号、任务等运行时数据继续落在 `config/data/`。
+- app 配置审核候选当前使用独立数据存储，不直接把未审核学习结果写入 `config/apps/*.yaml`。
 
 ## 当前可观察入口
 

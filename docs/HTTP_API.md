@@ -42,6 +42,13 @@ verification_method:
 - `GET /api/data/website`
 - `PUT /api/data/website`
 
+### 账号导入与分配边界
+
+- `POST /api/data/accounts/import` 当前支持同时提交 `app_id`、`app_display_name`、`package_name`、`default_branch`、`role_tags`。
+- 导入时如果 app 尚不存在，后端会按当前输入补齐最小 app 配置，不要求先改代码。
+- `POST /api/data/accounts/pop` 支持 `branch_id` 和 `accepted_role_tags`，其中标签匹配规则是任一命中即可。
+- `GET /api/data/accounts/parsed` 支持按 `app_id`、`branch_id`、`role_tag` 过滤当前账号池视图。
+
 ## 设备与云机
 
 - `GET /api/devices/`
@@ -105,10 +112,31 @@ verification_method:
 - `payload` 只承载插件 `manifest.inputs` 中声明的业务字段。
 - 运行时上下文不应混入 `payload`。
 
+### App Catalog
+
+- `GET /api/tasks/catalog/apps` 返回当前共享 app 身份目录。
+- 每个 app 条目当前包含 `id`、`name/display_name`、`aliases`、`package_name`、`package_names`。
+
 ## AI 对话
 
 - `POST /api/ai_dialog/planner`
 - `GET /api/ai_dialog/history`
+- `POST /api/ai_dialog/annotations`
+- `GET /api/ai_dialog/tasks/{task_id}/annotations`
+- `GET /api/ai_dialog/drafts/{draft_id}/save_candidates`
+- `POST /api/ai_dialog/drafts/{draft_id}/save_choices`
+- `GET /api/ai_dialog/apps/{app_id}/branch_profiles`
+- `PUT /api/ai_dialog/apps/{app_id}/branch_profiles`
+- `GET /api/ai_dialog/apps/{app_id}/config_candidates`
+- `POST /api/ai_dialog/apps/{app_id}/config_candidates/review`
+
+### AI 对话边界
+
+- `POST /api/ai_dialog/planner` 当前支持 `app_id`、`app_display_name`、`package_name`，用于已存在 app 选择和新 app 探索式启动。
+- `POST /api/ai_dialog/annotations` 用于记录用户接管输入时声明的输入类型。
+- `GET/POST /api/ai_dialog/drafts/{draft_id}/save_*` 用于列出并应用一次执行后的可选保存项，而不是强制落库全部运行时数据。
+- `GET/PUT /api/ai_dialog/apps/{app_id}/branch_profiles` 用于读取和维护 app 级分支资料。
+- `GET/POST /api/ai_dialog/apps/{app_id}/config_candidates*` 用于审核蒸馏候选后再写入共享 app 配置。
 
 ## 动作与技能目录
 

@@ -49,5 +49,5 @@ def test_validate_docs_freshness_rejects_extra_dirs_and_stale_docs(tmp_path: Pat
 
     errors = validate_docs_freshness(tmp_path, today=date(2026, 3, 24))
 
-    assert "unexpected docs subdirectory: strategy" in errors
+    assert any(error.startswith("unexpected docs subdirectory: strategy") for error in errors)
     assert any(error.startswith("STATUS.md: stale") for error in errors)

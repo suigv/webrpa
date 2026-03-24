@@ -152,7 +152,9 @@ Different devices use the same port numbers but different IPs — `(ip, port)` i
 ## Commit and Change Hygiene
 - Small, capability-based commits.
 - Do not mix refactor + feature + formatting in one change.
-- **Documentation Self-Healing**: After completing functional changes or adding new features (e.g., new Actions, API endpoints, or Plugins), the agent **MUST** automatically update relevant documentation (e.g., `docs/`, `ActionMetadata`, or `project_progress.md`) to reflect the changes.
+- **Documentation Self-Healing**: After completing functional changes or adding new features (e.g., new Actions, API endpoints, or Plugins), the agent **MUST** write the resulting current facts back into the relevant permanent docs (for example `docs/` current-contract pages or `ActionMetadata`) before finishing.
+- **Temporary Plan Boundary**: `docs/` is reserved for current, verifiable repository truth only. Temporary plans, progress notes, implementation logs, migration checklists, and chat-to-code working drafts must live outside `docs/`.
+- **Plan Cleanup Workflow**: If a task needs a temporary plan document, keep it outside `docs/`, mark it complete when execution finishes, write any durable facts into the permanent docs, then delete or archive the temporary plan so it does not become an accidental source of truth.
 - Keep tests updated with each behavior change.
 - Structural convergence must stay incremental: prefer file-local helper extraction, duplicate branch collapse, and wrapper removal over cross-module rewrites or new abstraction layers.
 - Do not add pure pass-through wrappers unless they preserve an external compatibility contract that cannot be removed yet; if a wrapper is kept for compatibility, mark it as such and avoid building new logic on top of it.

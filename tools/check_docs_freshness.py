@@ -15,6 +15,10 @@ CURRENT_DOCS = {
     "README.md",
     "STATUS.md",
 }
+DOCS_SCOPE_HINT = (
+    "docs/ only accepts current, verifiable docs; temporary plans, progress logs, "
+    "migration drafts, and implementation history must live outside docs/"
+)
 REQUIRED_META = {
     "doc_type",
     "source_of_truth",
@@ -98,10 +102,10 @@ def validate_docs_freshness(project_root: Path, *, today: date | None = None) ->
     entries = list(docs_dir.iterdir())
     for entry in sorted(entries):
         if entry.is_dir():
-            errors.append(f"unexpected docs subdirectory: {entry.name}")
+            errors.append(f"unexpected docs subdirectory: {entry.name} ({DOCS_SCOPE_HINT})")
             continue
         if entry.name not in CURRENT_DOCS:
-            errors.append(f"unexpected docs file: {entry.name}")
+            errors.append(f"unexpected docs file: {entry.name} ({DOCS_SCOPE_HINT})")
 
     for name in sorted(CURRENT_DOCS):
         path = docs_dir / name
@@ -128,6 +132,7 @@ def main() -> int:
         print("docs freshness check failed:")
         for error in errors:
             print(f"- {error}")
+        print(f"policy: {DOCS_SCOPE_HINT}")
         return 1
     print("docs freshness check passed")
     return 0
