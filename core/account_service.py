@@ -7,6 +7,7 @@ from typing import Any
 from core.account_parser import parse_accounts_advanced, parse_accounts_text
 from core.account_store import AccountStore
 from core.app_config import AppConfigManager
+from core.business_profile import coerce_role_tags, normalize_branch_id
 from core.data_store import read_lines
 
 _accounts_lock = threading.Lock()
@@ -64,6 +65,8 @@ def import_accounts_content(
     app_id: str | None = "default",
     app_display_name: str | None = None,
     package_name: str | None = None,
+    default_branch: str | None = None,
+    role_tags: list[str] | None = None,
 ) -> dict[str, Any]:
     app_identity = AppConfigManager.ensure_app_config(
         app_id=app_id,
@@ -106,6 +109,8 @@ def import_accounts_content(
     for acc_data in accounts:
         if isinstance(acc_data, dict) and "account" in acc_data:
             acc_data["app_id"] = normalized_app_id
+            acc_data["default_branch"] = normalize_branch_id(default_branch)
+            acc_data["role_tags"] = coerce_role_tags(role_tags or [])
             store.upsert_account(acc_data)
 
     total_stored = store.count_accounts()
@@ -123,6 +128,10 @@ def import_accounts_content(
             "package_name": app_identity.get("package_name") or None,
             "created": bool(app_identity.get("created")),
         },
+        "resolved_account_defaults": {
+            "default_branch": normalize_branch_id(default_branch),
+            "role_tags": coerce_role_tags(role_tags or []),
+        },
     }
 
 
@@ -134,18 +143,36 @@ def update_account_status(account: str, status: str, error_msg: str | None = Non
     return _get_store().update_status(account, status, error_msg)
 
 
-def pop_account(app_id: str | None = None) -> dict[str, Any] | None:
+def pop_account(
+    app_id: str | None = None,
+    *,
+    branch_id: str | None = None,
+    role_tags: list[str] | None = None,
+) -> dict[str, Any] | None:
     normalized_app_id = None
     if app_id is not None:
         normalized_app_id = AppConfigManager.resolve_app_identity(app_id=app_id)["app_id"]
-    return _get_store().pop_ready_account(app_id=normalized_app_id)
+    return _get_store().pop_ready_account(
+        app_id=normalized_app_id,
+        branch_id=branch_id,
+        role_tags=role_tags,
+    )
 
 
-def list_accounts(app_id: str | None = None) -> list[dict[str, Any]]:
+def list_accounts(
+    app_id: str | None = None,
+    *,
+    branch_id: str | None = None,
+    role_tags: list[str] | None = None,
+) -> list[dict[str, Any]]:
     normalized_app_id = None
     if app_id is not None:
         normalized_app_id = AppConfigManager.resolve_app_identity(app_id=app_id)["app_id"]
-    return _get_store().list_accounts(app_id=normalized_app_id)
+    return _get_store().list_accounts(
+        app_id=normalized_app_id,
+        branch_id=branch_id,
+        role_tags=role_tags,
+    )
 
 
 def reset_accounts() -> int:

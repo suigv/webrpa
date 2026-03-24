@@ -7,6 +7,11 @@ from typing import Any
 import requests
 
 from core.app_config import AppConfigManager
+from core.business_profile import (
+    coerce_role_tags,
+    normalize_branch_id,
+    raw_branch_value_from_payload,
+)
 from core.credentials_loader import load_credentials_from_ref
 from engine.models.runtime import ActionResult, ExecutionContext
 
@@ -99,9 +104,29 @@ def _build_checkout_request_payload(
     params: dict[str, Any], context: ExecutionContext
 ) -> dict[str, Any] | None:
     app_id = _resolve_checkout_app_id(params, context)
-    if not app_id:
+    payload = context.payload if isinstance(context.payload, dict) else {}
+    raw_branch = params.get("branch_id") or payload.get("branch_id") or raw_branch_value_from_payload(
+        payload
+    )
+    branch_id = normalize_branch_id(raw_branch, default="") if raw_branch else ""
+    accepted_role_tags = coerce_role_tags(
+        params.get("accepted_role_tags")
+        or params.get("accepted_account_tags")
+        or payload.get("accepted_role_tags")
+        or payload.get("accepted_account_tags")
+        or payload.get("pipeline_role_tags")
+        or []
+    )
+    if not app_id and not branch_id and not accepted_role_tags:
         return None
-    return {"app_id": app_id}
+    request_payload: dict[str, Any] = {}
+    if app_id:
+        request_payload["app_id"] = app_id
+    if branch_id:
+        request_payload["branch_id"] = branch_id
+    if accepted_role_tags:
+        request_payload["accepted_role_tags"] = accepted_role_tags
+    return request_payload
 
 
 def _resolve_checkout_app_id(params: dict[str, Any], context: ExecutionContext) -> str:

@@ -104,6 +104,15 @@ class ExecutionContext:
         value = self.runtime.get("cloud_target")
         return str(value) if value is not None else ""
 
+    @property
+    def task_id(self) -> str:
+        value = self.runtime.get("task_id")
+        return str(value) if value is not None else ""
+
+    @task_id.setter
+    def task_id(self, value: str | None) -> None:
+        self.runtime["task_id"] = str(value) if value is not None else ""
+
     def get_session_default(self, key: str, default: Any = None) -> Any:
         return self.session_defaults.get(key, default)
 

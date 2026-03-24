@@ -41,7 +41,7 @@ steps:
     params:
       device_ip: "${vars.cloud_container.device_ip}"
       cloud_index: "${vars.cloud_container.cloud_id}"
-      ai_type: "${payload.ai_type:-volc}"
+      branch_id: "${payload.branch_id:-volc}"
       count: "${payload.keyword_count:-2}"
 
   - label: 加载搜索 Scheme
@@ -71,7 +71,7 @@ steps:
     params:
       device_ip: "${vars.cloud_container.device_ip}"
       cloud_index: "${vars.cloud_container.cloud_id}"
-      ai_type: "${payload.ai_type:-volc}"
+      branch_id: "${payload.branch_id:-volc}"
       swipe_count_min: "${payload.swipe_count_min:-8}"
       swipe_count_max: "${payload.swipe_count_max:-15}"
 
@@ -83,7 +83,7 @@ steps:
       device_ip: "${vars.cloud_container.device_ip}"
       cloud_index: "${vars.cloud_container.cloud_id}"
       candidates: "${vars.timeline.candidates}"
-      ai_type: "${payload.ai_type:-volc}"
+      branch_id: "${payload.branch_id:-volc}"
 
   - label: 打开候选推文互动
     kind: action

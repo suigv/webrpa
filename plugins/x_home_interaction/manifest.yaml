@@ -16,11 +16,11 @@ inputs:
     default: "x"
     label: "应用 ID"
     advanced: true
-  - name: ai_type
+  - name: branch_id
     type: string
     required: false
     default: "volc"
-    label: "账号类型"
+    label: "业务分支"
     widget: select
     options:
       - value: "volc"

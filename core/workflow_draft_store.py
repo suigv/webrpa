@@ -50,6 +50,7 @@ class WorkflowDraftRecord:
     latest_completed_task_id: str | None = None
     last_distilled_manifest_path: str | None = None
     last_distilled_script_path: str | None = None
+    saved_preferences: dict[str, Any] = field(default_factory=dict)
     created_at: str = ""
     updated_at: str = ""
 
@@ -83,6 +84,7 @@ class WorkflowDraftStore(BaseStore):
                     latest_completed_task_id TEXT,
                     last_distilled_manifest_path TEXT,
                     last_distilled_script_path TEXT,
+                    saved_preferences_json TEXT NOT NULL DEFAULT '{}',
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 )
@@ -108,6 +110,7 @@ class WorkflowDraftStore(BaseStore):
                 "latest_completed_task_id": "ALTER TABLE workflow_drafts ADD COLUMN latest_completed_task_id TEXT",
                 "last_distilled_manifest_path": "ALTER TABLE workflow_drafts ADD COLUMN last_distilled_manifest_path TEXT",
                 "last_distilled_script_path": "ALTER TABLE workflow_drafts ADD COLUMN last_distilled_script_path TEXT",
+                "saved_preferences_json": "ALTER TABLE workflow_drafts ADD COLUMN saved_preferences_json TEXT NOT NULL DEFAULT '{}'",
             }
             for column, sql in migrations.items():
                 if column not in columns:
@@ -162,8 +165,9 @@ class WorkflowDraftStore(BaseStore):
                     last_success_snapshot_json, successful_task_ids_json,
                     latest_terminal_task_id, latest_completed_task_id,
                     last_distilled_manifest_path, last_distilled_script_path,
+                    saved_preferences_json,
                     created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 self._record_params(record),
             )
@@ -198,6 +202,7 @@ class WorkflowDraftStore(BaseStore):
                     latest_completed_task_id = ?,
                     last_distilled_manifest_path = ?,
                     last_distilled_script_path = ?,
+                    saved_preferences_json = ?,
                     updated_at = ?
                 WHERE draft_id = ?
                 """,
@@ -225,6 +230,7 @@ class WorkflowDraftStore(BaseStore):
                     record.latest_completed_task_id,
                     record.last_distilled_manifest_path,
                     record.last_distilled_script_path,
+                    _json_dump(record.saved_preferences),
                     record.updated_at,
                     record.draft_id,
                 ),
@@ -265,6 +271,7 @@ class WorkflowDraftStore(BaseStore):
             record.latest_completed_task_id,
             record.last_distilled_manifest_path,
             record.last_distilled_script_path,
+            _json_dump(record.saved_preferences),
             created_at,
             updated_at,
         )
@@ -301,6 +308,7 @@ class WorkflowDraftStore(BaseStore):
             last_distilled_script_path=str(row["last_distilled_script_path"])
             if row["last_distilled_script_path"] is not None
             else None,
+            saved_preferences=dict(_json_load(row["saved_preferences_json"], default={})),
             created_at=str(row["created_at"] or ""),
             updated_at=str(row["updated_at"] or ""),
         )

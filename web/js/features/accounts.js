@@ -29,6 +29,8 @@ const edit2fa = document.getElementById("edit2fa");
 const editToken = document.getElementById("editToken");
 const editEmail = document.getElementById("editEmail");
 const editEmailPwd = document.getElementById("editEmailPwd");
+const editDefaultBranch = document.getElementById("editDefaultBranch");
+const editRoleTags = document.getElementById("editRoleTags");
 const editStatus = document.getElementById("editStatus");
 const editErrorMsg = document.getElementById("editErrorMsg");
 
@@ -138,6 +140,13 @@ function getAccountImportAppContext() {
     };
 }
 
+function parseRoleTagsText(value) {
+    return String(value || '')
+        .split(',')
+        .map((item) => item.trim().toLowerCase())
+        .filter(Boolean);
+}
+
 async function updateAccountStatus(account, newStatus) {
     try {
         const r = await fetchJson("/api/data/accounts/status", {
@@ -170,6 +179,8 @@ async function saveAccount() {
         token: editToken.value,
         email: editEmail.value,
         email_password: editEmailPwd.value,
+        default_branch: editDefaultBranch.value,
+        role_tags: parseRoleTagsText(editRoleTags.value),
         status: editStatus.value,
         error_msg: editErrorMsg.value
     };
@@ -205,6 +216,8 @@ function openAccountModal(account) {
     editToken.value = account.token || "";
     editEmail.value = account.email || "";
     editEmailPwd.value = account.email_password || "";
+    editDefaultBranch.value = account.default_branch || "default";
+    editRoleTags.value = Array.isArray(account.role_tags) ? account.role_tags.join(', ') : '';
     editStatus.value = account.status || "ready";
     editErrorMsg.value = account.error_msg || "";
     
@@ -337,6 +350,8 @@ function renderInventory(accounts) {
         const headerRow = document.createElement('tr');
         headerRow.append(
             makeTableCell('th', '账号', 'padding: 10px; border-bottom: 1px solid var(--border); width: 120px;'),
+            makeTableCell('th', '默认分支', 'padding: 10px; border-bottom: 1px solid var(--border); width: 110px;'),
+            makeTableCell('th', '角色标签', 'padding: 10px; border-bottom: 1px solid var(--border); width: 150px;'),
             makeTableCell('th', '当前状态', 'padding: 10px; border-bottom: 1px solid var(--border); width: 80px;'),
             makeTableCell('th', '快捷标记', 'padding: 10px; border-bottom: 1px solid var(--border); width: 140px;'),
             makeTableCell('th', '异常追踪', 'padding: 10px; border-bottom: 1px solid var(--border);'),
@@ -357,6 +372,15 @@ function renderInventory(accounts) {
             const statusCell = document.createElement('td');
             statusCell.style.cssText = 'padding: 10px;';
             statusCell.appendChild(buildStatusBadge(status));
+
+            const branchCell = makeTableCell('td', a.default_branch || 'default', 'padding: 10px;');
+            const roleTags = Array.isArray(a.role_tags) ? a.role_tags : [];
+            const tagCell = makeTableCell(
+                'td',
+                roleTags.length ? roleTags.join(', ') : '-',
+                'padding: 10px; color: var(--text-muted); max-width: 180px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;'
+            );
+            tagCell.title = roleTags.join(', ');
 
             const quickCell = document.createElement('td');
             quickCell.style.cssText = 'padding: 10px; display: flex; gap: 4px;';
@@ -388,7 +412,7 @@ function renderInventory(accounts) {
             const errorCell = makeTableCell('td', a.error_msg || '-', 'padding: 10px; color: var(--error); font-size: 0.7rem; max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;');
             errorCell.title = a.error_msg || '';
 
-            row.append(accountCell, statusCell, quickCell, errorCell);
+            row.append(accountCell, branchCell, tagCell, statusCell, quickCell, errorCell);
             tbody.appendChild(row);
         });
 
@@ -521,6 +545,8 @@ async function importAccounts(overwrite) {
                 app_id: appContext.appId,
                 app_display_name: appContext.appDisplayName || null,
                 package_name: appContext.packageName || null,
+                default_branch: document.getElementById('accountImportDefaultBranch')?.value || null,
+                role_tags: parseRoleTagsText(document.getElementById('accountImportRoleTags')?.value || ''),
             }),
         });
 
@@ -533,6 +559,10 @@ async function importAccounts(overwrite) {
             if (customFields.appId) customFields.appId.value = '';
             if (customFields.displayName) customFields.displayName.value = '';
             if (customFields.packageName) customFields.packageName.value = '';
+            const defaultBranchInput = document.getElementById('accountImportDefaultBranch');
+            if (defaultBranchInput) defaultBranchInput.value = '';
+            const roleTagsInput = document.getElementById('accountImportRoleTags');
+            if (roleTagsInput) roleTagsInput.value = '';
             await initImportAppSelector();
             await loadAccounts();
         } else {

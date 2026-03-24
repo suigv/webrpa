@@ -120,3 +120,34 @@ def test_credentials_load_falls_back_to_account_pool_by_app_id(monkeypatch: Monk
     assert captured["json"] == {"app_id": "x"}
     assert context.vars["creds"]["account"] == "pool_user"
     assert context.vars["creds"]["twofa_secret"] == "OTP-SECRET"
+
+
+def test_credentials_checkout_forwards_branch_and_role_tags(monkeypatch: MonkeyPatch):
+    captured: dict[str, object] = {}
+
+    def fake_post(_url: str, json: dict[str, object] | None = None, timeout: int = 0):
+        captured["json"] = json
+        return SimpleNamespace(
+            json=lambda: {
+                "status": "ok",
+                "account": {"account": "branch_user", "password": "secret"},
+            }
+        )
+
+    monkeypatch.setattr("engine.actions.credential_actions.requests.post", fake_post)
+
+    context = ExecutionContext(
+        payload={
+            "app_id": "x",
+            "branch_id": "volc",
+            "accepted_account_tags": "dating,warmup",
+        }
+    )
+    result = credentials_checkout({}, context)
+
+    assert result.ok is True
+    assert captured["json"] == {
+        "app_id": "x",
+        "branch_id": "volc",
+        "accepted_role_tags": ["dating", "warmup"],
+    }

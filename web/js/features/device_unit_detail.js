@@ -1,4 +1,5 @@
 import { authFetch, fetchJson } from '../utils/api.js';
+import { promptAiTaskInputAnnotation } from './ai_task_annotations.js';
 import { toast } from '../ui/toast.js';
 import { store } from '../state/store.js';
 
@@ -261,9 +262,16 @@ async function handleUnitTextSend(unit, getTraceContext, refs, state) {
         input.focus();
         return;
     }
+    const traceContext = typeof getTraceContext === 'function' ? getTraceContext() : null;
     const ok = await postUnitControl(unit, 'text', { text }, '已发送文本', getTraceContext, refs, state);
     if (ok) {
         input.value = '';
+        if (traceContext?.taskId) {
+            void promptAiTaskInputAnnotation({
+                taskId: traceContext.taskId,
+                rawValue: text.trim(),
+            });
+        }
     }
 }
 

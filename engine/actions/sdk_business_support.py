@@ -5,7 +5,47 @@ import re
 from collections.abc import Callable
 from typing import Any
 
+from core.business_profile import branch_id_from_payload, normalize_branch_id
+from core.shared_resource_store import get_shared_resource_store
 from engine.models.runtime import ActionResult, ExecutionContext
+
+
+def _resolve_branch_id(params: dict[str, Any], context: ExecutionContext | None = None) -> str:
+    payload = context.payload if context is not None and isinstance(context.payload, dict) else {}
+    raw = (
+        params.get("branch_id")
+        or params.get("ai_type")
+        or payload.get("branch_id")
+        or branch_id_from_payload(payload)
+    )
+    return normalize_branch_id(raw)
+
+
+def _with_branch_metadata(data: dict[str, Any], branch_id: str) -> dict[str, Any]:
+    return {
+        **data,
+        "branch_id": branch_id,
+        "ai_type": branch_id,
+    }
+
+
+def _resource_namespace(
+    params: dict[str, Any],
+    context: ExecutionContext | None,
+    *,
+    shared_key: str,
+) -> str:
+    payload = context.payload if context is not None and isinstance(context.payload, dict) else {}
+    app_id = str(payload.get("app_id") or payload.get("app") or "default").strip().lower() or "default"
+    branch_id = _resolve_branch_id(params, context)
+    explicit = str(
+        params.get("resource_namespace")
+        or payload.get("resource_namespace")
+        or payload.get("_workflow_draft_id")
+        or ""
+    ).strip()
+    scope = explicit or f"{app_id}:{branch_id}"
+    return f"{scope}:{shared_key}"
 
 
 def pick_weighted_keyword_action(
@@ -14,18 +54,20 @@ def pick_weighted_keyword_action(
     load_strategy_document: Callable[[], dict[str, Any]],
 ) -> ActionResult:
     override = str(params.get("override") or "").strip()
-    ai_type = str(params.get("ai_type") or "default").strip()
+    branch_id = _resolve_branch_id(params)
     blogger = str(params.get("blogger") or "").strip()
     if override:
         return ActionResult(
             ok=True,
             code="ok",
-            data={
+            data=_with_branch_metadata(
+                {
                 "keyword": override,
                 "rendered_keyword": override,
                 "source": "override",
-                "ai_type": ai_type,
-            },
+                },
+                branch_id,
+            ),
         )
 
     try:
@@ -34,10 +76,10 @@ def pick_weighted_keyword_action(
         return ActionResult(ok=False, code="strategy_config_unavailable", message=str(exc))
 
     strategies = document.get("strategies", {})
-    strategy = strategies.get(ai_type) or strategies.get("default")
+    strategy = strategies.get(branch_id) or strategies.get("default")
     if not isinstance(strategy, dict):
         return ActionResult(
-            ok=False, code="strategy_missing", message=f"strategy not found: {ai_type}"
+            ok=False, code="strategy_missing", message=f"strategy not found: {branch_id}"
         )
 
     keywords = strategy.get("keywords", {})
@@ -58,7 +100,7 @@ def pick_weighted_keyword_action(
 
     if not weighted_pool:
         return ActionResult(
-            ok=False, code="empty_keyword_pool", message=f"keyword pool empty: {ai_type}"
+            ok=False, code="empty_keyword_pool", message=f"keyword pool empty: {branch_id}"
         )
 
     bucket, keyword = random.choice(weighted_pool)
@@ -66,12 +108,14 @@ def pick_weighted_keyword_action(
     return ActionResult(
         ok=True,
         code="ok",
-        data={
-            "ai_type": ai_type,
+        data=_with_branch_metadata(
+            {
             "bucket": bucket,
             "keyword": keyword,
             "rendered_keyword": rendered,
-        },
+            },
+            branch_id,
+        ),
     )
 
 
@@ -81,16 +125,16 @@ def is_text_blacklisted_action(
     load_strategy_document: Callable[[], dict[str, Any]],
 ) -> ActionResult:
     text = str(params.get("text") or "").strip()
-    ai_type = str(params.get("ai_type") or "default").strip()
+    branch_id = _resolve_branch_id(params)
     try:
         document = load_strategy_document()
     except Exception as exc:
         return ActionResult(ok=False, code="strategy_config_unavailable", message=str(exc))
     strategies = document.get("strategies", {})
-    strategy = strategies.get(ai_type) or strategies.get("default")
+    strategy = strategies.get(branch_id) or strategies.get("default")
     if not isinstance(strategy, dict):
         return ActionResult(
-            ok=False, code="strategy_missing", message=f"strategy not found: {ai_type}"
+            ok=False, code="strategy_missing", message=f"strategy not found: {branch_id}"
         )
     blacklist = strategy.get("blacklist", [])
     if not isinstance(blacklist, list):
@@ -101,10 +145,12 @@ def is_text_blacklisted_action(
             return ActionResult(
                 ok=True,
                 code="ok",
-                data={"contains": True, "matched": word_text, "ai_type": ai_type},
+                data=_with_branch_metadata({"contains": True, "matched": word_text}, branch_id),
             )
     return ActionResult(
-        ok=True, code="ok", data={"contains": False, "matched": "", "ai_type": ai_type}
+        ok=True,
+        code="ok",
+        data=_with_branch_metadata({"contains": False, "matched": ""}, branch_id),
     )
 
 
@@ -114,16 +160,16 @@ def generate_dm_reply_action(
     select_interaction_template: Callable[[str, str], str],
 ) -> ActionResult:
     override = str(params.get("override") or "").strip()
-    ai_type = str(params.get("ai_type") or "default").strip()
+    branch_id = _resolve_branch_id(params)
     last_message = str(params.get("last_message") or "").strip()
     if override:
         return ActionResult(
             ok=True,
             code="ok",
-            data={"reply_text": override, "source": "override", "ai_type": ai_type},
+            data=_with_branch_metadata({"reply_text": override, "source": "override"}, branch_id),
         )
     try:
-        template = select_interaction_template("dm_reply", ai_type)
+        template = select_interaction_template("dm_reply", branch_id)
     except Exception as exc:
         return ActionResult(ok=False, code="interaction_text_unavailable", message=str(exc))
     snippet = re.sub(r"\s+", " ", last_message).strip()
@@ -135,12 +181,14 @@ def generate_dm_reply_action(
     return ActionResult(
         ok=True,
         code="ok",
-        data={
+        data=_with_branch_metadata(
+            {
             "reply_text": reply_text[:120],
             "source": "template",
-            "ai_type": ai_type,
             "last_message": last_message,
-        },
+            },
+            branch_id,
+        ),
     )
 
 
@@ -150,7 +198,7 @@ def generate_quote_text_action(
     select_interaction_template: Callable[[str, str], str],
 ) -> ActionResult:
     override = str(params.get("override") or "").strip()
-    ai_type = str(params.get("ai_type") or "default").strip()
+    branch_id = _resolve_branch_id(params)
     source_text = str(
         params.get("source_text")
         or params.get("candidate_text")
@@ -161,10 +209,10 @@ def generate_quote_text_action(
         return ActionResult(
             ok=True,
             code="ok",
-            data={"quote_text": override, "source": "override", "ai_type": ai_type},
+            data=_with_branch_metadata({"quote_text": override, "source": "override"}, branch_id),
         )
     try:
-        template = select_interaction_template("quote_text", ai_type)
+        template = select_interaction_template("quote_text", branch_id)
     except Exception as exc:
         return ActionResult(ok=False, code="interaction_text_unavailable", message=str(exc))
     snippet = re.sub(r"\s+", " ", source_text).strip()
@@ -176,12 +224,14 @@ def generate_quote_text_action(
     return ActionResult(
         ok=True,
         code="ok",
-        data={
+        data=_with_branch_metadata(
+            {
             "quote_text": quote_text[:140],
             "source": "template",
-            "ai_type": ai_type,
             "source_text": source_text,
-        },
+            },
+            branch_id,
+        ),
     )
 
 
@@ -194,20 +244,38 @@ def save_blogger_candidate_action(
     candidate = params.get("candidate")
     if not isinstance(candidate, dict):
         return ActionResult(ok=False, code="invalid_params", message="candidate must be an object")
-    shared_key = params.get("key", params.get("shared_key", "blogger_pool"))
-    wrapped_params = {
+    shared_key = str(params.get("key", params.get("shared_key", "blogger_pool"))).strip()
+    identity_field = str(params.get("identity_field") or "username").strip() or "username"
+    if context is None:
+        result = append_shared_unique(
+            {
+                "key": shared_key,
+                "scope": params.get("scope", "device"),
+                "scope_value": params.get("scope_value"),
+                "identity_field": identity_field,
+                "item": candidate,
+            },
+            context,
+        )
+        if not result.ok:
+            return result
+        payload = dict(result.data)
+        payload["candidate"] = candidate
+        return ActionResult(ok=True, code="ok", data=payload)
+    namespace = _resource_namespace(params, context, shared_key=shared_key)
+    stats = get_shared_resource_store().collect_items(
+        namespace=namespace,
+        items=[candidate],
+        identity_field=identity_field,
+    )
+    data = {
         "key": shared_key,
-        "scope": params.get("scope", "device"),
-        "scope_value": params.get("scope_value"),
-        "identity_field": params.get("identity_field", "username"),
-        "item": candidate,
+        "namespace": namespace,
+        "candidate": candidate,
+        "added": stats["added"] > 0,
     }
-    result = append_shared_unique(wrapped_params, context)
-    if not result.ok:
-        return result
-    payload = dict(result.data)
-    payload["candidate"] = candidate
-    return ActionResult(ok=True, code="ok", data=payload)
+    data.update(get_shared_resource_store().namespace_stats(namespace))
+    return ActionResult(ok=True, code="ok", data=data)
 
 
 def get_blogger_candidate_action(
@@ -216,29 +284,52 @@ def get_blogger_candidate_action(
     *,
     load_shared_optional: Callable[[dict[str, Any], ExecutionContext | None], ActionResult],
 ) -> ActionResult:
-    shared_key = params.get("key", params.get("shared_key", "blogger_pool"))
-    wrapped_params = {
-        "key": shared_key,
-        "scope": params.get("scope", "device"),
-        "scope_value": params.get("scope_value"),
-        "default": [],
-    }
-    result = load_shared_optional(wrapped_params, context)
-    if not result.ok:
-        return result
-    items = result.data.get("value", [])
-    if not isinstance(items, list):
-        items = []
-    index = int(params.get("index", 0) or 0)
-    if index < 0 or index >= len(items):
+    shared_key = str(params.get("key", params.get("shared_key", "blogger_pool"))).strip()
+    namespace = _resource_namespace(params, context, shared_key=shared_key)
+    owner_id = str(getattr(context, "task_id", "") or "").strip()
+    if not owner_id and context is not None:
+        owner_id = str(context.runtime.get("task_id") or "").strip()
+    if not owner_id:
+        result = load_shared_optional(
+            {
+                "key": shared_key,
+                "scope": params.get("scope", "device"),
+                "scope_value": params.get("scope_value"),
+                "default": [],
+            },
+            context,
+        )
+        if not result.ok:
+            return result
+        items = result.data.get("value", [])
+        if not isinstance(items, list) or not items:
+            return ActionResult(
+                ok=False,
+                code="blogger_candidate_missing",
+                message="blogger candidate not found",
+                data={"namespace": namespace},
+            )
+        return ActionResult(ok=True, code="ok", data={"candidate": items[0], "namespace": namespace})
+    claimed = get_shared_resource_store().claim_next(namespace=namespace, owner_id=owner_id)
+    if claimed is None:
+        stats = get_shared_resource_store().namespace_stats(namespace)
         return ActionResult(
             ok=False,
             code="blogger_candidate_missing",
             message="blogger candidate not found",
-            data={"size": len(items), "index": index},
+            data={"namespace": namespace, **stats},
         )
+    stats = get_shared_resource_store().namespace_stats(namespace)
     return ActionResult(
-        ok=True, code="ok", data={"candidate": items[index], "index": index, "size": len(items)}
+        ok=True,
+        code="ok",
+        data={
+            "candidate": claimed.item,
+            "namespace": namespace,
+            "item_id": claimed.item_id,
+            "claim_state": claimed.state,
+            **stats,
+        },
     )
 
 
@@ -301,14 +392,14 @@ def pick_candidate_action(
     if not isinstance(candidates, list):
         return ActionResult(ok=False, code="invalid_params", message="candidates must be a list")
 
-    ai_type = str(params.get("ai_type") or "default").strip()
+    branch_id = _resolve_branch_id(params)
     strategy = str(params.get("strategy") or "best").strip().lower()
     min_text_length = int(params.get("min_text_length", 4) or 4)
 
     try:
         document = load_strategy_document()
         strategies = document.get("strategies", {})
-        strategy_cfg = strategies.get(ai_type) or strategies.get("default") or {}
+        strategy_cfg = strategies.get(branch_id) or strategies.get("default") or {}
         blacklist = strategy_cfg.get("blacklist", []) if isinstance(strategy_cfg, dict) else []
         scoring_cfg = (
             strategy_cfg.get("candidate_scoring", {}) if isinstance(strategy_cfg, dict) else {}
@@ -358,7 +449,7 @@ def pick_candidate_action(
         data={
             "candidate": selected,
             "count": len(scored),
-            "ai_type": ai_type,
+            **_with_branch_metadata({}, branch_id),
             "strategy": strategy,
         },
     )
@@ -370,26 +461,30 @@ def choose_blogger_search_query_action(
     load_interaction_document: Callable[[], dict[str, Any]],
 ) -> ActionResult:
     override = str(params.get("override") or "").strip()
-    ai_type = str(params.get("ai_type") or "default").strip()
+    branch_id = _resolve_branch_id(params)
     if override:
         return ActionResult(
-            ok=True, code="ok", data={"query": override, "source": "override", "ai_type": ai_type}
+            ok=True,
+            code="ok",
+            data=_with_branch_metadata({"query": override, "source": "override"}, branch_id),
         )
     try:
         document = load_interaction_document()
     except Exception as exc:
         return ActionResult(ok=False, code="interaction_config_unavailable", message=str(exc))
     search_query_cfg = document.get("search_query", {})
-    candidates = search_query_cfg.get(ai_type) or search_query_cfg.get("default") or []
+    candidates = search_query_cfg.get(branch_id) or search_query_cfg.get("default") or []
     if not candidates:
         return ActionResult(
             ok=False,
             code="search_query_missing",
-            message=f"no search_query configured for: {ai_type}",
+            message=f"no search_query configured for: {branch_id}",
         )
     query = random.choice(candidates)
     return ActionResult(
-        ok=True, code="ok", data={"query": query, "source": "config", "ai_type": ai_type}
+        ok=True,
+        code="ok",
+        data=_with_branch_metadata({"query": query, "source": "config"}, branch_id),
     )
 
 
@@ -427,15 +522,13 @@ def save_blogger_candidates_action(
     if not isinstance(candidates, list):
         return ActionResult(ok=False, code="invalid_params", message="candidates must be a list")
 
-    key = params.get("key", "blogger_pool")
-    scope = params.get("scope", "device")
-    scope_value = params.get("scope_value")
+    key = str(params.get("key", "blogger_pool")).strip()
     identity_field = str(params.get("identity_field") or "username").strip() or "username"
     fallback_profile = str(params.get("fallback_profile") or "").strip()
+    namespace = _resource_namespace(params, context, shared_key=key)
 
     added_items: list[dict[str, Any]] = []
     skipped_count = 0
-    last_result: ActionResult | None = None
 
     for candidate in candidates:
         if not isinstance(candidate, dict):
@@ -450,20 +543,18 @@ def save_blogger_candidates_action(
         result = save_blogger_candidate(
             {
                 "key": key,
-                "scope": scope,
-                "scope_value": scope_value,
                 "identity_field": identity_field,
                 "candidate": derived,
+                "resource_namespace": namespace,
             },
             context,
         )
         if not result.ok:
             return result
-        last_result = result
         if result.data.get("added") is True:
             added_items.append(derived)
 
-    if last_result is None:
+    if not candidates:
         return ActionResult(
             ok=False,
             code="blogger_candidates_missing",
@@ -471,14 +562,17 @@ def save_blogger_candidates_action(
             data={"added_count": 0, "skipped_count": skipped_count, "candidates": []},
         )
 
+    stats = get_shared_resource_store().namespace_stats(namespace)
+
     return ActionResult(
         ok=True,
         code="ok",
         data={
-            "key": last_result.data.get("key"),
-            "size": last_result.data.get("size", 0),
+            "key": key,
+            "namespace": namespace,
             "added_count": len(added_items),
             "skipped_count": skipped_count,
             "candidates": added_items,
+            **stats,
         },
     )

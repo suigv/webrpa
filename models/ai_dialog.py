@@ -36,3 +36,14 @@ class AIDialogHistoryItem(BaseModel):
     can_replay: bool = False
     can_edit: bool = False
     workflow_draft: dict[str, Any] = Field(default_factory=dict)
+
+
+class AITaskAnnotationRequest(BaseModel):
+    task_id: str = Field(min_length=1, max_length=64)
+    input_type: str = Field(min_length=1, max_length=64)
+    raw_value: str | None = Field(default=None, max_length=500)
+    step_id: str | None = Field(default=None, max_length=120)
+
+
+class AIDialogSaveSelectionRequest(BaseModel):
+    candidate_ids: list[str] = Field(default_factory=list)

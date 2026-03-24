@@ -19,16 +19,22 @@ inputs:
     advanced: true
     system: true
     widget: "hidden"
-  - name: credential_slot
-    type: string
-    required: false
-    default: ""
-    label: "凭据槽位"
-    placeholder: "留空使用默认"
-    advanced: true
   - name: app_id
     type: string
     required: false
     default: "x"
     label: "应用 ID"
+    advanced: true
+  - name: branch_id
+    type: string
+    required: false
+    default: "default"
+    label: "业务分支"
+    advanced: true
+  - name: accepted_account_tags
+    type: string
+    required: false
+    default: ""
+    label: "账号标签要求"
+    description: "多个标签用英文逗号分隔，命中任一标签即可。"
     advanced: true

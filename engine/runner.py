@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from core.app_config import resolve_app_id, resolve_app_payload
+from core.business_profile import inject_branch_payload
 from engine.action_registry import get_registry
 from engine.agent_executor import AgentExecutorRuntime
 from engine.interpreter import Interpreter
@@ -57,7 +58,12 @@ class Runner:
         self._plugin_loader = get_shared_plugin_loader(refresh=True)
         return self._plugin_loader.get(task_name)
 
-    def _normalize_pipeline_steps(self, raw_steps: object) -> list[dict[str, Any]]:
+    def _normalize_pipeline_steps(
+        self,
+        raw_steps: object,
+        *,
+        inherited_payload: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
         if isinstance(raw_steps, str):
             try:
                 raw_steps = json.loads(raw_steps)
@@ -81,6 +87,15 @@ class Runner:
                 payload_dict = dict(payload)
             else:
                 raise ValueError(f"pipeline step #{index} payload must be an object")
+            if isinstance(inherited_payload, dict):
+                for key, inherited_value in inherited_payload.items():
+                    if inherited_value in (None, "", []):
+                        continue
+                    if key in payload_dict and payload_dict.get(key) not in (None, "", []):
+                        raise ValueError(
+                            f"pipeline step #{index} must not override inherited {key}"
+                        )
+                    payload_dict[key] = inherited_value
             label = str(item.get("label") or item.get("display_name") or plugin_name).strip()
             normalized.append(
                 {
@@ -139,7 +154,15 @@ class Runner:
         runtime: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         try:
-            steps = self._normalize_pipeline_steps(payload.get("steps"))
+            normalized_payload = inject_branch_payload(payload)
+            inherited_payload = {
+                key: normalized_payload.get(key)
+                for key in ("branch_id", "accepted_role_tags", "resource_namespace")
+            }
+            steps = self._normalize_pipeline_steps(
+                normalized_payload.get("steps"),
+                inherited_payload=inherited_payload,
+            )
             repeat = int(payload.get("repeat", 1) or 1)
             repeat_interval_ms = int(payload.get("repeat_interval_ms", 0) or 0)
         except ValueError as exc:
@@ -286,7 +309,7 @@ class Runner:
 
         if task_name == self._agent_executor_runtime.task_name:
             app_id = resolve_app_id(script_payload)
-            enhanced_payload = resolve_app_payload(app_id, script_payload)
+            enhanced_payload = resolve_app_payload(app_id, inject_branch_payload(script_payload))
             return self._agent_executor_runtime.run(
                 enhanced_payload, should_cancel=should_cancel, runtime=runtime
             )
@@ -294,10 +317,14 @@ class Runner:
         # Try YAML plugin first
         plugin = self._resolve_plugin_entry(task_name)
         if plugin is not None:
-            payload_error = self._validate_plugin_payload(script_payload, plugin.manifest.inputs)
+            normalized_payload = self._normalize_plugin_input_aliases(
+                script_payload,
+                plugin.manifest.inputs,
+            )
+            payload_error = self._validate_plugin_payload(normalized_payload, plugin.manifest.inputs)
             if payload_error is not None:
                 return self._dispatch_error(task_name=task_name, **payload_error)
-            enhanced_payload = self._resolve_plugin_payload(script_payload, plugin.manifest.inputs)
+            enhanced_payload = self._resolve_plugin_payload(normalized_payload, plugin.manifest.inputs)
             return self._run_yaml_plugin(
                 task_name,
                 enhanced_payload,
@@ -319,7 +346,7 @@ class Runner:
         # Anonymous script execution
         if plan.get("steps"):
             app_id = resolve_app_id(script_payload)
-            enhanced_payload = resolve_app_payload(app_id, script_payload)
+            enhanced_payload = resolve_app_payload(app_id, inject_branch_payload(script_payload))
             return self._run_anonymous_script(
                 task_name, enhanced_payload, plan, should_cancel, runtime, emit_event
             )
@@ -422,10 +449,24 @@ class Runner:
     ) -> dict[str, Any]:
         declared_inputs = {plugin_input.name for plugin_input in inputs}
         app_id = self._resolve_plugin_app_id(payload, inputs)
-        enhanced_payload = resolve_app_payload(app_id, payload) if app_id else dict(payload)
+        normalized_payload = inject_branch_payload(payload)
+        enhanced_payload = (
+            resolve_app_payload(app_id, normalized_payload) if app_id else dict(normalized_payload)
+        )
         if "app_id" not in declared_inputs:
             enhanced_payload.pop("app_id", None)
         return enhanced_payload
+
+    def _normalize_plugin_input_aliases(
+        self,
+        payload: dict[str, Any],
+        inputs: list[PluginInput],
+    ) -> dict[str, Any]:
+        normalized = inject_branch_payload(payload)
+        declared_inputs = {plugin_input.name for plugin_input in inputs}
+        if "branch_id" in declared_inputs:
+            normalized.pop("ai_type", None)
+        return normalized
 
     @staticmethod
     def _resolve_plugin_app_id(payload: dict[str, Any], inputs: list[PluginInput]) -> str:

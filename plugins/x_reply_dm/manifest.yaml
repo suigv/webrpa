@@ -16,17 +16,17 @@ inputs:
     default: "x"
     label: "应用 ID"
     advanced: true
-  - name: ai_type
+  - name: branch_id
     type: string
     required: false
     default: "volc"
-    label: "AI 类型"
+    label: "业务分支"
     widget: select
     options:
       - value: "volc"
-        label: "交友 (volc)"
+        label: "交友"
       - value: "part_time"
-        label: "兼职 (part_time)"
+        label: "兼职"
   - name: pin_code
     type: string
     required: false

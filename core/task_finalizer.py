@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from core.shared_resource_store import SharedResourceStore
 from core.task_events import TaskEventStore
 from core.task_metrics import build_task_metrics_payload
 from core.task_store import TaskRecord, TaskStore
@@ -26,11 +27,18 @@ class TaskAttemptFinalizer:
         event_store: TaskEventStore,
         account_feedback: AccountFeedbackLike | None = None,
         workflow_drafts: WorkflowDraftService | None = None,
+        shared_resources: SharedResourceStore | None = None,
     ) -> None:
         self._store = store
         self._events = event_store
         self._account_feedback = account_feedback
         self._workflow_drafts = workflow_drafts
+        self._shared_resources = shared_resources
+
+    def _finalize_shared_resource_claims(self, task_id: str, *, success: bool) -> None:
+        if self._shared_resources is None:
+            return
+        self._shared_resources.finalize_owner_claims(task_id, success=success)
 
     def _record_workflow_terminal(
         self,
@@ -112,6 +120,7 @@ class TaskAttemptFinalizer:
             payload_override=payload_override,
             conn=conn,
         )
+        self._finalize_shared_resource_claims(task_id, success=False)
 
     def _finalize_failed_terminal(
         self,
@@ -144,6 +153,7 @@ class TaskAttemptFinalizer:
             payload_override=payload_override,
             conn=conn,
         )
+        self._finalize_shared_resource_claims(task_id, success=False)
 
     def _finalize_completed_terminal(
         self,
@@ -174,6 +184,7 @@ class TaskAttemptFinalizer:
             payload_override=payload_override,
             conn=conn,
         )
+        self._finalize_shared_resource_claims(task_id, success=True)
 
     def finalize_exception_attempt(
         self, task_id: str, task_name: str, error: str

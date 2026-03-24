@@ -195,3 +195,63 @@ def test_ai_dialog_history_filters_non_ai_dialog_drafts(tmp_path):
         assert data[0]["can_edit"] is True
     finally:
         reset_task_controller_for_tests()
+
+
+def test_ai_dialog_annotations_and_save_candidates_flow(tmp_path):
+    reset_task_controller_for_tests()
+    db_path = tmp_path / "tasks-ai-dialog-save.db"
+    controller = TaskController(
+        store=TaskStore(db_path=db_path),
+        queue_backend=InMemoryTaskQueue(),
+        event_store=TaskEventStore(db_path=db_path),
+    )
+    override_task_controller_for_tests(controller)
+
+    store = WorkflowDraftStore(db_path=db_path)
+    store.create_draft(
+        WorkflowDraftRecord(
+            draft_id="draft_save",
+            display_name="X 搜索",
+            task_name="agent_executor",
+            plugin_name_candidate="x_search",
+            source="ai_dialog",
+            latest_completed_task_id="task-save-1",
+            last_success_snapshot={
+                "payload": {"goal": "搜索博主", "branch_id": "volc"},
+                "identity": {"app_id": "x", "account": "demo@example.com", "branch_id": "volc"},
+            },
+        )
+    )
+
+    try:
+        with TestClient(app) as client:
+            created = client.post(
+                "/api/ai_dialog/annotations",
+                json={
+                    "task_id": "task-save-1",
+                    "input_type": "search_keyword",
+                    "raw_value": "#mytxx",
+                },
+            )
+            assert created.status_code == 200
+
+            candidates = client.get("/api/ai_dialog/drafts/draft_save/save_candidates")
+            assert candidates.status_code == 200
+            payload = candidates.json()
+            assert len(payload["candidates"]) == 2
+
+            selected_ids = [item["candidate_id"] for item in payload["candidates"]]
+            applied = client.post(
+                "/api/ai_dialog/drafts/draft_save/save_choices",
+                json={"candidate_ids": selected_ids},
+            )
+            assert applied.status_code == 200
+            assert len(applied.json()["saved"]) == 2
+
+            snapshot = client.get("/api/tasks/drafts/draft_save/snapshot")
+            assert snapshot.status_code == 200
+            replay_payload = snapshot.json()["snapshot"]["payload"]
+            assert replay_payload["branch_id"] == "volc"
+            assert replay_payload["keyword"] == "#mytxx"
+    finally:
+        reset_task_controller_for_tests()

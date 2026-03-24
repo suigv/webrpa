@@ -1,7 +1,7 @@
 # Plugin System Refactor Design Draft
 
 Last updated: 2026-03-24
-Status: collection complete, planning generated, Phase 1 foundation started
+Status: collection complete, planning generated, Phase 1-5 core slice implemented
 Source: consolidated from refactor discussion
 
 ## Implementation Status
@@ -13,13 +13,18 @@ Current completed implementation slice:
 - app catalog now exposes richer app metadata to frontend callers
 - account import UI and AI dialog UI now allow selecting an existing app or entering a new app inline
 - AI dialog planner accepts custom app identity metadata and can continue in exploration mode when no reviewed app config exists yet
+- accounts now persist `default_branch` and `role_tags`, and account checkout supports branch-aware plus tag-aware allocation
+- plugin/runtime compatibility now normalizes legacy `ai_type` into canonical `branch_id`
+- pipeline payload can bind `branch_id`, `accepted_account_tags`, and `resource_namespace`, and child steps cannot override those inherited values
+- blogger candidate sharing now uses claim/commit/release lifecycle backed by a dedicated shared resource store instead of ad-hoc list reads only
+- AI takeover text input now supports typed annotation, and AI history supports saving reusable branch/default-input choices back into workflow draft preferences
+- X plugin manifests were cleaned up to use branch-oriented semantics, and `x_login` no longer exposes the obsolete `credential_slot` input
 
 Not completed yet:
 
-- branch/profile first-class model
-- shared resource lifecycle service
-- candidate isolation and promotion boundary
-- post-run selective save implementation
+- reviewed promotion path from task-scoped candidates into audited shared app skeleton YAML
+- richer branch config authoring UI for arbitrary apps beyond the current X-oriented examples
+- broader selective-save destinations beyond account default branch and workflow-draft payload defaults
 
 ## Purpose
 

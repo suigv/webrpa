@@ -1,4 +1,5 @@
 import { fetchJson } from '../utils/api.js';
+import { openAiDraftSaveModal } from './ai_task_annotations.js';
 import { toast } from '../ui/toast.js';
 import { openAiTaskOverlay } from './ai_task_overlay.js';
 import { resolveAiDialogSubmitState } from './ai_dialog_submit_state.js';
@@ -538,6 +539,16 @@ async function loadAiDialogHistory() {
             void loadHistoryItemIntoDialog(item);
         };
         actions.appendChild(editButton);
+
+        const saveButton = document.createElement('button');
+        saveButton.type = 'button';
+        saveButton.className = 'btn btn-secondary btn-sm';
+        saveButton.textContent = '保存可复用项';
+        saveButton.disabled = !item.can_edit;
+        saveButton.onclick = () => {
+            void openAiDraftSaveModal(String(item.draft_id || ''));
+        };
+        actions.appendChild(saveButton);
 
         card.append(header, body, actions);
         host.appendChild(card);

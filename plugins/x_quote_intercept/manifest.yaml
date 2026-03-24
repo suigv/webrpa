@@ -16,11 +16,11 @@ inputs:
     default: "x"
     label: "应用 ID"
     advanced: true
-  - name: ai_type
+  - name: branch_id
     type: string
     required: false
     default: "volc"
-    label: "账号类型"
+    label: "业务分支"
     widget: select
     options:
       - value: "volc"
@@ -52,4 +52,11 @@ inputs:
     required: false
     default: "quoted_users"
     label: "已处理用户键名"
+    advanced: true
+  - name: resource_namespace
+    type: string
+    required: false
+    default: ""
+    label: "资源池命名空间"
+    description: "留空时默认按当前草稿或应用分支隔离。"
     advanced: true

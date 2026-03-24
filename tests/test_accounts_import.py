@@ -254,3 +254,69 @@ def test_accounts_import_bootstraps_new_app_config(
     assert document["app_id"] == "twitter_cn"
     assert document["display_name"] == "Twitter 中文"
     assert document["package_name"] == "com.twitter.cn"
+
+
+def test_accounts_import_and_pop_support_default_branch_and_role_tags(
+    isolated_account_store: AccountStore,
+):
+    client = TestClient(app)
+
+    imported = client.post(
+        "/api/data/accounts/import",
+        json={
+            "overwrite": True,
+            "app_id": "x",
+            "default_branch": "volc",
+            "role_tags": ["dating", "warmup"],
+            "content": "account password\nx_user x_pass\n",
+        },
+    )
+    assert imported.status_code == 200
+
+    parsed = client.get("/api/data/accounts/parsed", params={"app_id": "x"})
+    assert parsed.status_code == 200
+    accounts = cast(dict[str, list[dict[str, object]]], parsed.json())["accounts"]
+    assert accounts[0]["default_branch"] == "volc"
+    assert accounts[0]["role_tags"] == ["dating", "warmup"]
+
+    popped = client.post(
+        "/api/data/accounts/pop",
+        json={
+            "app_id": "x",
+            "branch_id": "volc",
+            "accepted_role_tags": ["warmup"],
+        },
+    )
+    assert popped.status_code == 200
+    payload = cast(dict[str, dict[str, object]], popped.json())
+    assert payload["account"]["account"] == "x_user"
+
+
+def test_accounts_pop_rejects_mismatched_branch_or_tags(isolated_account_store: AccountStore):
+    client = TestClient(app)
+
+    imported = client.post(
+        "/api/data/accounts/import",
+        json={
+            "overwrite": True,
+            "app_id": "x",
+            "default_branch": "part_time",
+            "role_tags": ["job"],
+            "content": "account password\nx_job x_pass\n",
+        },
+    )
+    assert imported.status_code == 200
+
+    mismatch_branch = client.post(
+        "/api/data/accounts/pop",
+        json={"app_id": "x", "branch_id": "volc"},
+    )
+    assert mismatch_branch.status_code == 200
+    assert mismatch_branch.json()["status"] == "error"
+
+    mismatch_tag = client.post(
+        "/api/data/accounts/pop",
+        json={"app_id": "x", "branch_id": "part_time", "accepted_role_tags": ["dating"]},
+    )
+    assert mismatch_tag.status_code == 200
+    assert mismatch_tag.json()["status"] == "error"

@@ -10,6 +10,7 @@ from typing import Any
 from core.account_feedback import AccountFeedbackService
 from core.device_manager import get_device_manager
 from core.paths import task_db_path
+from core.shared_resource_store import get_shared_resource_store
 from core.task_events import TaskEventStore
 from core.task_execution import RunnerLike, TaskExecutionService
 from core.task_finalizer import AccountFeedbackLike, TaskAttemptFinalizer
@@ -93,6 +94,7 @@ class TaskController:
             event_store=self._events,
             plugin_loader=self._plugin_loader,
         )
+        self._shared_resources = get_shared_resource_store()
 
         # 3. 延迟初始化子服务
         self._metrics_service: TaskMetricsService | None = None
@@ -118,6 +120,7 @@ class TaskController:
             event_store=self._events,
             account_feedback=self._account_feedback,
             workflow_drafts=self._workflow_drafts,
+            shared_resources=self._shared_resources,
         )
         self._execution_service = TaskExecutionService(
             store=self._store,

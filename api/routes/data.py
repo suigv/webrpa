@@ -39,6 +39,8 @@ class AccountsImportRequest(BaseModel):
     app_id: str = Field(default="default", min_length=1)
     app_display_name: str | None = Field(default=None, max_length=120)
     package_name: str | None = Field(default=None, max_length=255)
+    default_branch: str | None = Field(default=None, max_length=64)
+    role_tags: list[str] = Field(default_factory=list)
 
 
 class AccountStatusUpdate(BaseModel):
@@ -49,6 +51,8 @@ class AccountStatusUpdate(BaseModel):
 
 class AccountScopeRequest(BaseModel):
     app_id: str | None = None
+    branch_id: str | None = None
+    accepted_role_tags: list[str] = Field(default_factory=list)
 
 
 @router.get("/accounts")
@@ -70,6 +74,8 @@ async def import_accounts(data: AccountsImportRequest):
         data.app_id,
         data.app_display_name,
         data.package_name,
+        data.default_branch,
+        data.role_tags,
     )
 
 
@@ -102,16 +108,28 @@ async def update_account_status(data: AccountStatusUpdate):
 @router.post("/accounts/pop")
 async def pop_account(data: AccountScopeRequest | None = None):
     """原子化获取下一个待处理账号"""
-    account = await run_sync(pop_account_from_pool, data.app_id if data else None)
+    account = await run_sync(
+        lambda: pop_account_from_pool(
+            data.app_id if data else None,
+            branch_id=data.branch_id if data else None,
+            role_tags=list(data.accepted_role_tags or []) if data else None,
+        )
+    )
     if account:
         return {"status": "ok", "account": account}
     return {"status": "error", "message": "No ready accounts available in pool"}
 
 
 @router.get("/accounts/parsed")
-async def get_accounts_parsed(app_id: str | None = None):
+async def get_accounts_parsed(
+    app_id: str | None = None,
+    branch_id: str | None = None,
+    role_tag: list[str] | None = None,
+):
     """获取所有解析后的账号对象"""
-    accounts = await run_sync(list_accounts, app_id)
+    accounts = await run_sync(
+        lambda: list_accounts(app_id, branch_id=branch_id, role_tags=list(role_tag or []))
+    )
     return {"accounts": accounts}
 
 

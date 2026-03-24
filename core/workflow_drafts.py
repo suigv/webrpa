@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from core.app_config import resolve_app_id
+from core.business_profile import branch_id_from_payload, normalize_branch_id
 from core.golden_run_distillation import GoldenRunDistiller
 from core.model_trace_store import ModelTraceContext
 from core.paths import plugins_dir, traces_dir
@@ -212,6 +213,7 @@ def _build_snapshot_identity(payload: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "app_id": app_id,
+        "branch_id": branch_id_from_payload(payload),
         "package": package,
         "credentials_ref_kind": credentials_ref_kind,
         "credentials_ref_path": credentials_ref_path,
@@ -338,6 +340,7 @@ class WorkflowDraftService:
             "last_success_snapshot_available": record.last_success_snapshot is not None,
             "last_distilled_manifest_path": record.last_distilled_manifest_path,
             "last_distilled_script_path": record.last_distilled_script_path,
+            "saved_preferences": dict(record.saved_preferences or {}),
             "latest_terminal_task_id": record.latest_terminal_task_id,
             "latest_completed_task_id": record.latest_completed_task_id,
             "successful_task_ids": list(record.successful_task_ids),
@@ -500,12 +503,46 @@ class WorkflowDraftService:
             raise ValueError(f"workflow draft not found: {draft_id}")
         if not isinstance(record.last_success_snapshot, dict):
             raise ValueError("workflow draft has no successful snapshot to replay")
+        snapshot = dict(record.last_success_snapshot)
+        payload = dict(snapshot.get("payload") or {})
+        saved_preferences = dict(record.saved_preferences or {})
+        saved_payload_defaults = dict(saved_preferences.get("payload_defaults") or {})
+        for key, value in saved_payload_defaults.items():
+            if payload.get(key) in (None, "", []):
+                payload[key] = value
+        saved_branch = normalize_branch_id(saved_preferences.get("branch_id"), default="")
+        if saved_branch and payload.get("branch_id") in (None, ""):
+            payload["branch_id"] = saved_branch
+        snapshot["payload"] = payload
         return {
             "display_name": record.display_name,
             "draft_id": record.draft_id,
             "success_threshold": record.success_threshold,
-            "snapshot": dict(record.last_success_snapshot),
+            "snapshot": snapshot,
         }
+
+    def save_preferences(
+        self,
+        draft_id: str,
+        *,
+        branch_id: str | None = None,
+        payload_defaults: dict[str, Any] | None = None,
+        conn: sqlite3.Connection | None = None,
+    ) -> dict[str, Any]:
+        with self._store._tx(conn) as tx_conn:
+            record = self._store.get_draft(draft_id, conn=tx_conn)
+            if record is None:
+                raise ValueError(f"workflow draft not found: {draft_id}")
+            saved_preferences = dict(record.saved_preferences or {})
+            if branch_id:
+                saved_preferences["branch_id"] = normalize_branch_id(branch_id)
+            if isinstance(payload_defaults, dict) and payload_defaults:
+                merged_defaults = dict(saved_preferences.get("payload_defaults") or {})
+                merged_defaults.update(payload_defaults)
+                saved_preferences["payload_defaults"] = merged_defaults
+            record.saved_preferences = saved_preferences
+            self._store.update_draft(record, conn=tx_conn)
+            return dict(record.saved_preferences)
 
     def distill_draft(
         self,

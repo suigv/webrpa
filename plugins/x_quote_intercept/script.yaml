@@ -22,6 +22,8 @@ steps:
       device_ip: "${vars.cloud_container.device_ip}"
       cloud_index: "${vars.cloud_container.cloud_id}"
       shared_key: "${payload.blogger_shared_key:-blogger_candidates}"
+      branch_id: "${payload.branch_id:-volc}"
+      resource_namespace: "${payload.resource_namespace:-}"
 
   - label: 生成引用文案
     kind: action
@@ -30,7 +32,7 @@ steps:
     params:
       device_ip: "${vars.cloud_container.device_ip}"
       cloud_index: "${vars.cloud_container.cloud_id}"
-      ai_type: "${payload.ai_type:-volc}"
+      branch_id: "${payload.branch_id:-volc}"
 
   - label: 加载搜索 Scheme
     kind: action
@@ -59,7 +61,7 @@ steps:
     params:
       device_ip: "${vars.cloud_container.device_ip}"
       cloud_index: "${vars.cloud_container.cloud_id}"
-      ai_type: "${payload.ai_type:-volc}"
+      branch_id: "${payload.branch_id:-volc}"
       swipe_count_min: 3
       swipe_count_max: "${payload.max_swipes:-10}"
 
@@ -81,7 +83,7 @@ steps:
       device_ip: "${vars.cloud_container.device_ip}"
       cloud_index: "${vars.cloud_container.cloud_id}"
       candidates: "${vars.candidates.candidates}"
-      ai_type: "${payload.ai_type:-volc}"
+      branch_id: "${payload.branch_id:-volc}"
 
   - label: 检查是否已处理
     kind: action

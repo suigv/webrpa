@@ -16,6 +16,17 @@ inputs:
     label: "搜索关键词"
     description: "用于搜索博主的关键词，例如 #mytxx 或 #paypay。"
     placeholder: "例如 #mytxx"
+  - name: branch_id
+    type: string
+    required: false
+    default: "volc"
+    label: "业务分支"
+    widget: select
+    options:
+      - value: "volc"
+        label: "交友"
+      - value: "part_time"
+        label: "兼职/PayPay"
   - name: max_collect
     type: integer
     required: false
@@ -41,4 +52,11 @@ inputs:
     required: false
     default: "x"
     label: "应用 ID"
+    advanced: true
+  - name: resource_namespace
+    type: string
+    required: false
+    default: ""
+    label: "资源池命名空间"
+    description: "留空时默认按当前草稿或应用分支隔离。"
     advanced: true

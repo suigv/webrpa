@@ -53,3 +53,5 @@ steps:
       cloud_index: "${vars.cloud_container.cloud_id}"
       candidates: "${vars.scrape_result.candidates}"
       shared_key: "${payload.shared_key:-blogger_candidates}"
+      branch_id: "${payload.branch_id:-volc}"
+      resource_namespace: "${payload.resource_namespace:-}"

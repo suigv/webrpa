@@ -211,6 +211,16 @@
                   <input id="accountImportCustomPackageName" type="text" placeholder="包名（可选），例如 com.twitter.android">
                 </div>
               </div>
+              <div class="form-grid columns-2 mb-4">
+                <div class="form-group">
+                  <label>账号默认分支</label>
+                  <input id="accountImportDefaultBranch" type="text" placeholder="留空使用 default，例如 volc / part_time">
+                </div>
+                <div class="form-group">
+                  <label>账号角色标签</label>
+                  <input id="accountImportRoleTags" type="text" placeholder="多个标签用英文逗号分隔">
+                </div>
+              </div>
               <textarea id="accountsInput" class="textarea-large flex-1" placeholder="格式规范: username----password----2fa"></textarea>
               <div id="accountsPreview"></div>
               <div class="flex gap-3 mt-4">
@@ -675,6 +685,8 @@
           <div class="form-group"><label>Token</label><input type="text" id="editToken"></div>
           <div class="form-group"><label>邮箱</label><input type="text" id="editEmail"></div>
           <div class="form-group"><label>邮箱密码</label><input type="text" id="editEmailPwd"></div>
+          <div class="form-group"><label>默认分支</label><input type="text" id="editDefaultBranch" placeholder="default / volc / part_time"></div>
+          <div class="form-group"><label>角色标签</label><input type="text" id="editRoleTags" placeholder="多个标签用英文逗号分隔"></div>
           <div class="form-group">
               <label>状态</label>
               <select id="editStatus">
@@ -752,6 +764,44 @@
         <button type="button" id="aiTaskOverlayTakeover" class="btn btn-secondary flex-1">我来接管</button>
         <button type="button" id="aiTaskOverlayCancel" class="btn btn-danger flex-1">停止任务</button>
         <button type="button" id="aiTaskOverlayClose" class="btn btn-secondary flex-1">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="aiInputAnnotationModal" class="modal-overlay" style="display:none;">
+    <div class="modal" style="max-width:520px;">
+      <div class="modal-header">
+        <div>
+          <h3>标记本次输入内容</h3>
+          <div class="text-xs text-muted mt-2">为了便于后续复用和蒸馏，请选择你刚才输入的大致类型。</div>
+        </div>
+        <button type="button" id="aiInputAnnotationSkipTop" class="btn btn-text text-muted px-2">暂不标记</button>
+      </div>
+      <div class="modal-body">
+        <div id="aiInputAnnotationHint" class="text-muted text-xs mb-4"></div>
+        <div id="aiInputAnnotationOptions" class="form-grid"></div>
+      </div>
+      <div class="p-4 border-t bg-panel flex gap-3">
+        <button type="button" id="aiInputAnnotationSkip" class="btn btn-secondary flex-1">暂不标记</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="aiDraftSaveModal" class="modal-overlay" style="display:none;">
+    <div class="modal" style="max-width:640px;">
+      <div class="modal-header">
+        <div>
+          <h3>保存可复用项</h3>
+          <div id="aiDraftSaveHint" class="text-xs text-muted mt-2">选择本次要沉淀的默认值</div>
+        </div>
+        <button type="button" id="aiDraftSaveCloseTop" class="btn btn-text text-muted px-2">关闭</button>
+      </div>
+      <div class="modal-body">
+        <div id="aiDraftSaveList" class="task-summary-list"></div>
+      </div>
+      <div class="p-4 border-t bg-panel flex gap-3">
+        <button type="button" id="aiDraftSaveSubmit" class="btn btn-primary flex-1">保存已选项</button>
+        <button type="button" id="aiDraftSaveClose" class="btn btn-secondary flex-1">取消</button>
       </div>
     </div>
   </div>
