@@ -158,10 +158,10 @@ class AppConfigCandidateStore(BaseStore):
             else:
                 evidence = _json_load(row["evidence_json"], default={})
                 evidence["draft_ids"] = _dedupe_texts(
-                    [*(evidence.get("draft_ids") or []), *( [draft_id] if draft_id else [])]
+                    [*(evidence.get("draft_ids") or []), *([draft_id] if draft_id else [])]
                 )
                 evidence["task_ids"] = _dedupe_texts(
-                    [*(evidence.get("task_ids") or []), *( [task_id] if task_id else [])]
+                    [*(evidence.get("task_ids") or []), *([task_id] if task_id else [])]
                 )
                 evidence["occurrences"] = int(evidence.get("occurrences", 0) or 0) + 1
                 next_status = "pending" if str(row["status"] or "") == "rejected" else row["status"]
@@ -442,6 +442,22 @@ class AppConfigCandidateService:
             if not hint or str(document.get("agent_hint") or "").strip() == hint:
                 return False
             document["agent_hint"] = hint
+            return True
+        if record.kind == "xml_filter":
+            xml_filter = value.get("xml_filter")
+            if not isinstance(xml_filter, dict):
+                return False
+            normalized: dict[str, int] = {}
+            for key in ("max_text_len", "max_desc_len"):
+                raw = xml_filter.get(key)
+                if not isinstance(raw, (int, float, str)):
+                    continue
+                normalized[key] = int(raw)
+            if not normalized:
+                return False
+            if document.get("xml_filter") == normalized:
+                return False
+            document["xml_filter"] = normalized
             return True
         return False
 

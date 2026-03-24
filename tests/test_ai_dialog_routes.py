@@ -328,7 +328,9 @@ def test_ai_dialog_planner_extracts_control_flow_hints(monkeypatch):
         ]
         assert len(data["control_flow"]["items"]) >= 4
         assert data["guidance"]["summary"].startswith("已识别")
-        assert data["resolved_payload"]["_planner_control_flow_summary"] == data["guidance"]["summary"]
+        assert (
+            data["resolved_payload"]["_planner_control_flow_summary"] == data["guidance"]["summary"]
+        )
         assert data["resolved_payload"]["_planner_wait_hints"] == ["等待首页出现后算成功"]
         assert data["resolved_payload"]["_planner_success_hints"] == ["等待首页出现后算成功"]
         assert any(
@@ -700,5 +702,75 @@ def test_ai_dialog_config_candidate_review_promotes_into_app_config(tmp_path, mo
         }
         pending = candidate_service.list_candidates(app_id="x", draft_id="draft-1")
         assert pending["candidates"] == []
+    finally:
+        reset_task_controller_for_tests()
+
+
+def test_ai_dialog_config_candidate_review_promotes_xml_filter_into_app_config(
+    tmp_path, monkeypatch
+):
+    reset_task_controller_for_tests()
+    app_doc = {
+        "version": "v1",
+        "app_id": "demo",
+        "display_name": "Demo",
+        "selectors": {},
+        "states": [],
+        "stage_patterns": {},
+    }
+    monkeypatch.setattr(
+        "core.app_config_candidate_service.AppConfigManager.ensure_app_config",
+        lambda **kwargs: {"app_id": "demo"},
+    )
+    monkeypatch.setattr(
+        "core.app_config_candidate_service.AppConfigManager.app_config_path",
+        lambda app_id: tmp_path / f"{app_id}.yaml",
+    )
+    monkeypatch.setattr(
+        "core.app_config_candidate_service.get_app_config",
+        lambda app_id: app_doc,
+    )
+
+    def _write_candidate_doc(app_id, document):
+        _ = app_id
+        snapshot = dict(document)
+        app_doc.clear()
+        app_doc.update(snapshot)
+        return None
+
+    monkeypatch.setattr(
+        "core.app_config_candidate_service.AppConfigManager.write_app_config",
+        _write_candidate_doc,
+    )
+    candidate_service = AppConfigCandidateService(
+        store=AppConfigCandidateStore(db_path=tmp_path / "app-config-candidates.db")
+    )
+    candidate = candidate_service.record_candidate(
+        app_id="demo",
+        draft_id="draft-xml",
+        task_id="task-xml",
+        kind="xml_filter",
+        title="XML 过滤建议",
+        preview='{"max_text_len":42,"max_desc_len":88}',
+        value={"xml_filter": {"max_text_len": 42, "max_desc_len": 88}},
+    )
+    monkeypatch.setattr(
+        "api.routes.ai_dialog.get_app_config_candidate_service",
+        lambda: candidate_service,
+    )
+
+    try:
+        with TestClient(app) as client:
+            reviewed = client.post(
+                "/api/ai_dialog/apps/demo/config_candidates/review",
+                json={
+                    "candidate_ids": [candidate["candidate_id"]],
+                    "action": "promote",
+                },
+            )
+
+        assert reviewed.status_code == 200
+        assert reviewed.json()["updated"] == 1
+        assert app_doc["xml_filter"] == {"max_text_len": 42, "max_desc_len": 88}
     finally:
         reset_task_controller_for_tests()

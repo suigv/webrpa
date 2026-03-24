@@ -38,12 +38,14 @@ verification_method:
 - `stage_patterns`
 - `schemes`
 - `selectors`
+- `agent_hint`
 
 边界：
 
 - `schemes` 仍属于人工维护的共享能力，不依赖蒸馏自动写入。
 - app 级共享配置只应保留稳定、可复用的内容。
 - AI 或蒸馏学习结果先进入审核候选，再决定是否 promotion 到共享 app YAML。
+- 当前候选审核路径支持把 `selectors`、`states`、`stage_patterns`、`xml_filter`、`agent_hint` promotion 到共享 app YAML。
 
 ## 关键环境变量
 

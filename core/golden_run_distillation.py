@@ -16,7 +16,7 @@ from engine.actions.sdk_config_support import (
     app_from_package,
 )
 from engine.models.manifest import InputType, PluginInput, PluginManifest
-from engine.models.workflow import ActionStep, WorkflowScript
+from engine.models.workflow import WorkflowScript
 
 _WORD_RE = re.compile(r"[^a-z0-9]+")
 _FRAMEWORK_OWNED_INPUT_FIELDS = frozenset(
@@ -195,14 +195,7 @@ class GoldenRunDistiller:
             yaml.safe_dump(script.model_dump(mode="json"), sort_keys=False, allow_unicode=True),
             encoding="utf-8",
         )
-        app_candidate_update = self._merge_selectors_to_app_config(
-            step_records,
-            script,
-            context=context,
-            snapshot_identity=snapshot_identity,
-            draft_id=draft_id,
-        )
-        agent_hint_update = self._merge_agent_hint_candidates_to_app_config(
+        app_candidate_update = self.record_app_config_learning(
             step_records,
             context=context,
             snapshot_identity=snapshot_identity,
@@ -213,7 +206,7 @@ class GoldenRunDistiller:
             records=records,
             distilled_records=step_records,
             terminal_record=terminal_record,
-            agent_hint_update=agent_hint_update,
+            agent_hint_update=app_candidate_update,
             app_candidate_update=app_candidate_update,
         )
         report_path.write_text(
@@ -985,8 +978,9 @@ class GoldenRunDistiller:
     def _merge_selectors_to_app_config(
         self,
         records: list[dict[str, object]],
-        script: WorkflowScript,
+        script: WorkflowScript | None = None,
         *,
+        include_counts: bool = False,
         context: ModelTraceContext | None = None,
         snapshot_identity: dict[str, object] | DistillationIdentity | None = None,
         draft_id: str | None = None,
@@ -997,12 +991,27 @@ class GoldenRunDistiller:
 
         # collect new selectors from script steps
         new_selectors: dict[str, dict[str, str]] = {}
-        for step in script.steps:
-            if not isinstance(step, ActionStep):
+        counts: dict[str, int] = {"selector": 0, "state": 0, "stage_pattern": 0, "xml_filter": 0}
+        selector_sources: list[dict[str, object]] = []
+        if script is not None:
+            for step in script.steps:
+                selector_sources.append({"action": step.action, "params": dict(step.params or {})})
+        for record in records:
+            selector_sources.append(
+                {
+                    "action": str(
+                        record.get("chosen_action") or record.get("action_name") or ""
+                    ).strip(),
+                    "params": record.get("action_params"),
+                }
+            )
+        for source in selector_sources:
+            action_name = str(source.get("action") or "").strip()
+            if action_name not in self._UI_LOCATOR_ACTIONS:
                 continue
-            if step.action not in self._UI_LOCATOR_ACTIONS:
+            params = source.get("params")
+            if not isinstance(params, dict):
                 continue
-            params = step.params
             text_val = params.get("text")
             if isinstance(text_val, str) and text_val and not text_val.startswith("${"):
                 key = _slug(text_val, default="") or f"text_{len(new_selectors)}"
@@ -1026,6 +1035,7 @@ class GoldenRunDistiller:
                 value={"selector_key": key, "selector": selector},
             )
             recorded += 1
+            counts["selector"] += 1
 
         new_states = self._extract_states_from_records(records)
         for state in new_states:
@@ -1042,6 +1052,7 @@ class GoldenRunDistiller:
                 value=state,
             )
             recorded += 1
+            counts["state"] += 1
 
         learned_stage_patterns = TraceLearner().learn_from_records(records)
         for state_id, resource_ids in learned_stage_patterns.items():
@@ -1063,12 +1074,31 @@ class GoldenRunDistiller:
                 },
             )
             recorded += 1
-        return {"app_id": app, "recorded": recorded}
+            counts["stage_pattern"] += 1
+
+        xml_filter = self._compute_xml_filter(records)
+        if xml_filter is not None:
+            service.record_candidate(
+                app_id=app,
+                draft_id=draft_id,
+                task_id=context.task_id if context is not None else None,
+                kind="xml_filter",
+                title="XML 过滤建议",
+                preview=json.dumps(xml_filter, ensure_ascii=False),
+                value={"xml_filter": xml_filter},
+            )
+            recorded += 1
+            counts["xml_filter"] += 1
+        result = {"app_id": app, "recorded": recorded}
+        if include_counts:
+            result["recorded_by_kind"] = counts
+        return result
 
     def _merge_agent_hint_candidates_to_app_config(
         self,
         records: list[dict[str, object]],
         *,
+        include_counts: bool = False,
         context: ModelTraceContext | None = None,
         snapshot_identity: dict[str, object] | DistillationIdentity | None = None,
         draft_id: str | None = None,
@@ -1104,11 +1134,71 @@ class GoldenRunDistiller:
                 value={"text": candidate},
             )
             recorded += 1
-        return {
+        result = {
             "app_id": app,
             "candidate_count": recorded,
             "promoted_agent_hint": None,
         }
+        if include_counts:
+            result["recorded_by_kind"] = {"agent_hint": recorded}
+        return result
+
+    def record_app_config_learning(
+        self,
+        records: list[dict[str, object]],
+        *,
+        context: ModelTraceContext | None = None,
+        snapshot_identity: dict[str, object] | DistillationIdentity | None = None,
+        draft_id: str | None = None,
+    ) -> dict[str, object]:
+        candidate_update = self._merge_selectors_to_app_config(
+            records,
+            include_counts=True,
+            context=context,
+            snapshot_identity=snapshot_identity,
+            draft_id=draft_id,
+        )
+        agent_hint_update = self._merge_agent_hint_candidates_to_app_config(
+            records,
+            include_counts=True,
+            context=context,
+            snapshot_identity=snapshot_identity,
+            draft_id=draft_id,
+        )
+        if not candidate_update and not agent_hint_update:
+            return {}
+        merged = dict(candidate_update or agent_hint_update)
+        counts: dict[str, int] = {}
+        for update in (candidate_update, agent_hint_update):
+            if not isinstance(update, dict):
+                continue
+            update_counts = dict(update.get("recorded_by_kind") or {})
+            if update_counts:
+                for key, value in update_counts.items():
+                    counts[str(key)] = counts.get(str(key), 0) + int(value or 0)
+                continue
+            if "candidate_count" in update:
+                counts["agent_hint"] = counts.get("agent_hint", 0) + int(
+                    update.get("candidate_count") or 0
+                )
+        merged["recorded_by_kind"] = counts
+        merged["recorded"] = sum(counts.values())
+        return merged
+
+    def record_app_config_learning_from_context(
+        self,
+        context: ModelTraceContext,
+        *,
+        snapshot_identity: dict[str, object] | DistillationIdentity | None = None,
+        draft_id: str | None = None,
+    ) -> dict[str, object]:
+        records = self._trace_store.read_records(context)
+        return self.record_app_config_learning(
+            records,
+            context=context,
+            snapshot_identity=snapshot_identity,
+            draft_id=draft_id,
+        )
 
     def _resolve_candidate_app_id(
         self,

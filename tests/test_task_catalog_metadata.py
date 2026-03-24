@@ -50,6 +50,24 @@ def test_task_catalog_exposes_builtin_pipeline_entry():
     assert inputs["repeat_interval_ms"]["advanced"] is True
 
 
+def test_task_catalog_exposes_app_config_explorer_plugin():
+    client = TestClient(app)
+    response = client.get("/api/tasks/catalog")
+
+    assert response.status_code == 200
+    tasks = response.json()["tasks"]
+    plugin = next(item for item in tasks if item["task"] == "app_config_explorer")
+
+    assert plugin["display_name"] == "App 探索建档"
+    assert plugin["distillable"] is False
+    assert plugin["visible_in_task_catalog"] is True
+    inputs = {item["name"]: item for item in plugin["inputs"]}
+    assert "package_name" in plugin["required"]
+    assert inputs["package_name"]["label"] == "包名"
+    assert inputs["max_steps"]["default"] == 12
+    assert inputs["advanced_prompt"]["advanced"] is True
+
+
 def test_task_catalog_device_reboot_does_not_expose_app_id_input():
     client = TestClient(app)
     response = client.get("/api/tasks/catalog")

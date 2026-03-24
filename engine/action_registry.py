@@ -132,6 +132,10 @@ def _register_browser_actions(registry: ActionRegistry) -> None:
 
 
 def _register_core_actions(registry: ActionRegistry) -> None:
+    from .actions.app_config_actions import (
+        EXPLORE_APP_CONFIG_METADATA,
+        explore_app_config_action,
+    )
     from .actions.ai_actions import (
         LLM_EVALUATE_METADATA,
         LOCATE_POINT_METADATA,
@@ -206,6 +210,11 @@ def _register_core_actions(registry: ActionRegistry) -> None:
         wait_login_stage,
     )
 
+    registry.register(
+        "core.explore_app_config",
+        explore_app_config_action,
+        metadata=EXPLORE_APP_CONFIG_METADATA,
+    )
     registry.register("credentials.load", credentials_load)
     registry.register("credentials.checkout", credentials_checkout)
     registry.register("core.save_shared", save_shared, metadata=SAVE_SHARED_METADATA)

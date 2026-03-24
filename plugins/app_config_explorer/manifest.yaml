@@ -1,0 +1,61 @@
+api_version: v1
+kind: plugin
+name: app_config_explorer
+version: "1.0.0"
+display_name: "App 探索建档"
+category: "系统编排"
+description: "针对首次接入的新 App 执行一次受限探索，并沉淀 app config 候选骨架。"
+entry_script: script.yaml
+distillable: false
+visible_in_task_catalog: true
+distill_threshold: 3
+inputs:
+  - name: package_name
+    type: string
+    required: true
+    default: null
+    label: "包名"
+    description: "Android 包名，例如 com.example.app。"
+    placeholder: "com.example.app"
+  - name: app_id
+    type: string
+    required: false
+    default: ""
+    label: "应用 ID"
+    description: "留空时将按当前仓库的 app identity 规则自动推断。"
+    placeholder: "例如 my_app"
+  - name: app_display_name
+    type: string
+    required: false
+    default: ""
+    label: "应用展示名"
+    placeholder: "例如 My App"
+  - name: goal
+    type: string
+    required: false
+    default: "探索当前 App，并沉淀可复用的基础配置骨架。"
+    label: "探索目标"
+    description: "用于约束本次探索的主要目标。"
+    placeholder: "例如先识别首页、登录页和主导航"
+  - name: advanced_prompt
+    type: string
+    required: false
+    default: ""
+    label: "补充约束"
+    description: "附加给探索器的操作约束。"
+    advanced: true
+    placeholder: "例如不要进入支付页，不要修改个人资料"
+  - name: max_steps
+    type: integer
+    required: false
+    default: 12
+    label: "最大步数"
+    widget: number
+    advanced: true
+  - name: stagnant_limit
+    type: integer
+    required: false
+    default: 4
+    label: "停滞阈值"
+    widget: number
+    advanced: true

@@ -1,0 +1,22 @@
+version: "v1"
+workflow: app_config_explorer
+steps:
+  - label: 探索并沉淀 App 配置候选
+    kind: action
+    action: core.explore_app_config
+    save_as: exploration
+    params:
+      app_id: "${payload.app_id:-}"
+      app_display_name: "${payload.app_display_name:-}"
+      package_name: "${payload.package_name}"
+      goal: "${payload.goal:-探索当前 App，并沉淀可复用的基础配置骨架。}"
+      advanced_prompt: "${payload.advanced_prompt:-}"
+      max_steps: "${payload.max_steps:-12}"
+      stagnant_limit: "${payload.stagnant_limit:-4}"
+
+  - label: 探索完成
+    kind: stop
+    status: success
+    message: "App 探索建档完成"
+    result:
+      exploration: "${vars.exploration}"
