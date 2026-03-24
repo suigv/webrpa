@@ -133,6 +133,7 @@ verification_method:
 ### AI 对话边界
 
 - `POST /api/ai_dialog/planner` 当前支持 `app_id`、`app_display_name`、`package_name`，用于已存在 app 选择和新 app 探索式启动。
+- planner 返回当前已解析的 `intent`、`branch`、`execution`、`recommended_workflows`，用于前端展示任务意图、账号阻塞项和候选固定工作流。
 - `POST /api/ai_dialog/annotations` 用于记录用户接管输入时声明的输入类型。
 - `GET/POST /api/ai_dialog/drafts/{draft_id}/save_*` 用于列出并应用一次执行后的可选保存项，而不是强制落库全部运行时数据。
 - `GET/PUT /api/ai_dialog/apps/{app_id}/branch_profiles` 用于读取和维护 app 级分支资料。

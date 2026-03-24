@@ -23,6 +23,11 @@ class AIDialogPlannerResponse(BaseModel):
     resolved_payload: dict[str, Any] = Field(default_factory=dict)
     follow_up: dict[str, Any] = Field(default_factory=dict)
     account: dict[str, Any] = Field(default_factory=dict)
+    intent: dict[str, Any] = Field(default_factory=dict)
+    branch: dict[str, Any] = Field(default_factory=dict)
+    execution: dict[str, Any] = Field(default_factory=dict)
+    recommended_workflows: list[dict[str, Any]] = Field(default_factory=list)
+    draft: dict[str, Any] = Field(default_factory=dict)
 
 
 class AIDialogHistoryItem(BaseModel):

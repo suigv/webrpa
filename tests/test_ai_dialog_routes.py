@@ -42,7 +42,12 @@ def test_ai_dialog_planner_returns_resolved_defaults(monkeypatch):
         assert data["account"]["execution_hint"] == "执行方式：使用已选账号 demo@example.com。"
         assert data["account"]["requires_account"] is True
         assert data["account"]["can_execute"] is True
+        assert data["intent"]["objective"] == "login"
+        assert data["execution"]["runtime"] == "agent_executor"
+        assert data["execution"]["readiness"] == "ready"
+        assert any(item["task"] == "x_login" for item in data["recommended_workflows"])
         assert data["resolved_payload"]["_workflow_source"] == "ai_dialog"
+        assert data["resolved_payload"]["_planner_objective"] == "login"
         assert data["resolved_payload"]["expected_state_ids"] == ["home", "login"]
         assert "allowed_actions" in data["resolved_payload"]
     finally:
@@ -77,7 +82,7 @@ def test_ai_dialog_planner_marks_pool_checkout_for_login_goal(monkeypatch):
         assert data["account"]["strategy"] == "pool"
         assert (
             data["account"]["execution_hint"]
-            == "执行方式：本次未指定具体账号，运行时会从 x 账号池领取 1 个可用账号。"
+            == "执行方式：未绑定具体账号，运行时会从 x 账号池领取 1 个可用账号（当前 1 个就绪）。"
         )
         assert data["account"]["ready_count"] == 1
         assert data["account"]["requires_account"] is True
@@ -109,10 +114,11 @@ def test_ai_dialog_planner_marks_login_without_account_as_not_executable(monkeyp
         assert data["account"]["strategy"] == "none"
         assert (
             data["account"]["execution_hint"]
-            == "执行方式：当前没有可用账号，登录类任务下发后大概率无法完成。"
+            == "执行方式：当前没有可用账号，先导入或选择 x 账号后再执行。"
         )
         assert data["account"]["requires_account"] is True
         assert data["account"]["can_execute"] is False
+        assert data["execution"]["blocking_reasons"] == ["missing_account"]
         assert "account" in data["follow_up"]["missing"]
     finally:
         reset_task_controller_for_tests()
@@ -144,7 +150,49 @@ def test_ai_dialog_planner_accepts_custom_app_identity(monkeypatch):
         assert data["resolved_app"]["name"] == "Twitter 中文"
         assert data["resolved_app"]["package"] == "com.twitter.cn"
         assert data["resolved_app"]["has_app_config"] is False
+        assert data["execution"]["mode"] == "exploration_bootstrap"
+        assert data["account"]["can_execute"] is False
         assert data["resolved_payload"]["package"] == "com.twitter.cn"
+    finally:
+        reset_task_controller_for_tests()
+
+
+def test_ai_dialog_planner_infers_branch_and_workflow_for_collection_goal(monkeypatch):
+    reset_task_controller_for_tests()
+    monkeypatch.setattr(
+        "core.ai_dialog_service.list_accounts",
+        lambda app_id=None: [
+            {
+                "account": "pool-1@example.com",
+                "status": "ready",
+                "app_id": app_id or "x",
+                "default_branch": "part_time",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        "core.ai_dialog_service.AIDialogService._plan_with_llm",
+        lambda self, **kwargs: {},
+    )
+
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/ai_dialog/planner",
+                json={
+                    "goal": "帮我做交友分支的采集博主任务",
+                    "app_id": "x",
+                },
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["intent"]["objective"] == "scrape_blogger"
+        assert data["branch"]["branch_id"] == "volc"
+        assert data["branch"]["source"] == "goal"
+        assert data["resolved_payload"]["branch_id"] == "volc"
+        assert data["execution"]["mode"] == "workflow_aligned"
+        assert any(item["task"] == "x_scrape_blogger" for item in data["recommended_workflows"])
     finally:
         reset_task_controller_for_tests()
 

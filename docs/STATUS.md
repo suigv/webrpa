@@ -49,6 +49,7 @@ MYT_ENABLE_RPC=0 ./.venv/bin/python -m uvicorn api.server:app --host 127.0.0.1 -
 - app 身份当前支持 `app_id`、`display_name`、`aliases`、`package_name/package_names` 这一组共享元数据。
 - 账号池当前支持 `default_branch` 与 `role_tags`，账号分配支持按 `app_id + branch_id + 任一命中的 role_tags` 取号。
 - app 当前支持分支资料配置、AI 输入标注、草稿可选保存，以及共享 app 配置候选审核后再写入正式 app YAML。
+- AI planner 当前会返回结构化任务意图、分支解析、执行阻塞原因和候选固定工作流，而不再只生成一句摘要文案。
 - 后端仍保留 `/web` 入口，但前端是独立的 Vite 工程，部署方式见 [FRONTEND.md](FRONTEND.md)。
 - 当前仓库存在 10 个插件 manifest：
   - `device_reboot`

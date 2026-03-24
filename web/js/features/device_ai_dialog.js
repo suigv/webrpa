@@ -260,8 +260,20 @@ function renderPlannerResult(plan) {
     if (plan.resolved_app?.app_id) {
         lines.push(`应用上下文：${plan.resolved_app.app_id}`);
     }
+    if (plan.intent?.label) {
+        lines.push(`任务意图：${String(plan.intent.label).trim()}`);
+    }
+    if (plan.branch?.label) {
+        lines.push(`业务分支：${String(plan.branch.label).trim()}`);
+    }
     if (plan.account?.execution_hint) {
         lines.push(String(plan.account.execution_hint).trim());
+    }
+    const recommendedWorkflow = Array.isArray(plan.recommended_workflows)
+        ? plan.recommended_workflows.find((item) => String(item?.task || '').trim() !== 'agent_executor')
+        : null;
+    if (recommendedWorkflow?.display_name) {
+        lines.push(`推荐流程：${String(recommendedWorkflow.display_name).trim()}`);
     }
     if (plan.account?.strategy === 'selected' && plan.account?.selected_account) {
         lines.push(`执行账号：${plan.account.selected_account}`);
