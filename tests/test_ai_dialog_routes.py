@@ -54,6 +54,8 @@ def test_ai_dialog_planner_returns_resolved_defaults(monkeypatch):
         assert data["resolved_payload"]["_planner_objective"] == "login"
         assert data["resolved_payload"]["expected_state_ids"] == ["home", "login"]
         assert "allowed_actions" in data["resolved_payload"]
+        assert data["guidance"]["title"] == "蒸馏写法建议"
+        assert data["control_flow"]["has_hints"] is False
     finally:
         reset_task_controller_for_tests()
 
@@ -278,6 +280,53 @@ def test_ai_dialog_planner_reuses_recent_run_asset_memory(tmp_path, monkeypatch)
         assert data["execution"]["memory_ready"] is True
         assert "先准备未读私信" in data["execution"]["next_step"]
         assert any("没有可处理的新消息" in item for item in data["follow_up"]["suggestions"])
+    finally:
+        reset_task_controller_for_tests()
+
+
+def test_ai_dialog_planner_extracts_control_flow_hints(monkeypatch):
+    reset_task_controller_for_tests()
+    monkeypatch.setattr(
+        "core.ai_dialog_service.list_accounts",
+        lambda app_id=None: [
+            {"account": "demo@example.com", "status": "ready", "app_id": app_id or "x"}
+        ],
+    )
+    monkeypatch.setattr(
+        "core.ai_dialog_service.AIDialogService._plan_with_llm",
+        lambda self, **kwargs: {},
+    )
+
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/ai_dialog/planner",
+                json={
+                    "goal": "如果已经登录就结束；等待首页出现后算成功；如果出现验证码则停止并返回原因",
+                    "app_id": "x",
+                    "advanced_prompt": "超时 15 秒则返回失败",
+                },
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["control_flow"]["has_hints"] is True
+        assert data["control_flow"]["covered_dimensions"] == [
+            "branch",
+            "wait",
+            "success",
+            "fallback",
+            "timeout",
+        ]
+        assert len(data["control_flow"]["items"]) >= 4
+        assert data["guidance"]["summary"].startswith("已识别")
+        assert data["resolved_payload"]["_planner_control_flow_summary"] == data["guidance"]["summary"]
+        assert data["resolved_payload"]["_planner_wait_hints"] == ["等待首页出现后算成功"]
+        assert data["resolved_payload"]["_planner_success_hints"] == ["等待首页出现后算成功"]
+        assert any(
+            item["text"] == "超时 15 秒则返回失败"
+            for item in data["resolved_payload"]["_planner_control_flow_hints"]
+        )
     finally:
         reset_task_controller_for_tests()
 

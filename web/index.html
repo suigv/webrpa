@@ -611,7 +611,17 @@
       <div class="modal-body">
         <div class="form-group">
           <label>任务描述</label>
-          <textarea id="unitAiGoal" rows="3" placeholder="例如：打开登录页面，输入账号密码并点击登录"></textarea>
+          <textarea id="unitAiGoal" rows="3" placeholder="例如：如果已登录就结束；等待首页出现后算成功；超时 15 秒则返回失败"></textarea>
+          <div class="task-guide-card mt-2">
+            <div class="task-guide-title">写法建议</div>
+            <div class="task-guide-text">想让 AI 更容易沉淀成可复用脚本，尽量写清：如果发生什么要怎么处理、等待什么、多久算超时、看到什么算成功。</div>
+            <div class="task-guide-tags">
+              <span class="task-guide-tag">如果出现验证码就停止</span>
+              <span class="task-guide-tag">等待首页出现</span>
+              <span class="task-guide-tag">15 秒超时返回失败</span>
+              <span class="task-guide-tag">看到推荐流算成功</span>
+            </div>
+          </div>
         </div>
 
         <div class="form-group mt-4">
@@ -641,6 +651,8 @@
             <span id="unitAiPlannerBadge" class="badge">待分析</span>
           </div>
           <div id="unitAiPlannerSummary" class="task-summary-text"></div>
+          <div id="unitAiPlannerGuidance" class="mt-2"></div>
+          <div id="unitAiPlannerControlFlow" class="mt-2"></div>
           <div id="unitAiPlannerFollowUp" class="task-summary-list mt-2"></div>
         </div>
 

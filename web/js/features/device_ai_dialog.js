@@ -216,6 +216,8 @@ function renderPlannerStateLoading() {
     const title = $('unitAiPlannerTitle');
     const summary = $('unitAiPlannerSummary');
     const badge = $('unitAiPlannerBadge');
+    const guidance = $('unitAiPlannerGuidance');
+    const controlFlow = $('unitAiPlannerControlFlow');
     const followUp = $('unitAiPlannerFollowUp');
     if (card) card.style.display = 'block';
     if (title) title.textContent = 'AI 任务规划';
@@ -225,6 +227,8 @@ function renderPlannerStateLoading() {
         badge.textContent = '分析中';
     }
     applyAiSubmitState(null);
+    clearElement(guidance);
+    clearElement(controlFlow);
     clearElement(followUp);
 }
 
@@ -242,6 +246,8 @@ function renderPlannerResult(plan) {
     const title = $('unitAiPlannerTitle');
     const summary = $('unitAiPlannerSummary');
     const badge = $('unitAiPlannerBadge');
+    const guidance = $('unitAiPlannerGuidance');
+    const controlFlow = $('unitAiPlannerControlFlow');
     const followUp = $('unitAiPlannerFollowUp');
     if (card) card.style.display = plan ? 'block' : 'none';
     if (!plan) return;
@@ -254,6 +260,76 @@ function renderPlannerResult(plan) {
         badge.textContent = missing > 0 ? '待补充' : '已就绪';
     }
     applyAiSubmitState(plan);
+
+    clearElement(guidance);
+    const guidanceSummary = String(plan.guidance?.summary || '').trim();
+    if (guidanceSummary) {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'task-guide-card';
+
+        const heading = document.createElement('div');
+        heading.className = 'task-guide-title';
+        heading.textContent = String(plan.guidance?.title || '蒸馏写法建议').trim();
+        wrapper.appendChild(heading);
+
+        const text = document.createElement('div');
+        text.className = 'task-guide-text';
+        text.textContent = guidanceSummary;
+        wrapper.appendChild(text);
+
+        const tags = document.createElement('div');
+        tags.className = 'task-guide-tags';
+        const guidanceSuggestions = Array.isArray(plan.guidance?.suggestions)
+            ? plan.guidance.suggestions
+            : [];
+        guidanceSuggestions.slice(0, 3).forEach((item) => {
+            const tip = String(item || '').trim();
+            if (!tip) return;
+            const chip = document.createElement('span');
+            chip.className = 'task-guide-tag';
+            chip.textContent = tip;
+            tags.appendChild(chip);
+        });
+        const example = String(plan.guidance?.example || '').trim();
+        if (example) {
+            const chip = document.createElement('span');
+            chip.className = 'task-guide-tag';
+            chip.textContent = example;
+            tags.appendChild(chip);
+        }
+        if (tags.childElementCount > 0) {
+            wrapper.appendChild(tags);
+        }
+        guidance?.appendChild(wrapper);
+    }
+
+    clearElement(controlFlow);
+    const controlFlowItems = Array.isArray(plan.control_flow?.items) ? plan.control_flow.items : [];
+    if (controlFlowItems.length > 0) {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'task-summary-target';
+
+        const heading = document.createElement('div');
+        heading.className = 'task-guide-title';
+        heading.textContent = '已识别的控制流提示';
+        wrapper.appendChild(heading);
+
+        const tags = document.createElement('div');
+        tags.className = 'task-guide-tags';
+        controlFlowItems.slice(0, 4).forEach((item) => {
+            const text = String(item?.text || '').trim();
+            if (!text) return;
+            const chip = document.createElement('span');
+            chip.className = 'task-guide-tag';
+            const label = String(item?.label || item?.type || '').trim();
+            chip.textContent = label ? `${label}：${text}` : text;
+            tags.appendChild(chip);
+        });
+        if (tags.childElementCount > 0) {
+            wrapper.appendChild(tags);
+            controlFlow?.appendChild(wrapper);
+        }
+    }
 
     clearElement(followUp);
     const lines = [];
@@ -298,6 +374,8 @@ function clearPlannerCard() {
     const card = $('unitAiPlannerCard');
     if (card) card.style.display = 'none';
     applyAiSubmitState(null);
+    clearElement($('unitAiPlannerGuidance'));
+    clearElement($('unitAiPlannerControlFlow'));
     clearElement($('unitAiPlannerFollowUp'));
 }
 

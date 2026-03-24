@@ -2042,12 +2042,20 @@ def test_agent_executor_builds_layered_planner_artifact(monkeypatch):
             "allowed_actions": ["ui.click"],
             "advanced_prompt": "Do not dismiss unread prompts blindly",
             "package": "com.twitter.android",
+            "_planner_control_flow_summary": "已识别 2 条控制流提示，还可以补充：成功标准。",
+            "_planner_control_flow_hints": [
+                {"type": "branch", "label": "条件判断", "text": "如果已经登录就结束"},
+                {"type": "wait", "label": "等待条件", "text": "等待首页出现后再继续"},
+            ],
         }
     )
 
     assert config.planner_artifact["app_id"] == "x"
     assert config.planner_artifact["app_hint"] == "Prefer timeline-first navigation"
     assert config.planner_artifact["advanced_prompt"] == "Do not dismiss unread prompts blindly"
+    assert config.planner_artifact["control_flow_summary"] == "已识别 2 条控制流提示，还可以补充：成功标准。"
+    assert config.planner_artifact["control_flow_hints"][0]["type"] == "branch"
+    assert "Control-flow hints:" in str(config.planner_artifact["goal_text"])
     assert "App hint:" in str(config.planner_artifact["goal_text"])
 
 

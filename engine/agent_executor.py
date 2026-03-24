@@ -1043,16 +1043,35 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
         advanced_prompt = str(
             payload.get("advanced_prompt") or payload.get("system_prompt") or ""
         ).strip()
+        raw_control_flow_hints = payload.get("_planner_control_flow_hints")
+        control_flow_hints: list[dict[str, str]] = []
+        if isinstance(raw_control_flow_hints, list):
+            for item in raw_control_flow_hints:
+                if not isinstance(item, Mapping):
+                    continue
+                text = str(item.get("text") or "").strip()
+                hint_type = str(item.get("type") or "").strip()
+                label = str(item.get("label") or "").strip()
+                if not text:
+                    continue
+                control_flow_hints.append(
+                    {"type": hint_type, "label": label, "text": text}
+                )
+        control_flow_summary = str(payload.get("_planner_control_flow_summary") or "").strip()
         goal_text_parts = [goal]
         if app_hint:
             goal_text_parts.append(f"App hint: {app_hint}")
         if advanced_prompt:
             goal_text_parts.append(f"Advanced operator prompt: {advanced_prompt}")
+        if control_flow_summary:
+            goal_text_parts.append(f"Control-flow hints: {control_flow_summary}")
         planner_artifact: dict[str, object] = {
             "goal": goal,
             "app_id": app_id,
             "app_hint": app_hint,
             "advanced_prompt": advanced_prompt,
+            "control_flow_hints": control_flow_hints,
+            "control_flow_summary": control_flow_summary,
             "goal_text": "\n\n".join(part for part in goal_text_parts if part),
         }
 

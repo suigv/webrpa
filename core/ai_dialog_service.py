@@ -20,6 +20,7 @@ from core.business_profile import (
     normalize_branch_id,
     resolve_branch_profile,
 )
+from core.control_flow_hints import analyze_control_flow_prompt
 from core.task_semantics import (
     infer_intent,
     memory_hint_for_reason,
@@ -525,6 +526,7 @@ def _llm_planner_prompt(
     expected_state_ids: list[str],
     intent: dict[str, Any],
     branch: dict[str, Any],
+    control_flow: dict[str, Any],
     workflows: list[dict[str, Any]],
 ) -> str:
     payload = {
@@ -544,6 +546,11 @@ def _llm_planner_prompt(
             "branch_id": branch.get("branch_id"),
             "label": branch.get("label"),
             "source": branch.get("source"),
+        },
+        "control_flow": {
+            "has_hints": bool(control_flow.get("has_hints")),
+            "covered_dimensions": list(control_flow.get("covered_dimensions") or []),
+            "missing_dimensions": list(control_flow.get("missing_dimensions") or []),
         },
         "recommended_workflows": [
             {
@@ -582,6 +589,7 @@ class AIDialogService:
         normalized_goal = str(goal or "").strip()
         if not normalized_goal:
             raise ValueError("goal is required")
+        advanced_prompt_text = str(advanced_prompt or "").strip()
 
         identity = AppConfigManager.resolve_app_identity(
             app_id=app_id,
@@ -593,7 +601,7 @@ class AIDialogService:
             "goal": normalized_goal,
             "app_id": resolved_app_id,
             "package": str(package_name or identity.get("package_name") or "").strip() or None,
-            "advanced_prompt": str(advanced_prompt or "").strip(),
+            "advanced_prompt": advanced_prompt_text,
             "_workflow_source": "ai_dialog",
         }
         resolved_payload = resolve_app_payload(resolved_app_id, planner_seed_payload)
@@ -610,6 +618,19 @@ class AIDialogService:
         ready_count = len(ready_accounts)
 
         intent = infer_intent(normalized_goal, app_id=resolved_app_id)
+        control_flow_analysis = analyze_control_flow_prompt(
+            normalized_goal,
+            advanced_prompt=advanced_prompt_text,
+        )
+        control_flow = {
+            "has_hints": bool(control_flow_analysis.get("has_hints")),
+            "items": list(control_flow_analysis.get("items") or []),
+            "covered_dimensions": list(control_flow_analysis.get("covered_dimensions") or []),
+            "missing_dimensions": list(control_flow_analysis.get("missing_dimensions") or []),
+            "wait_hints": list(control_flow_analysis.get("wait_hints") or []),
+            "success_hints": list(control_flow_analysis.get("success_hints") or []),
+        }
+        guidance = dict(control_flow_analysis.get("guidance") or {})
         branch = _branch_snapshot(
             app_id=resolved_app_id,
             goal=normalized_goal,
@@ -684,6 +705,10 @@ class AIDialogService:
             suggestions.append(
                 f"当前目标与 {top_workflow['display_name']} 接近，执行稳定后可迁移为固定插件。"
             )
+        for item in guidance.get("suggestions") or []:
+            text = str(item or "").strip()
+            if text and text not in suggestions:
+                suggestions.append(text)
         for item in _memory_suggestions(memory, intent):
             if item not in suggestions:
                 suggestions.append(item)
@@ -744,6 +769,7 @@ class AIDialogService:
             ready_count=ready_count,
             intent=intent,
             branch=branch,
+            control_flow=control_flow,
             workflows=recommended_workflows,
         )
         if (
@@ -776,6 +802,16 @@ class AIDialogService:
                 "_planner_recommended_workflow": (
                     top_plugin_workflow.get("task") if top_plugin_workflow is not None else None
                 ),
+                "_planner_control_flow_hints": list(control_flow.get("items") or []),
+                "_planner_control_flow_summary": str(guidance.get("summary") or "").strip(),
+                "_planner_control_flow_dimensions": list(
+                    control_flow.get("covered_dimensions") or []
+                ),
+                "_planner_control_flow_missing": list(
+                    control_flow.get("missing_dimensions") or []
+                ),
+                "_planner_wait_hints": list(control_flow.get("wait_hints") or []),
+                "_planner_success_hints": list(control_flow.get("success_hints") or []),
                 "expected_state_ids": list(config.expected_state_ids),
                 "allowed_actions": list(config.allowed_actions),
                 "max_steps": int(config.max_steps),
@@ -796,6 +832,7 @@ class AIDialogService:
                 "agent_hint": get_app_agent_hint(resolved_app_id) or None,
             },
             "resolved_payload": resolved_payload,
+            "guidance": guidance,
             "follow_up": {
                 "missing": missing,
                 "suggestions": suggestions,
@@ -831,6 +868,7 @@ class AIDialogService:
                 "expected_outcome": intent.get("expected_outcome"),
                 "reason": intent.get("reason"),
             },
+            "control_flow": control_flow,
             "branch": branch,
             "execution": execution,
             "memory": memory,
@@ -855,6 +893,7 @@ class AIDialogService:
         ready_count: int,
         intent: dict[str, Any],
         branch: dict[str, Any],
+        control_flow: dict[str, Any],
         workflows: list[dict[str, Any]],
     ) -> dict[str, Any]:
         client = self._llm_client_factory()
@@ -868,6 +907,7 @@ class AIDialogService:
                 expected_state_ids=expected_state_ids,
                 intent=intent,
                 branch=branch,
+                control_flow=control_flow,
                 workflows=workflows,
             ),
             system_prompt=_llm_planner_system_prompt(),

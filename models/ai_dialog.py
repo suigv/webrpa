@@ -21,9 +21,11 @@ class AIDialogPlannerResponse(BaseModel):
     operator_summary: str
     resolved_app: dict[str, Any] = Field(default_factory=dict)
     resolved_payload: dict[str, Any] = Field(default_factory=dict)
+    guidance: dict[str, Any] = Field(default_factory=dict)
     follow_up: dict[str, Any] = Field(default_factory=dict)
     account: dict[str, Any] = Field(default_factory=dict)
     intent: dict[str, Any] = Field(default_factory=dict)
+    control_flow: dict[str, Any] = Field(default_factory=dict)
     branch: dict[str, Any] = Field(default_factory=dict)
     execution: dict[str, Any] = Field(default_factory=dict)
     memory: dict[str, Any] = Field(default_factory=dict)
