@@ -75,6 +75,12 @@ class LanDeviceDiscovery:
         if not isinstance(payload, dict):
             return False
 
+        # MytSdkClient wraps successful JSON responses as {"ok": True, "data": {...}}.
+        if payload.get("ok") is True and isinstance(payload.get("data"), dict):
+            nested = payload.get("data")
+            if isinstance(nested, dict):
+                payload = nested
+
         code = payload.get("code")
         try:
             code_value = int(code)

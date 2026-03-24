@@ -18,8 +18,10 @@ from api.routes import profiles as profiles_route
 from api.routes import task_routes as tasks_route
 from api.routes import websocket as websocket_route
 from core.cloud_probe_service import get_cloud_probe_service
+from core.config_loader import get_discovery_enabled
 from core.device_manager import get_device_manager
 from core.env_bootstrap import load_project_dotenv
+from core.lan_discovery import LanDeviceDiscovery
 from core.task_control import get_task_controller
 from engine.actions._rpc_bootstrap import is_rpc_enabled
 from engine.runner import Runner, strict_plugin_unknown_inputs_enabled
@@ -81,6 +83,10 @@ async def lifespan(_app: FastAPI):
     # 清理残留的 browser profile 目录（超过 1 小时未修改的视为泄露）
     _cleanup_stale_browser_profiles()
 
+    discovery = LanDeviceDiscovery()
+    if get_discovery_enabled():
+        discovery.start()
+
     device_manager = get_device_manager()
     device_manager.validate_topology_or_raise()
     controller = get_task_controller()
@@ -91,6 +97,7 @@ async def lifespan(_app: FastAPI):
         yield
     finally:
         probe_service.stop()
+        discovery.stop()
         controller.stop()
         stop_db_event_poller()
 

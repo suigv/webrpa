@@ -87,7 +87,9 @@ class CloudProbeService:
         targets: list[tuple[int, int, str, int]] = []
         device_ips = set()
         for device_id in range(1, total + 1):
-            ip = get_device_ip(device_id)
+            ip = str(get_device_ip(device_id)).strip()
+            if not ip:
+                continue
             device_ips.add(ip)
             for cloud_id in range(1, cloud_machines_per_device + 1):
                 _api_port, rpa_port = calculate_ports(

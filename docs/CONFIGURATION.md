@@ -19,7 +19,7 @@ verification_method:
 - `config/system.yaml`
   - 系统级配置入口。
 - `config/devices.json`
-  - 设备与拓扑配置。
+  - 设备与拓扑配置；仓库默认文件应保持中性模板，不提交真实局域网设备 IP。
 - `config/apps/*.yaml`
   - 单应用配置；当前仓库里它是 app 相关配置的主入口。
 - `config/data/`

@@ -127,7 +127,7 @@ def get_discovered_device_ips() -> dict[str, str]:
 
 def _get_runtime_discovered_device_ips() -> dict[str, str]:
     if not get_discovery_enabled():
-        return {}
+        return get_persisted_discovered_device_ips()
     return get_discovered_device_ips()
 
 
@@ -141,8 +141,8 @@ def get_runtime_device_ips() -> dict[str, str]:
 def get_device_ip(device_id: int) -> str:
     discovered = _get_runtime_discovered_device_ips()
     if discovered:
-        return discovered.get(str(device_id), "") or get_host_ip()
-    return get_device_ips().get(str(device_id), "") or get_host_ip()
+        return discovered.get(str(device_id), "")
+    return get_device_ips().get(str(device_id), "")
 
 
 def get_total_devices() -> int:

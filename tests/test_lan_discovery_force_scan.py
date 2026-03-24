@@ -76,6 +76,33 @@ def test_probe_ip_accepts_valid_myt_sdk_response(monkeypatch):
     assert discovery._probe_ip("192.168.1.214", 8000) is True
 
 
+def test_probe_ip_accepts_wrapped_sdk_response(monkeypatch):
+    discovery = LanDeviceDiscovery()
+
+    class _FakeSdkClient:
+        def __init__(
+            self, device_ip: str, sdk_port: int, timeout_seconds: float, retries: int
+        ) -> None:
+            return None
+
+        def get_api_version(self) -> dict[str, object]:
+            return {
+                "ok": True,
+                "data": {
+                    "code": 0,
+                    "message": "OK",
+                    "data": {"latestVersion": 90, "currentVersion": 89},
+                },
+            }
+
+        def get_device_info(self) -> dict[str, object]:
+            raise AssertionError("wrapped version probe should already be enough")
+
+    monkeypatch.setattr("core.lan_discovery.MytSdkClient", _FakeSdkClient)
+
+    assert discovery._probe_ip("192.168.1.214", 8000) is True
+
+
 def test_probe_ip_rejects_non_sdk_http_payload(monkeypatch):
     discovery = LanDeviceDiscovery()
 

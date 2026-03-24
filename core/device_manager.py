@@ -461,6 +461,8 @@ class DeviceManager:
         seen: set[tuple[str, int]] = set()
 
         for device_id, ip in endpoints:
+            if not str(ip).strip():
+                continue
             for cloud_id in range(1, cloud_machines_per_device + 1):
                 api_port, rpa_port = calculate_ports(device_id, cloud_id, cloud_machines_per_device)
                 for port in (api_port, rpa_port):

@@ -119,26 +119,27 @@ def _disable_lifespan(monkeypatch: MonkeyPatch) -> None:
 
 def _patch_lifespan_services(
     monkeypatch: MonkeyPatch,
-) -> tuple[_FakeController, _FakeDeviceManager, _FakeProbeService]:
+) -> tuple[_FakeController, _FakeDeviceManager, _FakeProbeService, _FakeDiscovery]:
     fake_controller = _FakeController()
     fake_manager = _FakeDeviceManager()
     fake_probe = _FakeProbeService({})
+    fake_discovery = _FakeDiscovery()
 
     monkeypatch.setattr(server, "get_task_controller", lambda: fake_controller)
     monkeypatch.setattr(server, "get_device_manager", lambda: fake_manager)
     monkeypatch.setattr(server, "get_cloud_probe_service", lambda: fake_probe)
-    return fake_controller, fake_manager, fake_probe
+    monkeypatch.setattr(server, "LanDeviceDiscovery", lambda: fake_discovery)
+    return fake_controller, fake_manager, fake_probe, fake_discovery
 
 
 def test_api_devices_discover_endpoint(monkeypatch: MonkeyPatch):
-    _disable_lifespan(monkeypatch)
     monkeypatch.setattr(devices_route.discovery, "scan_now", _scan_two_ips)
-    with TestClient(app) as client:
-        response = client.post("/api/devices/discover")
-        assert response.status_code == 200
-        payload = cast(dict[str, object], response.json())
-        assert payload["status"] == "started"
-        assert "message" in payload
+    background_tasks = BackgroundTasks()
+    payload = asyncio.run(devices_route.discover_devices(background_tasks))
+
+    assert payload["status"] == "started"
+    assert "message" in payload
+    assert len(background_tasks.tasks) == 1
 
 
 def test_api_devices_discover_updates_config_mapping(monkeypatch: MonkeyPatch):
@@ -180,7 +181,6 @@ def test_api_devices_discover_updates_config_mapping(monkeypatch: MonkeyPatch):
 
 
 def test_api_devices_list_preserves_payload_shape_for_available_only(monkeypatch: MonkeyPatch):
-    _disable_lifespan(monkeypatch)
     backup = ConfigLoader._config
     try:
         ConfigLoader._config = ConfigStore.model_validate({
@@ -209,10 +209,8 @@ def test_api_devices_list_preserves_payload_shape_for_available_only(monkeypatch
 
         manager._update_probe_cache(1, 1, True, 11, "ok")
 
-        with TestClient(app) as client:
-            response = client.get("/api/devices/?availability=available_only")
-            assert response.status_code == 200
-            payload = cast(list[dict[str, object]], response.json())
+        snapshot = manager.get_devices_snapshot("available_only")
+        payload = [devices_route._to_device_info(item).model_dump(mode="python") for item in snapshot]
 
         assert len(payload) == 1
         device = payload[0]
@@ -554,7 +552,10 @@ def test_api_devices_available_only_excludes_stale_available_clouds(monkeypatch:
 
 @pytest.mark.real_lifespan
 def test_api_lifespan_wires_cloud_probe_service(monkeypatch: MonkeyPatch):
-    fake_controller, fake_manager, fake_probe = _patch_lifespan_services(monkeypatch)
+    fake_controller, fake_manager, fake_probe, fake_discovery = _patch_lifespan_services(
+        monkeypatch
+    )
+    monkeypatch.setattr(server, "get_discovery_enabled", lambda: True)
 
     async def _run_lifespan() -> None:
         async with server.lifespan(app):
@@ -567,6 +568,8 @@ def test_api_lifespan_wires_cloud_probe_service(monkeypatch: MonkeyPatch):
     assert fake_controller.stopped == 1
     assert fake_probe.started == 1
     assert fake_probe.stopped == 1
+    assert fake_discovery.started == 1
+    assert fake_discovery.stopped == 1
     assert len(fake_controller._events.subscribers) == 1
 
 

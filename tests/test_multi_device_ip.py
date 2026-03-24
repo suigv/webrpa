@@ -20,7 +20,7 @@ def test_get_device_ip_uses_mapping_then_fallback(monkeypatch):
         monkeypatch.setattr(discovery, "get_discovered_device_map", lambda: {})
         assert get_device_ip(1) == "10.0.0.11"
         assert get_device_ip(2) == "10.0.0.12"
-        assert get_device_ip(3) == "10.0.0.1"
+        assert get_device_ip(3) == ""
     finally:
         ConfigLoader._config = backup
 
@@ -61,7 +61,7 @@ def test_get_total_devices_prefers_discovered_mapping(monkeypatch):
         ConfigLoader._config = backup
 
 
-def test_get_device_ip_ignores_discovered_mapping_when_discovery_disabled(monkeypatch):
+def test_get_device_ip_uses_persisted_discovered_mapping_when_discovery_disabled(monkeypatch):
     backup = ConfigLoader._config
     discovery = LanDeviceDiscovery()
     try:
@@ -79,12 +79,12 @@ def test_get_device_ip_ignores_discovered_mapping_when_discovery_disabled(monkey
             lambda: (_ for _ in ()).throw(AssertionError("should not touch live discovery")),
         )
 
-        assert get_device_ip(1) == "10.0.0.11"
+        assert get_device_ip(1) == "192.168.10.3"
     finally:
         ConfigLoader._config = backup
 
 
-def test_get_total_devices_ignores_discovered_mapping_when_discovery_disabled(monkeypatch):
+def test_get_total_devices_uses_persisted_discovered_mapping_when_discovery_disabled(monkeypatch):
     backup = ConfigLoader._config
     discovery = LanDeviceDiscovery()
     try:
@@ -102,7 +102,7 @@ def test_get_total_devices_ignores_discovered_mapping_when_discovery_disabled(mo
             lambda: (_ for _ in ()).throw(AssertionError("should not touch live discovery")),
         )
 
-        assert get_total_devices() == 2
+        assert get_total_devices() == 1
     finally:
         ConfigLoader._config = backup
 
