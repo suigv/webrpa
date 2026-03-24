@@ -279,7 +279,13 @@ def test_ai_dialog_planner_reuses_recent_run_asset_memory(tmp_path, monkeypatch)
         data = response.json()
         assert data["memory"]["available"] is True
         assert data["memory"]["latest"]["distill_reason"] == "empty_inbox"
+        assert data["memory"]["reuse_priority"] == "continue_trace"
+        assert data["memory"]["recommended_action"] == "continue_from_memory"
+        assert data["memory"]["qualification"] == "replayable"
         assert data["execution"]["memory_ready"] is True
+        assert data["execution"]["reuse_priority"] == "continue_trace"
+        assert data["execution"]["reuse_action"] == "continue_from_memory"
+        assert data["execution"]["distill_eligible"] is False
         assert "先准备未读私信" in data["execution"]["next_step"]
         assert any("没有可处理的新消息" in item for item in data["follow_up"]["suggestions"])
     finally:

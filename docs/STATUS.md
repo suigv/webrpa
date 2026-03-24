@@ -55,6 +55,8 @@ MYT_ENABLE_RPC=0 ./.venv/bin/python -m uvicorn api.server:app --host 127.0.0.1 -
 - 插件 manifest 当前支持 `ai_hints` 任务语义元数据；planner 的意图推断与 run asset 的蒸馏资格判定优先读取插件声明，而不是在 `core` 里硬编码现有任务族。
 - workflow draft 当前只把 `accepted` 的终态计入蒸馏成功样本；已完成但未达蒸馏资格的运行会以 run asset 形式保留为可复用记忆。
 - AI planner 当前会消费近期同 app / 同 objective / 同 branch 的 run asset，并在响应 `memory` 中返回最近终态、保留价值和复用提示。
+- 任务语义层当前统一输出 run value profile、草稿 `exit`、`distill_assessment` 和 memory `reuse_priority`，用于同时回答“是否有蒸馏资格”“保留了什么价值”“再次下发优先复用什么”“现在统一该走哪一步”。
+- AI 对话前端当前会直接消费 `execution.reuse_*`、草稿 `exit` 与 `distill_assessment`，在规划卡片和快捷历史中显示统一出口、复用优先级与蒸馏状态。
 - `agent_executor` 当前会把 planner 抽取出的控制流摘要和条目写入 runtime planner artifact，让本次执行和后续蒸馏都能复用这些提示词线索。
 - `agent_executor` 当前会在缺少 `routes/hops` 时收紧 `ui.navigate_to` 规划权限，并支持“返回主页即完成”这类分支型业务目标的通用完成判定。
 - `agent_executor` 当前会对 app 级 AI 任务使用更高的默认步数预算，并在最近步骤存在真实进展时最多做两轮尾部延长；如果 planner 连续给出无效运行时契约的动作参数，会提前终止而不是继续白跑。

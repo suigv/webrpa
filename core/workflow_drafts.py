@@ -14,6 +14,9 @@ from core.golden_run_distillation import GoldenRunDistiller
 from core.model_trace_store import ModelTraceContext
 from core.paths import plugins_dir, traces_dir
 from core.task_semantics import (
+    build_draft_exit_decision,
+    build_memory_reuse_plan,
+    build_run_value_profile,
     match_distill_rule,
     memory_hint_for_reason,
     policy_data_count,
@@ -375,6 +378,15 @@ def _evaluate_run_asset(
         "terminal_code": str(target_result.get("code") or (result or {}).get("code") or "").strip() or None,
         "business_flags": business_flags,
     }
+    value_profile = build_run_value_profile(
+        completion_status=completion_status,
+        business_outcome=business_outcome,
+        distill_decision=distill_decision,
+        distill_reason=distill_reason,
+        value_level=value_level,
+        retained_value=retained_value,
+    )
+    learned_assets["value_profile"] = value_profile
     if data:
         learned_assets["result_data"] = data
 
@@ -396,12 +408,24 @@ def _evaluate_run_asset(
             terminal_message=terminal_message or None,
         ),
         "accepted_for_distill": distill_decision == "accepted",
-        "continuable": bool(retained_value),
-        "replayable": completion_status == "completed" and bool(retained_value),
+        "continuable": bool(value_profile["has_value"]),
+        "replayable": completion_status == "completed" and bool(value_profile["has_value"]),
     }
 
 
 def _asset_to_dict(asset: WorkflowRunAssetRecord) -> dict[str, Any]:
+    learned_assets = dict(asset.learned_assets or {})
+    value_profile = learned_assets.get("value_profile")
+    if not isinstance(value_profile, dict):
+        value_profile = build_run_value_profile(
+            completion_status=asset.completion_status,
+            business_outcome=asset.business_outcome,
+            distill_decision=asset.distill_decision,
+            distill_reason=asset.distill_reason,
+            value_level=asset.value_level,
+            retained_value=list(asset.retained_value),
+        )
+        learned_assets["value_profile"] = value_profile
     return {
         "asset_id": asset.asset_id,
         "draft_id": asset.draft_id,
@@ -415,7 +439,8 @@ def _asset_to_dict(asset: WorkflowRunAssetRecord) -> dict[str, Any]:
         "distill_reason": asset.distill_reason,
         "value_level": asset.value_level,
         "retained_value": list(asset.retained_value),
-        "learned_assets": dict(asset.learned_assets or {}),
+        "learned_assets": learned_assets,
+        "value_profile": value_profile,
         "terminal_message": asset.terminal_message,
         "created_at": asset.created_at,
         "updated_at": asset.updated_at,
@@ -543,6 +568,22 @@ class WorkflowDraftService:
             isinstance(record.last_success_snapshot, dict)
             or isinstance(record.last_replayable_snapshot, dict)
         )
+        latest_asset_dict = _asset_to_dict(latest_asset) if latest_asset is not None else None
+        latest_value_profile = (
+            dict(latest_asset_dict.get("value_profile") or {})
+            if isinstance(latest_asset_dict, dict)
+            else {}
+        )
+        exit_decision = build_draft_exit_decision(
+            draft_status=record.status,
+            success_count=record.success_count,
+            success_threshold=record.success_threshold,
+            can_continue=can_continue,
+            has_distilled_output=bool(
+                record.last_distilled_manifest_path and record.last_distilled_script_path
+            ),
+            latest_value_profile=latest_value_profile,
+        )
         summary = {
             "draft_id": record.draft_id,
             "display_name": record.display_name,
@@ -570,18 +611,32 @@ class WorkflowDraftService:
             "latest_terminal_task_id": record.latest_terminal_task_id,
             "latest_completed_task_id": record.latest_completed_task_id,
             "successful_task_ids": list(record.successful_task_ids),
-            "latest_run_asset": _asset_to_dict(latest_asset) if latest_asset is not None else None,
+            "latest_run_asset": latest_asset_dict,
+            "distill_assessment": {
+                "can_distill_now": bool(exit_decision.get("can_distill_now")),
+                "should_distill": bool(exit_decision.get("should_distill")),
+                "stage": str(exit_decision.get("stage") or ""),
+                "latest_qualification": str(latest_value_profile.get("qualification") or "discard"),
+                "latest_distill_decision": str(
+                    latest_value_profile.get("distill_decision") or "rejected"
+                ),
+                "latest_distill_reason": str(
+                    latest_value_profile.get("distill_reason") or "incomplete_run"
+                ),
+                "success_count": record.success_count,
+                "success_threshold": record.success_threshold,
+            },
+            "exit": exit_decision,
             "created_at": record.created_at,
             "updated_at": record.updated_at,
         }
+        summary["next_action"] = str(exit_decision.get("action") or "")
         if record.status == "needs_attention":
             summary["message"] = (
                 f"“{record.display_name}”本次执行未成功，已生成修改建议，可直接应用后重试。"
             )
-            summary["next_action"] = "apply_suggestion"
         elif record.status == "distilled":
             summary["message"] = f"“{record.display_name}”的 YAML 草稿已生成，可继续测试或发布。"
-            summary["next_action"] = "review_distilled"
         elif latest_asset is not None and latest_asset.completion_status == "completed":
             if latest_asset.distill_decision == "accepted":
                 if remaining > 0:
@@ -589,12 +644,10 @@ class WorkflowDraftService:
                         f"当前稳定性样本 {record.success_count}/{record.success_threshold}。"
                         f"可继续自动验证 {remaining} 次。"
                     )
-                    summary["next_action"] = "continue_validation"
                 else:
                     summary["message"] = (
                         f"已满足 {record.success_count}/{record.success_threshold} 成功样本，可生成 YAML。"
                     )
-                    summary["next_action"] = "distill"
             else:
                 reason = latest_asset.distill_reason or "partial_path_only"
                 hint = memory_hint_for_reason(
@@ -615,18 +668,15 @@ class WorkflowDraftService:
                 summary["message"] = (
                     f"“{record.display_name}”本次已完成，但未计入蒸馏样本。{hint}"
                 )
-                summary["next_action"] = "continue_validation" if can_continue else "retry"
         elif remaining > 0:
             summary["message"] = (
                 f"当前稳定性样本 {record.success_count}/{record.success_threshold}。"
                 f"可继续自动验证 {remaining} 次。"
             )
-            summary["next_action"] = "continue_validation"
         else:
             summary["message"] = (
                 f"已满足 {record.success_count}/{record.success_threshold} 成功样本，可生成 YAML。"
             )
-            summary["next_action"] = "distill"
         return summary
 
     def list_summaries(
@@ -703,6 +753,10 @@ class WorkflowDraftService:
                 "branch_id": resolved_branch_id or None,
                 "items": [],
                 "hints": [],
+                "reuse_priority": "none",
+                "recommended_action": "fresh_exploration",
+                "qualification": "discard",
+                "distill_eligible": False,
             }
         assets = self._store.list_run_assets(
             limit=max(1, limit),
@@ -727,6 +781,10 @@ class WorkflowDraftService:
                 "branch_id": resolved_branch_id or None,
                 "items": [],
                 "hints": [],
+                "reuse_priority": "none",
+                "recommended_action": "fresh_exploration",
+                "qualification": "discard",
+                "distill_eligible": False,
             }
 
         reason_counts = Counter(
@@ -770,6 +828,12 @@ class WorkflowDraftService:
                 hints.append(hint)
         if assets[0].terminal_message:
             hints.append(f"最近终态：{_truncate_text(assets[0].terminal_message, max_len=80)}")
+        latest_dict = _asset_to_dict(assets[0])
+        latest_value_profile = dict(latest_dict.get("value_profile") or {})
+        reuse_plan = build_memory_reuse_plan(
+            latest_value_profile=latest_value_profile,
+            accepted_count=sum(1 for asset in assets if asset.distill_decision == "accepted"),
+        )
 
         return {
             "available": True,
@@ -781,7 +845,16 @@ class WorkflowDraftService:
             "replayable_count": sum(
                 1 for asset in assets if asset.completion_status == "completed" and asset.retained_value
             ),
-            "latest": _asset_to_dict(assets[0]),
+            "latest": latest_dict,
+            "reuse_priority": reuse_plan["reuse_priority"],
+            "recommended_action": reuse_plan["recommended_action"],
+            "qualification": reuse_plan["qualification"],
+            "distill_eligible": reuse_plan["distill_eligible"],
+            "distill_assessment": {
+                "can_distill_now": bool(reuse_plan["distill_eligible"]),
+                "latest_qualification": reuse_plan["qualification"],
+                "reuse_priority": reuse_plan["reuse_priority"],
+            },
             "top_reasons": [
                 {"reason": reason, "count": count} for reason, count in reason_counts.most_common(3)
             ],
@@ -937,6 +1010,25 @@ class WorkflowDraftService:
             if record is None:
                 raise ValueError(f"workflow draft not found: {draft_id}")
             if not force and record.success_count < record.success_threshold:
+                current_summary = self.summary(draft_id, conn=tx_conn) or {}
+                latest_run_asset = current_summary.get("latest_run_asset")
+                exit_decision = build_draft_exit_decision(
+                    draft_status=record.status,
+                    success_count=record.success_count,
+                    success_threshold=record.success_threshold,
+                    can_continue=bool(
+                        isinstance(record.last_success_snapshot, dict)
+                        or isinstance(record.last_replayable_snapshot, dict)
+                    ),
+                    has_distilled_output=bool(
+                        record.last_distilled_manifest_path and record.last_distilled_script_path
+                    ),
+                    latest_value_profile=(
+                        dict(latest_run_asset.get("value_profile") or {})
+                        if isinstance(latest_run_asset, dict)
+                        else {}
+                    ),
+                )
                 return {
                     "ok": False,
                     "code": "threshold_not_met",
@@ -947,6 +1039,12 @@ class WorkflowDraftService:
                     "draft_id": draft_id,
                     "success_count": record.success_count,
                     "success_threshold": record.success_threshold,
+                    "distill_assessment": {
+                        "can_distill_now": False,
+                        "should_distill": False,
+                        "stage": str(exit_decision.get("stage") or "collecting"),
+                    },
+                    "exit": exit_decision,
                 }
 
             trace_context = self._resolve_distill_trace_context(record)
@@ -978,6 +1076,13 @@ class WorkflowDraftService:
             record.last_distilled_script_path = str(distilled.script_path)
             record.status = _resolve_status(record)
             self._store.update_draft(record, conn=tx_conn)
+            exit_decision = build_draft_exit_decision(
+                draft_status=record.status,
+                success_count=record.success_count,
+                success_threshold=record.success_threshold,
+                can_continue=True,
+                has_distilled_output=True,
+            )
             return {
                 "ok": True,
                 "draft_id": record.draft_id,
@@ -989,6 +1094,12 @@ class WorkflowDraftService:
                 "report_path": str(distilled.report_path),
                 "success_count": record.success_count,
                 "success_threshold": record.success_threshold,
+                "distill_assessment": {
+                    "can_distill_now": False,
+                    "should_distill": False,
+                    "stage": "distilled",
+                },
+                "exit": exit_decision,
             }
 
     def cleanup_task_references(

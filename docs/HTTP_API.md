@@ -134,13 +134,14 @@ verification_method:
 
 - `POST /api/ai_dialog/planner` 当前支持 `app_id`、`app_display_name`、`package_name`，用于已存在 app 选择和新 app 探索式启动。
 - planner 返回当前已解析的 `intent`、`branch`、`execution`、`recommended_workflows`，以及新的 `guidance`、`control_flow`，用于前端展示任务意图、账号阻塞项、提示词补充建议和已识别的控制流线索。
-- planner 额外返回 `memory`，用于描述近期同类 AI 运行资产的最近终态、蒸馏判定、可复用状态/动作和提示语。
+- planner 额外返回 `memory`，用于描述近期同类 AI 运行资产的最近终态、蒸馏判定、可复用状态/动作、`reuse_priority`、`recommended_action` 和提示语。
 - 当前 `intent` 与 `memory` 的业务语义优先来自插件 manifest 中声明的 `ai_hints`，而不是框架层写死的任务族表。
 - planner 会从 `goal + advanced_prompt` 中抽取条件判断、等待、超时、成功标准等控制流提示，并写回 `resolved_payload._planner_control_flow_*`，供 `agent_executor` 运行时 planner artifact 和后续蒸馏链路复用。
 - `POST /api/ai_dialog/annotations` 用于记录用户接管输入时声明的输入类型。
 - `GET/POST /api/ai_dialog/drafts/{draft_id}/save_*` 用于列出并应用一次执行后的可选保存项，而不是强制落库全部运行时数据。
 - `GET /api/ai_dialog/history` 返回的 AI 草稿历史当前会分别给出 `can_replay`、`can_edit`、`can_save`；failed/cancelled 但仍保留 `draft_memory` / `useful_trace` 的任务仍可进入“编辑后执行 / 保存可复用项”链路。
 - `GET /api/ai_dialog/drafts/{draft_id}/save_candidates` 当前会优先读取最近 completed task 的 AI 输入标注；若没有 completed task，则回退到最近 terminal task，避免有价值但未完成的 AI run 无法沉淀数据。
+- planner 的 `execution` 当前也会同步返回 `reuse_priority`、`reuse_action`、`distill_eligible`，供前端直接展示再次下发时的复用优先级与下一步出口。
 - `GET/PUT /api/ai_dialog/apps/{app_id}/branch_profiles` 用于读取和维护 app 级分支资料。
 - `GET/POST /api/ai_dialog/apps/{app_id}/config_candidates*` 用于审核蒸馏候选后再写入共享 app 配置。
 
@@ -149,6 +150,10 @@ verification_method:
 - `GET /api/tasks/drafts*` 返回的 workflow draft 摘要当前区分两类完成结果：
   - `success_count` 只统计通过蒸馏资格判定的 accepted 样本。
   - `latest_run_asset` 描述最近一次终态运行的 `business_outcome`、`distill_decision`、`distill_reason` 与 `retained_value`。
+- workflow draft 摘要当前额外返回：
+  - `latest_run_asset.value_profile`：本次运行的统一资格/价值判定结果。
+  - `distill_assessment`：当前草稿是否可蒸馏、最近一次资格结论、当前阶段。
+  - `exit`：当前统一出口动作，例如 `apply_suggestion`、`continue_validation`、`distill`、`review_distilled`。
 - 当一次 AI 任务已经完成但不满足蒸馏资格时，系统仍会保留 replayable / useful trace 级别的 run asset，供后续 planner 与继续执行复用。
 - failed/cancelled 终态只要保留了 `retained_value`，草稿也会生成 continuation snapshot，不再要求必须先有 completed snapshot 才能继续编辑。
 - app 级 `agent_executor` 任务当前会使用更高的默认步数预算，并在最近步骤持续产生真实状态进展时按轮次延长预算；若连续出现无效运行时契约动作，则会提前以 circuit breaker 结束。

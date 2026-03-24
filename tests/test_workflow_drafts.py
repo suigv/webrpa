@@ -22,7 +22,11 @@ from core.task_control import (
 from core.task_events import TaskEventStore
 from core.task_queue import InMemoryTaskQueue
 from core.task_store import TaskStore
-from core.workflow_draft_store import WorkflowDraftRecord, WorkflowDraftStore
+from core.workflow_draft_store import (
+    WorkflowDraftRecord,
+    WorkflowDraftStore,
+    WorkflowRunAssetRecord,
+)
 from core.workflow_drafts import WorkflowDraftService
 from engine.action_registry import ActionRegistry, register_defaults, resolve_action
 from engine.agent_executor import AgentExecutorRuntime
@@ -522,6 +526,9 @@ def test_workflow_draft_failed_useful_trace_is_still_editable(tmp_path: Path):
     assert summary["can_continue"] is True
     assert summary["latest_run_asset"]["completion_status"] == "failed"
     assert summary["latest_run_asset"]["value_level"] == "useful_trace"
+    assert summary["latest_run_asset"]["value_profile"]["qualification"] == "useful_trace"
+    assert summary["exit"]["action"] == "apply_suggestion"
+    assert summary["distill_assessment"]["can_distill_now"] is False
 
     replay = service.continuation_snapshot("draft-test")
     assert replay["snapshot"]["payload"]["goal"] == "进入通知页面如果有新的关注就回关没有则返回主页"
@@ -566,6 +573,39 @@ def test_workflow_draft_completed_login_run_counts_for_distill(tmp_path: Path):
     assert summary["last_success_snapshot_available"] is True
     assert summary["latest_run_asset"]["distill_decision"] == "accepted"
     assert summary["latest_run_asset"]["distill_reason"] == "fulfilled_main_path"
+    assert summary["latest_run_asset"]["value_profile"]["qualification"] == "distillable"
+    assert summary["exit"]["action"] == "continue_validation"
+
+
+def test_workflow_draft_memory_summary_exposes_reuse_priority(tmp_path: Path):
+    service = _build_workflow_draft_service(tmp_path)
+    _create_draft(service, draft_id="draft-memory")
+    service._store.upsert_run_asset(
+        WorkflowRunAssetRecord(
+            asset_id="run-memory-1",
+            draft_id="draft-memory",
+            task_id="task-memory-1",
+            app_id="x",
+            branch_id="volc",
+            objective="reply_dm",
+            completion_status="completed",
+            business_outcome="empty",
+            distill_decision="rejected",
+            distill_reason="empty_inbox",
+            value_level="replayable",
+            retained_value=["draft_memory"],
+            learned_assets={"observed_state_ids": ["dm_inbox"], "entry_actions": ["ui.click"]},
+            terminal_message="未发现新消息",
+        )
+    )
+
+    memory = service.summarize_recent_run_assets(app_id="x", objective="reply_dm", branch_id="volc")
+
+    assert memory["available"] is True
+    assert memory["reuse_priority"] == "continue_trace"
+    assert memory["recommended_action"] == "continue_from_memory"
+    assert memory["qualification"] == "replayable"
+    assert memory["distill_assessment"]["can_distill_now"] is False
 
 
 def test_workflow_draft_records_ambiguous_latest_success_without_trace_context(

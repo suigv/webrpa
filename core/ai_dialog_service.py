@@ -22,6 +22,7 @@ from core.business_profile import (
 )
 from core.control_flow_hints import analyze_control_flow_prompt
 from core.task_semantics import (
+    build_memory_reuse_plan,
     infer_intent,
     memory_hint_for_reason,
     normalize_goal_text,
@@ -497,8 +498,17 @@ def _execution_next_step(default_step: str, memory: dict[str, Any], intent: dict
     if not isinstance(latest, dict):
         return default_step
     distill_reason = str(latest.get("distill_reason") or "").strip()
-    accepted_count = int(memory.get("accepted_count") or 0)
     hint = memory_hint_for_reason(intent, distill_reason)
+    recommended_action = str(memory.get("recommended_action") or "").strip()
+    if recommended_action == "distill_or_validate":
+        return "最近已积累可作为蒸馏样本的运行资产；优先继续验证或直接进入蒸馏评估。"
+    if recommended_action == "continue_from_memory":
+        if hint:
+            return hint
+        return "最近已有可复用运行资产；优先沿最近终态和已验证入口继续执行。"
+    if recommended_action == "reuse_context":
+        return "最近已沉淀上下文线索；优先复用已记录条件、页面终态和人工输入，再继续执行。"
+    accepted_count = int(memory.get("accepted_count") or 0)
     if hint and str(latest.get("distill_decision") or "").strip() != "accepted":
         return f"最近同类任务未形成新样本；{hint}"
     if accepted_count > 0 and list(memory.get("entry_actions") or []):
@@ -670,6 +680,14 @@ class AIDialogService:
             objective=str(intent.get("objective") or ""),
             branch_id=str(branch.get("branch_id") or ""),
         )
+        reuse_plan = build_memory_reuse_plan(
+            latest_value_profile=dict(
+                ((memory.get("latest") or {}).get("value_profile") or {})
+                if isinstance(memory.get("latest"), dict)
+                else {}
+            ),
+            accepted_count=int(memory.get("accepted_count") or 0),
+        )
         top_workflow = recommended_workflows[0] if recommended_workflows else {
             "task": "agent_executor",
             "display_name": "AI 探索执行",
@@ -746,6 +764,9 @@ class AIDialogService:
                 top_plugin_workflow.get("task") if top_plugin_workflow is not None else None
             ),
             "memory_ready": bool(memory.get("available")),
+            "reuse_priority": reuse_plan["reuse_priority"],
+            "reuse_action": reuse_plan["recommended_action"],
+            "distill_eligible": reuse_plan["distill_eligible"],
         }
 
         operator_summary = _operator_summary(

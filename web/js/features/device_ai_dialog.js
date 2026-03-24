@@ -19,11 +19,150 @@ let activeDraftId = '';
 let activeSuccessThreshold = null;
 const activeAiTaskByUnit = new Map();
 const CUSTOM_APP_OPTION = '__custom__';
+const EXIT_ACTION_LABELS = {
+    apply_suggestion: '按建议重试',
+    continue_validation: '继续验证',
+    distill: '蒸馏草稿',
+    review_distilled: '已蒸馏',
+    retry: '重新执行',
+};
+const REUSE_PRIORITY_LABELS = {
+    distill_sample: '优先蒸馏样本',
+    continue_trace: '优先继续复用',
+    context_only: '优先复用上下文',
+    none: '暂无可复用资产',
+};
+const REUSE_ACTION_LABELS = {
+    distill_or_validate: '继续验证或进入蒸馏',
+    continue_from_memory: '沿最近运行继续',
+    reuse_context: '带上下文继续执行',
+    fresh_exploration: '重新探索执行',
+};
+const QUALIFICATION_LABELS = {
+    distillable: '可蒸馏',
+    replayable: '可继续执行',
+    useful_trace: '有价值轨迹',
+    context_only: '仅上下文可复用',
+    discard: '未形成复用价值',
+};
 
 function clearElement(element) {
     if (element) {
         element.replaceChildren();
     }
+}
+
+function normalizeDraftSummary(item) {
+    if (item?.workflow_draft && typeof item.workflow_draft === 'object') {
+        return item.workflow_draft;
+    }
+    return item && typeof item === 'object' ? item : {};
+}
+
+function normalizeDraftExit(item) {
+    const draft = normalizeDraftSummary(item);
+    return draft?.exit && typeof draft.exit === 'object' ? draft.exit : {};
+}
+
+function normalizeDistillAssessment(item) {
+    const draft = normalizeDraftSummary(item);
+    return draft?.distill_assessment && typeof draft.distill_assessment === 'object'
+        ? draft.distill_assessment
+        : {};
+}
+
+function normalizeLatestRunAsset(item) {
+    const draft = normalizeDraftSummary(item);
+    return draft?.latest_run_asset && typeof draft.latest_run_asset === 'object'
+        ? draft.latest_run_asset
+        : {};
+}
+
+function formatExitAction(action) {
+    return EXIT_ACTION_LABELS[String(action || '').trim()] || '继续处理';
+}
+
+function formatReusePriority(priority) {
+    return REUSE_PRIORITY_LABELS[String(priority || '').trim()] || '待评估';
+}
+
+function formatReuseAction(action) {
+    return REUSE_ACTION_LABELS[String(action || '').trim()] || '继续执行';
+}
+
+function formatQualification(value) {
+    return QUALIFICATION_LABELS[String(value || '').trim()] || '待评估';
+}
+
+function historyPrimaryActionLabel(item) {
+    const exitAction = String(normalizeDraftExit(item)?.action || '').trim();
+    if (exitAction === 'apply_suggestion') return '按建议重试';
+    if (exitAction === 'continue_validation') return '继续执行';
+    if (exitAction === 'distill') return '继续验证';
+    if (exitAction === 'review_distilled') return '再次执行';
+    return '立即执行';
+}
+
+function distillButtonState(item) {
+    const draft = normalizeDraftSummary(item);
+    const assessment = normalizeDistillAssessment(item);
+    const exitAction = String(normalizeDraftExit(item)?.action || '').trim();
+    if (exitAction === 'review_distilled' || draft?.last_distilled_manifest_path) {
+        return {
+            label: '已蒸馏',
+            disabled: true,
+            title: '该草稿已经产出蒸馏结果',
+        };
+    }
+    if (assessment?.can_distill_now || draft?.can_distill) {
+        return {
+            label: '蒸馏草稿',
+            disabled: false,
+            title: '当前样本已满足蒸馏门槛',
+        };
+    }
+    const threshold = Number(assessment?.success_threshold || draft?.success_threshold || 0);
+    const count = Number(assessment?.success_count || draft?.success_count || 0);
+    const stage = String(assessment?.stage || '').trim();
+    if (threshold > count && threshold > 0) {
+        return {
+            label: '蒸馏草稿',
+            disabled: true,
+            title: `当前成功样本 ${count}/${threshold}，还不能蒸馏`,
+        };
+    }
+    if (stage === 'repair') {
+        return {
+            label: '蒸馏草稿',
+            disabled: true,
+            title: '当前应先修正任务，再考虑蒸馏',
+        };
+    }
+    return {
+        label: '蒸馏草稿',
+        disabled: true,
+        title: '当前还没有达到蒸馏条件',
+    };
+}
+
+function plannerBadgeState(plan) {
+    const execution = plan?.execution || {};
+    const followUp = plan?.follow_up || {};
+    const missing = Array.isArray(followUp?.missing) ? followUp.missing.length : 0;
+    if (execution?.distill_eligible) {
+        return { className: 'badge badge-ok', text: '可蒸馏' };
+    }
+    if (missing > 0) {
+        return { className: 'badge badge-error', text: '待补充' };
+    }
+    const reusePriority = String(execution?.reuse_priority || '').trim();
+    if (reusePriority === 'continue_trace') {
+        return { className: 'badge badge-ok', text: '可复用' };
+    }
+    if (reusePriority === 'context_only') {
+        return { className: 'badge', text: '有上下文' };
+    }
+    return { className: 'badge badge-ok', text: '已就绪' };
 }
 
 function unitTaskKey(unit) {
@@ -255,9 +394,9 @@ function renderPlannerResult(plan) {
     if (title) title.textContent = String(plan.display_name || 'AI 任务规划');
     if (summary) summary.textContent = String(plan.operator_summary || '').trim();
     if (badge) {
-        const missing = Array.isArray(plan.follow_up?.missing) ? plan.follow_up.missing.length : 0;
-        badge.className = `badge ${missing > 0 ? 'badge-error' : 'badge-ok'}`;
-        badge.textContent = missing > 0 ? '待补充' : '已就绪';
+        const badgeState = plannerBadgeState(plan);
+        badge.className = badgeState.className;
+        badge.textContent = badgeState.text;
     }
     applyAiSubmitState(plan);
 
@@ -345,6 +484,18 @@ function renderPlannerResult(plan) {
     if (plan.account?.execution_hint) {
         lines.push(String(plan.account.execution_hint).trim());
     }
+    if (plan.execution?.reuse_priority) {
+        lines.push(`复用优先级：${formatReusePriority(plan.execution.reuse_priority)}`);
+    }
+    if (plan.execution?.reuse_action) {
+        lines.push(`当前出口：${formatReuseAction(plan.execution.reuse_action)}`);
+    }
+    if (plan.memory?.qualification) {
+        lines.push(`最近运行价值：${formatQualification(plan.memory.qualification)}`);
+    }
+    if (plan.execution?.distill_eligible) {
+        lines.push('蒸馏资格：当前已有可蒸馏样本，可进入蒸馏评估');
+    }
     const recommendedWorkflow = Array.isArray(plan.recommended_workflows)
         ? plan.recommended_workflows.find((item) => String(item?.task || '').trim() !== 'agent_executor')
         : null;
@@ -362,7 +513,7 @@ function renderPlannerResult(plan) {
             if (text) lines.push(text);
         });
     }
-    lines.slice(0, 4).forEach((text) => {
+    lines.slice(0, 6).forEach((text) => {
         const row = document.createElement('div');
         row.className = 'task-summary-line';
         row.textContent = text;
@@ -583,6 +734,10 @@ async function loadAiDialogHistory() {
     }
 
     items.forEach((item) => {
+        const draft = normalizeDraftSummary(item);
+        const exit = normalizeDraftExit(item);
+        const assessment = normalizeDistillAssessment(item);
+        const latestRunAsset = normalizeLatestRunAsset(item);
         const card = document.createElement('div');
         card.className = 'task-summary-target';
 
@@ -595,8 +750,8 @@ async function loadAiDialogHistory() {
         header.appendChild(title);
 
         const badge = document.createElement('span');
-        badge.className = `badge ${item.can_replay ? 'badge-ok' : ''}`;
-        badge.textContent = String(item.status || 'unknown');
+        badge.className = `badge ${assessment?.can_distill_now ? 'badge-ok' : (String(item.status || '') === 'needs_attention' ? 'badge-error' : '')}`;
+        badge.textContent = assessment?.can_distill_now ? '可蒸馏' : String(item.status || 'unknown');
         header.appendChild(badge);
 
         const body = document.createElement('div');
@@ -607,13 +762,27 @@ async function loadAiDialogHistory() {
             item.updated_at ? `上次 ${formatRelativeTime(item.updated_at)}` : '',
         ].filter(Boolean).join(' · ');
 
+        const details = document.createElement('div');
+        details.className = 'task-summary-list mt-2';
+        [
+            exit?.action ? `当前出口：${formatExitAction(exit.action)}` : '',
+            exit?.reuse_priority ? `复用优先级：${formatReusePriority(exit.reuse_priority)}` : '',
+            assessment?.latest_qualification ? `最近运行价值：${formatQualification(assessment.latest_qualification)}` : '',
+            latestRunAsset?.distill_reason ? `未蒸馏原因：${String(latestRunAsset.distill_reason).trim()}` : '',
+        ].filter(Boolean).slice(0, 3).forEach((text) => {
+            const row = document.createElement('div');
+            row.className = 'task-summary-line';
+            row.textContent = text;
+            details.appendChild(row);
+        });
+
         const actions = document.createElement('div');
         actions.className = 'flex flex-wrap gap-2 mt-2';
 
         const runButton = document.createElement('button');
         runButton.type = 'button';
         runButton.className = 'btn btn-primary btn-sm';
-        runButton.textContent = '立即执行';
+        runButton.textContent = historyPrimaryActionLabel(item);
         runButton.disabled = !item.can_replay;
         runButton.onclick = () => {
             void replayHistoryItem(item);
@@ -640,9 +809,43 @@ async function loadAiDialogHistory() {
         };
         actions.appendChild(saveButton);
 
-        card.append(header, body, actions);
+        const distillButton = document.createElement('button');
+        const distillState = distillButtonState(item);
+        distillButton.type = 'button';
+        distillButton.className = 'btn btn-secondary btn-sm';
+        distillButton.textContent = distillState.label;
+        distillButton.disabled = Boolean(distillState.disabled);
+        distillButton.title = distillState.title || '';
+        distillButton.onclick = () => {
+            void distillHistoryItem(item);
+        };
+        actions.appendChild(distillButton);
+
+        card.append(header, body, details, actions);
         host.appendChild(card);
     });
+}
+
+async function distillHistoryItem(item) {
+    const draftId = String(item?.draft_id || '').trim();
+    if (!draftId) return;
+    const response = await fetchJson(`/api/tasks/drafts/${encodeURIComponent(draftId)}/distill`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+        silentErrors: true,
+    });
+    if (!response.ok) {
+        toast.error(String(response.data?.detail || '蒸馏失败'));
+        return;
+    }
+    if (response.data?.ok === false) {
+        toast.info(String(response.data?.message || '当前还不能蒸馏'));
+        await loadAiDialogHistory();
+        return;
+    }
+    toast.success('已生成蒸馏草稿');
+    await loadAiDialogHistory();
 }
 
 async function replayHistoryItem(item) {
