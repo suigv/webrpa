@@ -43,6 +43,7 @@ class AIDialogHistoryItem(BaseModel):
     last_task_id: str | None = None
     can_replay: bool = False
     can_edit: bool = False
+    can_save: bool = False
     workflow_draft: dict[str, Any] = Field(default_factory=dict)
 
 

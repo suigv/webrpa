@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from core.ai_dialog_save_service import AIDialogSaveService
 from core.ai_dialog_service import AIDialogService
+from core.ai_task_annotation_store import AITaskAnnotationStore
 from core.app_branch_service import AppBranchProfileService
 from core.app_config_candidate_service import get_app_config_candidate_service
 from core.task_control import get_task_controller
@@ -36,7 +37,10 @@ def _save_service() -> AIDialogSaveService:
     workflow_drafts = WorkflowDraftService(
         store=WorkflowDraftStore(db_path=controller._store._db_path)
     )
-    return AIDialogSaveService(workflow_drafts=workflow_drafts)
+    return AIDialogSaveService(
+        workflow_drafts=workflow_drafts,
+        annotations=AITaskAnnotationStore(db_path=controller._store._db_path),
+    )
 
 
 def _branch_service() -> AppBranchProfileService:
@@ -64,7 +68,22 @@ async def ai_dialog_planner(request: AIDialogPlannerRequest):
 @router.get("/history", response_model=list[AIDialogHistoryItem])
 async def ai_dialog_history(limit: int = Query(default=20, ge=1, le=100)):
     service = _service()
-    return await run_sync(lambda: service.list_history(limit=limit))
+    save_service = _save_service()
+
+    def _load_history() -> list[dict[str, object]]:
+        items = service.list_history(limit=limit)
+        enriched: list[dict[str, object]] = []
+        for item in items:
+            draft_id = str(item.get("draft_id") or "").strip()
+            enriched.append(
+                {
+                    **item,
+                    "can_save": bool(draft_id) and save_service.has_save_candidates(draft_id),
+                }
+            )
+        return enriched
+
+    return await run_sync(_load_history)
 
 
 @router.post("/annotations")

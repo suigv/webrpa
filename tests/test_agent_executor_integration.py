@@ -62,10 +62,15 @@ def _build_runtime(
         _ = context
         return ActionResult(ok=True, code="ok", data={"clicked": params})
 
+    def _app_ensure_running(params, context):
+        _ = (params, context)
+        return ActionResult(ok=True, code="ok", data={"ensured": True})
+
     registry.register("ui.match_state", _ui_match_state)
     registry.register("ui.wait_until", _ui_wait_until)
     registry.register("ui.observe_transition", _ui_observe_transition)
     registry.register("ui.click", _ui_click)
+    registry.register("app.ensure_running", _app_ensure_running)
     for action_name, handler in (extra_actions or {}).items():
         registry.register(action_name, handler)
     return AgentExecutorRuntime(
@@ -183,6 +188,102 @@ def test_agent_executor_circuit_breaker_step_budget_exhausted(tmp_path: Path):
     assert [record["record_type"] for record in records] == ["step", "step", "terminal"]
     assert records[-1]["code"] == "step_budget_exhausted"
     assert records[-1]["status"] == "failed_circuit_breaker"
+
+
+def test_agent_executor_extends_default_app_budget_after_recent_progress():
+    responses = [
+        LLMResponse(
+            ok=True,
+            request_id=f"req-{index}",
+            provider="openai",
+            model="gpt-5.4",
+            output_text=json.dumps({"action": "ui.click", "params": {"selector": f"#step-{index}"}}),
+        )
+        for index in range(1, 13)
+    ]
+    responses.append(
+        LLMResponse(
+            ok=True,
+            request_id="req-final",
+            provider="openai",
+            model="gpt-5.4",
+            output_text=json.dumps({"done": True, "message": "completed after extension"}),
+        )
+    )
+    observations = [
+        {"platform": "native", "state": {"state_id": f"stage-{index}"}, "status": "matched"}
+        for index in range(1, 14)
+    ]
+    llm_client = _SequencedLLMClient(responses)
+    runtime = _build_runtime(llm_client=llm_client, observations=observations)
+
+    result = runtime.run(
+        {
+            "task": "agent_executor",
+            "goal": "continue the app workflow until it reaches the next stable state",
+            "app_id": "x",
+            "package": "com.twitter.android",
+            "_app_states": {"home": {"label": "home"}, "notifications": {"label": "notifications"}},
+            "expected_state_ids": ["home", "notifications"],
+            "allowed_actions": ["ui.click"],
+        }
+    )
+
+    assert result["ok"] is True
+    assert result["status"] == "completed"
+    assert result["message"] == "completed after extension"
+    assert len(llm_client.calls) == 13
+
+
+def test_agent_executor_stops_early_on_repeated_action_contract_errors():
+    llm_client = _SequencedLLMClient(
+        responses=[
+            LLMResponse(
+                ok=True,
+                request_id="req-1",
+                provider="openai",
+                model="gpt-5.4",
+                output_text=json.dumps({"action": "ui.input_text", "params": {}}),
+            ),
+            LLMResponse(
+                ok=True,
+                request_id="req-2",
+                provider="openai",
+                model="gpt-5.4",
+                output_text=json.dumps({"action": "ui.input_text", "params": {}}),
+            ),
+        ]
+    )
+    runtime = _build_runtime(
+        llm_client=llm_client,
+        observations=[
+            {"platform": "native", "state": {"state_id": "account"}, "status": "matched"},
+            {"platform": "native", "state": {"state_id": "account"}, "status": "matched"},
+        ],
+        extra_actions={
+            "ui.input_text": lambda params, context: ActionResult(
+                ok=False, code="invalid_params", message="text is required"
+            )
+        },
+    )
+
+    result = runtime.run(
+        {
+            "task": "agent_executor",
+            "goal": "type into the current field",
+            "app_id": "x",
+            "package": "com.twitter.android",
+            "_app_states": {"account": {"label": "account"}},
+            "expected_state_ids": ["account"],
+            "allowed_actions": ["ui.input_text"],
+        }
+    )
+
+    assert result["ok"] is False
+    assert result["status"] == "failed_circuit_breaker"
+    assert result["code"] == "repeated_action_contract_errors"
+    assert result["step_count"] == 2
+    assert result["circuit_breaker"]["contract_error_limit"] == 2
 
 
 def test_agent_executor_circuit_breaker_stagnant_state_abort(tmp_path: Path):

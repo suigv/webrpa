@@ -396,6 +396,7 @@ def _evaluate_run_asset(
             terminal_message=terminal_message or None,
         ),
         "accepted_for_distill": distill_decision == "accepted",
+        "continuable": bool(retained_value),
         "replayable": completion_status == "completed" and bool(retained_value),
     }
 
@@ -842,11 +843,11 @@ class WorkflowDraftService:
             )
             run_asset = asset_assessment["asset"]
             self._store.upsert_run_asset(run_asset, conn=tx_conn)
+            snapshot = _build_task_snapshot(task_record, payload)
+            if asset_assessment["continuable"]:
+                record.last_replayable_snapshot = snapshot
             if task_status == "completed":
                 record.latest_completed_task_id = str(task_record.task_id)
-                snapshot = _build_task_snapshot(task_record, payload)
-                if asset_assessment["replayable"]:
-                    record.last_replayable_snapshot = snapshot
                 if asset_assessment["accepted_for_distill"]:
                     record.success_count += 1
                     record.successful_task_ids = _dedupe_keep_last(

@@ -17,19 +17,69 @@ def _tap_fallback(params: dict[str, object], context: ExecutionContext) -> Actio
     return tap(tap_params, context)
 
 
+def _fallback_coordinates(params: dict[str, object]) -> tuple[object, object]:
+    fallback_x = params.get("fallback_x")
+    fallback_y = params.get("fallback_y")
+    if fallback_x is not None and fallback_y is not None:
+        return fallback_x, fallback_y
+    return params.get("x"), params.get("y")
+
+
+def _selector_query_candidates(params: dict[str, object]) -> list[dict[str, object]]:
+    if str(params.get("type") or "").strip():
+        return [dict(params)]
+
+    queries: list[dict[str, object]] = []
+    raw_selectors = params.get("selectors")
+    if not isinstance(raw_selectors, list):
+        return queries
+
+    mapping = {
+        "text": ("text", "equal"),
+        "text_contains": ("text", "contains"),
+        "id": ("id", "equal"),
+        "resource_id": ("id", "equal"),
+        "class_name": ("class", "equal"),
+        "desc": ("desc", "equal"),
+        "content_desc": ("desc", "equal"),
+        "desc_contain": ("desc", "contains"),
+    }
+    for item in raw_selectors:
+        if not isinstance(item, dict):
+            continue
+        for key, (query_type, mode) in mapping.items():
+            value = str(item.get(key) or "").strip()
+            if not value:
+                continue
+            query = dict(params)
+            query["type"] = query_type
+            query["mode"] = mode
+            query["value"] = value
+            queries.append(query)
+    return queries
+
+
 def click_selector_or_tap(params: dict[str, object], context: ExecutionContext) -> ActionResult:
     from engine.actions import ui_actions
 
-    selector_result = ui_actions.selector_click_one(params, context)
-    if selector_result.ok:
-        return selector_result
+    selector_result = ActionResult(ok=False, code="invalid_params", message="selector query is required")
+    for query in _selector_query_candidates(params):
+        selector_result = ui_actions.selector_click_one(query, context)
+        if selector_result.ok:
+            return selector_result
 
-    fallback_x = params.get("fallback_x")
-    fallback_y = params.get("fallback_y")
+    fallback_x, fallback_y = _fallback_coordinates(params)
     if fallback_x is None or fallback_y is None:
         return selector_result
 
-    fallback_result = _tap_fallback(params, context)
+    fallback_result = _tap_fallback(
+        {
+            **params,
+            "fallback_x": fallback_x,
+            "fallback_y": fallback_y,
+        },
+        context,
+    )
     if fallback_result.ok:
         return ActionResult(
             ok=True,

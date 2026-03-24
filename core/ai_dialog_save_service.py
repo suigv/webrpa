@@ -76,7 +76,9 @@ class AIDialogSaveService:
         payload = dict(snapshot.get("payload") or {})
         identity = dict(snapshot.get("identity") or {})
         summary = self._workflow_drafts.summary(draft_id) or {}
-        latest_task_id = str(summary.get("latest_completed_task_id") or "").strip()
+        latest_task_id = str(
+            summary.get("latest_completed_task_id") or summary.get("latest_terminal_task_id") or ""
+        ).strip()
         annotations = self.list_annotations(latest_task_id) if latest_task_id else []
 
         candidates: list[dict[str, Any]] = []
@@ -174,6 +176,13 @@ class AIDialogSaveService:
             },
             "candidates": candidates,
         }
+
+    def has_save_candidates(self, draft_id: str) -> bool:
+        try:
+            bundle = self.list_save_candidates(draft_id)
+        except ValueError:
+            return False
+        return bool(bundle.get("candidates"))
 
     def apply_save_choices(self, draft_id: str, candidate_ids: list[str]) -> dict[str, Any]:
         selected_ids = {str(item or "").strip() for item in candidate_ids if str(item or "").strip()}

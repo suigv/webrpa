@@ -65,6 +65,45 @@ def test_click_selector_or_tap_uses_tap_fallback(monkeypatch: pytest.MonkeyPatch
     ]
 
 
+def test_click_selector_or_tap_accepts_selector_list_and_xy_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    register_defaults()
+    calls: list[tuple[str, dict[str, object]]] = []
+
+    def selector_click_one(params: dict[str, object], _context: ExecutionContext) -> ActionResult:
+        calls.append(("selector", params.copy()))
+        return ActionResult(ok=False, code="not_found")
+
+    monkeypatch.setattr(ui_actions, "selector_click_one", selector_click_one)
+    from engine.actions import login_actions
+
+    def tap_fallback(params: dict[str, object], _context: ExecutionContext) -> ActionResult:
+        calls.append(("tap", params.copy()))
+        return ActionResult(ok=True, code="ok", data={"x": params["fallback_x"], "y": params["fallback_y"]})
+
+    monkeypatch.setattr(login_actions, "_tap_fallback", tap_fallback)
+
+    handler = resolve_action("ui.click_selector_or_tap")
+    result = handler(
+        {
+            "device_ip": "192.168.1.2",
+            "selectors": [{"content_desc": "通知"}, {"text": "通知"}],
+            "x": 756,
+            "y": 1846,
+        },
+        ExecutionContext(payload={"device_ip": "192.168.1.2"}),
+    )
+
+    assert result.ok is True
+    assert result.data["used_tap_fallback"] is True
+    assert calls[0][1]["type"] == "desc"
+    assert calls[1][1]["type"] == "text"
+    assert calls[2][0] == "tap"
+    assert calls[2][1]["fallback_x"] == 756
+    assert calls[2][1]["fallback_y"] == 1846
+
+
 def test_input_text_with_shell_fallback_uses_exec_command(monkeypatch: pytest.MonkeyPatch):
     register_defaults()
     calls: list[tuple[str, dict[str, object]]] = []

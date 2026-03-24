@@ -61,9 +61,19 @@ _SUBMIT_LOCATE_TOKENS = (
 )
 _FOCUS_LOCATE_TOKENS = ("输入框", "文本框", "edittext", "text field", "field")
 _HISTORY_DIGEST_WINDOW = 5
-_DYNAMIC_STEP_EXTENSION_MIN = 2
-_DYNAMIC_STEP_EXTENSION_CAP = 5
+_DYNAMIC_STEP_EXTENSION_MIN = 3
+_DYNAMIC_STEP_EXTENSION_CAP = 6
 _DYNAMIC_STEP_PROGRESS_WINDOW = 4
+_DEFAULT_APP_LEVEL_MAX_STEPS = 12
+_ACTION_CONTRACT_ERROR_CODES = frozenset(
+    {
+        "invalid_image",
+        "invalid_json",
+        "invalid_key",
+        "invalid_params",
+        "invalid_response",
+    }
+)
 _PLANNER_INPUT_ALIASES = (
     ("acc", ("acc", "account")),
     ("pwd", ("pwd", "password")),
@@ -132,6 +142,25 @@ def _int_in_range(value: object, *, default: int, minimum: int, maximum: int) ->
     if parsed < minimum or parsed > maximum:
         raise ValueError(f"must be between {minimum} and {maximum}")
     return parsed
+
+
+def _has_app_level_context(payload: Mapping[str, object]) -> bool:
+    app_id = str(payload.get("app_id") or "").strip().lower()
+    package = str(payload.get("package") or payload.get("package_name") or "").strip()
+    app_states = payload.get("_app_states")
+    has_state_profile = isinstance(app_states, (list, Mapping))
+    return bool(package or has_state_profile or (app_id and app_id != "default"))
+
+
+def _default_max_steps(payload: Mapping[str, object]) -> tuple[int, bool]:
+    if payload.get("max_steps") not in (None, ""):
+        return (
+            _int_in_range(payload.get("max_steps"), default=8, minimum=1, maximum=100),
+            True,
+        )
+    if _has_app_level_context(payload):
+        return _DEFAULT_APP_LEVEL_MAX_STEPS, True
+    return 8, True
 
 
 def _stable_fingerprint(value: object) -> str:
@@ -222,6 +251,14 @@ def _action_fingerprint(action_name: str, params: dict[str, object]) -> str:
 
 def _is_non_mutating_action(last_action: Mapping[str, object] | None) -> bool:
     action = str(_json_dict(last_action).get("action") or "").strip()
+    if action in {
+        "ai.locate_point",
+        "ui.dump_node_xml",
+        "ui.dump_node_xml_ex",
+        "ui.capture_compressed",
+        "ui.screenshot",
+    }:
+        return True
     if action != "ai.locate_point":
         return False
     result = _json_dict(_json_dict(last_action).get("result"))
@@ -265,10 +302,13 @@ def _planner_allowed_actions(
     observation_payload: Mapping[str, object] | None,
     previous_state_id: str,
     observation_requires_fallback: bool,
+    navigation_available: bool,
 ) -> list[str]:
     actions = [
         action for action in allowed_actions if action and action not in _PLANNER_DISALLOWED_ACTIONS
     ]
+    if not navigation_available:
+        actions = [action for action in actions if action != "ui.navigate_to"]
     action = str(_json_dict(last_action).get("action") or "").strip()
     result = _json_dict(_json_dict(last_action).get("result"))
     result_data = _json_dict(result.get("data"))
@@ -311,6 +351,34 @@ def _planner_allowed_actions(
         elif "ui.click" in actions:
             actions = _prioritize_action(actions, "ui.click")
     return actions
+
+
+def _business_completion_hint(
+    *,
+    goal: str,
+    previous_state_id: str,
+    observation_payload: Mapping[str, object] | None,
+    last_action: Mapping[str, object] | None,
+) -> str:
+    normalized_goal = str(goal or "").strip().lower()
+    if not normalized_goal:
+        return ""
+    if not any(token in normalized_goal for token in ("返回主页", "回到主页", "返回首页", "回到首页", "回主页")):
+        return ""
+    if not any(token in normalized_goal for token in ("如果", "若", "没有", "无", "完成后")):
+        return ""
+    current_state_id = _observation_state_id(observation_payload)
+    if current_state_id != "home":
+        return ""
+    if previous_state_id in {"", "home", "unknown"}:
+        return ""
+    action = str(_json_dict(last_action).get("action") or "").strip()
+    if action in {"", "ui.dump_node_xml", "ui.dump_node_xml_ex", "ui.screenshot"}:
+        return ""
+    result = _json_dict(_json_dict(last_action).get("result"))
+    if not bool(result.get("ok")):
+        return ""
+    return "已返回主页，且目标描述包含分支后回到主页的完成条件。"
 
 
 def _login_stage_rank(state_id: str) -> int:
@@ -693,6 +761,29 @@ def _recent_observation_progress_score(
     return len(set(fingerprints))
 
 
+def _recent_successful_mutation_count(
+    history: list[dict[str, object]],
+    *,
+    window: int = _DYNAMIC_STEP_PROGRESS_WINDOW,
+) -> int:
+    recent = history[-window:] if len(history) > window else history
+    count = 0
+    for entry in recent:
+        result = _json_dict(entry.get("result"))
+        if not bool(result.get("ok")) or _is_non_mutating_action(entry):
+            continue
+        count += 1
+    return count
+
+
+def _is_action_contract_error(result_payload: Mapping[str, object] | None) -> bool:
+    result = _json_dict(result_payload)
+    if bool(result.get("ok")):
+        return False
+    code = str(result.get("code") or "").strip().lower()
+    return code in _ACTION_CONTRACT_ERROR_CODES or code.startswith("invalid_")
+
+
 def _dynamic_step_extension_reason(
     *,
     config: AgentExecutorConfig,
@@ -705,7 +796,7 @@ def _dynamic_step_extension_reason(
     if not history or last_action is None:
         return ""
     result = _json_dict(_json_dict(last_action).get("result"))
-    if not bool(result.get("ok")):
+    if _is_action_contract_error(result):
         return ""
     if stagnant_observation_count >= max(1, config.stagnant_limit - 1):
         return ""
@@ -718,11 +809,15 @@ def _dynamic_step_extension_reason(
         current_state_id = _observation_state_id(_json_dict(last_observation.get("data")))
         if current_state_id in {"unknown", "home"}:
             return "submit_transition_pending"
+    progress_score = _recent_observation_progress_score(history, last_observation=last_observation)
+    if progress_score >= 3:
+        return "recent_progress"
     if (
         repeated_action_count <= 1
-        and _recent_observation_progress_score(history, last_observation=last_observation) >= 2
+        and progress_score >= 2
+        and _recent_successful_mutation_count(history) > 0
     ):
-        return "recent_progress"
+        return "successful_progress_signal"
     return ""
 
 

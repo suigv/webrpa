@@ -887,6 +887,42 @@ def test_detect_app_stage_prefers_stage_patterns_from_app_config(monkeypatch):
     }
 
 
+def test_detect_app_stage_stage_patterns_accept_content_descs(monkeypatch):
+    mod = _load_state_actions_module()
+    ExecutionContext = _load_execution_context()
+
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(mod, "_connect_rpc", lambda params, context: (object(), None))
+    monkeypatch.setattr(mod, "_close_rpc", lambda rpc: None)
+
+    def _fake_detect(rpc, params, context):
+        _ = (rpc, context)
+        captured["params"] = params
+        return "notifications"
+
+    monkeypatch.setattr(mod, "_detect_login_stage_with_rpc", _fake_detect)
+
+    ctx = ExecutionContext(payload={"device_ip": "192.168.1.214"})
+    result = mod.detect_app_stage(
+        {"stage_patterns": {"notifications": {"content_descs": ["通知"]}}},
+        ctx,
+    )
+
+    assert result.ok is True
+    assert result.data == {"stage": "notifications"}
+    assert captured["params"] == {
+        "stage_patterns": {
+            "notifications": {
+                "resource_ids": [],
+                "focus_markers": [],
+                "text_markers": ["通知"],
+            }
+        },
+        "stage_order": ["notifications"],
+    }
+
+
 def test_detect_app_stage_falls_back_to_legacy_stage_like_selectors(monkeypatch):
     mod = _load_state_actions_module()
     ExecutionContext = _load_execution_context()

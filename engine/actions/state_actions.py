@@ -121,6 +121,8 @@ def _normalize_stage_entry(raw: object) -> dict[str, list[str]]:
     if raw is None:
         return {"resource_ids": [], "focus_markers": [], "text_markers": []}
     if isinstance(raw, dict):
+        text_markers = _coerce_text_list(raw.get("text_markers") or raw.get("texts"))
+        text_markers.extend(_coerce_text_list(raw.get("content_descs")))
         return {
             "resource_ids": _coerce_text_list(
                 raw.get("resource_ids") or raw.get("resource_id_markers")
@@ -128,7 +130,7 @@ def _normalize_stage_entry(raw: object) -> dict[str, list[str]]:
             "focus_markers": _coerce_text_list(
                 raw.get("focus_markers") or raw.get("window_markers")
             ),
-            "text_markers": _coerce_text_list(raw.get("text_markers") or raw.get("texts")),
+            "text_markers": list(dict.fromkeys(text_markers)),
         }
     # Allow shorthand list/string as text markers
     return {"resource_ids": [], "focus_markers": [], "text_markers": _coerce_text_list(raw)}

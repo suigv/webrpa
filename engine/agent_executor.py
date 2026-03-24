@@ -19,10 +19,13 @@ from .agent_executor_support import (
     _apply_fallback_state_hint,
     _build_history_digest,
     _build_reflection,
+    _business_completion_hint,
+    _default_max_steps,
     _dynamic_step_extension_reason,
     _dynamic_step_extension_size,
     _fallback_xml_text,
     _int_in_range,
+    _is_action_contract_error,
     _is_non_mutating_action,
     _json_dict,
     _needs_form_submit,
@@ -53,7 +56,8 @@ _TRANSITION_WAIT_TIMEOUT_MS = 2500
 _TRANSITION_WAIT_INTERVAL_MS = 300
 _LOADING_WAIT_TIMEOUT_MS = 5000
 _LOADING_WAIT_INTERVAL_MS = 400
-_DYNAMIC_STEP_EXTENSION_MAX_ROUNDS = 1
+_DYNAMIC_STEP_EXTENSION_MAX_ROUNDS = 2
+_ACTION_CONTRACT_ERROR_LIMIT = 2
 _EMPTY_ACTION_DEFER_LIMIT = 3
 _DEFAULT_EXECUTOR_ACTION_PREFIXES = ("ai.", "ui.", "app.")
 _DEFAULT_EXECUTOR_ACTION_EXCLUSIONS = {"ui.match_state", "ui.observe_transition"}
@@ -141,6 +145,7 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
         effective_max_steps = config.max_steps
         step_budget_extensions_used = 0
         extended_steps_total = 0
+        consecutive_contract_error_count = 0
         last_observation: dict[str, object] = {
             "data": {},
             "ok": False,
@@ -155,7 +160,10 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
         while True:
             if step_index > effective_max_steps:
                 extension_reason = ""
-                if step_budget_extensions_used < _DYNAMIC_STEP_EXTENSION_MAX_ROUNDS:
+                if (
+                    config.allow_step_budget_extension
+                    and step_budget_extensions_used < _DYNAMIC_STEP_EXTENSION_MAX_ROUNDS
+                ):
                     extension_reason = _dynamic_step_extension_reason(
                         config=config,
                         history=history,
@@ -270,6 +278,43 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
             else:
                 stagnant_observation_count = 0
             previous_observation_fingerprint = observation_fingerprint
+
+            business_completion_message = _business_completion_hint(
+                goal=config.goal,
+                previous_state_id=previous_state_id,
+                observation_payload=observation_state if isinstance(observation_state, dict) else None,
+                last_action=last_action,
+            )
+            if business_completion_message:
+                self._append_trace(
+                    trace_context,
+                    self._terminal_trace_record(
+                        status="completed",
+                        sequence=step_index,
+                        step_index=step_index,
+                        observation=observation_state if isinstance(observation_state, dict) else {},
+                        observation_ok=bool(last_observation.get("ok")),
+                        observation_modality=observation_modality,
+                        observed_state_ids=observed_state_ids,
+                        fallback_reason=fallback_reason,
+                        fallback_evidence=fallback_evidence,
+                        code="business_completion",
+                        message=business_completion_message,
+                        observed_at=observed_at,
+                    ),
+                )
+                learned_package = self._resolve_learning_package(target_package, observation_state)
+                if learned_package:
+                    self._trigger_learning_hook(trace_context, learned_package)
+                return self._result(
+                    ok=True,
+                    status="completed",
+                    checkpoint="observe",
+                    code="business_completion",
+                    message=business_completion_message,
+                    step_count=step_index,
+                    history=history,
+                )
 
             if stagnant_observation_count >= config.stagnant_limit:
                 return self._failed_circuit_breaker_result(
@@ -450,6 +495,10 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
                 "params": action_params,
                 "result": action_result_payload,
             }
+            if _is_action_contract_error(action_result_payload):
+                consecutive_contract_error_count += 1
+            else:
+                consecutive_contract_error_count = 0
             history.append(
                 {
                     "step_index": step_index,
@@ -488,6 +537,33 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
                     "action_completed_at": _timestamp(),
                 },
             }
+            if consecutive_contract_error_count >= _ACTION_CONTRACT_ERROR_LIMIT:
+                self._flush_pending_trace(trace_context, pending_trace_record)
+                pending_trace_record = None
+                return self._failed_circuit_breaker_result(
+                    trace_context=trace_context,
+                    sequence=step_index + 1,
+                    step_index=step_index,
+                    checkpoint="dispatch",
+                    code="repeated_action_contract_errors",
+                    message="planner repeatedly selected actions with invalid runtime contract",
+                    step_count=step_index,
+                    history=history,
+                    circuit_breaker={
+                        "code": "repeated_action_contract_errors",
+                        "contract_error_limit": _ACTION_CONTRACT_ERROR_LIMIT,
+                        "consecutive_contract_error_count": consecutive_contract_error_count,
+                        "last_action": action_name,
+                        "last_action_code": str(action_result_payload.get("code") or ""),
+                    },
+                    observation=observation_state if isinstance(observation_state, dict) else {},
+                    observation_ok=observation_ok,
+                    observation_modality=observation_modality,
+                    observed_state_ids=observed_state_ids,
+                    fallback_reason=str(plan.get("fallback_reason") or fallback_reason),
+                    fallback_evidence=fallback_evidence,
+                    observed_at=observed_at,
+                )
 
             if should_cancel is not None and should_cancel():
                 self._flush_pending_trace(trace_context, pending_trace_record)
@@ -896,6 +972,7 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
             observation_payload=observation_state if isinstance(observation_state, dict) else None,
             previous_state_id=previous_state_id,
             observation_requires_fallback=observation_requires_fallback,
+            navigation_available=bool(config.planner_artifact.get("has_navigation_routes")),
         )
         if _needs_form_submit(
             last_action,
@@ -1070,16 +1147,20 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
             "app_id": app_id,
             "app_hint": app_hint,
             "advanced_prompt": advanced_prompt,
+            "has_navigation_routes": bool(payload.get("routes")) and bool(payload.get("hops")),
             "control_flow_hints": control_flow_hints,
             "control_flow_summary": control_flow_summary,
             "goal_text": "\n\n".join(part for part in goal_text_parts if part),
         }
 
+        max_steps, allow_step_budget_extension = _default_max_steps(payload)
+
         return AgentExecutorConfig(
             goal=goal,
             expected_state_ids=expected_state_ids,
             allowed_actions=allowed_actions,
-            max_steps=_int_in_range(payload.get("max_steps"), default=8, minimum=1, maximum=100),
+            max_steps=max_steps,
+            allow_step_budget_extension=allow_step_budget_extension,
             stagnant_limit=_int_in_range(
                 payload.get("stagnant_limit"), default=5, minimum=1, maximum=20
             ),
@@ -1099,6 +1180,11 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
                 if not isinstance(item, Mapping):
                     continue
                 state_id = str(item.get("state_id") or item.get("id") or "").strip()
+                if state_id and state_id not in inferred:
+                    inferred.append(state_id)
+        elif isinstance(states, Mapping):
+            for key in states:
+                state_id = str(key or "").strip()
                 if state_id and state_id not in inferred:
                     inferred.append(state_id)
         if inferred:

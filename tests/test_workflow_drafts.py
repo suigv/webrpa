@@ -466,6 +466,67 @@ def test_workflow_draft_completed_empty_dm_run_is_retained_but_not_counted(tmp_p
     assert replay["snapshot"]["payload"]["goal"] == "检查私信并自动回复新消息"
 
 
+def test_workflow_draft_failed_useful_trace_is_still_editable(tmp_path: Path):
+    service = _build_workflow_draft_service(tmp_path)
+    _create_draft(service)
+
+    task_record = SimpleNamespace(
+        task_id="task-follow-failed",
+        status="failed",
+        payload={
+            "task": "agent_executor",
+            "_workflow_draft_id": "draft-test",
+            "goal": "进入通知页面如果有新的关注就回关没有则返回主页",
+            "app_id": "x",
+        },
+        devices=[7],
+        targets=[{"device_id": 7, "cloud_id": 2}],
+        max_retries=0,
+        retry_backoff_seconds=2,
+        priority=50,
+        error="gpt executor exhausted configured step budget",
+    )
+
+    service.record_terminal(
+        task_record=task_record,
+        result={
+            "message": "gpt executor exhausted configured step budget",
+            "targets": [
+                {
+                    "result": {
+                        "message": "gpt executor exhausted configured step budget",
+                        "history": [
+                            {
+                                "action": "ui.click",
+                                "result": {"ok": True},
+                                "observation": {"state": {"state_id": "notifications"}},
+                            },
+                            {
+                                "action": "ui.click",
+                                "result": {"ok": True},
+                                "observation": {"state": {"state_id": "home"}},
+                            },
+                        ],
+                    }
+                }
+            ],
+        },
+    )
+
+    summary = service.summary("draft-test")
+    assert summary is not None
+    assert summary["failure_count"] == 1
+    assert summary["status"] == "needs_attention"
+    assert summary["latest_terminal_task_id"] == "task-follow-failed"
+    assert summary["last_replayable_snapshot_available"] is True
+    assert summary["can_continue"] is True
+    assert summary["latest_run_asset"]["completion_status"] == "failed"
+    assert summary["latest_run_asset"]["value_level"] == "useful_trace"
+
+    replay = service.continuation_snapshot("draft-test")
+    assert replay["snapshot"]["payload"]["goal"] == "进入通知页面如果有新的关注就回关没有则返回主页"
+
+
 def test_workflow_draft_completed_login_run_counts_for_distill(tmp_path: Path):
     service = _build_workflow_draft_service(tmp_path)
     _create_draft(service)

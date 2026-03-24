@@ -18,6 +18,7 @@ class AgentExecutorConfig:
     expected_state_ids: list[str]
     allowed_actions: list[str]
     max_steps: int
+    allow_step_budget_extension: bool
     stagnant_limit: int
     system_prompt: str
     llm_runtime: dict[str, object]

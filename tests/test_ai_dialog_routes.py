@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from api.server import app
+from core.ai_task_annotation_store import AITaskAnnotationStore
 from core.app_config_candidate_service import AppConfigCandidateService, AppConfigCandidateStore
 from core.task_control import (
     TaskController,
@@ -52,7 +53,8 @@ def test_ai_dialog_planner_returns_resolved_defaults(monkeypatch):
         assert any(item["task"] == "x_login" for item in data["recommended_workflows"])
         assert data["resolved_payload"]["_workflow_source"] == "ai_dialog"
         assert data["resolved_payload"]["_planner_objective"] == "login"
-        assert data["resolved_payload"]["expected_state_ids"] == ["home", "login"]
+        assert "home" in data["resolved_payload"]["expected_state_ids"]
+        assert "notifications" in data["resolved_payload"]["expected_state_ids"]
         assert "allowed_actions" in data["resolved_payload"]
         assert data["guidance"]["title"] == "蒸馏写法建议"
         assert data["control_flow"]["has_hints"] is False
@@ -376,6 +378,70 @@ def test_ai_dialog_history_filters_non_ai_dialog_drafts(tmp_path):
         assert data[0]["account"] == "demo@example.com"
         assert data[0]["can_replay"] is True
         assert data[0]["can_edit"] is True
+        assert data[0]["can_save"] is False
+    finally:
+        reset_task_controller_for_tests()
+
+
+def test_ai_dialog_history_uses_latest_terminal_task_for_save_candidates(tmp_path):
+    reset_task_controller_for_tests()
+    db_path = tmp_path / "tasks-ai-dialog-history-save.db"
+    controller = TaskController(
+        store=TaskStore(db_path=db_path),
+        queue_backend=InMemoryTaskQueue(),
+        event_store=TaskEventStore(db_path=db_path),
+    )
+    override_task_controller_for_tests(controller)
+
+    store = WorkflowDraftStore(db_path=db_path)
+    store.create_draft(
+        WorkflowDraftRecord(
+            draft_id="draft_failed_useful",
+            display_name="X 关注页处理",
+            task_name="agent_executor",
+            plugin_name_candidate="x_follow_flow",
+            source="ai_dialog",
+            latest_terminal_task_id="task-failed-useful",
+            last_replayable_snapshot={
+                "payload": {
+                    "goal": "进入通知页面如果有新的关注就回关没有则返回主页",
+                    "branch_id": "volc",
+                    "resource_namespace": "x.volc.pool",
+                },
+                "identity": {"app_id": "x", "account": "demo@example.com", "branch_id": "volc"},
+            },
+        )
+    )
+    annotation_store = AITaskAnnotationStore(db_path=db_path)
+    annotation_store.create_annotation(
+        task_id="task-failed-useful",
+        step_id=None,
+        input_type="search_keyword",
+        input_label="搜索关键词",
+        raw_value="#兼职",
+        save_eligible=True,
+        sensitive=False,
+        source="human_takeover",
+        action_kind="manual_input",
+        metadata=None,
+        captured_at="2026-03-24T00:00:00+00:00",
+    )
+
+    try:
+        with TestClient(app) as client:
+            history = client.get("/api/ai_dialog/history")
+            assert history.status_code == 200
+            data = history.json()
+            assert data[0]["draft_id"] == "draft_failed_useful"
+            assert data[0]["last_task_id"] == "task-failed-useful"
+            assert data[0]["can_edit"] is True
+            assert data[0]["can_save"] is True
+
+            candidates = client.get("/api/ai_dialog/drafts/draft_failed_useful/save_candidates")
+            assert candidates.status_code == 200
+            kinds = {item["kind"] for item in candidates.json()["candidates"]}
+            assert "payload_default" in kinds
+            assert "branch_keyword" in kinds
     finally:
         reset_task_controller_for_tests()
 

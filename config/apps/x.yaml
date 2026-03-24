@@ -32,17 +32,27 @@ stage_patterns:
       - "com.twitter.android:id/tabs"
       - "com.twitter.android:id/tab_layout"
       - "com.twitter.android:id/composer_write"
+    text_markers:
+      - "主页"
   login:
     resource_ids:
       - "com.twitter.android:id/ocf_text_input_edit"
       - "com.twitter.android:id/cta_button"
       - "com.twitter.android:id/password_edit_text"
+  notifications:
+    resource_ids:
+      - "com.twitter.android:id/notifications"
+    text_markers:
+      - "通知"
+      - "お知らせ"
 
 states:
   home:
     - selector_key: home_tab
   search_results:
     - selector_key: tweet_row
+  notifications:
+    - selector_key: notifications_tab
   dm_list:
     - selector_key: nav_dm
   profile:
@@ -75,6 +85,9 @@ selectors:
     desc_contain: "主页"
   tweet_row:
     id: "com.twitter.android:id/row"
+  notifications_tab:
+    id: "com.twitter.android:id/notifications"
+    desc_contain: "通知"
 
   popup_not_now:
     text: "今はしない"

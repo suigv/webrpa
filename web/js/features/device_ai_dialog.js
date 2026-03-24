@@ -634,7 +634,7 @@ async function loadAiDialogHistory() {
         saveButton.type = 'button';
         saveButton.className = 'btn btn-secondary btn-sm';
         saveButton.textContent = '保存可复用项';
-        saveButton.disabled = !item.can_edit;
+        saveButton.disabled = !item.can_save;
         saveButton.onclick = () => {
             void openAiDraftSaveModal(String(item.draft_id || ''));
         };
