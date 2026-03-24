@@ -2,6 +2,7 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .venv/
+# Local planning/evidence workspace. Keep out of the repo even if files exist locally.
 .sisyphus/
 
 # uv
