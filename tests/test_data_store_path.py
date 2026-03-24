@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 from core import data_store
+from core.paths import distilled_plugins_dir
 
 
 def test_data_store_path_under_new_project():
@@ -17,3 +18,9 @@ def test_write_text_preserves_valid_json_across_repeated_updates(tmp_path):
         payload = json.loads((base / "accounts.json").read_text(encoding="utf-8"))
         assert payload["type"] == "accounts"
         assert payload["lines"] == [f"alpha-{idx}", f"beta-{idx}"]
+
+
+def test_distilled_plugins_dir_stays_under_runtime_data():
+    path = distilled_plugins_dir().resolve().as_posix()
+    assert "/config/data/" in path
+    assert path.endswith("/distilled_plugins")

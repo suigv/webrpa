@@ -6,13 +6,23 @@ from collections.abc import Callable
 from typing import Any
 
 from core.app_branch_service import AppBranchProfileService
-from core.business_profile import branch_id_from_payload, normalize_branch_id
+from core.business_profile import (
+    branch_id_from_payload,
+    normalize_branch_id,
+    raw_branch_value_from_payload,
+)
 from core.shared_resource_store import get_shared_resource_store
 from engine.models.runtime import ActionResult, ExecutionContext
 
 
+def _context_payload(context: ExecutionContext | None) -> dict[str, Any]:
+    if context is None or not isinstance(context.payload, dict):
+        return {}
+    return context.payload
+
+
 def _resolve_app_id(params: dict[str, Any], context: ExecutionContext | None = None) -> str:
-    payload = context.payload if context is not None and isinstance(context.payload, dict) else {}
+    payload = _context_payload(context)
     return (
         str(params.get("app_id") or payload.get("app_id") or payload.get("app") or "default")
         .strip()
@@ -22,15 +32,8 @@ def _resolve_app_id(params: dict[str, Any], context: ExecutionContext | None = N
 
 
 def _explicit_branch_raw(params: dict[str, Any], context: ExecutionContext | None = None) -> str:
-    payload = context.payload if context is not None and isinstance(context.payload, dict) else {}
-    return str(
-        params.get("branch_id")
-        or params.get("ai_type")
-        or payload.get("branch_id")
-        or payload.get("business_branch")
-        or payload.get("ai_type")
-        or ""
-    ).strip()
+    payload_branch = raw_branch_value_from_payload(_context_payload(context))
+    return str(params.get("branch_id") or params.get("ai_type") or payload_branch or "").strip()
 
 
 def _resolve_branch_context(
@@ -38,7 +41,7 @@ def _resolve_branch_context(
     context: ExecutionContext | None = None,
 ) -> tuple[str, str, dict[str, Any]]:
     app_id = _resolve_app_id(params, context)
-    payload = context.payload if context is not None and isinstance(context.payload, dict) else {}
+    payload = _context_payload(context)
     explicit_branch = _explicit_branch_raw(params, context)
     fallback_branch = branch_id_from_payload(payload) if payload else "default"
     try:
@@ -54,11 +57,6 @@ def _resolve_branch_context(
         if normalize_branch_id(item.get("branch_id"), default="") == branch_id:
             return app_id, branch_id, dict(item)
     return app_id, branch_id, {}
-
-
-def _resolve_branch_id(params: dict[str, Any], context: ExecutionContext | None = None) -> str:
-    _, branch_id, _ = _resolve_branch_context(params, context)
-    return branch_id
 
 
 def _list_from_profile(profile: dict[str, Any], key: str) -> list[str]:
@@ -80,13 +78,44 @@ def _with_branch_metadata(data: dict[str, Any], branch_id: str) -> dict[str, Any
     }
 
 
+def _resolve_strategy_config(
+    document: dict[str, Any], branch_id: str
+) -> dict[str, Any] | None:
+    strategies = document.get("strategies", {})
+    strategy = strategies.get(branch_id) or strategies.get("default")
+    if not isinstance(strategy, dict):
+        return None
+    return strategy
+
+
+def _pick_profile_or_legacy_template(
+    profile: dict[str, Any],
+    *,
+    profile_key: str,
+    legacy_section: str,
+    branch_id: str,
+    select_interaction_template: Callable[[str, str], str],
+) -> tuple[str, str]:
+    profile_templates = _list_from_profile(profile, profile_key)
+    if profile_templates:
+        return random.choice(profile_templates), "branch_profile"
+    return select_interaction_template(legacy_section, branch_id), "legacy_config"
+
+
+def _render_template_text(template: str, source_text: str, *, snippet_limit: int) -> str:
+    snippet = re.sub(r"\s+", " ", source_text).strip()
+    if not snippet:
+        return template
+    return f"{template} {snippet[:snippet_limit]}"
+
+
 def _resource_namespace(
     params: dict[str, Any],
     context: ExecutionContext | None,
     *,
     shared_key: str,
 ) -> str:
-    payload = context.payload if context is not None and isinstance(context.payload, dict) else {}
+    payload = _context_payload(context)
     app_id, branch_id, profile = _resolve_branch_context(params, context)
     explicit = str(
         params.get("resource_namespace")
@@ -114,9 +143,9 @@ def pick_weighted_keyword_action(
             code="ok",
             data=_with_branch_metadata(
                 {
-                "keyword": override,
-                "rendered_keyword": override,
-                "source": "override",
+                    "keyword": override,
+                    "rendered_keyword": override,
+                    "source": "override",
                 },
                 branch_id,
             ),
@@ -144,8 +173,7 @@ def pick_weighted_keyword_action(
     except Exception as exc:
         return ActionResult(ok=False, code="strategy_config_unavailable", message=str(exc))
 
-    strategies = document.get("strategies", {})
-    strategy = strategies.get(branch_id) or strategies.get("default")
+    strategy = _resolve_strategy_config(document, branch_id)
     if not isinstance(strategy, dict):
         return ActionResult(
             ok=False, code="strategy_missing", message=f"strategy not found: {branch_id}"
@@ -179,9 +207,9 @@ def pick_weighted_keyword_action(
         code="ok",
         data=_with_branch_metadata(
             {
-            "bucket": bucket,
-            "keyword": keyword,
-            "rendered_keyword": rendered,
+                "bucket": bucket,
+                "keyword": keyword,
+                "rendered_keyword": rendered,
             },
             branch_id,
         ),
@@ -211,8 +239,7 @@ def is_text_blacklisted_action(
         document = load_strategy_document()
     except Exception as exc:
         return ActionResult(ok=False, code="strategy_config_unavailable", message=str(exc))
-    strategies = document.get("strategies", {})
-    strategy = strategies.get(branch_id) or strategies.get("default")
+    strategy = _resolve_strategy_config(document, branch_id)
     if not isinstance(strategy, dict):
         return ActionResult(
             ok=False, code="strategy_missing", message=f"strategy not found: {branch_id}"
@@ -242,11 +269,14 @@ def generate_dm_reply_action(
     select_interaction_template: Callable[[str, str], str],
 ) -> ActionResult:
     override = str(params.get("override") or "").strip()
-    payload = context.payload if context is not None and isinstance(context.payload, dict) else {}
+    payload = _context_payload(context)
     _app_id, branch_id, profile = _resolve_branch_context(params, context)
     last_message = str(params.get("last_message") or "").strip()
     reply_ai_type = str(
-        params.get("reply_ai_type") or payload.get("reply_ai_type") or profile.get("reply_ai_type") or ""
+        params.get("reply_ai_type")
+        or payload.get("reply_ai_type")
+        or profile.get("reply_ai_type")
+        or ""
     ).strip()
     if override:
         return ActionResult(
@@ -261,34 +291,29 @@ def generate_dm_reply_action(
                 branch_id,
             ),
         )
-    reply_texts = _list_from_profile(profile, "reply_texts")
-    if reply_texts:
-        template = random.choice(reply_texts)
-        source = "branch_profile"
-    else:
-        try:
-            template = select_interaction_template("dm_reply", branch_id)
-            source = "legacy_config"
-        except Exception as exc:
-            return ActionResult(ok=False, code="interaction_text_unavailable", message=str(exc))
-    snippet = re.sub(r"\s+", " ", last_message).strip()
-    if snippet:
-        snippet = snippet[:24]
-        reply_text = f"{template} {snippet}"
-    else:
-        reply_text = template
+    try:
+        template, source = _pick_profile_or_legacy_template(
+            profile,
+            profile_key="reply_texts",
+            legacy_section="dm_reply",
+            branch_id=branch_id,
+            select_interaction_template=select_interaction_template,
+        )
+    except Exception as exc:
+        return ActionResult(ok=False, code="interaction_text_unavailable", message=str(exc))
+    reply_text = _render_template_text(template, last_message, snippet_limit=24)
     return ActionResult(
         ok=True,
         code="ok",
         data=_with_branch_metadata(
-                {
-                    "reply_text": reply_text[:120],
-                    "source": source,
-                    "last_message": last_message,
-                    "reply_ai_type": reply_ai_type or None,
-                },
-                branch_id,
-            ),
+            {
+                "reply_text": reply_text[:120],
+                "source": source,
+                "last_message": last_message,
+                "reply_ai_type": reply_ai_type or None,
+            },
+            branch_id,
+        ),
     )
 
 
@@ -312,33 +337,28 @@ def generate_quote_text_action(
             code="ok",
             data=_with_branch_metadata({"quote_text": override, "source": "override"}, branch_id),
         )
-    reply_texts = _list_from_profile(profile, "reply_texts")
-    if reply_texts:
-        template = random.choice(reply_texts)
-        source = "branch_profile"
-    else:
-        try:
-            template = select_interaction_template("quote_text", branch_id)
-            source = "legacy_config"
-        except Exception as exc:
-            return ActionResult(ok=False, code="interaction_text_unavailable", message=str(exc))
-    snippet = re.sub(r"\s+", " ", source_text).strip()
-    if snippet:
-        snippet = snippet[:28]
-        quote_text = f"{template} {snippet}"
-    else:
-        quote_text = template
+    try:
+        template, source = _pick_profile_or_legacy_template(
+            profile,
+            profile_key="reply_texts",
+            legacy_section="quote_text",
+            branch_id=branch_id,
+            select_interaction_template=select_interaction_template,
+        )
+    except Exception as exc:
+        return ActionResult(ok=False, code="interaction_text_unavailable", message=str(exc))
+    quote_text = _render_template_text(template, source_text, snippet_limit=28)
     return ActionResult(
         ok=True,
         code="ok",
         data=_with_branch_metadata(
-                {
-                    "quote_text": quote_text[:140],
-                    "source": source,
-                    "source_text": source_text,
-                },
-                branch_id,
-            ),
+            {
+                "quote_text": quote_text[:140],
+                "source": source,
+                "source_text": source_text,
+            },
+            branch_id,
+        ),
     )
 
 
@@ -511,8 +531,7 @@ def pick_candidate_action(
     if not blacklist:
         try:
             document = load_strategy_document()
-            strategies = document.get("strategies", {})
-            strategy_cfg = strategies.get(branch_id) or strategies.get("default") or {}
+            strategy_cfg = _resolve_strategy_config(document, branch_id) or {}
             blacklist = strategy_cfg.get("blacklist", []) if isinstance(strategy_cfg, dict) else []
             scoring_cfg = (
                 strategy_cfg.get("candidate_scoring", {}) if isinstance(strategy_cfg, dict) else {}

@@ -78,6 +78,7 @@ verification_method:
 ## 当前运行时数据
 
 - 账号、任务等运行时数据继续落在 `config/data/`。
+- workflow draft 蒸馏产物当前写入 `config/data/distilled_plugins/`，不再写入 `plugins/` 源码目录。
 - app 配置审核候选当前使用独立数据存储，不直接把未审核学习结果写入 `config/apps/*.yaml`。
 
 ## 当前可观察入口

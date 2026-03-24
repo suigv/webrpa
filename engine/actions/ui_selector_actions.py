@@ -110,7 +110,7 @@ def selector_free(
     params: dict[str, Any], context: ExecutionContext, *, close_rpc: Any = _close_rpc
 ) -> ActionResult:
     """Legacy alias for selector_clear."""
-    return _selector_support.selector_clear(params, context, close_rpc=close_rpc)
+    return selector_clear(params, context, close_rpc=close_rpc)
 
 
 def selector_clear(
@@ -134,7 +134,6 @@ def dump_node_xml_ex(params: dict[str, Any], context: ExecutionContext) -> Actio
     if err:
         return err
     try:
-        work_mode = bool(params.get("work_mode", False))
         # Try XML with extended mode
         work_mode = bool(params.get("work_mode", True))
         xml = rpc.dump_node_xml_ex(work_mode, timeout_ms=3000) if rpc is not None else None

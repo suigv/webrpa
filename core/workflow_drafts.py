@@ -12,7 +12,7 @@ from core.app_config import resolve_app_id
 from core.business_profile import branch_id_from_payload, normalize_branch_id
 from core.golden_run_distillation import GoldenRunDistiller
 from core.model_trace_store import ModelTraceContext
-from core.paths import plugins_dir, traces_dir
+from core.paths import distilled_plugins_dir, traces_dir
 from core.task_semantics import (
     build_draft_exit_decision,
     build_memory_reuse_plan,
@@ -1056,7 +1056,7 @@ class WorkflowDraftService:
             output_name = (
                 resolved_name if resolved_name.endswith("_draft") else f"{resolved_name}_draft"
             )
-            output_dir = plugins_dir() / ".drafts" / output_name
+            output_dir = distilled_plugins_dir() / output_name
             snapshot = (
                 dict(record.last_success_snapshot)
                 if isinstance(record.last_success_snapshot, dict)

@@ -211,12 +211,12 @@ def test_workflow_draft_failure_advice_is_exposed(tmp_path: Path):
 def test_workflow_draft_continue_and_distill_flow(tmp_path: Path, monkeypatch):
     reset_task_controller_for_tests()
     db_path = tmp_path / "tasks-workflow-drafts-success.db"
-    plugins_root = tmp_path / "plugins"
-    plugins_root.mkdir(parents=True, exist_ok=True)
+    distilled_root = tmp_path / "distilled_plugins"
+    distilled_root.mkdir(parents=True, exist_ok=True)
 
     import core.workflow_drafts as workflow_drafts_module
 
-    monkeypatch.setattr(workflow_drafts_module, "plugins_dir", lambda: plugins_root)
+    monkeypatch.setattr(workflow_drafts_module, "distilled_plugins_dir", lambda: distilled_root)
 
     controller = TaskController(
         store=TaskStore(db_path=db_path),
@@ -296,7 +296,7 @@ def test_workflow_draft_continue_and_distill_flow(tmp_path: Path, monkeypatch):
             assert Path(payload["manifest_path"]).exists()
             assert Path(payload["script_path"]).exists()
             assert Path(payload["report_path"]).exists()
-            assert str(payload["output_dir"]).startswith(str(plugins_root))
+            assert str(payload["output_dir"]).startswith(str(distilled_root))
 
             distilled_detail = client.get(f"/api/tasks/drafts/{draft_id}")
             assert distilled_detail.status_code == 200
@@ -765,13 +765,13 @@ def test_workflow_draft_distill_preserves_account_picker_for_login_flow(
     tmp_path: Path, monkeypatch
 ):
     traces_root = tmp_path / "traces"
-    plugins_root = tmp_path / "plugins"
-    plugins_root.mkdir(parents=True, exist_ok=True)
+    distilled_root = tmp_path / "distilled_plugins"
+    distilled_root.mkdir(parents=True, exist_ok=True)
 
     import core.model_trace_store as model_trace_store_module
     import core.workflow_drafts as workflow_drafts_module
 
-    monkeypatch.setattr(workflow_drafts_module, "plugins_dir", lambda: plugins_root)
+    monkeypatch.setattr(workflow_drafts_module, "distilled_plugins_dir", lambda: distilled_root)
     monkeypatch.setattr(workflow_drafts_module, "traces_dir", lambda: traces_root)
     monkeypatch.setattr(model_trace_store_module, "traces_dir", lambda: traces_root)
     monkeypatch.setattr("core.golden_run_distillation.app_from_package", lambda package: "")
