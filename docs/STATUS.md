@@ -50,6 +50,8 @@ MYT_ENABLE_RPC=0 ./.venv/bin/python -m uvicorn api.server:app --host 127.0.0.1 -
 - 账号池当前支持 `default_branch` 与 `role_tags`，账号分配支持按 `app_id + branch_id + 任一命中的 role_tags` 取号。
 - app 当前支持分支资料配置、AI 输入标注、草稿可选保存，以及共享 app 配置候选审核后再写入正式 app YAML。
 - AI planner 当前会返回结构化任务意图、分支解析、执行阻塞原因和候选固定工作流，而不再只生成一句摘要文案。
+- workflow draft 当前只把 `accepted` 的终态计入蒸馏成功样本；已完成但未达蒸馏资格的运行会以 run asset 形式保留为可复用记忆。
+- AI planner 当前会消费近期同 app / 同 objective / 同 branch 的 run asset，并在响应 `memory` 中返回最近终态、保留价值和复用提示。
 - 后端仍保留 `/web` 入口，但前端是独立的 Vite 工程，部署方式见 [FRONTEND.md](FRONTEND.md)。
 - 当前仓库存在 10 个插件 manifest：
   - `device_reboot`

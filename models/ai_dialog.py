@@ -26,6 +26,7 @@ class AIDialogPlannerResponse(BaseModel):
     intent: dict[str, Any] = Field(default_factory=dict)
     branch: dict[str, Any] = Field(default_factory=dict)
     execution: dict[str, Any] = Field(default_factory=dict)
+    memory: dict[str, Any] = Field(default_factory=dict)
     recommended_workflows: list[dict[str, Any]] = Field(default_factory=list)
     draft: dict[str, Any] = Field(default_factory=dict)
 

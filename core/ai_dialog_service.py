@@ -686,6 +686,43 @@ def _operator_summary(
     return "，".join(parts) + "。"
 
 
+def _memory_suggestions(memory: dict[str, Any]) -> list[str]:
+    if not memory.get("available"):
+        return []
+    suggestions: list[str] = []
+    for item in memory.get("hints") or []:
+        text = _collapse_ws(item)
+        if text and text not in suggestions:
+            suggestions.append(text)
+    latest = memory.get("latest")
+    if isinstance(latest, dict):
+        distill_reason = str(latest.get("distill_reason") or "").strip()
+        if distill_reason == "empty_inbox":
+            suggestions.append("若要验证私信回复主路径，先确保存在可处理的新私信。")
+        elif distill_reason == "empty_candidate_pool":
+            suggestions.append("若要继续当前目标，先补充博主候选或关键词输入。")
+    return suggestions[:5]
+
+
+def _execution_next_step(default_step: str, memory: dict[str, Any]) -> str:
+    if not memory.get("available"):
+        return default_step
+    latest = memory.get("latest")
+    if not isinstance(latest, dict):
+        return default_step
+    distill_reason = str(latest.get("distill_reason") or "").strip()
+    accepted_count = int(memory.get("accepted_count") or 0)
+    if distill_reason == "empty_inbox":
+        return "最近同类任务已进入私信页但没有新消息；先准备可回复消息，再下发下一次 AI 任务。"
+    if distill_reason == "empty_candidate_pool":
+        return "最近同类任务缺少可用候选池；先补采集结果或关键词，再继续执行。"
+    if accepted_count > 0 and list(memory.get("entry_actions") or []):
+        return "最近已有可复用执行资产；优先沿已验证入口继续执行，减少重复探索。"
+    if str(latest.get("value_level") or "").strip() in {"replayable", "useful_trace"}:
+        return "最近已有可复用运行资产；优先复用最近页面入口与终态信息再继续。"
+    return default_step
+
+
 def _llm_planner_system_prompt() -> str:
     return (
         "你是 WebRPA 的 ai_dialog_planner。"
@@ -823,6 +860,11 @@ class AIDialogService:
             branch_id=str(branch.get("branch_id") or ""),
             normalized_goal=_normalized_goal_text(normalized_goal),
         )
+        memory = self._workflow_drafts.summarize_recent_run_assets(
+            app_id=resolved_app_id,
+            objective=str(intent.get("objective") or ""),
+            branch_id=str(branch.get("branch_id") or ""),
+        )
         top_workflow = recommended_workflows[0] if recommended_workflows else {
             "task": "agent_executor",
             "display_name": "AI 探索执行",
@@ -858,6 +900,9 @@ class AIDialogService:
             suggestions.append(
                 f"当前目标与 {top_workflow['display_name']} 接近，执行稳定后可迁移为固定插件。"
             )
+        for item in _memory_suggestions(memory):
+            if item not in suggestions:
+                suggestions.append(item)
 
         questions = _follow_up_questions(
             intent=intent,
@@ -875,18 +920,22 @@ class AIDialogService:
             "readiness": "ready" if can_execute else "blocked",
             "can_execute": can_execute,
             "blocking_reasons": blockers,
-            "next_step": (
-                "先补充账号，再重新规划。"
-                if blockers
-                else (
-                    f"先按 {top_plugin_workflow['display_name']} 的意图执行一次 AI 托管任务。"
-                    if top_plugin_workflow is not None
-                    else "先执行一次 AI 探索任务，收集可复用路径与配置证据。"
-                )
+            "next_step": _execution_next_step(
+                (
+                    "先补充账号，再重新规划。"
+                    if blockers
+                    else (
+                        f"先按 {top_plugin_workflow['display_name']} 的意图执行一次 AI 托管任务。"
+                        if top_plugin_workflow is not None
+                        else "先执行一次 AI 探索任务，收集可复用路径与配置证据。"
+                    )
+                ),
+                memory,
             ),
             "migration_target": (
                 top_plugin_workflow.get("task") if top_plugin_workflow is not None else None
             ),
+            "memory_ready": bool(memory.get("available")),
         }
 
         operator_summary = _operator_summary(
@@ -898,6 +947,9 @@ class AIDialogService:
             top_workflow=top_workflow,
             has_app_config=bool(app_config),
         )
+        if memory.get("available"):
+            asset_count = int(memory.get("asset_count") or 0)
+            operator_summary = f"{operator_summary[:-1]}，且最近已有 {asset_count} 条同类运行资产可复用。"
         llm_plan = self._plan_with_llm(
             goal=normalized_goal,
             app_id=resolved_app_id,
@@ -996,6 +1048,7 @@ class AIDialogService:
             },
             "branch": branch,
             "execution": execution,
+            "memory": memory,
             "recommended_workflows": recommended_workflows,
             "draft": {
                 "source": "ai_dialog",

@@ -4,6 +4,7 @@ import json
 import re
 import sqlite3
 import uuid
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -12,11 +13,43 @@ from core.business_profile import branch_id_from_payload, normalize_branch_id
 from core.golden_run_distillation import GoldenRunDistiller
 from core.model_trace_store import ModelTraceContext
 from core.paths import plugins_dir, traces_dir
-from core.workflow_draft_store import WorkflowDraftRecord, WorkflowDraftStore
+from core.workflow_draft_store import (
+    WorkflowDraftRecord,
+    WorkflowDraftStore,
+    WorkflowRunAssetRecord,
+)
 
 _TASK_TEXT_KEYS = ("goal", "prompt", "query", "instruction", "text", "description")
 _ASCII_WORD_RE = re.compile(r"[^a-z0-9]+")
 _TRACE_FILE_RE = re.compile(r"^(?P<target>.+)\.attempt-(?P<attempt>\d+)\.jsonl$")
+_EMPTY_INBOX_MARKERS = (
+    "未发现新消息",
+    "无需回复",
+    "收件箱为空",
+    "没有新消息",
+    "inbox is empty",
+    "no new message",
+)
+_REPLY_SENT_MARKERS = (
+    "已发送",
+    "发送成功",
+    "回复完成",
+    "私信回复任务完成",
+    "reply sent",
+)
+_EMPTY_COLLECTION_REASONS = {
+    "scrape_blogger": "empty_candidate_pool",
+    "quote_intercept": "empty_candidate_pool",
+    "follow_followers": "empty_candidate_pool",
+}
+_RUN_ASSET_HINTS = {
+    "empty_inbox": "最近同类任务已进入目标收件箱，但没有可回复的新消息；下次优先准备未读私信或调整触发时机。",
+    "empty_candidate_pool": "最近同类任务缺少可用候选池；下次先补采集结果或切换关键词/分支资源。",
+    "partial_path_only": "最近执行已跑通部分路径，但主目标未闭环；下次优先复用已验证入口继续补终态。",
+    "useful_trace_only": "最近保留了可复用轨迹，可继续沿已有入口缩短探索路径。",
+    "failed_run": "最近同类任务失败过，可结合最近终态信息先修正阻塞点。",
+    "cancelled_run": "最近同类任务存在人工中断记录，可复用已到达页面与上下文。",
+}
 
 
 def _dedupe_keep_last(items: list[str], *, limit: int = 20) -> list[str]:
@@ -222,6 +255,280 @@ def _build_snapshot_identity(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _primary_target_result(result: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(result, dict):
+        return {}
+    targets = result.get("targets")
+    if isinstance(targets, list):
+        for item in targets:
+            if not isinstance(item, dict):
+                continue
+            target_result = item.get("result")
+            if isinstance(target_result, dict):
+                return target_result
+    return result
+
+
+def _objective_from_payload(payload: dict[str, Any]) -> str:
+    direct = str(payload.get("_planner_objective") or "").strip()
+    if direct:
+        return direct
+    task_name = str(payload.get("task") or "").strip().lower()
+    if task_name in {
+        "x_reply_dm",
+        "x_scrape_blogger",
+        "x_follow_followers",
+        "x_quote_intercept",
+        "x_clone_profile",
+        "x_login",
+        "x_nurture",
+        "x_home_interaction",
+    }:
+        return task_name.removeprefix("x_")
+    prompt = _extract_prompt_text(payload) or ""
+    normalized = prompt.lower()
+    if any(token in normalized for token in ("私信", "消息", "dm", "聊天")):
+        return "reply_dm"
+    if any(token in normalized for token in ("采集", "博主", "search", "关键词")):
+        return "scrape_blogger"
+    if any(token in normalized for token in ("关注", "followers", "粉丝")):
+        return "follow_followers"
+    if any(token in normalized for token in ("引用", "quote")):
+        return "quote_intercept"
+    if any(token in normalized for token in ("仿冒", "资料", "profile")):
+        return "clone_profile"
+    if any(token in normalized for token in ("登录", "login", "signin", "sign in")):
+        return "login"
+    return "exploration"
+
+
+def _history_entries(target_result: dict[str, Any]) -> list[dict[str, Any]]:
+    history = target_result.get("history")
+    if not isinstance(history, list):
+        return []
+    return [item for item in history if isinstance(item, dict)]
+
+
+def _observed_state_ids(target_result: dict[str, Any]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for entry in _history_entries(target_result):
+        observation = entry.get("observation")
+        if not isinstance(observation, dict):
+            continue
+        state = observation.get("state")
+        state_id = ""
+        if isinstance(state, dict):
+            state_id = str(state.get("state_id") or "").strip()
+        if not state_id:
+            observed = observation.get("observed_state_ids")
+            if isinstance(observed, list):
+                state_id = str(next((item for item in observed if str(item or "").strip()), "") or "")
+        if state_id and state_id not in seen:
+            seen.add(state_id)
+            result.append(state_id)
+    return result
+
+
+def _entry_actions(target_result: dict[str, Any]) -> list[str]:
+    actions: list[str] = []
+    seen: set[str] = set()
+    for entry in _history_entries(target_result):
+        action = str(entry.get("action") or "").strip()
+        if not action or action in seen:
+            continue
+        seen.add(action)
+        actions.append(action)
+        if len(actions) >= 5:
+            break
+    return actions
+
+
+def _terminal_data(target_result: dict[str, Any]) -> dict[str, Any]:
+    data = target_result.get("data")
+    return dict(data) if isinstance(data, dict) else {}
+
+
+def _message_contains_any(message: str, markers: tuple[str, ...]) -> bool:
+    lowered = message.lower()
+    return any(str(marker).lower() in lowered for marker in markers)
+
+
+def _collection_count(data: dict[str, Any]) -> int:
+    for key in ("added_count", "collected", "processed_count", "published_count", "followed_count"):
+        raw = data.get(key)
+        if isinstance(raw, bool):
+            continue
+        try:
+            value = int(raw)
+        except Exception:
+            continue
+        if value > 0:
+            return value
+    candidates = data.get("candidates")
+    if isinstance(candidates, list) and candidates:
+        return len(candidates)
+    return 0
+
+
+def _evaluate_run_asset(
+    *,
+    task_record: Any,
+    result: dict[str, Any] | None,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    task_status = str(getattr(task_record, "status", "") or "").lower()
+    target_result = _primary_target_result(result)
+    terminal_message = str(
+        target_result.get("message") or (result or {}).get("message") or ""
+    ).strip()
+    data = _terminal_data(target_result)
+    objective = _objective_from_payload(payload)
+    identity = _build_snapshot_identity(payload)
+    observed_states = _observed_state_ids(target_result)
+    entry_actions = _entry_actions(target_result)
+
+    completion_status = task_status or "unknown"
+    business_outcome = "blocked"
+    distill_decision = "rejected"
+    distill_reason = "incomplete_run"
+    value_level = "discard"
+    retained_value: list[str] = []
+    business_flags: dict[str, Any] = {}
+
+    if completion_status == "completed":
+        retained_value = ["draft_memory"] if (terminal_message or observed_states or entry_actions) else []
+        value_level = "replayable" if retained_value else "discard"
+        business_outcome = "partial"
+        distill_reason = "partial_path_only"
+
+        if objective == "reply_dm":
+            if _message_contains_any(terminal_message, _EMPTY_INBOX_MARKERS):
+                business_outcome = "empty"
+                distill_reason = "empty_inbox"
+                business_flags["empty_inbox"] = True
+                retained_value = ["draft_memory", "app_candidate"]
+            elif _message_contains_any(terminal_message, _REPLY_SENT_MARKERS):
+                business_outcome = "fulfilled"
+                distill_decision = "accepted"
+                distill_reason = "fulfilled_main_path"
+                value_level = "distillable"
+                retained_value = ["draft_memory", "branch_memory", "app_candidate"]
+            else:
+                retained_value = ["draft_memory", "app_candidate"] if retained_value else []
+        elif objective in _EMPTY_COLLECTION_REASONS:
+            produced = _collection_count(data)
+            business_flags["produced_count"] = produced
+            retained_value = ["draft_memory", "branch_memory"] if retained_value else []
+            if produced > 0:
+                business_outcome = "fulfilled"
+                distill_decision = "accepted"
+                distill_reason = "fulfilled_main_path"
+                value_level = "distillable"
+                retained_value = ["draft_memory", "branch_memory", "app_candidate"]
+            else:
+                business_outcome = "empty"
+                distill_reason = _EMPTY_COLLECTION_REASONS[objective]
+        elif objective in {"login", "nurture", "home_interaction"}:
+            business_outcome = "fulfilled"
+            distill_decision = "accepted"
+            distill_reason = "fulfilled_main_path"
+            value_level = "distillable"
+            retained_value = ["draft_memory", "branch_memory"]
+        elif objective == "clone_profile":
+            if terminal_message:
+                business_outcome = "fulfilled"
+                distill_decision = "accepted"
+                distill_reason = "fulfilled_main_path"
+                value_level = "distillable"
+                retained_value = ["draft_memory", "branch_memory", "app_candidate"]
+        elif objective == "exploration":
+            business_outcome = "partial"
+            distill_reason = "useful_trace_only"
+            retained_value = ["draft_memory"] if retained_value else []
+    elif completion_status == "failed":
+        business_outcome = "blocked"
+        distill_reason = "failed_run"
+        value_level = "useful_trace" if (terminal_message or observed_states or entry_actions) else "discard"
+        retained_value = ["draft_memory"] if value_level == "useful_trace" else []
+    elif completion_status == "cancelled":
+        business_outcome = "blocked"
+        distill_reason = "cancelled_run"
+        value_level = "useful_trace" if (terminal_message or observed_states or entry_actions) else "discard"
+        retained_value = ["draft_memory"] if value_level == "useful_trace" else []
+
+    learned_assets = {
+        "objective": objective,
+        "observed_state_ids": observed_states,
+        "entry_actions": entry_actions,
+        "terminal_code": str(target_result.get("code") or (result or {}).get("code") or "").strip() or None,
+        "business_flags": business_flags,
+    }
+    if data:
+        learned_assets["result_data"] = data
+
+    return {
+        "asset": WorkflowRunAssetRecord(
+            asset_id=f"run_{str(getattr(task_record, 'task_id', '')).strip()}",
+            draft_id=str(payload.get("_workflow_draft_id") or "").strip(),
+            task_id=str(getattr(task_record, "task_id", "")).strip(),
+            app_id=str(identity.get("app_id") or "").strip(),
+            branch_id=str(identity.get("branch_id") or "").strip(),
+            objective=objective,
+            completion_status=completion_status,
+            business_outcome=business_outcome,
+            distill_decision=distill_decision,
+            distill_reason=distill_reason,
+            value_level=value_level,
+            retained_value=retained_value,
+            learned_assets=learned_assets,
+            terminal_message=terminal_message or None,
+        ),
+        "accepted_for_distill": distill_decision == "accepted",
+        "replayable": completion_status == "completed" and bool(retained_value),
+    }
+
+
+def _asset_to_dict(asset: WorkflowRunAssetRecord) -> dict[str, Any]:
+    return {
+        "asset_id": asset.asset_id,
+        "draft_id": asset.draft_id,
+        "task_id": asset.task_id,
+        "app_id": asset.app_id,
+        "branch_id": asset.branch_id,
+        "objective": asset.objective,
+        "completion_status": asset.completion_status,
+        "business_outcome": asset.business_outcome,
+        "distill_decision": asset.distill_decision,
+        "distill_reason": asset.distill_reason,
+        "value_level": asset.value_level,
+        "retained_value": list(asset.retained_value),
+        "learned_assets": dict(asset.learned_assets or {}),
+        "terminal_message": asset.terminal_message,
+        "created_at": asset.created_at,
+        "updated_at": asset.updated_at,
+    }
+
+
+def _build_task_snapshot(task_record: Any, payload: dict[str, Any]) -> dict[str, Any]:
+    trace_contexts = _list_trace_contexts(str(task_record.task_id))
+    latest_trace_context = trace_contexts[0] if len(trace_contexts) == 1 else None
+    return {
+        "payload": payload,
+        "devices": list(getattr(task_record, "devices", []) or []),
+        "targets": list(getattr(task_record, "targets", []) or []),
+        "max_retries": int(getattr(task_record, "max_retries", 0) or 0),
+        "retry_backoff_seconds": int(getattr(task_record, "retry_backoff_seconds", 2) or 2),
+        "priority": int(getattr(task_record, "priority", 50) or 50),
+        "identity": _build_snapshot_identity(payload),
+        "trace_context": (
+            _trace_context_to_dict(latest_trace_context) if latest_trace_context is not None else None
+        ),
+        "trace_context_count": len(trace_contexts),
+        "trace_context_ambiguous": len(trace_contexts) > 1,
+    }
+
+
 class WorkflowDraftService:
     def __init__(self, store: WorkflowDraftStore | None = None) -> None:
         self._store = store or WorkflowDraftStore()
@@ -317,7 +624,13 @@ class WorkflowDraftService:
         record = self._store.get_draft(draft_id, conn=conn)
         if record is None:
             return None
+        latest_assets = self._store.list_run_assets(limit=1, draft_id=record.draft_id, conn=conn)
+        latest_asset = latest_assets[0] if latest_assets else None
         remaining = max(0, record.success_threshold - record.success_count)
+        can_continue = (
+            isinstance(record.last_success_snapshot, dict)
+            or isinstance(record.last_replayable_snapshot, dict)
+        )
         summary = {
             "draft_id": record.draft_id,
             "display_name": record.display_name,
@@ -330,7 +643,7 @@ class WorkflowDraftService:
             "cancelled_count": record.cancelled_count,
             "success_threshold": record.success_threshold,
             "remaining_successes": remaining,
-            "can_continue": record.last_success_snapshot is not None,
+            "can_continue": can_continue,
             "can_distill": (
                 record.success_count >= record.success_threshold
                 and not (record.last_distilled_manifest_path and record.last_distilled_script_path)
@@ -338,12 +651,14 @@ class WorkflowDraftService:
             "latest_prompt_text": record.latest_prompt_text,
             "latest_failure_advice": record.last_failure_advice,
             "last_success_snapshot_available": record.last_success_snapshot is not None,
+            "last_replayable_snapshot_available": record.last_replayable_snapshot is not None,
             "last_distilled_manifest_path": record.last_distilled_manifest_path,
             "last_distilled_script_path": record.last_distilled_script_path,
             "saved_preferences": dict(record.saved_preferences or {}),
             "latest_terminal_task_id": record.latest_terminal_task_id,
             "latest_completed_task_id": record.latest_completed_task_id,
             "successful_task_ids": list(record.successful_task_ids),
+            "latest_run_asset": _asset_to_dict(latest_asset) if latest_asset is not None else None,
             "created_at": record.created_at,
             "updated_at": record.updated_at,
         }
@@ -355,6 +670,26 @@ class WorkflowDraftService:
         elif record.status == "distilled":
             summary["message"] = f"“{record.display_name}”的 YAML 草稿已生成，可继续测试或发布。"
             summary["next_action"] = "review_distilled"
+        elif latest_asset is not None and latest_asset.completion_status == "completed":
+            if latest_asset.distill_decision == "accepted":
+                if remaining > 0:
+                    summary["message"] = (
+                        f"当前稳定性样本 {record.success_count}/{record.success_threshold}。"
+                        f"可继续自动验证 {remaining} 次。"
+                    )
+                    summary["next_action"] = "continue_validation"
+                else:
+                    summary["message"] = (
+                        f"已满足 {record.success_count}/{record.success_threshold} 成功样本，可生成 YAML。"
+                    )
+                    summary["next_action"] = "distill"
+            else:
+                reason = latest_asset.distill_reason or "partial_path_only"
+                hint = _RUN_ASSET_HINTS.get(reason, "本次执行未计入蒸馏样本，但已保留可复用信息。")
+                summary["message"] = (
+                    f"“{record.display_name}”本次已完成，但未计入蒸馏样本。{hint}"
+                )
+                summary["next_action"] = "continue_validation" if can_continue else "retry"
         elif remaining > 0:
             summary["message"] = (
                 f"当前稳定性样本 {record.success_count}/{record.success_threshold}。"
@@ -395,7 +730,11 @@ class WorkflowDraftService:
             snapshot = (
                 dict(record.last_success_snapshot)
                 if isinstance(record.last_success_snapshot, dict)
-                else {}
+                else (
+                    dict(record.last_replayable_snapshot)
+                    if isinstance(record.last_replayable_snapshot, dict)
+                    else {}
+                )
             )
             identity = dict(snapshot.get("identity") or {}) if snapshot else {}
             items.append(
@@ -409,14 +748,128 @@ class WorkflowDraftService:
                     "last_task_id": record.latest_completed_task_id
                     or record.latest_terminal_task_id
                     or None,
-                    "can_replay": bool(record.last_success_snapshot),
-                    "can_edit": bool(record.last_success_snapshot),
+                    "can_replay": bool(snapshot),
+                    "can_edit": bool(snapshot),
                     "workflow_draft": summary,
                 }
             )
             if len(items) >= limit:
                 break
         return items
+
+    def summarize_recent_run_assets(
+        self,
+        *,
+        app_id: str,
+        objective: str,
+        branch_id: str | None = None,
+        limit: int = 5,
+        conn: sqlite3.Connection | None = None,
+    ) -> dict[str, Any]:
+        resolved_app_id = str(app_id or "").strip()
+        resolved_objective = str(objective or "").strip()
+        resolved_branch_id = normalize_branch_id(branch_id, default="")
+        if not resolved_app_id or not resolved_objective:
+            return {
+                "available": False,
+                "app_id": resolved_app_id or None,
+                "objective": resolved_objective or None,
+                "branch_id": resolved_branch_id or None,
+                "items": [],
+                "hints": [],
+            }
+        assets = self._store.list_run_assets(
+            limit=max(1, limit),
+            app_id=resolved_app_id,
+            objective=resolved_objective,
+            branch_id=resolved_branch_id or None,
+            conn=conn,
+        )
+        if not assets and resolved_branch_id:
+            assets = self._store.list_run_assets(
+                limit=max(1, limit),
+                app_id=resolved_app_id,
+                objective=resolved_objective,
+                branch_id=None,
+                conn=conn,
+            )
+        if not assets:
+            return {
+                "available": False,
+                "app_id": resolved_app_id,
+                "objective": resolved_objective,
+                "branch_id": resolved_branch_id or None,
+                "items": [],
+                "hints": [],
+            }
+
+        reason_counts = Counter(
+            asset.distill_reason for asset in assets if str(asset.distill_reason or "").strip()
+        )
+        outcome_counts = Counter(
+            asset.business_outcome for asset in assets if str(asset.business_outcome or "").strip()
+        )
+        value_counts = Counter(
+            asset.value_level for asset in assets if str(asset.value_level or "").strip()
+        )
+        retained_targets = Counter(
+            item
+            for asset in assets
+            for item in asset.retained_value
+            if str(item or "").strip()
+        )
+        observed_states = Counter(
+            str(state_id).strip()
+            for asset in assets
+            for state_id in list(asset.learned_assets.get("observed_state_ids") or [])
+            if str(state_id).strip()
+        )
+        entry_actions = Counter(
+            str(action).strip()
+            for asset in assets
+            for action in list(asset.learned_assets.get("entry_actions") or [])
+            if str(action).strip()
+        )
+
+        hints: list[str] = []
+        for reason, _count in reason_counts.most_common(3):
+            hint = _RUN_ASSET_HINTS.get(reason)
+            if hint and hint not in hints:
+                hints.append(hint)
+        if assets[0].terminal_message:
+            hints.append(f"最近终态：{_truncate_text(assets[0].terminal_message, max_len=80)}")
+
+        return {
+            "available": True,
+            "app_id": resolved_app_id,
+            "objective": resolved_objective,
+            "branch_id": resolved_branch_id or None,
+            "asset_count": len(assets),
+            "accepted_count": sum(1 for asset in assets if asset.distill_decision == "accepted"),
+            "replayable_count": sum(
+                1 for asset in assets if asset.completion_status == "completed" and asset.retained_value
+            ),
+            "latest": _asset_to_dict(assets[0]),
+            "top_reasons": [
+                {"reason": reason, "count": count} for reason, count in reason_counts.most_common(3)
+            ],
+            "top_outcomes": [
+                {"outcome": outcome, "count": count}
+                for outcome, count in outcome_counts.most_common(3)
+            ],
+            "top_value_levels": [
+                {"value_level": value_level, "count": count}
+                for value_level, count in value_counts.most_common(3)
+            ],
+            "retained_targets": [
+                {"target": target, "count": count}
+                for target, count in retained_targets.most_common(5)
+            ],
+            "observed_state_ids": [state_id for state_id, _count in observed_states.most_common(5)],
+            "entry_actions": [action for action, _count in entry_actions.most_common(5)],
+            "hints": hints[:5],
+            "items": [_asset_to_dict(asset) for asset in assets[:3]],
+        }
 
     def record_terminal(
         self,
@@ -451,33 +904,25 @@ class WorkflowDraftService:
                     limit=20,
                 )
             task_status = str(getattr(task_record, "status", "") or "").lower()
+            asset_assessment = _evaluate_run_asset(
+                task_record=task_record,
+                result=result,
+                payload=payload,
+            )
+            run_asset = asset_assessment["asset"]
+            self._store.upsert_run_asset(run_asset, conn=tx_conn)
             if task_status == "completed":
-                trace_contexts = _list_trace_contexts(str(task_record.task_id))
-                latest_trace_context = trace_contexts[0] if len(trace_contexts) == 1 else None
-                record.success_count += 1
                 record.latest_completed_task_id = str(task_record.task_id)
-                record.successful_task_ids = _dedupe_keep_last(
-                    [*record.successful_task_ids, str(task_record.task_id)],
-                    limit=20,
-                )
-                record.last_success_snapshot = {
-                    "payload": payload,
-                    "devices": list(getattr(task_record, "devices", []) or []),
-                    "targets": list(getattr(task_record, "targets", []) or []),
-                    "max_retries": int(getattr(task_record, "max_retries", 0) or 0),
-                    "retry_backoff_seconds": int(
-                        getattr(task_record, "retry_backoff_seconds", 2) or 2
-                    ),
-                    "priority": int(getattr(task_record, "priority", 50) or 50),
-                    "identity": _build_snapshot_identity(payload),
-                    "trace_context": (
-                        _trace_context_to_dict(latest_trace_context)
-                        if latest_trace_context is not None
-                        else None
-                    ),
-                    "trace_context_count": len(trace_contexts),
-                    "trace_context_ambiguous": len(trace_contexts) > 1,
-                }
+                snapshot = _build_task_snapshot(task_record, payload)
+                if asset_assessment["replayable"]:
+                    record.last_replayable_snapshot = snapshot
+                if asset_assessment["accepted_for_distill"]:
+                    record.success_count += 1
+                    record.successful_task_ids = _dedupe_keep_last(
+                        [*record.successful_task_ids, str(task_record.task_id)],
+                        limit=20,
+                    )
+                    record.last_success_snapshot = snapshot
                 record.last_failure_advice = None
                 record.status = _resolve_status(record)
             elif task_status == "failed":
@@ -495,15 +940,18 @@ class WorkflowDraftService:
             else:
                 return None
             self._store.update_draft(record, conn=tx_conn)
-            return self._build_terminal_event_payload(record)
+            return self._build_terminal_event_payload(record, latest_asset=run_asset)
 
     def continuation_snapshot(self, draft_id: str) -> dict[str, Any]:
         record = self._store.get_draft(draft_id)
         if record is None:
             raise ValueError(f"workflow draft not found: {draft_id}")
-        if not isinstance(record.last_success_snapshot, dict):
-            raise ValueError("workflow draft has no successful snapshot to replay")
-        snapshot = dict(record.last_success_snapshot)
+        snapshot_source = record.last_success_snapshot
+        if not isinstance(snapshot_source, dict):
+            snapshot_source = record.last_replayable_snapshot
+        if not isinstance(snapshot_source, dict):
+            raise ValueError("workflow draft has no replayable snapshot to continue")
+        snapshot = dict(snapshot_source)
         payload = dict(snapshot.get("payload") or {})
         saved_preferences = dict(record.saved_preferences or {})
         saved_payload_defaults = dict(saved_preferences.get("payload_defaults") or {})
@@ -635,6 +1083,7 @@ class WorkflowDraftService:
                 if record.latest_completed_task_id in removed:
                     record.latest_completed_task_id = None
                     record.last_success_snapshot = None
+                    record.last_replayable_snapshot = None
                     changed = True
                 filtered_successful_ids = [
                     task_id for task_id in record.successful_task_ids if task_id not in removed
@@ -753,7 +1202,12 @@ class WorkflowDraftService:
             },
         }
 
-    def _build_terminal_event_payload(self, record: WorkflowDraftRecord) -> dict[str, Any]:
+    def _build_terminal_event_payload(
+        self,
+        record: WorkflowDraftRecord,
+        *,
+        latest_asset: WorkflowRunAssetRecord | None = None,
+    ) -> dict[str, Any]:
         summary = self.summary(record.draft_id)
         if summary is None:
             return {}
@@ -767,6 +1221,16 @@ class WorkflowDraftService:
             summary["message"] = f"“{record.display_name}”的 YAML 草稿已生成，可继续测试或发布。"
             summary["next_action"] = "review_distilled"
             return summary
+        if latest_asset is not None and latest_asset.completion_status == "completed":
+            summary["latest_run_asset"] = _asset_to_dict(latest_asset)
+            if latest_asset.distill_decision != "accepted":
+                reason = latest_asset.distill_reason or "partial_path_only"
+                hint = _RUN_ASSET_HINTS.get(reason, "本次执行未计入蒸馏样本，但已保留可复用信息。")
+                summary["message"] = (
+                    f"“{record.display_name}”本次已完成，但未计入蒸馏样本。{hint}"
+                )
+                summary["next_action"] = "continue_validation" if summary.get("can_continue") else "retry"
+                return summary
         remaining = max(0, record.success_threshold - record.success_count)
         if remaining > 0:
             summary["message"] = (

@@ -61,11 +61,13 @@ class WorkflowDraftSummary(BaseModel):
     latest_prompt_text: str | None = None
     latest_failure_advice: WorkflowFailureAdvice | None = None
     last_success_snapshot_available: bool = False
+    last_replayable_snapshot_available: bool = False
     last_distilled_manifest_path: str | None = None
     last_distilled_script_path: str | None = None
     latest_terminal_task_id: str | None = None
     latest_completed_task_id: str | None = None
     successful_task_ids: list[str] = Field(default_factory=list)
+    latest_run_asset: dict[str, Any] | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
     message: str | None = None

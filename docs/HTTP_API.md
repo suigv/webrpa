@@ -134,10 +134,18 @@ verification_method:
 
 - `POST /api/ai_dialog/planner` 当前支持 `app_id`、`app_display_name`、`package_name`，用于已存在 app 选择和新 app 探索式启动。
 - planner 返回当前已解析的 `intent`、`branch`、`execution`、`recommended_workflows`，用于前端展示任务意图、账号阻塞项和候选固定工作流。
+- planner 额外返回 `memory`，用于描述近期同类 AI 运行资产的最近终态、蒸馏判定、可复用状态/动作和提示语。
 - `POST /api/ai_dialog/annotations` 用于记录用户接管输入时声明的输入类型。
 - `GET/POST /api/ai_dialog/drafts/{draft_id}/save_*` 用于列出并应用一次执行后的可选保存项，而不是强制落库全部运行时数据。
 - `GET/PUT /api/ai_dialog/apps/{app_id}/branch_profiles` 用于读取和维护 app 级分支资料。
 - `GET/POST /api/ai_dialog/apps/{app_id}/config_candidates*` 用于审核蒸馏候选后再写入共享 app 配置。
+
+### Workflow Draft / Run Asset
+
+- `GET /api/tasks/drafts*` 返回的 workflow draft 摘要当前区分两类完成结果：
+  - `success_count` 只统计通过蒸馏资格判定的 accepted 样本。
+  - `latest_run_asset` 描述最近一次终态运行的 `business_outcome`、`distill_decision`、`distill_reason` 与 `retained_value`。
+- 当一次 AI 任务已经完成但不满足蒸馏资格时，系统仍会保留 replayable / useful trace 级别的 run asset，供后续 planner 与继续执行复用。
 
 ## 动作与技能目录
 

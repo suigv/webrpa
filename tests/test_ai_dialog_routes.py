@@ -12,7 +12,11 @@ from core.task_control import (
 from core.task_events import TaskEventStore
 from core.task_queue import InMemoryTaskQueue
 from core.task_store import TaskStore
-from core.workflow_draft_store import WorkflowDraftRecord, WorkflowDraftStore
+from core.workflow_draft_store import (
+    WorkflowDraftRecord,
+    WorkflowDraftStore,
+    WorkflowRunAssetRecord,
+)
 
 
 def test_ai_dialog_planner_returns_resolved_defaults(monkeypatch):
@@ -193,6 +197,87 @@ def test_ai_dialog_planner_infers_branch_and_workflow_for_collection_goal(monkey
         assert data["resolved_payload"]["branch_id"] == "volc"
         assert data["execution"]["mode"] == "workflow_aligned"
         assert any(item["task"] == "x_scrape_blogger" for item in data["recommended_workflows"])
+    finally:
+        reset_task_controller_for_tests()
+
+
+def test_ai_dialog_planner_reuses_recent_run_asset_memory(tmp_path, monkeypatch):
+    reset_task_controller_for_tests()
+    db_path = tmp_path / "tasks-ai-dialog-memory.db"
+    controller = TaskController(
+        store=TaskStore(db_path=db_path),
+        queue_backend=InMemoryTaskQueue(),
+        event_store=TaskEventStore(db_path=db_path),
+    )
+    override_task_controller_for_tests(controller)
+
+    store = WorkflowDraftStore(db_path=db_path)
+    store.create_draft(
+        WorkflowDraftRecord(
+            draft_id="draft_dm_memory",
+            display_name="X 私信回复",
+            task_name="agent_executor",
+            plugin_name_candidate="x_reply_dm_memory",
+            source="ai_dialog",
+            last_replayable_snapshot={
+                "identity": {"app_id": "x", "account": "demo@example.com", "branch_id": "volc"},
+                "payload": {"goal": "检查私信并用 AI 自动回复", "branch_id": "volc"},
+            },
+        )
+    )
+    store.upsert_run_asset(
+        WorkflowRunAssetRecord(
+            asset_id="run_task-dm-empty",
+            draft_id="draft_dm_memory",
+            task_id="task-dm-empty",
+            app_id="x",
+            branch_id="volc",
+            objective="reply_dm",
+            completion_status="completed",
+            business_outcome="empty",
+            distill_decision="rejected",
+            distill_reason="empty_inbox",
+            value_level="replayable",
+            retained_value=["draft_memory", "app_candidate"],
+            learned_assets={
+                "observed_state_ids": ["dm_inbox"],
+                "entry_actions": ["ui.click"],
+            },
+            terminal_message="已进入私信/聊天页面，当前收件箱为空，未发现新消息，因此无需调用AI接口回复。",
+        )
+    )
+    monkeypatch.setattr(
+        "core.ai_dialog_service.list_accounts",
+        lambda app_id=None: [
+            {
+                "account": "pool-1@example.com",
+                "status": "ready",
+                "app_id": app_id or "x",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        "core.ai_dialog_service.AIDialogService._plan_with_llm",
+        lambda self, **kwargs: {},
+    )
+
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/ai_dialog/planner",
+                json={
+                    "goal": "检查私信并用 AI 自动回复",
+                    "app_id": "x",
+                },
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["memory"]["available"] is True
+        assert data["memory"]["latest"]["distill_reason"] == "empty_inbox"
+        assert data["execution"]["memory_ready"] is True
+        assert "先准备可回复消息" in data["execution"]["next_step"]
+        assert any("确保存在可处理的新私信" in item for item in data["follow_up"]["suggestions"])
     finally:
         reset_task_controller_for_tests()
 

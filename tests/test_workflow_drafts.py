@@ -403,8 +403,108 @@ def test_workflow_draft_continuation_requires_success_snapshot(tmp_path: Path):
     service = _build_workflow_draft_service(tmp_path)
     _create_draft(service)
 
-    with pytest.raises(ValueError, match="no successful snapshot to replay"):
+    with pytest.raises(ValueError, match="no replayable snapshot to continue"):
         service.continuation_snapshot("draft-test")
+
+
+def test_workflow_draft_completed_empty_dm_run_is_retained_but_not_counted(tmp_path: Path):
+    service = _build_workflow_draft_service(tmp_path)
+    _create_draft(service)
+
+    task_record = SimpleNamespace(
+        task_id="task-empty-dm",
+        status="completed",
+        payload={
+            "task": "agent_executor",
+            "_workflow_draft_id": "draft-test",
+            "goal": "检查私信并自动回复新消息",
+            "app_id": "x",
+            "branch_id": "volc",
+        },
+        devices=[7],
+        targets=[{"device_id": 7, "cloud_id": 2}],
+        max_retries=0,
+        retry_backoff_seconds=2,
+        priority=50,
+    )
+
+    payload = service.record_terminal(
+        task_record=task_record,
+        result={
+            "targets": [
+                {
+                    "result": {
+                        "message": "已进入私信/聊天页面，当前收件箱为空，未发现新消息，因此无需调用AI接口回复。",
+                        "history": [
+                            {
+                                "action": "ui.click",
+                                "observation": {"state": {"state_id": "dm_inbox"}},
+                            }
+                        ],
+                    }
+                }
+            ]
+        },
+    )
+
+    summary = service.summary("draft-test")
+    assert summary is not None
+    assert summary["success_count"] == 0
+    assert summary["latest_completed_task_id"] == "task-empty-dm"
+    assert summary["can_continue"] is True
+    assert summary["last_success_snapshot_available"] is False
+    assert summary["last_replayable_snapshot_available"] is True
+    assert summary["latest_run_asset"]["distill_reason"] == "empty_inbox"
+    assert "未计入蒸馏样本" in str(payload["message"])
+
+    assets = service._store.list_run_assets(draft_id="draft-test")
+    assert len(assets) == 1
+    assert assets[0].distill_decision == "rejected"
+    assert assets[0].value_level == "replayable"
+
+    replay = service.continuation_snapshot("draft-test")
+    assert replay["snapshot"]["payload"]["goal"] == "检查私信并自动回复新消息"
+
+
+def test_workflow_draft_completed_login_run_counts_for_distill(tmp_path: Path):
+    service = _build_workflow_draft_service(tmp_path)
+    _create_draft(service)
+
+    task_record = SimpleNamespace(
+        task_id="task-login-success",
+        status="completed",
+        payload={
+            "task": "agent_executor",
+            "_workflow_draft_id": "draft-test",
+            "goal": "用绑定账号登录 X 并进入首页",
+            "app_id": "x",
+        },
+        devices=[7],
+        targets=[{"device_id": 7, "cloud_id": 2}],
+        max_retries=0,
+        retry_backoff_seconds=2,
+        priority=50,
+    )
+
+    service.record_terminal(
+        task_record=task_record,
+        result={
+            "message": "登录成功",
+            "history": [
+                {
+                    "action": "ui.click",
+                    "observation": {"state": {"state_id": "home"}},
+                }
+            ],
+        },
+    )
+
+    summary = service.summary("draft-test")
+    assert summary is not None
+    assert summary["success_count"] == 1
+    assert summary["last_success_snapshot_available"] is True
+    assert summary["latest_run_asset"]["distill_decision"] == "accepted"
+    assert summary["latest_run_asset"]["distill_reason"] == "fulfilled_main_path"
 
 
 def test_workflow_draft_records_ambiguous_latest_success_without_trace_context(
