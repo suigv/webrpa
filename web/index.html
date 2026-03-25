@@ -214,14 +214,35 @@
           <p class="text-muted">统一承载 AI 任务设计、草稿沉淀、执行协作与复用洞察</p>
         </div>
 
-        <div class="ai-workspace-top">
-          <div class="panel">
+        <div id="aiWorkspaceRoot" class="ai-workspace-root" data-mode="guided" data-step="1">
+          <div class="panel ai-workspace-mode-panel mb-4">
             <div class="panel-header">
-              <h3>设计输入</h3>
+              <h3>工作方式</h3>
+              <div class="ai-workspace-mode-toggle">
+                <button type="button" id="aiWorkspaceModeGuided" class="btn btn-primary btn-sm">引导模式</button>
+                <button type="button" id="aiWorkspaceModeAdvanced" class="btn btn-secondary btn-sm">高级模式</button>
+              </div>
+            </div>
+            <div class="panel-body">
+              <div id="aiWorkspaceModeHint" class="task-guide-text">引导模式会按步骤完成任务图设计；高级模式用于查看完整上下文并快速调整。</div>
+            </div>
+          </div>
+
+          <div id="aiWorkspaceGuidedRail" class="ai-workspace-guided-rail">
+            <button type="button" id="aiWorkspaceStep1" class="ai-workspace-step active" data-step="1">1. 目标与资源</button>
+            <button type="button" id="aiWorkspaceStep2" class="ai-workspace-step" data-step="2">2. 任务描述与约束</button>
+            <button type="button" id="aiWorkspaceStep3" class="ai-workspace-step" data-step="3">3. 确认任务图</button>
+            <button type="button" id="aiWorkspaceStep4" class="ai-workspace-step" data-step="4">4. 执行与回流</button>
+          </div>
+
+        <div class="ai-workspace-top">
+          <div class="panel ai-workspace-panel-input">
+            <div class="panel-header">
+              <h3 id="aiWorkspaceInputTitle">设计输入</h3>
               <button id="aiWorkspaceRefresh" type="button" class="btn btn-secondary btn-sm">刷新工作台</button>
             </div>
             <div class="panel-body">
-              <div class="form-group">
+              <div class="form-group" data-guided-step="1">
                 <label>目标云机</label>
                 <select id="aiWorkspaceTargetSelect" class="select-full">
                   <option value="">请选择一个在线云机</option>
@@ -229,12 +250,7 @@
                 <div id="aiWorkspaceTargetHint" class="text-muted" style="font-size:12px; margin-top:6px;">请先选择本次任务图要落地执行的目标云机</div>
               </div>
 
-              <div class="form-group mt-4">
-                <label>任务描述</label>
-                <textarea id="aiWorkspaceGoal" rows="4" placeholder="例如：先判断是否已登录 X；如果未登录就登录；看到首页推荐流算成功；如果出现验证码就暂停等待人工处理"></textarea>
-              </div>
-
-              <div class="form-group mt-4">
+              <div class="form-group mt-4" data-guided-step="1">
                 <label>目标应用</label>
                 <select id="aiWorkspaceAppSelect" class="select-full">
                   <option value="default">默认 (系统)</option>
@@ -246,7 +262,7 @@
                 </div>
               </div>
 
-              <div class="form-group mt-4">
+              <div class="form-group mt-4" data-guided-step="1">
                 <label>绑定账号（可选）</label>
                 <div class="flex gap-2">
                   <select id="aiWorkspaceAccountSelect" class="flex-1"></select>
@@ -255,12 +271,32 @@
                 <div id="aiWorkspaceAccountHint" class="text-muted" style="font-size:12px; margin-top:6px;">选择后会把账号上下文一并带入本次任务图生成</div>
               </div>
 
-              <div class="form-group mt-4">
-                <label>补充提示（可选）</label>
+              <div class="form-group mt-4" data-guided-step="2">
+                <label>任务描述</label>
+                <textarea id="aiWorkspaceGoal" rows="4" placeholder="例如：先判断是否已登录 X；如果未登录就登录；看到首页推荐流算成功；如果出现验证码就暂停等待人工处理"></textarea>
+              </div>
+
+              <div class="form-group mt-4" data-guided-step="2">
+                <label>成功判定</label>
+                <textarea id="aiWorkspaceSuccessCriteria" rows="3" placeholder="例如：看到首页推荐流、个人头像或首页时间线时算成功"></textarea>
+              </div>
+
+              <div class="form-group mt-4" data-guided-step="2">
+                <label>失败出口</label>
+                <textarea id="aiWorkspaceFailureGuard" rows="3" placeholder="例如：15 秒内没进入首页则返回失败；账号密码错误时直接终止"></textarea>
+              </div>
+
+              <div class="form-group mt-4" data-guided-step="2">
+                <label>人工接管条件</label>
+                <textarea id="aiWorkspaceTakeoverRules" rows="3" placeholder="例如：出现验证码、异常弹窗或双重验证时暂停等待人工处理"></textarea>
+              </div>
+
+              <div class="form-group mt-4" data-guided-step="2">
+                <label>额外说明（可选）</label>
                 <textarea id="aiWorkspaceAdvancedPrompt" rows="3" placeholder="仅在需要强调限制、偏好或禁忌时填写"></textarea>
               </div>
 
-              <div class="task-guide-card">
+              <div id="aiWorkspaceStepNote" class="task-guide-card">
                 <div class="task-guide-title">当前设计流程</div>
                 <div class="task-guide-text">先明确目标、应用和执行限制，再生成任务图草案；确认任务图后再下发执行。历史会话、失败建议和蒸馏线索只作为当前设计参考。</div>
                 <div class="task-guide-tags">
@@ -270,7 +306,7 @@
                   <span class="task-guide-tag">结果回流</span>
                 </div>
               </div>
-              <div class="ai-workspace-actions mt-4">
+              <div class="ai-workspace-actions mt-4" id="aiWorkspacePrimaryActions">
                 <button type="button" id="aiWorkspaceGeneratePlan" class="btn btn-primary">开始设计任务图</button>
                 <button type="button" id="aiWorkspaceConfirmPlan" class="btn btn-secondary">确认任务图</button>
                 <button type="button" id="aiWorkspaceSubmitTask" class="btn btn-secondary">下发执行</button>
@@ -278,15 +314,19 @@
                 <button type="button" class="btn btn-secondary" data-nav-target="tab-tasks">打开任务编排</button>
                 <button type="button" class="btn btn-secondary" data-nav-target="tab-accounts">查看资源仓库</button>
               </div>
+              <div id="aiWorkspaceGuidedActions" class="ai-workspace-guided-actions mt-4">
+                <button type="button" id="aiWorkspaceGuidedPrev" class="btn btn-secondary">上一步</button>
+                <button type="button" id="aiWorkspaceGuidedNext" class="btn btn-primary">下一步</button>
+              </div>
               <div class="ai-workspace-note mt-4">
                 AI 控制台负责统一设计任务图、复用历史会话、查看失败建议与蒸馏线索；设备详情中的 `AI 对话` 仅保留单任务执行、阶段观察与人工接管。
               </div>
             </div>
           </div>
 
-          <div class="panel">
+          <div class="panel ai-workspace-panel-graph">
             <div class="panel-header">
-              <h3>任务图主画布</h3>
+              <h3 id="aiWorkspaceGraphTitle">任务图主画布</h3>
               <span id="aiWorkspaceGraphStatus" class="text-xs text-muted">等待生成任务图草案</span>
             </div>
             <div class="panel-body">
@@ -315,7 +355,7 @@
           </div>
 
           <div class="ai-workspace-side">
-            <div class="panel flex-col">
+            <div id="aiWorkspaceReferencePanel" class="panel flex-col">
               <div class="panel-header">
                 <h3>参考上下文</h3>
                 <span class="text-xs text-muted">历史会话、失败建议与沉淀线索</span>
@@ -330,7 +370,7 @@
               </div>
             </div>
 
-            <div class="panel flex-col">
+            <div id="aiWorkspaceRunsPanel" class="panel flex-col">
               <div class="panel-header">
                 <h3>执行协作</h3>
                 <span class="text-xs text-muted">运行中的 AI 任务</span>
@@ -342,6 +382,7 @@
               </div>
             </div>
           </div>
+        </div>
         </div>
 
         <div class="ai-metric-grid mt-8">

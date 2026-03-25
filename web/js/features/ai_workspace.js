@@ -26,26 +26,37 @@ import { loadMetrics } from './metrics.js';
 
 const $ = (id) => document.getElementById(id);
 const CUSTOM_APP_OPTION = '__custom__';
+const GUIDED_STEPS = [
+    { step: 1, title: '目标与资源', hint: '先选择目标云机、应用和账号，为当前任务图绑定执行上下文。' },
+    { step: 2, title: '任务描述与约束', hint: '补充目标、成功判定、失败出口和人工接管条件。' },
+    { step: 3, title: '确认任务图', hint: '生成任务图草案后，确认控制流、声明脚本和执行门槛。' },
+    { step: 4, title: '执行与回流', hint: '确认后下发执行，并在设备执行态或工作台中查看结果回流。' },
+];
+const ADVANCED_PROMPT_LABELS = {
+    success: '成功判定',
+    failure: '失败出口',
+    takeover: '人工接管',
+    notes: '补充说明',
+};
 
-let aiWorkspaceAccounts = [];
-let plannerSignature = '';
-let plannerResult = null;
-let plannerDirty = false;
-let planConfirmed = false;
-let activeDraftId = '';
-let activeSuccessThreshold = null;
-let aiHistoryCache = [];
-let selectedAiHistoryId = '';
+const state = {
+    uiMode: 'guided',
+    guidedStep: 1,
+    accounts: [],
+    plannerSignature: '',
+    plannerResult: null,
+    plannerDirty: false,
+    planConfirmed: false,
+    activeDraftId: '',
+    activeSuccessThreshold: null,
+    historyCache: [],
+    selectedHistoryId: '',
+};
 
 function clearElement(element) {
     if (element) {
         element.replaceChildren();
     }
-}
-
-function resetWorkspaceDraftContext() {
-    activeDraftId = '';
-    activeSuccessThreshold = null;
 }
 
 function stopEvent(event) {
@@ -60,6 +71,11 @@ function switchToTab(tabId) {
     if (button) {
         button.click();
     }
+}
+
+function resetWorkspaceDraftContext() {
+    state.activeDraftId = '';
+    state.activeSuccessThreshold = null;
 }
 
 function formatUpdatedAt(value) {
@@ -87,6 +103,10 @@ function renderEmptyAccountSelect(label) {
     option.value = '';
     option.textContent = label;
     select.appendChild(option);
+}
+
+function selectedHistoryItem() {
+    return state.historyCache.find((item) => String(item?.draft_id || '').trim() === state.selectedHistoryId) || null;
 }
 
 function getSelectedWorkspaceAppId() {
@@ -118,59 +138,89 @@ function getSelectedWorkspaceAccount() {
     if (!select || select.value === '') return null;
     const index = Number.parseInt(select.value, 10);
     if (!Number.isFinite(index) || index < 0) return null;
-    return aiWorkspaceAccounts[index] || null;
+    return state.accounts[index] || null;
 }
 
-function toggleCustomAppFields() {
-    const wrapper = $('aiWorkspaceCustomAppFields');
-    if (!wrapper) return;
-    wrapper.style.display = String($('aiWorkspaceAppSelect')?.value || '').trim() === CUSTOM_APP_OPTION
-        ? 'flex'
-        : 'none';
+function getWorkspaceInputs() {
+    return {
+        goal: String($('aiWorkspaceGoal')?.value || '').trim(),
+        appId: getSelectedWorkspaceAppId(),
+        appDisplayName: getSelectedWorkspaceAppDisplayName(),
+        packageName: getSelectedWorkspacePackageName(),
+        account: getSelectedWorkspaceAccount(),
+        successCriteria: String($('aiWorkspaceSuccessCriteria')?.value || '').trim(),
+        failureGuard: String($('aiWorkspaceFailureGuard')?.value || '').trim(),
+        takeoverRules: String($('aiWorkspaceTakeoverRules')?.value || '').trim(),
+        advancedPrompt: String($('aiWorkspaceAdvancedPrompt')?.value || '').trim(),
+    };
 }
 
-function updateWorkspaceAccountHint(appId, readyCount) {
-    const hint = $('aiWorkspaceAccountHint');
-    if (!hint) return;
-    if (!appId || appId === 'default') {
-        hint.textContent = `当前显示系统账号池，共 ${readyCount} 个就绪账号`;
-        return;
-    }
-    hint.textContent = `当前显示 ${appId} 账号池，共 ${readyCount} 个就绪账号`;
+function buildCombinedAdvancedPrompt(inputs = getWorkspaceInputs()) {
+    const sections = [
+        [ADVANCED_PROMPT_LABELS.success, inputs.successCriteria],
+        [ADVANCED_PROMPT_LABELS.failure, inputs.failureGuard],
+        [ADVANCED_PROMPT_LABELS.takeover, inputs.takeoverRules],
+        [ADVANCED_PROMPT_LABELS.notes, inputs.advancedPrompt],
+    ].filter(([, value]) => String(value || '').trim());
+    return sections.map(([label, value]) => `${label}：${String(value).trim()}`).join('\n');
 }
 
-function buildMetaLines(values) {
-    return values
-        .map((item) => String(item || '').trim())
+function parseCombinedAdvancedPrompt(rawValue) {
+    const result = {
+        successCriteria: '',
+        failureGuard: '',
+        takeoverRules: '',
+        advancedPrompt: '',
+    };
+    const extraLines = [];
+    String(rawValue || '')
+        .split('\n')
+        .map((line) => line.trim())
         .filter(Boolean)
-        .slice(0, 4);
-}
-
-function createMetaBlock(title, lines) {
-    const resolvedLines = buildMetaLines(lines);
-    if (resolvedLines.length === 0) {
-        return null;
+        .forEach((line) => {
+            const match = line.match(/^([^：:]+)[：:]\s*(.+)$/);
+            if (!match) {
+                extraLines.push(line);
+                return;
+            }
+            const [, label, value] = match;
+            if (label === ADVANCED_PROMPT_LABELS.success) {
+                result.successCriteria = value;
+                return;
+            }
+            if (label === ADVANCED_PROMPT_LABELS.failure) {
+                result.failureGuard = value;
+                return;
+            }
+            if (label === ADVANCED_PROMPT_LABELS.takeover) {
+                result.takeoverRules = value;
+                return;
+            }
+            if (label === ADVANCED_PROMPT_LABELS.notes) {
+                result.advancedPrompt = value;
+                return;
+            }
+            extraLines.push(line);
+        });
+    if (!result.advancedPrompt && extraLines.length > 0) {
+        result.advancedPrompt = extraLines.join('\n');
     }
-
-    const block = document.createElement('div');
-    block.className = 'task-summary-target';
-
-    const heading = document.createElement('div');
-    heading.className = 'task-guide-title';
-    heading.textContent = title;
-    block.appendChild(heading);
-
-    resolvedLines.forEach((text) => {
-        const row = document.createElement('div');
-        row.className = 'task-summary-line';
-        row.textContent = text;
-        block.appendChild(row);
-    });
-    return block;
+    return result;
 }
 
-function selectedHistoryItem() {
-    return aiHistoryCache.find((item) => String(item?.draft_id || '').trim() === selectedAiHistoryId) || null;
+function currentPlannerSignature() {
+    const inputs = getWorkspaceInputs();
+    return JSON.stringify({
+        goal: inputs.goal,
+        app_id: inputs.appId,
+        app_display_name: inputs.appDisplayName,
+        package_name: inputs.packageName,
+        selected_account: String(inputs.account?.account || '').trim(),
+        success_criteria: inputs.successCriteria,
+        failure_guard: inputs.failureGuard,
+        takeover_rules: inputs.takeoverRules,
+        advanced_prompt: inputs.advancedPrompt,
+    });
 }
 
 function currentWorkspaceTargetSummary() {
@@ -195,43 +245,96 @@ function plannerElements() {
     };
 }
 
-function currentPlannerSignature() {
-    return JSON.stringify({
-        goal: String($('aiWorkspaceGoal')?.value || '').trim(),
-        app_id: getSelectedWorkspaceAppId(),
-        app_display_name: getSelectedWorkspaceAppDisplayName(),
-        package_name: getSelectedWorkspacePackageName(),
-        selected_account: String(getSelectedWorkspaceAccount()?.account || '').trim(),
-        advanced_prompt: String($('aiWorkspaceAdvancedPrompt')?.value || '').trim(),
+function buildMetaLines(values) {
+    return values
+        .map((item) => String(item || '').trim())
+        .filter(Boolean)
+        .slice(0, 4);
+}
+
+function createMetaBlock(title, lines) {
+    const resolvedLines = buildMetaLines(lines);
+    if (resolvedLines.length === 0) {
+        return null;
+    }
+    const block = document.createElement('div');
+    block.className = 'task-summary-target';
+
+    const heading = document.createElement('div');
+    heading.className = 'task-guide-title';
+    heading.textContent = title;
+    block.appendChild(heading);
+
+    resolvedLines.forEach((text) => {
+        const row = document.createElement('div');
+        row.className = 'task-summary-line';
+        row.textContent = text;
+        block.appendChild(row);
     });
+    return block;
 }
 
 function resetPlannerState({ keepPlan = false } = {}) {
     if (!keepPlan) {
-        plannerSignature = '';
-        plannerResult = null;
+        state.plannerSignature = '';
+        state.plannerResult = null;
     }
-    planConfirmed = false;
+    state.planConfirmed = false;
+}
+
+function toggleCustomAppFields() {
+    const wrapper = $('aiWorkspaceCustomAppFields');
+    if (!wrapper) return;
+    wrapper.style.display = String($('aiWorkspaceAppSelect')?.value || '').trim() === CUSTOM_APP_OPTION
+        ? 'flex'
+        : 'none';
+}
+
+function updateWorkspaceAccountHint(appId, readyCount) {
+    const hint = $('aiWorkspaceAccountHint');
+    if (!hint) return;
+    if (!appId || appId === 'default') {
+        hint.textContent = `当前显示系统账号池，共 ${readyCount} 个就绪账号`;
+        return;
+    }
+    hint.textContent = `当前显示 ${appId} 账号池，共 ${readyCount} 个就绪账号`;
+}
+
+function canAdvanceGuidedStep(step = state.guidedStep) {
+    const hasTarget = Boolean(String($('aiWorkspaceTargetSelect')?.value || '').trim());
+    const hasGoal = Boolean(String($('aiWorkspaceGoal')?.value || '').trim());
+    const hasFreshPlan = Boolean(state.plannerResult) && !state.plannerDirty;
+    if (step === 1) return hasTarget;
+    if (step === 2) return hasGoal;
+    if (step === 3) return hasFreshPlan && state.planConfirmed;
+    return true;
+}
+
+function setGuidedStep(step) {
+    state.guidedStep = Math.max(1, Math.min(4, Number(step || 1)));
+    renderWorkspaceMode();
 }
 
 function markWorkspaceInputsChanged({ resetDraft = false } = {}) {
-    if (plannerResult) {
-        plannerDirty = true;
-    } else {
-        plannerDirty = Boolean(String($('aiWorkspaceGoal')?.value || '').trim());
-    }
-    planConfirmed = false;
+    state.plannerDirty = state.plannerResult
+        ? true
+        : Boolean(String($('aiWorkspaceGoal')?.value || '').trim());
+    state.planConfirmed = false;
     if (resetDraft) {
         resetWorkspaceDraftContext();
     }
-    renderWorkspaceGraph();
-    updateWorkspaceActionState();
+    renderWorkspace();
+}
+
+function setUiMode(mode) {
+    state.uiMode = mode === 'advanced' ? 'advanced' : 'guided';
+    renderWorkspaceMode();
 }
 
 function updateWorkspaceActionState() {
     const hasTarget = Boolean(String($('aiWorkspaceTargetSelect')?.value || '').trim());
     const hasGoal = Boolean(String($('aiWorkspaceGoal')?.value || '').trim());
-    const planReady = Boolean(plannerResult) && !plannerDirty;
+    const planReady = Boolean(state.plannerResult) && !state.plannerDirty;
     const generateButton = $('aiWorkspaceGeneratePlan');
     const regenerateButton = $('aiWorkspaceRegeneratePlan');
     const confirmButton = $('aiWorkspaceConfirmPlan');
@@ -247,7 +350,7 @@ function updateWorkspaceActionState() {
             : !hasGoal
                 ? '请先填写任务描述'
                 : '';
-        generateButton.textContent = plannerResult ? '重新生成任务图' : '开始设计任务图';
+        generateButton.textContent = state.plannerResult ? '重新生成任务图' : '开始设计任务图';
     }
 
     if (regenerateButton) {
@@ -260,39 +363,147 @@ function updateWorkspaceActionState() {
     }
 
     if (confirmButton) {
-        confirmButton.disabled = !planReady || planConfirmed;
+        confirmButton.disabled = !planReady || state.planConfirmed;
         confirmButton.title = !planReady
             ? '请先生成最新任务图草案'
-            : planConfirmed
+            : state.planConfirmed
                 ? '当前任务图已确认'
                 : '';
-        confirmButton.textContent = planConfirmed ? '任务图已确认' : '确认任务图';
+        confirmButton.textContent = state.planConfirmed ? '任务图已确认' : '确认任务图';
     }
 
     if (submitButton) {
-        submitButton.disabled = !planConfirmed || !planReady || !hasTarget;
+        submitButton.disabled = !state.planConfirmed || !planReady || !hasTarget;
         submitButton.title = !hasTarget
             ? '请先选择目标云机'
             : !planReady
                 ? '请先生成最新任务图草案'
-                : !planConfirmed
+                : !state.planConfirmed
                     ? '请先确认任务图'
                     : '';
-        applyPlannerSubmitState(submitButton, planConfirmed && planReady ? plannerResult : null, '下发执行');
+        applyPlannerSubmitState(
+            submitButton,
+            state.planConfirmed && planReady ? state.plannerResult : null,
+            '下发执行',
+        );
     }
 
-    if (detailButton) {
-        detailButton.disabled = !hasTarget;
-        detailButton.title = hasTarget ? '' : '请先选择目标云机';
-    }
-    if (graphDetailButton) {
-        graphDetailButton.disabled = !hasTarget;
-        graphDetailButton.title = hasTarget ? '' : '请先选择目标云机';
-    }
+    [detailButton, graphDetailButton].forEach((button) => {
+        if (!button) return;
+        button.disabled = !hasTarget;
+        button.title = hasTarget ? '' : '请先选择目标云机';
+    });
+
     if (continueEditButton) {
-        continueEditButton.disabled = !plannerResult && !activeDraftId;
+        continueEditButton.disabled = !state.plannerResult && !state.activeDraftId;
         continueEditButton.title = continueEditButton.disabled ? '当前没有可继续编辑的任务图草案' : '';
     }
+}
+
+function renderGuidedNavigation() {
+    const prevButton = $('aiWorkspaceGuidedPrev');
+    const nextButton = $('aiWorkspaceGuidedNext');
+    if (!prevButton || !nextButton) return;
+
+    prevButton.disabled = state.guidedStep <= 1;
+    const nextLabels = {
+        1: '继续补全约束',
+        2: '生成任务图',
+        3: state.planConfirmed ? '进入执行步骤' : '确认任务图',
+        4: '保持当前步骤',
+    };
+    nextButton.textContent = nextLabels[state.guidedStep] || '下一步';
+    nextButton.disabled = state.guidedStep === 4 ? !state.planConfirmed : false;
+}
+
+function renderWorkspaceMode() {
+    const root = $('aiWorkspaceRoot');
+    const guidedButton = $('aiWorkspaceModeGuided');
+    const advancedButton = $('aiWorkspaceModeAdvanced');
+    const modeHint = $('aiWorkspaceModeHint');
+    const inputTitle = $('aiWorkspaceInputTitle');
+    const graphTitle = $('aiWorkspaceGraphTitle');
+    const stepNote = $('aiWorkspaceStepNote');
+    const primaryActions = $('aiWorkspacePrimaryActions');
+    const guidedActions = $('aiWorkspaceGuidedActions');
+    const referencePanel = $('aiWorkspaceReferencePanel');
+    const runsPanel = $('aiWorkspaceRunsPanel');
+
+    if (root) {
+        root.dataset.mode = state.uiMode;
+        root.dataset.step = String(state.guidedStep);
+    }
+
+    if (guidedButton && advancedButton) {
+        guidedButton.className = `btn ${state.uiMode === 'guided' ? 'btn-primary' : 'btn-secondary'} btn-sm`;
+        advancedButton.className = `btn ${state.uiMode === 'advanced' ? 'btn-primary' : 'btn-secondary'} btn-sm`;
+    }
+
+    if (modeHint) {
+        modeHint.textContent = state.uiMode === 'guided'
+            ? '引导模式会按步骤完成任务图设计，非关键上下文延后暴露。'
+            : '高级模式会展示完整上下文，但仍复用同一套任务图、历史参考和执行状态。';
+    }
+
+    const currentStepConfig = GUIDED_STEPS.find((item) => item.step === state.guidedStep) || GUIDED_STEPS[0];
+    if (inputTitle) {
+        inputTitle.textContent = state.uiMode === 'guided'
+            ? `${currentStepConfig.step}. ${currentStepConfig.title}`
+            : '设计输入';
+    }
+    if (graphTitle) {
+        graphTitle.textContent = state.uiMode === 'guided' && state.guidedStep < 3
+            ? '任务图预览'
+            : '任务图主画布';
+    }
+    if (stepNote) {
+        const textNode = stepNote.querySelector('.task-guide-text');
+        const titleNode = stepNote.querySelector('.task-guide-title');
+        if (textNode) {
+            textNode.textContent = state.uiMode === 'guided'
+                ? currentStepConfig.hint
+                : '高级模式会保留完整输入、任务图和参考上下文，但设计与执行仍保持前后顺序。';
+        }
+        if (titleNode) {
+            titleNode.textContent = state.uiMode === 'guided'
+                ? `当前步骤：${currentStepConfig.title}`
+                : '高级模式说明';
+        }
+    }
+
+    if (primaryActions && guidedActions) {
+        const isGuided = state.uiMode === 'guided';
+        guidedActions.style.display = isGuided ? 'flex' : 'none';
+        Array.from(primaryActions.children).forEach((button) => {
+            button.hidden = false;
+        });
+        if (isGuided) {
+            $('aiWorkspaceGeneratePlan').hidden = state.guidedStep !== 2 && state.guidedStep !== 3;
+            $('aiWorkspaceConfirmPlan').hidden = state.guidedStep !== 3;
+            $('aiWorkspaceSubmitTask').hidden = state.guidedStep !== 4;
+            $('aiWorkspaceOpenDetail').hidden = state.guidedStep !== 4;
+            document.querySelector('[data-nav-target="tab-tasks"]')?.toggleAttribute('hidden', state.guidedStep !== 4);
+            document.querySelector('[data-nav-target="tab-accounts"]')?.toggleAttribute('hidden', state.guidedStep !== 4);
+        } else {
+            document.querySelector('[data-nav-target="tab-tasks"]')?.removeAttribute('hidden');
+            document.querySelector('[data-nav-target="tab-accounts"]')?.removeAttribute('hidden');
+        }
+    }
+
+    if (referencePanel) {
+        referencePanel.style.opacity = state.uiMode === 'guided' && state.guidedStep < 3 ? '0.65' : '1';
+    }
+    if (runsPanel) {
+        runsPanel.style.opacity = state.uiMode === 'guided' && state.guidedStep < 4 ? '0.65' : '1';
+    }
+
+    document.querySelectorAll('.ai-workspace-step').forEach((button) => {
+        const step = Number(button.getAttribute('data-step') || 0);
+        button.classList.toggle('active', step === state.guidedStep);
+        button.classList.toggle('done', step < state.guidedStep || (step === 3 && state.planConfirmed));
+    });
+
+    renderGuidedNavigation();
 }
 
 function renderWorkspaceGraphSummary() {
@@ -302,24 +513,27 @@ function renderWorkspaceGraphSummary() {
 
     const title = document.createElement('div');
     title.className = 'task-summary-title';
-
     const text = document.createElement('div');
     text.className = 'task-summary-text';
 
-    if (!plannerResult) {
-        title.textContent = '任务图尚未生成';
-        text.textContent = '填写左侧输入后，点击“开始设计任务图”。当前版本只支持生成、确认、重新生成，不提供节点级手工编辑。';
+    if (!state.plannerResult) {
+        title.textContent = state.uiMode === 'guided' && state.guidedStep < 3
+            ? '当前步骤还未进入任务图确认'
+            : '任务图尚未生成';
+        text.textContent = state.uiMode === 'guided' && state.guidedStep < 3
+            ? '先完成前两步的目标与约束输入，再生成任务图草案。'
+            : '填写输入后，点击“开始设计任务图”。当前版本只支持生成、确认、重新生成，不提供节点级手工编辑。';
         host.append(title, text);
         return;
     }
 
-    title.textContent = String(plannerResult.display_name || '当前任务图草案');
-    if (plannerDirty) {
+    title.textContent = String(state.plannerResult.display_name || '当前任务图草案');
+    if (state.plannerDirty) {
         text.textContent = '输入已变更，当前画布展示的是旧版本草案。请重新生成任务图后再确认或执行。';
-    } else if (planConfirmed) {
+    } else if (state.planConfirmed) {
         text.textContent = '当前任务图已确认，可以直接下发执行，或进入设备详情进行单设备执行与接管。';
     } else {
-        text.textContent = '任务图草案已生成，请结合右侧参考上下文检查控制流、成功判定、失败出口和人工接管点，再确认任务图。';
+        text.textContent = '任务图草案已生成，请检查控制流、成功判定、失败出口和人工接管点，再确认任务图。';
     }
 
     const tags = document.createElement('div');
@@ -328,14 +542,15 @@ function renderWorkspaceGraphSummary() {
         currentWorkspaceTargetSummary(),
         getSelectedWorkspaceAppId() ? `应用 ${getSelectedWorkspaceAppId()}` : '',
         getSelectedWorkspaceAccount()?.account ? `账号 ${String(getSelectedWorkspaceAccount().account)}` : '未绑定账号',
-        activeDraftId ? `草稿 ${activeDraftId}` : '新任务图',
-        planConfirmed ? '已确认' : plannerDirty ? '待重新生成' : '待确认',
+        state.activeDraftId ? `草稿 ${state.activeDraftId}` : '新任务图',
+        state.planConfirmed ? '已确认' : state.plannerDirty ? '待重新生成' : '待确认',
     ].filter(Boolean).forEach((line) => {
         const chip = document.createElement('span');
         chip.className = 'task-guide-tag';
         chip.textContent = line;
         tags.appendChild(chip);
     });
+
     host.append(title, text, tags);
 }
 
@@ -347,37 +562,40 @@ function renderWorkspaceGraphExecution() {
 
     const selectedHistory = selectedHistoryItem();
     const historyDraft = normalizeDraftSummary(selectedHistory);
-    const execution = plannerResult?.execution || {};
-    const followUp = plannerResult?.follow_up || {};
+    const execution = state.plannerResult?.execution || {};
+    const followUp = state.plannerResult?.follow_up || {};
     const blockingReasons = Array.isArray(execution?.blocking_reasons) ? execution.blocking_reasons : [];
     const missing = Array.isArray(followUp?.missing) ? followUp.missing : [];
 
-    if (!plannerResult) {
+    if (!state.plannerResult) {
         if (status) {
-            status.textContent = '等待生成任务图草案';
+            status.textContent = state.uiMode === 'guided' && state.guidedStep < 3
+                ? '等待进入任务图确认步骤'
+                : '等待生成任务图草案';
         }
         const block = createMetaBlock('当前状态', [
-            '还没有任务图草案。',
-            '左侧输入完成后点击“开始设计任务图”。',
-            '如果要继续已有草稿，请从右侧历史会话选择“继续编辑草稿”。',
+            state.uiMode === 'guided' && state.guidedStep < 3
+                ? '先完成前两步输入，再生成任务图草案。'
+                : '还没有任务图草案。',
+            '如需继续已有草稿，请从右侧历史会话选择“继续编辑草稿”。',
         ]);
         if (block) host.appendChild(block);
         return;
     }
 
     if (status) {
-        status.textContent = plannerDirty
+        status.textContent = state.plannerDirty
             ? '当前草案已过期，等待重新生成'
-            : planConfirmed
+            : state.planConfirmed
                 ? '任务图已确认，可进入执行'
                 : '任务图草案已生成，等待确认';
     }
 
     [
         createMetaBlock('任务图状态', [
-            plannerResult?.operator_summary ? String(plannerResult.operator_summary) : '',
-            plannerDirty ? '输入已变更：请重新生成任务图' : '',
-            planConfirmed ? '确认状态：已确认，可下发执行' : '确认状态：待确认',
+            state.plannerResult?.operator_summary ? String(state.plannerResult.operator_summary) : '',
+            state.plannerDirty ? '输入已变更：请重新生成任务图' : '',
+            state.planConfirmed ? '确认状态：已确认，可下发执行' : '确认状态：待确认',
         ]),
         createMetaBlock('执行门槛', [
             execution?.runtime ? `运行时：${String(execution.runtime)}` : '',
@@ -388,7 +606,7 @@ function renderWorkspaceGraphExecution() {
         createMetaBlock('补充信息', [
             followUp?.message ? String(followUp.message) : '',
             missing.length > 0 ? `仍缺少：${missing.join('、')}` : '',
-            plannerResult?.account?.execution_hint ? String(plannerResult.account.execution_hint) : '',
+            state.plannerResult?.account?.execution_hint ? String(state.plannerResult.account.execution_hint) : '',
         ]),
         createMetaBlock('参考上下文', [
             selectedHistory ? `当前参考会话：${String(selectedHistory.display_name || '')}` : '当前没有引用历史会话',
@@ -403,9 +621,26 @@ function renderWorkspaceGraphExecution() {
     ].filter(Boolean).forEach((block) => host.appendChild(block));
 }
 
-function renderWorkspaceGraph() {
+function renderReferenceContextVisibility() {
+    const list = $('aiWorkspaceHistoryList');
+    const detail = $('aiWorkspaceHistoryDetail');
+    if (!list || !detail) return;
+
+    if (state.uiMode === 'guided' && state.guidedStep < 3) {
+        list.style.display = 'none';
+        detail.innerHTML = '<div class="text-muted">引导模式会在第 3 步之后展开历史会话、失败建议和蒸馏线索，避免参考信息过早干扰主流程。</div>';
+    } else {
+        list.style.display = '';
+        renderAiHistoryDetail(selectedHistoryItem());
+    }
+}
+
+function renderWorkspace() {
+    renderWorkspaceMode();
+    updateWorkspaceActionState();
     renderWorkspaceGraphSummary();
     renderWorkspaceGraphExecution();
+    renderReferenceContextVisibility();
 }
 
 function renderAiHistoryDetail(item) {
@@ -517,8 +752,8 @@ function renderAiHistoryDetail(item) {
     referenceButton.className = 'btn btn-secondary btn-sm';
     referenceButton.textContent = '作为当前设计参考';
     referenceButton.onclick = () => {
-        selectedAiHistoryId = String(item?.draft_id || '').trim();
-        renderAiHistory(aiHistoryCache);
+        state.selectedHistoryId = String(item?.draft_id || '').trim();
+        renderAiHistory(state.historyCache);
         toast.info('已将该历史会话设为当前任务图的参考上下文');
     };
     actions.appendChild(referenceButton);
@@ -559,40 +794,40 @@ function renderAiHistoryDetail(item) {
 }
 
 function setSelectedAiHistory(draftId) {
-    selectedAiHistoryId = String(draftId || '').trim();
-    renderAiHistory(aiHistoryCache);
+    state.selectedHistoryId = String(draftId || '').trim();
+    renderAiHistory(state.historyCache);
 }
 
 function renderAiHistory(items) {
     const host = $('aiWorkspaceHistoryList');
     if (!host) return;
     clearElement(host);
-    aiHistoryCache = Array.isArray(items) ? items : [];
+    host.style.display = state.uiMode === 'guided' && state.guidedStep < 3 ? 'none' : '';
+    state.historyCache = Array.isArray(items) ? items : [];
 
-    if (aiHistoryCache.length === 0) {
-        selectedAiHistoryId = '';
+    if (state.historyCache.length === 0) {
+        state.selectedHistoryId = '';
         const empty = document.createElement('div');
         empty.className = 'text-muted';
         empty.style.padding = '16px';
         empty.textContent = '暂无 AI 会话记录';
         host.appendChild(empty);
         renderAiHistoryDetail(null);
-        renderWorkspaceGraph();
         return;
     }
 
-    const hasSelected = aiHistoryCache.some(
-        (item) => String(item?.draft_id || '').trim() === selectedAiHistoryId,
+    const hasSelected = state.historyCache.some(
+        (item) => String(item?.draft_id || '').trim() === state.selectedHistoryId,
     );
     if (!hasSelected) {
-        selectedAiHistoryId = String(aiHistoryCache[0]?.draft_id || '').trim();
+        state.selectedHistoryId = String(state.historyCache[0]?.draft_id || '').trim();
     }
 
-    aiHistoryCache.forEach((item) => {
+    state.historyCache.forEach((item) => {
         const draftId = String(item?.draft_id || '').trim();
         const row = document.createElement('div');
         row.className = 'list-item';
-        if (draftId === selectedAiHistoryId) {
+        if (draftId === state.selectedHistoryId) {
             row.classList.add('active');
         }
         row.onclick = () => {
@@ -616,13 +851,13 @@ function renderAiHistory(items) {
 
         const badges = document.createElement('div');
         badges.className = 'task-guide-tags';
-
+        const latestRunAsset = normalizeLatestRunAsset(item);
         [
             String(item?.status || 'unknown'),
             item?.can_edit ? '可继续编辑' : '',
             item?.can_save ? '可沉淀' : '',
-            normalizeLatestRunAsset(item)?.memory_summary?.reuse_priority
-                ? formatReusePriority(normalizeLatestRunAsset(item).memory_summary.reuse_priority)
+            latestRunAsset?.memory_summary?.reuse_priority
+                ? formatReusePriority(latestRunAsset.memory_summary.reuse_priority)
                 : '',
         ].filter(Boolean).forEach((text, index) => {
             const badge = document.createElement('span');
@@ -642,8 +877,8 @@ function renderAiHistory(items) {
         referenceButton.textContent = '作为参考';
         referenceButton.onclick = (event) => {
             stopEvent(event);
-            selectedAiHistoryId = draftId;
-            renderAiHistory(aiHistoryCache);
+            state.selectedHistoryId = draftId;
+            renderAiHistory(state.historyCache);
             toast.info('已将该历史会话设为当前设计参考');
         };
         actions.appendChild(referenceButton);
@@ -663,14 +898,24 @@ function renderAiHistory(items) {
         host.appendChild(row);
     });
 
-    renderAiHistoryDetail(selectedHistoryItem());
-    renderWorkspaceGraph();
+    if (!(state.uiMode === 'guided' && state.guidedStep < 3)) {
+        renderAiHistoryDetail(selectedHistoryItem());
+    }
 }
 
 function renderActiveRuns(tasks) {
     const host = $('aiWorkspaceActiveRuns');
     if (!host) return;
     clearElement(host);
+
+    if (state.uiMode === 'guided' && state.guidedStep < 4) {
+        const empty = document.createElement('div');
+        empty.className = 'text-muted';
+        empty.style.padding = '16px';
+        empty.textContent = '进入第 4 步后，这里会展示运行中的 AI 任务与执行协作入口。';
+        host.appendChild(empty);
+        return;
+    }
 
     if (!Array.isArray(tasks) || tasks.length === 0) {
         const empty = document.createElement('div');
@@ -767,7 +1012,7 @@ async function loadWorkspaceApps() {
 
 async function loadWorkspaceAccounts(appId = getSelectedWorkspaceAppId()) {
     if (String($('aiWorkspaceAppSelect')?.value || '').trim() === CUSTOM_APP_OPTION && !String(appId || '').trim()) {
-        aiWorkspaceAccounts = [];
+        state.accounts = [];
         renderEmptyAccountSelect('-- 先填写应用 ID --');
         updateWorkspaceAccountHint('default', 0);
         return;
@@ -777,31 +1022,30 @@ async function loadWorkspaceAccounts(appId = getSelectedWorkspaceAppId()) {
     if (appId) {
         params.set('app_id', appId);
     }
-    const query = params.toString();
-    const response = await fetchJson(`/api/data/accounts/parsed${query ? `?${query}` : ''}`, {
+    const response = await fetchJson(`/api/data/accounts/parsed${params.toString() ? `?${params.toString()}` : ''}`, {
         silentErrors: true,
     });
     if (!response.ok) {
-        aiWorkspaceAccounts = [];
+        state.accounts = [];
         renderEmptyAccountSelect('-- 账号加载失败 --');
         return;
     }
 
-    aiWorkspaceAccounts = (response.data?.accounts || []).filter((account) => account.status === 'ready');
+    state.accounts = (response.data?.accounts || []).filter((account) => account.status === 'ready');
     const select = $('aiWorkspaceAccountSelect');
     if (!select) return;
     select.replaceChildren();
     const emptyOption = document.createElement('option');
     emptyOption.value = '';
-    emptyOption.textContent = `-- 不绑定账号 (${aiWorkspaceAccounts.length} 个就绪) --`;
+    emptyOption.textContent = `-- 不绑定账号 (${state.accounts.length} 个就绪) --`;
     select.appendChild(emptyOption);
-    aiWorkspaceAccounts.forEach((account, index) => {
+    state.accounts.forEach((account, index) => {
         const option = document.createElement('option');
         option.value = String(index);
         option.textContent = String(account.account || '').trim();
         select.appendChild(option);
     });
-    updateWorkspaceAccountHint(appId || 'default', aiWorkspaceAccounts.length);
+    updateWorkspaceAccountHint(appId || 'default', state.accounts.length);
 }
 
 async function loadAiHistory() {
@@ -826,24 +1070,22 @@ async function loadActiveRuns() {
 }
 
 async function requestWorkspacePlanner({ force = false, silent = false } = {}) {
-    const goal = String($('aiWorkspaceGoal')?.value || '').trim();
-    if (!goal) {
+    const inputs = getWorkspaceInputs();
+    if (!inputs.goal) {
         resetPlannerState();
-        plannerDirty = false;
+        state.plannerDirty = false;
         clearPlannerCard(plannerElements(), {
             submitButton: $('aiWorkspaceSubmitTask'),
             submitLabel: '下发执行',
         });
-        renderWorkspaceGraph();
-        updateWorkspaceActionState();
+        renderWorkspace();
         return null;
     }
 
     const signature = currentPlannerSignature();
-    if (!force && plannerResult && signature === plannerSignature && !plannerDirty) {
-        renderWorkspaceGraph();
-        updateWorkspaceActionState();
-        return plannerResult;
+    if (!force && state.plannerResult && signature === state.plannerSignature && !state.plannerDirty) {
+        renderWorkspace();
+        return state.plannerResult;
     }
 
     renderPlannerStateLoading(plannerElements(), {
@@ -854,15 +1096,16 @@ async function requestWorkspacePlanner({ force = false, silent = false } = {}) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-            goal,
-            app_id: getSelectedWorkspaceAppId(),
-            app_display_name: getSelectedWorkspaceAppDisplayName() || null,
-            package_name: getSelectedWorkspacePackageName() || null,
-            selected_account: String(getSelectedWorkspaceAccount()?.account || '').trim() || null,
-            advanced_prompt: String($('aiWorkspaceAdvancedPrompt')?.value || '').trim() || null,
+            goal: inputs.goal,
+            app_id: inputs.appId,
+            app_display_name: inputs.appDisplayName || null,
+            package_name: inputs.packageName || null,
+            selected_account: String(inputs.account?.account || '').trim() || null,
+            advanced_prompt: buildCombinedAdvancedPrompt(inputs) || null,
         }),
         silentErrors: true,
     });
+
     if (!response.ok) {
         if (!silent) {
             toast.error(String(response.data?.detail || '任务图生成失败'));
@@ -871,22 +1114,20 @@ async function requestWorkspacePlanner({ force = false, silent = false } = {}) {
             submitButton: $('aiWorkspaceSubmitTask'),
             submitLabel: '下发执行',
         });
-        renderWorkspaceGraph();
-        updateWorkspaceActionState();
+        renderWorkspace();
         return null;
     }
 
-    plannerSignature = signature;
-    plannerResult = response.data;
-    plannerDirty = false;
-    planConfirmed = false;
-    renderPlannerResult(plannerElements(), plannerResult, {
+    state.plannerSignature = signature;
+    state.plannerResult = response.data;
+    state.plannerDirty = false;
+    state.planConfirmed = false;
+    renderPlannerResult(plannerElements(), state.plannerResult, {
         submitButton: $('aiWorkspaceSubmitTask'),
         submitLabel: '下发执行',
     });
-    renderWorkspaceGraph();
-    updateWorkspaceActionState();
-    return plannerResult;
+    renderWorkspace();
+    return state.plannerResult;
 }
 
 async function distillHistoryItem(item) {
@@ -911,53 +1152,55 @@ async function distillHistoryItem(item) {
     await loadAiWorkspace();
 }
 
+function setWorkspaceFields(seed = {}) {
+    $('aiWorkspaceGoal').value = String(seed.goal || '').trim();
+    $('aiWorkspaceSuccessCriteria').value = String(seed.successCriteria || '').trim();
+    $('aiWorkspaceFailureGuard').value = String(seed.failureGuard || '').trim();
+    $('aiWorkspaceTakeoverRules').value = String(seed.takeoverRules || '').trim();
+    $('aiWorkspaceAdvancedPrompt').value = String(seed.advancedPrompt || '').trim();
+}
+
 async function applyWorkspaceSeed(seed = {}) {
     const appId = String(seed.appId || seed.app_id || 'default').trim() || 'default';
     const appDisplayName = String(seed.appDisplayName || seed.app_display_name || '').trim();
     const packageName = String(seed.packageName || seed.package_name || seed.package || '').trim();
     const accountName = String(seed.accountName || seed.account || '').trim();
 
-    activeDraftId = String(seed.draftId || seed.draft_id || '').trim();
-    activeSuccessThreshold = Number(seed.successThreshold || seed.success_threshold || 0) || null;
+    state.activeDraftId = String(seed.draftId || seed.draft_id || '').trim();
+    state.activeSuccessThreshold = Number(seed.successThreshold || seed.success_threshold || 0) || null;
 
-    const goalInput = $('aiWorkspaceGoal');
-    if (goalInput) goalInput.value = String(seed.goal || '').trim();
-    const advancedPrompt = $('aiWorkspaceAdvancedPrompt');
-    if (advancedPrompt) advancedPrompt.value = String(seed.advancedPrompt || seed.advanced_prompt || '').trim();
-
+    setWorkspaceFields(seed);
     await loadWorkspaceApps();
     const appSelect = $('aiWorkspaceAppSelect');
     if (appSelect) {
         const hasExistingOption = Array.from(appSelect.options).some((option) => option.value === appId);
         appSelect.value = hasExistingOption ? appId : CUSTOM_APP_OPTION;
     }
-    const customAppId = $('aiWorkspaceCustomAppId');
-    if (customAppId) customAppId.value = appSelect?.value === CUSTOM_APP_OPTION ? appId : '';
-    const customDisplayName = $('aiWorkspaceCustomDisplayName');
-    if (customDisplayName) customDisplayName.value = appSelect?.value === CUSTOM_APP_OPTION ? appDisplayName : '';
-    const customPackageName = $('aiWorkspaceCustomPackageName');
-    if (customPackageName) customPackageName.value = appSelect?.value === CUSTOM_APP_OPTION ? packageName : '';
+    $('aiWorkspaceCustomAppId').value = appSelect?.value === CUSTOM_APP_OPTION ? appId : '';
+    $('aiWorkspaceCustomDisplayName').value = appSelect?.value === CUSTOM_APP_OPTION ? appDisplayName : '';
+    $('aiWorkspaceCustomPackageName').value = appSelect?.value === CUSTOM_APP_OPTION ? packageName : '';
     toggleCustomAppFields();
+
     await loadWorkspaceAccounts(appId);
     const accountSelect = $('aiWorkspaceAccountSelect');
     if (accountSelect) {
-        const preferredIndex = aiWorkspaceAccounts.findIndex((account) => String(account?.account || '').trim() === accountName);
+        const preferredIndex = state.accounts.findIndex((account) => String(account?.account || '').trim() === accountName);
         accountSelect.value = preferredIndex >= 0 ? String(preferredIndex) : '';
     }
+
     resetPlannerState();
-    plannerDirty = Boolean(String(seed.goal || '').trim());
+    state.plannerDirty = Boolean(String(seed.goal || '').trim());
     clearPlannerCard(plannerElements(), {
         submitButton: $('aiWorkspaceSubmitTask'),
         submitLabel: '下发执行',
     });
-    renderWorkspaceGraph();
-    updateWorkspaceActionState();
+    renderWorkspace();
 }
 
 async function loadHistoryItemIntoWorkspace(item) {
     const draftId = String(item?.draft_id || '').trim();
     if (!draftId) return;
-    selectedAiHistoryId = draftId;
+    state.selectedHistoryId = draftId;
     const response = await fetchJson(`/api/tasks/drafts/${encodeURIComponent(draftId)}/snapshot`, {
         silentErrors: true,
     });
@@ -965,9 +1208,11 @@ async function loadHistoryItemIntoWorkspace(item) {
         toast.error(String(response.data?.detail || '读取 AI 会话失败'));
         return;
     }
+
     const snapshot = response.data?.snapshot || {};
     const payload = snapshot.payload || {};
     const identity = snapshot.identity || {};
+    const parsedConstraints = parseCombinedAdvancedPrompt(String(payload.advanced_prompt || '').trim());
 
     await applyWorkspaceSeed({
         goal: String(payload.goal || '').trim(),
@@ -975,11 +1220,17 @@ async function loadHistoryItemIntoWorkspace(item) {
         appDisplayName: String(payload.app_display_name || '').trim(),
         packageName: String(payload.package_name || payload.package || '').trim(),
         accountName: String(payload.account || identity.account || '').trim(),
-        advancedPrompt: String(payload.advanced_prompt || '').trim(),
+        successCriteria: parsedConstraints.successCriteria,
+        failureGuard: parsedConstraints.failureGuard,
+        takeoverRules: parsedConstraints.takeoverRules,
+        advancedPrompt: parsedConstraints.advancedPrompt,
         draftId: String(response.data?.draft_id || draftId),
         successThreshold: Number(response.data?.success_threshold || 0) || null,
     });
+
     await requestWorkspacePlanner({ force: true, silent: true });
+    state.guidedStep = 3;
+    renderWorkspace();
     toast.info('已载入该草稿，当前处于继续编辑状态');
 }
 
@@ -996,11 +1247,13 @@ async function resolveSelectedWorkspaceUnit() {
         toast.warn('目标云机格式无效');
         return null;
     }
+
     const response = await refreshDevicesSnapshot({ force: true, silentErrors: true });
     if (!response.ok) {
         toast.error('刷新设备列表失败');
         return null;
     }
+
     for (const device of response.data || []) {
         if (Number(device?.device_id || 0) !== deviceId) continue;
         const unit = Array.isArray(device?.cloud_machines)
@@ -1017,6 +1270,109 @@ async function resolveSelectedWorkspaceUnit() {
     return null;
 }
 
+async function generatePlanAndAdvance() {
+    const plan = await requestWorkspacePlanner({ force: true });
+    if (!plan) return false;
+    if (state.uiMode === 'guided') {
+        state.guidedStep = 3;
+    }
+    renderWorkspace();
+    return true;
+}
+
+function confirmCurrentPlan({ advance = false } = {}) {
+    if (!state.plannerResult || state.plannerDirty) {
+        toast.warn('请先生成最新任务图草案');
+        return false;
+    }
+    state.planConfirmed = true;
+    if (advance && state.uiMode === 'guided') {
+        state.guidedStep = 4;
+    }
+    renderWorkspace();
+    toast.success('任务图已确认，可以下发执行');
+    return true;
+}
+
+async function submitCurrentPlan() {
+    if (!state.planConfirmed || !state.plannerResult || state.plannerDirty) {
+        toast.warn('请先确认最新任务图');
+        return false;
+    }
+
+    const unit = await resolveSelectedWorkspaceUnit();
+    if (!unit) return false;
+
+    const inputs = getWorkspaceInputs();
+    const rawPayload = buildAiDialogPayload({
+        goal: inputs.goal,
+        appId: inputs.appId,
+        appDisplayName: inputs.appDisplayName,
+        packageName: inputs.packageName,
+        account: inputs.account,
+        advancedPrompt: buildCombinedAdvancedPrompt(inputs),
+    });
+    if (!rawPayload) {
+        toast.warn('请填写任务描述');
+        return false;
+    }
+
+    const result = await submitAiTaskForUnit(unit, {
+        rawPayload,
+        plan: state.plannerResult,
+        draftId: state.activeDraftId,
+        successThreshold: state.activeSuccessThreshold,
+        closeDialog: false,
+    });
+    if (result.ok) {
+        await loadAiWorkspace();
+        return true;
+    }
+    return false;
+}
+
+async function advanceGuidedStep() {
+    if (state.guidedStep === 1) {
+        if (!canAdvanceGuidedStep(1)) {
+            toast.warn('请先选择目标云机');
+            return;
+        }
+        setGuidedStep(2);
+        return;
+    }
+    if (state.guidedStep === 2) {
+        if (!canAdvanceGuidedStep(2)) {
+            toast.warn('请先填写任务描述');
+            return;
+        }
+        await generatePlanAndAdvance();
+        return;
+    }
+    if (state.guidedStep === 3) {
+        if (!state.planConfirmed) {
+            confirmCurrentPlan({ advance: true });
+            return;
+        }
+        setGuidedStep(4);
+    }
+}
+
+async function handleGuidedStepClick(step) {
+    if (step < state.guidedStep) {
+        setGuidedStep(step);
+        return;
+    }
+    if (step === state.guidedStep) return;
+    while (state.guidedStep < step) {
+        if (state.guidedStep === 4) return;
+        const before = state.guidedStep;
+        await advanceGuidedStep();
+        if (state.guidedStep === before) {
+            return;
+        }
+    }
+}
+
 export async function loadAiWorkspace() {
     await Promise.all([
         loadWorkspaceApps(),
@@ -1027,15 +1383,14 @@ export async function loadAiWorkspace() {
     renderTargetOptions(devicesResponse.ok ? devicesResponse.data : []);
     await loadWorkspaceAccounts();
 
-    if (!plannerResult) {
+    if (!state.plannerResult) {
         clearPlannerCard(plannerElements(), {
             submitButton: $('aiWorkspaceSubmitTask'),
             submitLabel: '下发执行',
         });
     }
 
-    renderWorkspaceGraph();
-    updateWorkspaceActionState();
+    renderWorkspace();
 
     await Promise.all([
         loadDrafts(),
@@ -1043,6 +1398,42 @@ export async function loadAiWorkspace() {
         loadAiHistory(),
         loadActiveRuns(),
     ]);
+}
+
+function bindWorkspaceInputs() {
+    const markGoalChange = () => {
+        markWorkspaceInputsChanged();
+    };
+    const markConfigChange = () => {
+        markWorkspaceInputsChanged({ resetDraft: true });
+    };
+
+    $('aiWorkspaceAppSelect').onchange = () => {
+        toggleCustomAppFields();
+        markConfigChange();
+        void loadWorkspaceAccounts();
+    };
+    $('aiWorkspaceGoal').oninput = markGoalChange;
+    $('aiWorkspaceSuccessCriteria').oninput = markGoalChange;
+    $('aiWorkspaceFailureGuard').oninput = markGoalChange;
+    $('aiWorkspaceTakeoverRules').oninput = markGoalChange;
+    $('aiWorkspaceAdvancedPrompt').oninput = markGoalChange;
+
+    $('aiWorkspaceTargetSelect').onchange = () => {
+        renderWorkspace();
+    };
+
+    ['aiWorkspaceCustomAppId', 'aiWorkspaceCustomDisplayName', 'aiWorkspaceCustomPackageName'].forEach((id) => {
+        const input = $(id);
+        if (input) {
+            input.oninput = markConfigChange;
+        }
+    });
+
+    $('aiWorkspaceAccountRefresh').onclick = () => {
+        void loadWorkspaceAccounts();
+    };
+    $('aiWorkspaceAccountSelect').onchange = markGoalChange;
 }
 
 export function initAiWorkspace() {
@@ -1053,12 +1444,9 @@ export function initAiWorkspace() {
         });
     }
 
-    const refreshBtn = $('aiWorkspaceRefresh');
-    if (refreshBtn) {
-        refreshBtn.onclick = () => {
-            void loadAiWorkspace();
-        };
-    }
+    $('aiWorkspaceRefresh').onclick = () => {
+        void loadAiWorkspace();
+    };
 
     document.querySelectorAll('[data-nav-target]').forEach((button) => {
         button.addEventListener('click', () => {
@@ -1067,140 +1455,62 @@ export function initAiWorkspace() {
         });
     });
 
-    const appSelect = $('aiWorkspaceAppSelect');
-    if (appSelect) {
-        appSelect.onchange = () => {
-            toggleCustomAppFields();
-            markWorkspaceInputsChanged({ resetDraft: true });
-            void loadWorkspaceAccounts();
-        };
-    }
+    bindWorkspaceInputs();
 
-    const goalInput = $('aiWorkspaceGoal');
-    if (goalInput) {
-        goalInput.oninput = () => {
-            markWorkspaceInputsChanged();
-        };
-    }
+    $('aiWorkspaceModeGuided').onclick = () => {
+        setUiMode('guided');
+    };
+    $('aiWorkspaceModeAdvanced').onclick = () => {
+        setUiMode('advanced');
+    };
 
-    const advancedPrompt = $('aiWorkspaceAdvancedPrompt');
-    if (advancedPrompt) {
-        advancedPrompt.oninput = () => {
-            markWorkspaceInputsChanged();
-        };
-    }
-
-    const targetSelect = $('aiWorkspaceTargetSelect');
-    if (targetSelect) {
-        targetSelect.onchange = () => {
-            updateWorkspaceActionState();
-            renderWorkspaceGraph();
-        };
-    }
-
-    ['aiWorkspaceCustomAppId', 'aiWorkspaceCustomDisplayName', 'aiWorkspaceCustomPackageName'].forEach((id) => {
-        const input = $(id);
-        if (input) {
-            input.oninput = () => {
-                markWorkspaceInputsChanged({ resetDraft: true });
-            };
-        }
+    document.querySelectorAll('.ai-workspace-step').forEach((button) => {
+        button.addEventListener('click', () => {
+            const step = Number(button.getAttribute('data-step') || 0);
+            void handleGuidedStepClick(step);
+        });
     });
 
-    const accountRefresh = $('aiWorkspaceAccountRefresh');
-    if (accountRefresh) {
-        accountRefresh.onclick = () => {
-            void loadWorkspaceAccounts();
-        };
-    }
+    $('aiWorkspaceGuidedPrev').onclick = () => {
+        if (state.guidedStep > 1) {
+            setGuidedStep(state.guidedStep - 1);
+        }
+    };
+    $('aiWorkspaceGuidedNext').onclick = () => {
+        void advanceGuidedStep();
+    };
 
-    const accountSelect = $('aiWorkspaceAccountSelect');
-    if (accountSelect) {
-        accountSelect.onchange = () => {
-            markWorkspaceInputsChanged();
-        };
-    }
+    $('aiWorkspaceGeneratePlan').onclick = async () => {
+        const created = await generatePlanAndAdvance();
+        if (created) {
+            toast.success('任务图草案已生成，请继续确认');
+        }
+    };
 
-    const generatePlanButton = $('aiWorkspaceGeneratePlan');
-    if (generatePlanButton) {
-        generatePlanButton.onclick = async () => {
-            const plan = await requestWorkspacePlanner({ force: true });
-            if (plan) {
-                toast.success('任务图草案已生成，请先确认后再执行');
-            }
-        };
-    }
+    $('aiWorkspaceRegeneratePlan').onclick = async () => {
+        const created = await requestWorkspacePlanner({ force: true });
+        if (created) {
+            toast.info('已按当前输入重新生成任务图');
+        }
+    };
 
-    const regeneratePlanButton = $('aiWorkspaceRegeneratePlan');
-    if (regeneratePlanButton) {
-        regeneratePlanButton.onclick = async () => {
-            const plan = await requestWorkspacePlanner({ force: true });
-            if (plan) {
-                toast.info('已按当前输入重新生成任务图');
-            }
-        };
-    }
+    $('aiWorkspaceContinueEdit').onclick = () => {
+        if (!state.plannerResult && !state.activeDraftId) return;
+        state.plannerDirty = true;
+        state.planConfirmed = false;
+        state.guidedStep = Math.min(state.guidedStep, 2);
+        renderWorkspace();
+        $('aiWorkspaceGoal')?.focus();
+        toast.info('已切回编辑态，请修改输入后重新生成任务图');
+    };
 
-    const continueEditButton = $('aiWorkspaceContinueEdit');
-    if (continueEditButton) {
-        continueEditButton.onclick = () => {
-            if (!plannerResult && !activeDraftId) return;
-            plannerDirty = true;
-            planConfirmed = false;
-            renderWorkspaceGraph();
-            updateWorkspaceActionState();
-            $('aiWorkspaceGoal')?.focus();
-            toast.info('已切回编辑态，请修改输入后重新生成任务图');
-        };
-    }
+    $('aiWorkspaceConfirmPlan').onclick = () => {
+        confirmCurrentPlan({ advance: state.uiMode === 'guided' });
+    };
 
-    const confirmButton = $('aiWorkspaceConfirmPlan');
-    if (confirmButton) {
-        confirmButton.onclick = () => {
-            if (!plannerResult || plannerDirty) {
-                toast.warn('请先生成最新任务图草案');
-                return;
-            }
-            planConfirmed = true;
-            renderWorkspaceGraph();
-            updateWorkspaceActionState();
-            toast.success('任务图已确认，可以下发执行');
-        };
-    }
-
-    const submitTaskBtn = $('aiWorkspaceSubmitTask');
-    if (submitTaskBtn) {
-        submitTaskBtn.onclick = async () => {
-            if (!planConfirmed || !plannerResult || plannerDirty) {
-                toast.warn('请先确认最新任务图');
-                return;
-            }
-            const unit = await resolveSelectedWorkspaceUnit();
-            if (!unit) return;
-            const rawPayload = buildAiDialogPayload({
-                goal: String($('aiWorkspaceGoal')?.value || '').trim(),
-                appId: getSelectedWorkspaceAppId(),
-                appDisplayName: getSelectedWorkspaceAppDisplayName(),
-                packageName: getSelectedWorkspacePackageName(),
-                account: getSelectedWorkspaceAccount(),
-                advancedPrompt: String($('aiWorkspaceAdvancedPrompt')?.value || '').trim(),
-            });
-            if (!rawPayload) {
-                toast.warn('请填写任务描述');
-                return;
-            }
-            const result = await submitAiTaskForUnit(unit, {
-                rawPayload,
-                plan: plannerResult,
-                draftId: activeDraftId,
-                successThreshold: activeSuccessThreshold,
-                closeDialog: false,
-            });
-            if (result.ok) {
-                await loadAiWorkspace();
-            }
-        };
-    }
+    $('aiWorkspaceSubmitTask').onclick = () => {
+        void submitCurrentPlan();
+    };
 
     const openDetail = () => {
         const target = String($('aiWorkspaceTargetSelect')?.value || '').trim();
@@ -1212,18 +1522,10 @@ export function initAiWorkspace() {
         });
     };
 
-    const openDetailBtn = $('aiWorkspaceOpenDetail');
-    if (openDetailBtn) {
-        openDetailBtn.onclick = openDetail;
-    }
+    $('aiWorkspaceOpenDetail').onclick = openDetail;
+    $('aiWorkspaceGraphOpenDetail').onclick = openDetail;
 
-    const graphOpenDetailBtn = $('aiWorkspaceGraphOpenDetail');
-    if (graphOpenDetailBtn) {
-        graphOpenDetailBtn.onclick = openDetail;
-    }
-
-    renderWorkspaceGraph();
-    updateWorkspaceActionState();
+    renderWorkspace();
 
     if (window.location.hash === '#ai') {
         void loadAiWorkspace();

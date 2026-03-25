@@ -232,11 +232,88 @@ h1, h2, h3, h4 { color: var(--text-main); font-weight: 600; letter-spacing: -0.0
   align-items: start;
 }
 
+.ai-workspace-root {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.ai-workspace-mode-panel .panel-body {
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+
+.ai-workspace-mode-toggle {
+  display: flex;
+  gap: 8px;
+}
+
+.ai-workspace-guided-rail {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.ai-workspace-step {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface);
+  color: var(--text-muted);
+  padding: 10px 14px;
+  font-size: 13px;
+  transition: all 0.2s ease;
+}
+
+.ai-workspace-step.active {
+  color: var(--text-main);
+  border-color: var(--primary);
+  background: rgba(32, 180, 134, 0.12);
+}
+
+.ai-workspace-step.done {
+  color: var(--text-main);
+  border-color: rgba(32, 180, 134, 0.45);
+  background: rgba(32, 180, 134, 0.08);
+}
+
 .ai-workspace-top {
   display: grid;
   grid-template-columns: minmax(280px, 0.9fr) minmax(0, 1.2fr) minmax(320px, 0.8fr);
   gap: 24px;
   align-items: start;
+}
+
+.ai-workspace-root[data-mode="guided"] .ai-workspace-top {
+  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+}
+
+.ai-workspace-root[data-mode="guided"] .ai-workspace-panel-input {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.ai-workspace-root[data-mode="guided"] .ai-workspace-panel-graph {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.ai-workspace-root[data-mode="guided"] .ai-workspace-side {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+
+.ai-workspace-root[data-mode="advanced"] .ai-workspace-guided-rail,
+.ai-workspace-root[data-mode="advanced"] .ai-workspace-guided-actions {
+  display: none;
+}
+
+.ai-workspace-root[data-mode="guided"] .ai-workspace-panel-input [data-guided-step] {
+  display: none;
+}
+
+.ai-workspace-root[data-mode="guided"][data-step="1"] .ai-workspace-panel-input [data-guided-step="1"],
+.ai-workspace-root[data-mode="guided"][data-step="2"] .ai-workspace-panel-input [data-guided-step="2"] {
+  display: block;
 }
 
 .ai-workspace-side {
@@ -265,17 +342,6 @@ h1, h2, h3, h4 { color: var(--text-main); font-weight: 600; letter-spacing: -0.0
   gap: 8px;
 }
 
-.ai-workspace-designer {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: 16px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.015));
-}
-
-.ai-workspace-graph-empty {
-  color: var(--text-muted);
-}
-
 .ai-workspace-history-row-actions {
   display: flex;
   flex-wrap: wrap;
@@ -288,6 +354,15 @@ h1, h2, h3, h4 { color: var(--text-main); font-weight: 600; letter-spacing: -0.0
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
+}
+
+.ai-workspace-guided-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.ai-workspace-guided-actions .btn {
+  flex: 1;
 }
 
 .ai-workspace-note {
@@ -932,8 +1007,14 @@ input:focus, select:focus, textarea:focus {
   .main-content { padding: 24px 16px 80px 16px; }
   .two-col-layout { grid-template-columns: 1fr; }
   .ai-workspace-top { grid-template-columns: 1fr; }
+  .ai-workspace-root[data-mode="guided"] .ai-workspace-top { grid-template-columns: 1fr; }
+  .ai-workspace-root[data-mode="guided"] .ai-workspace-panel-input,
+  .ai-workspace-root[data-mode="guided"] .ai-workspace-panel-graph,
+  .ai-workspace-root[data-mode="guided"] .ai-workspace-side { grid-column: auto; grid-row: auto; }
   .ai-metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .ai-workspace-history-row-actions { justify-content: flex-start; }
+  .ai-workspace-guided-rail { flex-direction: column; }
+  .ai-workspace-guided-actions { flex-direction: column; }
   
   .selection-dock {
     width: 100%; bottom: 64px; border-radius: 0; border-left: none; border-right: none;

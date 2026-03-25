@@ -52,7 +52,7 @@ const historyItem = {
   },
 };
 
-test('AI 工作台展示任务图设计主链路与历史参考语义', async ({ page }) => {
+test('AI 工作台在引导模式和高级模式间共享同一套任务图状态', async ({ page }) => {
   await page.route('**/health', async (route) => {
     await route.fulfill({
       status: 200,
@@ -183,7 +183,22 @@ test('AI 工作台展示任务图设计主链路与历史参考语义', async ({
 
   await page.goto('/');
   await page.getByRole('button', { name: 'AI 工作台' }).click();
+  await expect(page.getByRole('button', { name: '引导模式' })).toBeVisible();
+  await expect(page.locator('#aiWorkspaceRoot')).toHaveAttribute('data-mode', 'guided');
+  await expect(page.locator('#aiWorkspaceInputTitle')).toContainText('1. 目标与资源');
+
   await page.locator('#aiWorkspaceTargetSelect').selectOption('7-2');
+  await page.getByRole('button', { name: '继续补全约束' }).click();
+  await expect(page.locator('#aiWorkspaceInputTitle')).toContainText('2. 任务描述与约束');
+
+  await page.locator('#aiWorkspaceGoal').fill('登录 X 并确认进入首页');
+  await page.locator('#aiWorkspaceSuccessCriteria').fill('看到首页推荐流时算成功');
+  await page.locator('#aiWorkspaceTakeoverRules').fill('如果出现验证码就暂停等待人工处理');
+  await page.getByRole('button', { name: '生成任务图' }).click();
+  await expect(page.locator('#aiWorkspaceInputTitle')).toContainText('3. 确认任务图');
+  await expect(page.locator('#aiWorkspacePlannerTitle')).toHaveText('X 登录规划');
+  await expect(page.locator('#aiWorkspaceGraphExecution')).toContainText('运行时：agent_executor');
+  await expect(page.locator('#aiWorkspaceGraphExecution')).toContainText('当前参考会话：X 登录补链路');
 
   await expect(page.locator('#aiWorkspaceHistoryDetail')).toContainText('X 登录补链路');
   await expect(page.locator('#aiWorkspaceHistoryDetail')).toContainText('判断登录状态');
@@ -191,15 +206,17 @@ test('AI 工作台展示任务图设计主链路与历史参考语义', async ({
   await expect(page.getByRole('button', { name: '作为当前设计参考' })).toBeVisible();
   await expect(page.getByRole('button', { name: '继续编辑草稿' })).toBeVisible();
 
-  await page.locator('#aiWorkspaceGoal').fill('登录 X 并确认进入首页');
-  await page.getByRole('button', { name: '开始设计任务图' }).click();
-  await expect(page.locator('#aiWorkspacePlannerTitle')).toHaveText('X 登录规划');
-  await expect(page.locator('#aiWorkspaceGraphExecution')).toContainText('运行时：agent_executor');
-  await expect(page.locator('#aiWorkspaceGraphExecution')).toContainText('当前参考会话：X 登录补链路');
-
   await page.getByRole('button', { name: '确认任务图' }).click();
+  await expect(page.locator('#aiWorkspaceRoot')).toHaveAttribute('data-step', '4');
   await expect(page.locator('#aiWorkspaceGraphSummary')).toContainText('当前任务图已确认');
   await expect(page.getByRole('button', { name: '任务图已确认' })).toBeDisabled();
+
+  await page.getByRole('button', { name: '高级模式' }).click();
+  await expect(page.locator('#aiWorkspaceRoot')).toHaveAttribute('data-mode', 'advanced');
+  await expect(page.locator('#aiWorkspaceGoal')).toHaveValue('登录 X 并确认进入首页');
+  await expect(page.locator('#aiWorkspaceSuccessCriteria')).toHaveValue('看到首页推荐流时算成功');
+  await expect(page.locator('#aiWorkspaceTakeoverRules')).toHaveValue('如果出现验证码就暂停等待人工处理');
+  await expect(page.locator('#aiWorkspaceGraphSummary')).toContainText('当前任务图已确认');
 
   await page.getByRole('button', { name: '继续编辑' }).first().click();
   await expect(page.locator('#aiWorkspaceGoal')).toHaveValue('登录 X 并确认进入首页');
