@@ -156,6 +156,27 @@ def _stagnation_pause_payload(result: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
+def _result_declarative_stage(
+    target_results: list[dict[str, Any]],
+    *,
+    first_failure: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    candidates: list[dict[str, Any]] = []
+    if isinstance(first_failure, dict):
+        candidates.append(first_failure)
+    for item in reversed(target_results):
+        if not isinstance(item, dict):
+            continue
+        result = item.get("result")
+        if isinstance(result, dict):
+            candidates.append(result)
+    for result in candidates:
+        stage = result.get("current_declarative_stage")
+        if isinstance(stage, dict) and stage:
+            return dict(stage)
+    return {}
+
+
 def _probe_target_rpa_port(
     device_id: int,
     cloud_id: int,
@@ -641,6 +662,13 @@ def _execute_task(
                                 "intervention_options": list(
                                     single_result.get("intervention_options") or []
                                 ),
+                                "current_declarative_stage": (
+                                    dict(single_result.get("current_declarative_stage") or {})
+                                    if isinstance(
+                                        single_result.get("current_declarative_stage"), dict
+                                    )
+                                    else {}
+                                ),
                             },
                             conn=conn,
                         )
@@ -665,6 +693,7 @@ def _execute_task(
                 "status": "completed",
                 "target_count": len(target_results),
                 "targets": target_results,
+                "current_declarative_stage": _result_declarative_stage(target_results),
             }
         else:
             result = {
@@ -674,6 +703,10 @@ def _execute_task(
                 "message": str(first_failure.get("message") or "task failed"),
                 "target_count": len(target_results),
                 "targets": target_results,
+                "current_declarative_stage": _result_declarative_stage(
+                    target_results,
+                    first_failure=first_failure,
+                ),
             }
     except Exception as exc:
         outcome = finalizer.finalize_exception_attempt(

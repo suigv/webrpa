@@ -439,6 +439,7 @@ class TaskController:
         owner: str | None = None,
         run_id: str | None = None,
         reason: str | None = None,
+        current_declarative_stage: dict[str, Any] | None = None,
     ) -> str | None:
         with self._store.transaction(immediate=True) as conn:
             record = self._store.get_task(task_id, conn=conn)
@@ -458,6 +459,11 @@ class TaskController:
                         "owner": owner,
                         "run_id": current_run_id or requested_run_id or None,
                         "reason": reason or "operator_takeover",
+                        "current_declarative_stage": (
+                            dict(current_declarative_stage)
+                            if isinstance(current_declarative_stage, dict)
+                            else {}
+                        ),
                     },
                     conn=conn,
                 )

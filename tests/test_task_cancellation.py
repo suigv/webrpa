@@ -284,11 +284,33 @@ def test_running_task_takeover_requires_matching_run_id(tmp_path: Path):
 
             good = client.post(
                 f"/api/tasks/{task_id}/takeover",
-                json={"run_id": active_run_id, "owner": "operator-a"},
+                json={
+                    "run_id": active_run_id,
+                    "owner": "operator-a",
+                    "current_declarative_stage": {
+                        "script_name": "x_login_decl",
+                        "stage_name": "check_auth_state",
+                        "stage_kind": "decision",
+                    },
+                },
             )
             assert good.status_code == 200
             assert good.json()["takeover_state"] == "takeover_requested"
             assert _wait_until_status(client, task_id, "paused", timeout_s=3.0)
+
+            takeover_events = controller.list_events(task_id)
+            takeover_payload = next(
+                event.payload
+                for event in takeover_events
+                if event.event_type == "task.takeover_requested"
+            )
+            assert takeover_payload["run_id"] == active_run_id
+            assert takeover_payload["owner"] == "operator-a"
+            assert takeover_payload["current_declarative_stage"] == {
+                "script_name": "x_login_decl",
+                "stage_name": "check_auth_state",
+                "stage_kind": "decision",
+            }
     finally:
         reset_task_controller_for_tests()
 

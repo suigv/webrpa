@@ -29,6 +29,23 @@ from core.task_semantics import (
 )
 from core.workflow_drafts import WorkflowDraftService
 from engine.agent_executor import AgentExecutorRuntime
+from engine.models.declarative_script import (
+    ConsumeItem,
+    ConsumeKind,
+    ConsumeSource,
+    DeclarativeScriptKind,
+    DeclarativeScriptRole,
+    DeclarativeScriptV0,
+    DeclarativeScriptVersion,
+    FailureDefinition,
+    HandoffAction,
+    HandoffPolicy,
+    ProduceItem,
+    ProduceKind,
+    StageItem,
+    StageKind,
+    TerminalDefinition,
+)
 from engine.models.manifest import PluginManifest
 from engine.plugin_loader import get_shared_plugin_loader
 
@@ -167,6 +184,494 @@ def _fit_label(score: int) -> str:
     if score >= 9:
         return "medium"
     return "low"
+
+
+def _decl_identifier(value: str, *, default: str) -> str:
+    normalized = _NON_WORD_RE.sub("_", str(value or "").strip().lower()).strip("_")
+    if not normalized:
+        return default
+    if normalized[0].isdigit():
+        normalized = f"{default}_{normalized}"
+    return normalized[:64]
+
+
+def _declarative_role(task_name: str, objective: str) -> DeclarativeScriptRole:
+    task = str(task_name or "").strip().lower()
+    objective_value = str(objective or "").strip().lower()
+    if objective_value == "login" or task.endswith("login"):
+        return DeclarativeScriptRole.login
+    if objective_value == "scrape_blogger" or "scrape" in task:
+        return DeclarativeScriptRole.collect
+    if objective_value == "reply_dm" or "reply" in task:
+        return DeclarativeScriptRole.reply
+    if "nurture" in task:
+        return DeclarativeScriptRole.nurture
+    if "follow" in task or objective_value in {"follow_followers", "quote_intercept"}:
+        return DeclarativeScriptRole.engage
+    return DeclarativeScriptRole.utility
+
+
+def _app_scope_for_role(role: DeclarativeScriptRole) -> str:
+    return {
+        DeclarativeScriptRole.login: "auth",
+        DeclarativeScriptRole.collect: "discovery",
+        DeclarativeScriptRole.filter: "discovery",
+        DeclarativeScriptRole.nurture: "maintenance",
+        DeclarativeScriptRole.engage: "engagement",
+        DeclarativeScriptRole.reply: "messaging",
+        DeclarativeScriptRole.summarize: "maintenance",
+        DeclarativeScriptRole.utility: "maintenance",
+    }.get(role, "maintenance")
+
+
+def _declarative_depends_on(app_id: str, role: DeclarativeScriptRole) -> list[str]:
+    if role == DeclarativeScriptRole.login:
+        return []
+    app_key = _decl_identifier(app_id, default="app")
+    return [f"{app_key}_login_decl"]
+
+
+def _consume_items_for_manifest(
+    manifest: PluginManifest | None,
+    *,
+    role: DeclarativeScriptRole,
+    branch_id: str,
+    needs_shared_resource: bool,
+) -> list[ConsumeItem]:
+    items: list[ConsumeItem] = []
+    seen: set[str] = set()
+
+    def _append(
+        name: str,
+        *,
+        kind: ConsumeKind,
+        description: str,
+        required: bool,
+        source: ConsumeSource,
+    ) -> None:
+        safe_name = _decl_identifier(name, default="input")
+        if safe_name in seen:
+            return
+        seen.add(safe_name)
+        items.append(
+            ConsumeItem(
+                name=safe_name,
+                kind=kind,
+                description=description,
+                required=required,
+                source=source,
+            )
+        )
+
+    if role != DeclarativeScriptRole.login:
+        _append(
+            "login_state",
+            kind=ConsumeKind.state,
+            description="账号已登录且处于可进入目标 App 页面的状态",
+            required=True,
+            source=ConsumeSource.runtime_state,
+        )
+
+    if branch_id:
+        _append(
+            "branch_policy",
+            kind=ConsumeKind.policy,
+            description="当前业务分支的默认策略与限制配置",
+            required=True,
+            source=ConsumeSource.branch_policy,
+        )
+
+    if needs_shared_resource:
+        _append(
+            "shared_resource",
+            kind=ConsumeKind.resource,
+            description="该脚本依赖的共享资源池或共享候选对象",
+            required=True,
+            source=ConsumeSource.shared_resource,
+        )
+
+    if manifest is None:
+        return items
+
+    for input_item in manifest.inputs:
+        if input_item.name in {"app_id"}:
+            continue
+        if input_item.name == "branch_id":
+            _append(
+                "branch_policy",
+                kind=ConsumeKind.policy,
+                description=str(input_item.description or "业务分支策略配置"),
+                required=bool(input_item.required),
+                source=ConsumeSource.branch_policy,
+            )
+            continue
+        kind = ConsumeKind.policy if input_item.name in {"resource_namespace"} else ConsumeKind.input
+        source = (
+            ConsumeSource.system_default
+            if input_item.system or input_item.default not in (None, "", [], {})
+            else ConsumeSource.user_input
+        )
+        _append(
+            input_item.name,
+            kind=kind,
+            description=str(input_item.description or input_item.label or input_item.name),
+            required=bool(input_item.required),
+            source=source,
+        )
+
+    return items
+
+
+def _produce_items_for_task(
+    task_name: str,
+    *,
+    role: DeclarativeScriptRole,
+) -> list[ProduceItem]:
+    task = str(task_name or "").strip().lower()
+    if role == DeclarativeScriptRole.login:
+        return [
+            ProduceItem(
+                name="login_state",
+                kind=ProduceKind.artifact,
+                description="当前 App 可供后续脚本复用的登录态",
+                persistent=True,
+                exposed=True,
+            ),
+            ProduceItem(
+                name="login_summary",
+                kind=ProduceKind.result,
+                description="本轮登录结果摘要",
+                persistent=True,
+                exposed=True,
+            ),
+            ProduceItem(
+                name="auth_challenge_signal",
+                kind=ProduceKind.signal,
+                description="登录过程中产生的验证码或风控信号",
+                persistent=False,
+                exposed=True,
+            ),
+        ]
+    if "scrape" in task:
+        return [
+            ProduceItem(
+                name="blogger_candidates",
+                kind=ProduceKind.resource,
+                description="当前脚本新增到候选池中的博主候选",
+                persistent=True,
+                exposed=True,
+            ),
+            ProduceItem(
+                name="scrape_summary",
+                kind=ProduceKind.result,
+                description="本轮采集统计摘要",
+                persistent=True,
+                exposed=True,
+            ),
+            ProduceItem(
+                name="candidate_pool_ready",
+                kind=ProduceKind.signal,
+                description="候选池已具备后续脚本消费条件",
+                persistent=False,
+                exposed=True,
+            ),
+        ]
+    if "follow" in task:
+        return [
+            ProduceItem(
+                name="follow_summary",
+                kind=ProduceKind.result,
+                description="本轮关注统计结果",
+                persistent=True,
+                exposed=True,
+            ),
+            ProduceItem(
+                name="followed_targets",
+                kind=ProduceKind.artifact,
+                description="本轮已处理的目标记录",
+                persistent=True,
+                exposed=True,
+            ),
+            ProduceItem(
+                name="follow_limit_reached",
+                kind=ProduceKind.signal,
+                description="当前轮次或当日关注上限已触发",
+                persistent=False,
+                exposed=True,
+            ),
+        ]
+    if role == DeclarativeScriptRole.reply:
+        return [
+            ProduceItem(
+                name="reply_summary",
+                kind=ProduceKind.result,
+                description="本轮回复处理摘要",
+                persistent=True,
+                exposed=True,
+            ),
+            ProduceItem(
+                name="replied_targets",
+                kind=ProduceKind.artifact,
+                description="本轮已处理的对话或目标记录",
+                persistent=True,
+                exposed=True,
+            ),
+        ]
+    return [
+        ProduceItem(
+            name=f"{_decl_identifier(task_name, default='script')}_summary",
+            kind=ProduceKind.result,
+            description="该脚本执行后的结果摘要",
+            persistent=True,
+            exposed=True,
+        )
+    ]
+
+
+def _stage_items_for_role(
+    *,
+    role: DeclarativeScriptRole,
+    title: str,
+) -> list[StageItem]:
+    common_wait = HandoffPolicy(
+        allowed=True,
+        triggers=["页面状态不明确", "异常弹窗无法自动处理"],
+        on_handoff=HandoffAction.pause_and_wait,
+    )
+    if role == DeclarativeScriptRole.login:
+        return [
+            StageItem(
+                name="prepare_auth_flow",
+                title="准备登录流程",
+                description=f"为 {title} 建立可执行的登录前置环境。",
+                kind=StageKind.setup,
+                goal="进入可尝试登录的准备态",
+                exit_when=["已进入登录页", "已识别为已登录状态"],
+                handoff_policy=common_wait,
+            ),
+            StageItem(
+                name="check_auth_state",
+                title="判断登录状态",
+                description="判断当前是否已经处于可复用登录态，或需要继续登录。",
+                kind=StageKind.decision,
+                goal="明确当前登录分支",
+                exit_when=["已确认已登录", "已确认需要继续登录", "触发人工接管"],
+                handoff_policy=common_wait,
+            ),
+            StageItem(
+                name="finish_auth_flow",
+                title="结束登录流程",
+                description="输出登录结果并结束脚本。",
+                kind=StageKind.finalize,
+                goal="完成登录脚本终态输出",
+                exit_when=["登录结果输出完成"],
+                handoff_policy=HandoffPolicy(
+                    allowed=False,
+                    triggers=[],
+                    on_handoff=HandoffAction.record_and_fail,
+                ),
+            ),
+        ]
+    if role in {
+        DeclarativeScriptRole.collect,
+        DeclarativeScriptRole.nurture,
+        DeclarativeScriptRole.engage,
+        DeclarativeScriptRole.reply,
+    }:
+        return [
+            StageItem(
+                name="prepare_flow",
+                title="准备执行流程",
+                description=f"为 {title} 建立可执行的页面、账号和资源前置条件。",
+                kind=StageKind.setup,
+                goal="进入可执行主动作的准备态",
+                exit_when=["已进入目标页面", "检测到提前退出条件", "触发人工接管"],
+                handoff_policy=common_wait,
+            ),
+            StageItem(
+                name="main_loop",
+                title="循环执行主体",
+                description=f"围绕 {title} 的主目标持续执行，直到达成目标或触发退出条件。",
+                kind=StageKind.loop,
+                goal="完成本轮主任务目标",
+                exit_when=["达到目标", "没有更多可执行对象", "触发人工接管", "连续失败过多"],
+                handoff_policy=HandoffPolicy(
+                    allowed=True,
+                    triggers=["页面状态无法判断", "异常弹窗无法自动处理"],
+                    on_handoff=HandoffAction.pause_and_exit,
+                ),
+            ),
+            StageItem(
+                name="finalize_flow",
+                title="结束执行流程",
+                description="汇总本轮结果并完成脚本退出。",
+                kind=StageKind.finalize,
+                goal="输出本轮执行结果",
+                exit_when=["结果输出完成"],
+                handoff_policy=HandoffPolicy(
+                    allowed=False,
+                    triggers=[],
+                    on_handoff=HandoffAction.record_and_fail,
+                ),
+            ),
+        ]
+    return [
+        StageItem(
+            name="run_flow",
+            title="执行流程",
+            description=f"完成 {title} 的主要任务目标。",
+            kind=StageKind.setup,
+            goal="完成当前脚本主要目标",
+            exit_when=["脚本目标已达成", "触发退出条件"],
+            handoff_policy=common_wait,
+        )
+    ]
+
+
+def _success_definition_for_role(role: DeclarativeScriptRole, title: str) -> TerminalDefinition:
+    if role == DeclarativeScriptRole.login:
+        return TerminalDefinition(
+            summary="成功进入已登录且可供后续脚本消费的状态",
+            signals=["进入已登录可操作状态", "输出登录结果摘要"],
+        )
+    return TerminalDefinition(
+        summary=f"完成“{title}”的直接目标并输出结果摘要",
+        signals=["阶段目标达成", "结果摘要输出完成"],
+    )
+
+
+def _failure_definition_for_role(role: DeclarativeScriptRole, title: str) -> FailureDefinition:
+    retryable = role != DeclarativeScriptRole.utility
+    return FailureDefinition(
+        summary=f"无法完成“{title}”或进入不可自动恢复异常态",
+        signals=["进入异常态", "连续失败过多", "人工终止"],
+        retryable=retryable,
+    )
+
+
+def _top_handoff_policy_for_role(role: DeclarativeScriptRole) -> HandoffPolicy:
+    triggers = ["验证码", "风控验证", "页面状态不明确"] if role == DeclarativeScriptRole.login else [
+        "页面状态不明确",
+        "异常弹窗无法自动处理",
+    ]
+    return HandoffPolicy(
+        allowed=True,
+        triggers=triggers,
+        on_handoff=HandoffAction.pause_and_wait,
+    )
+
+
+def _declarative_scripts_for_workflows(
+    *,
+    app_id: str,
+    intent: dict[str, Any],
+    branch: dict[str, Any],
+    workflows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    results: list[dict[str, Any]] = []
+    loader = get_shared_plugin_loader()
+    branch_id = str(branch.get("branch_id") or "").strip()
+    for workflow in workflows:
+        task_name = str(workflow.get("task") or "").strip()
+        if not task_name or task_name == "agent_executor":
+            continue
+        entry = loader.get(task_name)
+        manifest = entry.manifest if entry is not None else None
+        role = _declarative_role(task_name, str(intent.get("objective") or ""))
+        title = str(
+            workflow.get("display_name")
+            or (manifest.display_name if manifest is not None else "")
+            or task_name
+        ).strip()
+        description = str(
+            (manifest.description if manifest is not None else "")
+            or intent.get("expected_outcome")
+            or title
+        ).strip()
+        app_key = _decl_identifier(app_id, default="app")
+        script = DeclarativeScriptV0(
+            version=DeclarativeScriptVersion.v0,
+            kind=DeclarativeScriptKind.declarative_script,
+            app_id=app_key,
+            app_scope=_app_scope_for_role(role),
+            name=f"{_decl_identifier(task_name, default='script')}_decl",
+            title=title[:40] or task_name,
+            description=description[:200] or title,
+            goal=str(intent.get("label") or title)[:120],
+            role=role,
+            consumes=_consume_items_for_manifest(
+                manifest,
+                role=role,
+                branch_id=branch_id,
+                needs_shared_resource=bool(workflow.get("requires_shared_resource")),
+            ),
+            produces=_produce_items_for_task(task_name, role=role),
+            depends_on=_declarative_depends_on(app_key, role),
+            stages=_stage_items_for_role(role=role, title=title),
+            success_definition=_success_definition_for_role(role, title),
+            failure_definition=_failure_definition_for_role(role, title),
+            handoff_policy=_top_handoff_policy_for_role(role),
+        )
+        results.append(script.model_dump(mode="json"))
+    return results
+
+
+def _planner_declarative_context(
+    scripts: list[dict[str, Any]],
+) -> dict[str, Any]:
+    normalized_scripts: list[dict[str, Any]] = []
+    summary_parts: list[str] = []
+    stage_hints: list[dict[str, Any]] = []
+
+    for script in scripts[:4]:
+        if not isinstance(script, Mapping):
+            continue
+        title = str(script.get("title") or script.get("name") or "").strip()
+        goal = str(script.get("goal") or "").strip()
+        role = str(script.get("role") or "").strip()
+        stages_raw = script.get("stages")
+        stages = stages_raw if isinstance(stages_raw, list) else []
+        normalized_scripts.append(dict(script))
+
+        stage_titles = [
+            str(item.get("title") or item.get("name") or "").strip()
+            for item in stages
+            if isinstance(item, Mapping)
+            and str(item.get("title") or item.get("name") or "").strip()
+        ]
+        if title:
+            summary = title
+            if role:
+                summary = f"{summary}（{role}）"
+            if goal and goal != title:
+                summary = f"{summary}：{goal}"
+            if stage_titles:
+                summary = f"{summary}；阶段：{' -> '.join(stage_titles[:4])}"
+            summary_parts.append(summary)
+
+        for stage in stages[:6]:
+            if not isinstance(stage, Mapping):
+                continue
+            stage_title = str(stage.get("title") or stage.get("name") or "").strip()
+            if not stage_title:
+                continue
+            stage_hints.append(
+                {
+                    "script_name": str(script.get("name") or "").strip(),
+                    "script_title": title,
+                    "stage_name": str(stage.get("name") or "").strip(),
+                    "stage_title": stage_title,
+                    "kind": str(stage.get("kind") or "").strip(),
+                    "goal": str(stage.get("goal") or "").strip(),
+                    "exit_when": list(stage.get("exit_when") or []),
+                }
+            )
+
+    return {
+        "_planner_declarative_scripts": normalized_scripts,
+        "_planner_declarative_summary": _truncate_text(" | ".join(summary_parts), limit=500),
+        "_planner_stage_hints": stage_hints[:12],
+    }
 
 
 def _workflow_reason(
@@ -815,28 +1320,22 @@ class AIDialogService:
             str(llm_plan.get("display_name") or "").strip()
             or _recommended_title(app_name, intent, normalized_goal, resolved_app_id)
         )
+        declarative_scripts = _declarative_scripts_for_workflows(
+            app_id=resolved_app_id,
+            intent=intent,
+            branch=branch,
+            workflows=recommended_workflows,
+        )
         resolved_payload.update(
             {
                 "_planner_objective": str(intent.get("objective") or "").strip(),
-                "_planner_task_family": str(intent.get("task_family") or "").strip(),
-                "_planner_branch_source": str(branch.get("source") or "").strip(),
-                "_planner_recommended_workflow": (
-                    top_plugin_workflow.get("task") if top_plugin_workflow is not None else None
-                ),
                 "_planner_control_flow_hints": list(control_flow.get("items") or []),
                 "_planner_control_flow_summary": str(guidance.get("summary") or "").strip(),
-                "_planner_control_flow_dimensions": list(
-                    control_flow.get("covered_dimensions") or []
-                ),
-                "_planner_control_flow_missing": list(
-                    control_flow.get("missing_dimensions") or []
-                ),
-                "_planner_wait_hints": list(control_flow.get("wait_hints") or []),
-                "_planner_success_hints": list(control_flow.get("success_hints") or []),
                 "expected_state_ids": list(config.expected_state_ids),
                 "allowed_actions": list(config.allowed_actions),
                 "max_steps": int(config.max_steps),
                 "stagnant_limit": int(config.stagnant_limit),
+                **_planner_declarative_context(declarative_scripts),
             }
         )
 
@@ -894,6 +1393,7 @@ class AIDialogService:
             "execution": execution,
             "memory": memory,
             "recommended_workflows": recommended_workflows,
+            "declarative_scripts": declarative_scripts,
             "draft": {
                 "source": "ai_dialog",
                 "display_name_candidate": display_name,

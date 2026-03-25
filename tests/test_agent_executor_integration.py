@@ -2148,6 +2148,31 @@ def test_agent_executor_builds_layered_planner_artifact(monkeypatch):
                 {"type": "branch", "label": "条件判断", "text": "如果已经登录就结束"},
                 {"type": "wait", "label": "等待条件", "text": "等待首页出现后再继续"},
             ],
+            "_planner_declarative_scripts": [
+                {
+                    "name": "x_login_decl",
+                    "title": "X 登录",
+                    "description": "完成 X 登录并进入首页。",
+                    "goal": "完成登录",
+                    "role": "login",
+                    "stages": [
+                        {
+                            "name": "prepare_auth_flow",
+                            "title": "准备登录流程",
+                            "kind": "setup",
+                            "goal": "进入可尝试登录的准备态",
+                            "exit_when": ["已进入登录页"],
+                        },
+                        {
+                            "name": "check_auth_state",
+                            "title": "判断登录状态",
+                            "kind": "decision",
+                            "goal": "明确当前登录分支",
+                            "exit_when": ["已确认已登录", "已确认需要继续登录"],
+                        },
+                    ],
+                }
+            ],
         }
     )
 
@@ -2156,8 +2181,12 @@ def test_agent_executor_builds_layered_planner_artifact(monkeypatch):
     assert config.planner_artifact["advanced_prompt"] == "Do not dismiss unread prompts blindly"
     assert config.planner_artifact["control_flow_summary"] == "已识别 2 条控制流提示，还可以补充：成功标准。"
     assert config.planner_artifact["control_flow_hints"][0]["type"] == "branch"
+    assert config.planner_artifact["declarative_summary"] == "X 登录（login）：完成登录；阶段：准备登录流程 -> 判断登录状态"
+    assert config.planner_artifact["declarative_stage_hints"][0]["stage_name"] == "prepare_auth_flow"
+    assert config.planner_artifact["declarative_scripts"][0]["name"] == "x_login_decl"
     assert "Control-flow hints:" in str(config.planner_artifact["goal_text"])
     assert "App hint:" in str(config.planner_artifact["goal_text"])
+    assert "Declarative scripts:" in str(config.planner_artifact["goal_text"])
 
 
 def test_agent_executor_cancellation_writes_terminal_trace_record(tmp_path: Path):
@@ -2203,6 +2232,81 @@ def test_agent_executor_cancellation_writes_terminal_trace_record(tmp_path: Path
     assert [record["record_type"] for record in records] == ["step", "terminal"]
     assert records[-1]["status"] == "cancelled"
     assert records[-1]["code"] == "task_cancelled"
+
+
+def test_agent_executor_completed_result_and_terminal_trace_include_declarative_stage(
+    tmp_path: Path,
+):
+    trace_store = ModelTraceStore(root_dir=tmp_path / "traces")
+    runtime = _build_runtime(
+        llm_client=_SequencedLLMClient(
+            responses=[
+                LLMResponse(
+                    ok=True,
+                    request_id="req-1",
+                    provider="openai",
+                    model="gpt-5.4",
+                    output_text=json.dumps({"done": True, "message": "login completed"}),
+                )
+            ]
+        ),
+        observations=[
+            {"platform": "native", "state": {"state_id": "account"}, "status": "matched"}
+        ],
+        trace_store=trace_store,
+    )
+
+    result = runtime.run(
+        {
+            "task": "agent_executor",
+            "goal": "finish login with declarative stage context",
+            "expected_state_ids": ["account", "home"],
+            "allowed_actions": ["ui.click"],
+            "max_steps": 3,
+            "_planner_declarative_scripts": [
+                {
+                    "name": "x_login_decl",
+                    "title": "X 登录",
+                    "goal": "完成登录并进入首页",
+                    "role": "login",
+                    "stages": [
+                        {
+                            "name": "prepare_auth_flow",
+                            "title": "准备登录流程",
+                            "kind": "setup",
+                            "goal": "进入可尝试登录的准备态",
+                        },
+                        {
+                            "name": "check_auth_state",
+                            "title": "判断登录状态",
+                            "kind": "decision",
+                            "goal": "明确当前登录分支",
+                        },
+                        {
+                            "name": "finalize_auth_flow",
+                            "title": "收尾完成",
+                            "kind": "finalize",
+                            "goal": "确认已经进入首页",
+                        },
+                    ],
+                }
+            ],
+        },
+        runtime=_trace_runtime_args(),
+    )
+
+    assert result["ok"] is True
+    assert result["status"] == "completed"
+    stage = cast(dict[str, object], result["current_declarative_stage"])
+    assert stage["script_name"] == "x_login_decl"
+    assert stage["stage_name"] == "finalize_auth_flow"
+    assert stage["stage_kind"] == "finalize"
+    records = _read_trace_records(tmp_path / "traces")
+    assert [record["record_type"] for record in records] == ["terminal"]
+    terminal_stage = cast(dict[str, object], records[-1]["current_declarative_stage"])
+    assert terminal_stage["script_name"] == "x_login_decl"
+    assert terminal_stage["stage_name"] == "finalize_auth_flow"
+    assert terminal_stage["stage_kind"] == "finalize"
 
 
 def test_reflection_injected_on_action_failure(tmp_path: Path):

@@ -11,7 +11,7 @@ from typing import Any
 from core.app_config import resolve_app_id
 from core.business_profile import branch_id_from_payload, normalize_branch_id
 from core.golden_run_distillation import GoldenRunDistiller
-from core.model_trace_store import ModelTraceContext
+from core.model_trace_store import ModelTraceContext, ModelTraceStore
 from core.paths import distilled_plugins_dir, traces_dir
 from core.task_semantics import (
     build_draft_exit_decision,
@@ -387,6 +387,13 @@ def _evaluate_run_asset(
         retained_value=retained_value,
     )
     learned_assets["value_profile"] = value_profile
+    declarative_binding = _declarative_binding(
+        payload,
+        task_id=str(getattr(task_record, "task_id", "")).strip() or None,
+        result=result,
+    )
+    if declarative_binding:
+        learned_assets["declarative_binding"] = declarative_binding
     if data:
         learned_assets["result_data"] = data
 
@@ -440,6 +447,11 @@ def _asset_to_dict(asset: WorkflowRunAssetRecord) -> dict[str, Any]:
         "value_level": asset.value_level,
         "retained_value": list(asset.retained_value),
         "learned_assets": learned_assets,
+        "declarative_binding": (
+            dict(learned_assets.get("declarative_binding") or {})
+            if isinstance(learned_assets.get("declarative_binding"), dict)
+            else {}
+        ),
         "value_profile": value_profile,
         "terminal_message": asset.terminal_message,
         "created_at": asset.created_at,
@@ -447,7 +459,12 @@ def _asset_to_dict(asset: WorkflowRunAssetRecord) -> dict[str, Any]:
     }
 
 
-def _build_task_snapshot(task_record: Any, payload: dict[str, Any]) -> dict[str, Any]:
+def _build_task_snapshot(
+    task_record: Any,
+    payload: dict[str, Any],
+    *,
+    result: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     trace_contexts = _list_trace_contexts(str(task_record.task_id))
     latest_trace_context = trace_contexts[0] if len(trace_contexts) == 1 else None
     return {
@@ -463,7 +480,55 @@ def _build_task_snapshot(task_record: Any, payload: dict[str, Any]) -> dict[str,
         ),
         "trace_context_count": len(trace_contexts),
         "trace_context_ambiguous": len(trace_contexts) > 1,
+        "declarative_binding": _declarative_binding(
+            payload,
+            task_id=str(getattr(task_record, "task_id", "")).strip() or None,
+            result=(
+                dict(result)
+                if isinstance(result, dict)
+                else dict(getattr(task_record, "result", {}) or {})
+            ),
+        ),
     }
+
+
+def _latest_current_declarative_stage(task_id: str) -> dict[str, Any]:
+    trace_context = _find_latest_trace_context(task_id)
+    if trace_context is None:
+        return {}
+    records = ModelTraceStore().read_records(trace_context)
+    for record in reversed(records):
+        if not isinstance(record, dict):
+            continue
+        stage = record.get("current_declarative_stage")
+        if isinstance(stage, dict) and stage:
+            return dict(stage)
+    return {}
+
+
+def _declarative_binding(
+    payload: dict[str, Any],
+    *,
+    task_id: str | None = None,
+    result: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    raw_scripts = payload.get("_planner_declarative_scripts")
+    scripts = raw_scripts if isinstance(raw_scripts, list) else []
+    primary_script = next((item for item in scripts if isinstance(item, dict)), None)
+    stage = {}
+    if isinstance(result, dict) and isinstance(result.get("current_declarative_stage"), dict):
+        stage = dict(result.get("current_declarative_stage") or {})
+    elif task_id:
+        stage = _latest_current_declarative_stage(task_id)
+
+    binding = {
+        "summary": str(payload.get("_planner_declarative_summary") or "").strip(),
+        "script_count": len(scripts),
+        "script_name": str((primary_script or {}).get("name") or "").strip(),
+        "script_title": str((primary_script or {}).get("title") or "").strip(),
+        "current_stage": stage,
+    }
+    return {key: value for key, value in binding.items() if value not in ("", None, [], {})}
 
 
 class WorkflowDraftService:
@@ -574,6 +639,23 @@ class WorkflowDraftService:
             if isinstance(latest_asset_dict, dict)
             else {}
         )
+        declarative_binding = {}
+        if isinstance(latest_asset_dict, dict) and isinstance(
+            latest_asset_dict.get("declarative_binding"), dict
+        ):
+            declarative_binding = dict(latest_asset_dict.get("declarative_binding") or {})
+        if not declarative_binding:
+            snapshot = (
+                dict(record.last_replayable_snapshot)
+                if isinstance(record.last_replayable_snapshot, dict)
+                else (
+                    dict(record.last_success_snapshot)
+                    if isinstance(record.last_success_snapshot, dict)
+                    else {}
+                )
+            )
+            if isinstance(snapshot.get("declarative_binding"), dict):
+                declarative_binding = dict(snapshot.get("declarative_binding") or {})
         exit_decision = build_draft_exit_decision(
             draft_status=record.status,
             success_count=record.success_count,
@@ -612,6 +694,7 @@ class WorkflowDraftService:
             "latest_completed_task_id": record.latest_completed_task_id,
             "successful_task_ids": list(record.successful_task_ids),
             "latest_run_asset": latest_asset_dict,
+            "declarative_binding": declarative_binding or None,
             "distill_assessment": {
                 "can_distill_now": bool(exit_decision.get("can_distill_now")),
                 "should_distill": bool(exit_decision.get("should_distill")),
@@ -916,7 +999,7 @@ class WorkflowDraftService:
             )
             run_asset = asset_assessment["asset"]
             self._store.upsert_run_asset(run_asset, conn=tx_conn)
-            snapshot = _build_task_snapshot(task_record, payload)
+            snapshot = _build_task_snapshot(task_record, payload, result=result)
             if asset_assessment["continuable"]:
                 record.last_replayable_snapshot = snapshot
             if task_status == "completed":
@@ -1044,6 +1127,7 @@ class WorkflowDraftService:
                         "should_distill": False,
                         "stage": str(exit_decision.get("stage") or "collecting"),
                     },
+                    "declarative_binding": current_summary.get("declarative_binding"),
                     "exit": exit_decision,
                 }
 
@@ -1099,6 +1183,9 @@ class WorkflowDraftService:
                     "should_distill": False,
                     "stage": "distilled",
                 },
+                "declarative_binding": (
+                    self.summary(draft_id, conn=tx_conn) or {}
+                ).get("declarative_binding"),
                 "exit": exit_decision,
             }
 

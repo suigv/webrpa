@@ -790,6 +790,7 @@ async def takeover_task(task_id: str, request: TaskControlRequest | None = None)
                 owner=request.owner if request else None,
                 run_id=request.run_id if request else None,
                 reason=request.reason if request else None,
+                current_declarative_stage=request.current_declarative_stage if request else None,
             )
         )
     except ValueError as exc:

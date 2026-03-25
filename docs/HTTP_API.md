@@ -2,7 +2,7 @@
 doc_type: current
 source_of_truth: current
 owner: repo
-last_verified_at: 2026-03-24
+last_verified_at: 2026-03-25
 stale_after_days: 14
 verification_method:
   - route audit via api/server.py and api/routes/*
@@ -63,6 +63,12 @@ verification_method:
 - `POST /api/devices/{device_id}/{cloud_id}/key`
 - `POST /api/devices/{device_id}/{cloud_id}/text`
 
+### 设备轻控制 trace 上下文
+
+- `POST /api/devices/{device_id}/{cloud_id}/{tap|swipe|key|text}` 当前都支持可选 `trace_context`。
+- `trace_context` 当前包含 `task_id`、`run_id`、`target_label`、`attempt_number`，以及新的 `current_declarative_stage`。
+- 当轻控制请求携带 `trace_context` 时，后端会把人工操作追加到对应 model trace，并保留 `current_declarative_stage`，供后续接管、继续执行和蒸馏链路复用。
+
 ## 任务系统
 
 - `POST /api/tasks/`
@@ -112,6 +118,12 @@ verification_method:
 - `payload` 只承载插件 `manifest.inputs` 中声明的业务字段。
 - 运行时上下文不应混入 `payload`。
 
+### 任务控制边界
+
+- `POST /api/tasks/{task_id}/takeover` 当前支持 `run_id`、`owner`、`reason`，以及可选 `current_declarative_stage`。
+- takeover 成功后，`task.takeover_requested` 事件会保留该阶段上下文。
+- `GET /api/tasks/{task_id}/events` 当前会在 `task.observation`、`task.action_result`、`task.paused`、`task.completed`、`task.failed`、`task.cancelled` 等运行时事件里返回 `current_declarative_stage`，前提是本次运行已有声明阶段锚点。
+
 ### App Catalog
 
 - `GET /api/tasks/catalog/apps` 返回当前共享 app 身份目录。
@@ -134,9 +146,11 @@ verification_method:
 
 - `POST /api/ai_dialog/planner` 当前支持 `app_id`、`app_display_name`、`package_name`，用于已存在 app 选择和新 app 探索式启动。
 - planner 返回当前已解析的 `intent`、`branch`、`execution`、`recommended_workflows`，以及新的 `guidance`、`control_flow`，用于前端展示任务意图、账号阻塞项、提示词补充建议和已识别的控制流线索。
+- planner 当前还会返回 `declarative_scripts`，作为面向 AI 对话和后续探索/蒸馏链路的声明式单脚本草案列表；它们是 App 归属明确的结构化脚本对象，不是当前插件运行时 `script.yaml` 的替代品。
 - planner 额外返回 `memory`，用于描述近期同类 AI 运行资产的最近终态、蒸馏判定、可复用状态/动作、`reuse_priority`、`recommended_action` 和提示语。
 - 当前 `intent` 与 `memory` 的业务语义优先来自插件 manifest 中声明的 `ai_hints`，而不是框架层写死的任务族表。
 - planner 会从 `goal + advanced_prompt` 中抽取条件判断、等待、超时、成功标准等控制流提示，并写回 `resolved_payload._planner_control_flow_*`，供 `agent_executor` 运行时 planner artifact 和后续蒸馏链路复用。
+- planner 当前还会把声明脚本桥接信息写回 `resolved_payload._planner_declarative_*`，包括脚本列表、主脚本摘要和阶段锚点；`agent_executor` 会继续把这些字段收敛进 runtime planner artifact，供探索执行直接消费。
 - `POST /api/ai_dialog/annotations` 用于记录用户接管输入时声明的输入类型。
 - `GET/POST /api/ai_dialog/drafts/{draft_id}/save_*` 用于列出并应用一次执行后的可选保存项，而不是强制落库全部运行时数据。
 - `GET /api/ai_dialog/history` 返回的 AI 草稿历史当前会分别给出 `can_replay`、`can_edit`、`can_save`；failed/cancelled 但仍保留 `draft_memory` / `useful_trace` 的任务仍可进入“编辑后执行 / 保存可复用项”链路。
@@ -152,8 +166,11 @@ verification_method:
   - `latest_run_asset` 描述最近一次终态运行的 `business_outcome`、`distill_decision`、`distill_reason` 与 `retained_value`。
 - workflow draft 摘要当前额外返回：
   - `latest_run_asset.value_profile`：本次运行的统一资格/价值判定结果。
+  - `declarative_binding`：从 `_planner_declarative_*` 与最近阶段上下文推导出的声明层绑定摘要。
   - `distill_assessment`：当前草稿是否可蒸馏、最近一次资格结论、当前阶段。
   - `exit`：当前统一出口动作，例如 `apply_suggestion`、`continue_validation`、`distill`、`review_distilled`。
+- `GET /api/tasks/drafts/{draft_id}/snapshot` 当前也会返回 `snapshot.declarative_binding`，用于继续执行时保留声明层绑定。
+- `POST /api/tasks/drafts/{draft_id}/distill` 的响应当前会回传 `declarative_binding`，便于前端在蒸馏完成后继续展示“本次蒸馏对应哪个声明脚本/阶段”。
 - 当一次 AI 任务已经完成但不满足蒸馏资格时，系统仍会保留 replayable / useful trace 级别的 run asset，供后续 planner 与继续执行复用。
 - failed/cancelled 终态只要保留了 `retained_value`，草稿也会生成 continuation snapshot，不再要求必须先有 completed snapshot 才能继续编辑。
 - app 级 `agent_executor` 任务当前会使用更高的默认步数预算，并在最近步骤持续产生真实状态进展时按轮次延长预算；若连续出现无效运行时契约动作，则会提前以 circuit breaker 结束。

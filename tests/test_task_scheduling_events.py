@@ -298,6 +298,65 @@ def test_task_events_sse_stream_contains_lifecycle_events(tmp_path: Path):
             db_path.unlink()
 
 
+def test_task_completed_event_preserves_current_declarative_stage(tmp_path: Path):
+    class _DeclarativeStageRunner:
+        def run(self, script_payload, should_cancel=None, runtime=None):
+            _ = (script_payload, should_cancel, runtime)
+            return {
+                "ok": True,
+                "status": "completed",
+                "message": "done",
+                "current_declarative_stage": {
+                    "script_name": "x_scrape_blogger_decl",
+                    "stage_name": "finalize_flow",
+                    "stage_kind": "finalize",
+                },
+            }
+
+    reset_task_controller_for_tests()
+    db_path = tmp_path / "tasks_declarative_stage_events.db"
+    controller = TaskController(
+        store=TaskStore(db_path=db_path),
+        queue_backend=InMemoryTaskQueue(),
+        event_store=TaskEventStore(db_path=db_path),
+        runner=_DeclarativeStageRunner(),
+    )
+    override_task_controller_for_tests(controller)
+
+    try:
+        with TestClient(app) as client:
+            create = client.post(
+                "/api/tasks/",
+                json={
+                    "script": {"task": "anonymous", "steps": []},
+                    "targets": [{"device_id": 1, "cloud_id": 1}],
+                    "priority": 50,
+                    "max_retries": 0,
+                    "retry_backoff_seconds": 0,
+                },
+            )
+            assert create.status_code == 200
+            task_id = create.json()["task_id"]
+
+            text = _stream_task_events(client, task_id)
+            completed_block = next(
+                block for block in text.split("\n\n") if "event: task.completed" in block
+            )
+            data_line = next(
+                line for line in completed_block.splitlines() if line.startswith("data: ")
+            )
+            payload = json.loads(data_line[6:])
+            assert payload["current_declarative_stage"] == {
+                "script_name": "x_scrape_blogger_decl",
+                "stage_name": "finalize_flow",
+                "stage_kind": "finalize",
+            }
+    finally:
+        reset_task_controller_for_tests()
+        if db_path.exists():
+            db_path.unlink()
+
+
 def test_task_events_sse_stream_contains_retry_and_failed_terminal_events(tmp_path: Path):
     reset_task_controller_for_tests()
     db_path = tmp_path / "tasks_retry_failed_events.db"

@@ -68,6 +68,7 @@ class WorkflowDraftSummary(BaseModel):
     latest_completed_task_id: str | None = None
     successful_task_ids: list[str] = Field(default_factory=list)
     latest_run_asset: dict[str, Any] | None = None
+    declarative_binding: dict[str, Any] | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
     message: str | None = None
@@ -182,6 +183,7 @@ class TaskControlRequest(BaseModel):
     run_id: str | None = Field(default=None, min_length=1, max_length=128)
     reason: str | None = Field(default=None, min_length=1, max_length=200)
     owner: str | None = Field(default=None, min_length=1, max_length=120)
+    current_declarative_stage: dict[str, Any] | None = None
 
 
 class WorkflowDraftDistillRequest(BaseModel):

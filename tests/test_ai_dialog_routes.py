@@ -51,8 +51,17 @@ def test_ai_dialog_planner_returns_resolved_defaults(monkeypatch):
         assert data["execution"]["runtime"] == "agent_executor"
         assert data["execution"]["readiness"] == "ready"
         assert any(item["task"] == "x_login" for item in data["recommended_workflows"])
+        assert any(item["name"] == "x_login_decl" for item in data["declarative_scripts"])
+        assert data["declarative_scripts"][0]["app_id"] == "x"
         assert data["resolved_payload"]["_workflow_source"] == "ai_dialog"
         assert data["resolved_payload"]["_planner_objective"] == "login"
+        assert data["resolved_payload"]["_planner_declarative_scripts"][0]["name"] == "x_login_decl"
+        assert "X 登录" in data["resolved_payload"]["_planner_declarative_summary"]
+        assert data["resolved_payload"]["_planner_stage_hints"][0]["script_name"] == "x_login_decl"
+        assert "_planner_primary_script" not in data["resolved_payload"]
+        assert "_planner_task_family" not in data["resolved_payload"]
+        assert "_planner_branch_source" not in data["resolved_payload"]
+        assert "_planner_recommended_workflow" not in data["resolved_payload"]
         assert "home" in data["resolved_payload"]["expected_state_ids"]
         assert "notifications" in data["resolved_payload"]["expected_state_ids"]
         assert "allowed_actions" in data["resolved_payload"]
@@ -201,6 +210,10 @@ def test_ai_dialog_planner_infers_branch_and_workflow_for_collection_goal(monkey
         assert data["resolved_payload"]["branch_id"] == "volc"
         assert data["execution"]["mode"] == "workflow_aligned"
         assert any(item["task"] == "x_scrape_blogger" for item in data["recommended_workflows"])
+        assert any(item["name"] == "x_scrape_blogger_decl" for item in data["declarative_scripts"])
+        assert any(
+            item["kind"] == "loop" for item in data["resolved_payload"]["_planner_stage_hints"]
+        )
     finally:
         reset_task_controller_for_tests()
 
@@ -331,8 +344,10 @@ def test_ai_dialog_planner_extracts_control_flow_hints(monkeypatch):
         assert (
             data["resolved_payload"]["_planner_control_flow_summary"] == data["guidance"]["summary"]
         )
-        assert data["resolved_payload"]["_planner_wait_hints"] == ["等待首页出现后算成功"]
-        assert data["resolved_payload"]["_planner_success_hints"] == ["等待首页出现后算成功"]
+        assert "_planner_control_flow_dimensions" not in data["resolved_payload"]
+        assert "_planner_control_flow_missing" not in data["resolved_payload"]
+        assert "_planner_wait_hints" not in data["resolved_payload"]
+        assert "_planner_success_hints" not in data["resolved_payload"]
         assert any(
             item["text"] == "超时 15 秒则返回失败"
             for item in data["resolved_payload"]["_planner_control_flow_hints"]

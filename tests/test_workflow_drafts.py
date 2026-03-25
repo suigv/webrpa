@@ -577,6 +577,145 @@ def test_workflow_draft_completed_login_run_counts_for_distill(tmp_path: Path):
     assert summary["exit"]["action"] == "continue_validation"
 
 
+def test_workflow_draft_summary_snapshot_and_distill_expose_declarative_binding(
+    tmp_path: Path, monkeypatch
+):
+    distilled_root = tmp_path / "distilled_plugins"
+    distilled_root.mkdir(parents=True, exist_ok=True)
+
+    import core.workflow_drafts as workflow_drafts_module
+
+    monkeypatch.setattr(workflow_drafts_module, "distilled_plugins_dir", lambda: distilled_root)
+
+    service = _build_workflow_draft_service(tmp_path)
+    _create_draft(service)
+
+    task_record = SimpleNamespace(
+        task_id="task-login-declarative",
+        status="completed",
+        payload={
+            "task": "agent_executor",
+            "_workflow_draft_id": "draft-test",
+            "goal": "用绑定账号登录 X 并进入首页",
+            "app_id": "x",
+            "_planner_declarative_summary": "X 登录（login）：完成登录；阶段：准备登录流程 -> 判断登录状态 -> 收尾完成",
+            "_planner_declarative_scripts": [
+                {
+                    "name": "x_login_decl",
+                    "title": "X 登录",
+                    "goal": "完成登录并进入首页",
+                    "role": "login",
+                    "stages": [
+                        {
+                            "name": "prepare_auth_flow",
+                            "title": "准备登录流程",
+                            "kind": "setup",
+                            "goal": "进入可尝试登录的准备态",
+                        },
+                        {
+                            "name": "check_auth_state",
+                            "title": "判断登录状态",
+                            "kind": "decision",
+                            "goal": "明确当前登录分支",
+                        },
+                        {
+                            "name": "finalize_auth_flow",
+                            "title": "收尾完成",
+                            "kind": "finalize",
+                            "goal": "确认已经进入首页",
+                        },
+                    ],
+                }
+            ],
+        },
+        devices=[7],
+        targets=[{"device_id": 7, "cloud_id": 2}],
+        max_retries=0,
+        retry_backoff_seconds=2,
+        priority=50,
+    )
+
+    terminal_stage = {
+        "script_name": "x_login_decl",
+        "script_title": "X 登录",
+        "script_role": "login",
+        "stage_name": "finalize_auth_flow",
+        "stage_title": "收尾完成",
+        "stage_kind": "finalize",
+        "stage_goal": "确认已经进入首页",
+        "stage_index": 2,
+        "stage_count": 3,
+        "step_index": 2,
+        "observed_state_ids": ["home"],
+    }
+
+    service.record_terminal(
+        task_record=task_record,
+        result={
+            "message": "登录成功",
+            "current_declarative_stage": terminal_stage,
+            "history": [
+                {
+                    "action": "ui.click",
+                    "observation": {"state": {"state_id": "home"}},
+                }
+            ],
+        },
+    )
+
+    summary = service.summary("draft-test")
+    assert summary is not None
+    assert summary["declarative_binding"] == {
+        "summary": "X 登录（login）：完成登录；阶段：准备登录流程 -> 判断登录状态 -> 收尾完成",
+        "script_count": 1,
+        "script_name": "x_login_decl",
+        "script_title": "X 登录",
+        "current_stage": terminal_stage,
+    }
+    latest_run_asset = cast(dict[str, object], summary["latest_run_asset"])
+    assert cast(dict[str, object], latest_run_asset["declarative_binding"])["current_stage"] == (
+        terminal_stage
+    )
+
+    snapshot_bundle = service.continuation_snapshot("draft-test")
+    snapshot = cast(dict[str, object], snapshot_bundle["snapshot"])
+    assert cast(dict[str, object], snapshot["declarative_binding"])["current_stage"] == (
+        terminal_stage
+    )
+
+    class _FakeDistiller:
+        def distill(self, **kwargs):
+            output_dir = Path(cast(str, kwargs["output_dir"]))
+            output_dir.mkdir(parents=True, exist_ok=True)
+            manifest_path = output_dir / "manifest.yaml"
+            script_path = output_dir / "script.yaml"
+            report_path = output_dir / "report.json"
+            manifest_path.write_text("name: fake\n", encoding="utf-8")
+            script_path.write_text("steps: []\n", encoding="utf-8")
+            report_path.write_text("{}\n", encoding="utf-8")
+            return SimpleNamespace(
+                manifest_path=manifest_path,
+                script_path=script_path,
+                report_path=report_path,
+            )
+
+    monkeypatch.setattr(workflow_drafts_module, "GoldenRunDistiller", _FakeDistiller)
+    monkeypatch.setattr(
+        service,
+        "_resolve_distill_trace_context",
+        lambda record: ModelTraceContext(
+            task_id="task-login-declarative",
+            run_id="run-1",
+            target_label="Unit #7-2",
+            attempt_number=1,
+        ),
+    )
+
+    distilled = service.distill_draft("draft-test", force=True)
+    assert distilled["ok"] is True
+    assert distilled["declarative_binding"] == summary["declarative_binding"]
+
+
 def test_workflow_draft_memory_summary_exposes_reuse_priority(tmp_path: Path):
     service = _build_workflow_draft_service(tmp_path)
     _create_draft(service, draft_id="draft-memory")

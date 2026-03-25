@@ -7,7 +7,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from engine.action_registry import ActionMetadata
 from engine.models.runtime import ActionResult, ExecutionContext
@@ -517,25 +518,6 @@ def android_set_app_bootstart(params: dict[str, Any], context: ExecutionContext)
     package = str(params.get("package") or "").strip()
     enabled = bool(params.get("enabled", True))
     return _from_api(client.set_boot_app(package=package, enabled=enabled, packages=packages))
-
-
-def android_get_webrtc_player_url(
-    params: dict[str, Any], context: ExecutionContext
-) -> ActionResult:
-    client = _api_client(params, context)
-    if client is None:
-        return _err("invalid_params", "device_ip is required")
-    return _from_api(
-        client.get_webrtc_player_url(
-            shost=str(params.get("shost") or ""),
-            sport=params.get("sport") or "",
-            q=str(params.get("q") or "1"),
-            v=str(params.get("v") or "h264"),
-            rtc_i=str(params.get("rtc_i") or ""),
-            rtc_j=str(params.get("rtc_j") or ""),
-            rtc_p=params.get("rtc_p") or "",
-        )
-    )
 
 
 def android_set_key_block(params: dict[str, Any], context: ExecutionContext) -> ActionResult:

@@ -39,6 +39,7 @@ class TraceContextRequest(BaseModel):
     run_id: str = Field(min_length=1, max_length=128)
     target_label: str | None = Field(default=None, min_length=1, max_length=200)
     attempt_number: int = Field(default=1, ge=1, le=100)
+    current_declarative_stage: dict[str, Any] | None = None
 
 
 class TapRequest(BaseModel):
@@ -201,6 +202,11 @@ def _append_human_trace(
             "action_name": action_name,
             "action_params": action_params,
             "action_result": {"ok": True, "data": action_result},
+            "current_declarative_stage": (
+                dict(trace_context.current_declarative_stage)
+                if isinstance(trace_context.current_declarative_stage, dict)
+                else {}
+            ),
         },
     )
 

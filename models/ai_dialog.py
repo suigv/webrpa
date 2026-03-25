@@ -4,6 +4,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from engine.models.declarative_script import DeclarativeScriptV0
+
 
 class AIDialogPlannerRequest(BaseModel):
     goal: str = Field(min_length=1, max_length=400)
@@ -30,6 +32,7 @@ class AIDialogPlannerResponse(BaseModel):
     execution: dict[str, Any] = Field(default_factory=dict)
     memory: dict[str, Any] = Field(default_factory=dict)
     recommended_workflows: list[dict[str, Any]] = Field(default_factory=list)
+    declarative_scripts: list[DeclarativeScriptV0] = Field(default_factory=list)
     draft: dict[str, Any] = Field(default_factory=dict)
 
 

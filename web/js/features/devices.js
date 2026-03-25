@@ -31,6 +31,7 @@ import {
     taskAcceptsAccount,
 } from './task_service.js';
 import {
+    findUnitInDevices,
     refreshDevicesSnapshot,
     startDevicesPolling,
     subscribeDevices,
@@ -44,6 +45,7 @@ let currentUnitsById = new Map();
 let currentUnitDetail = null;
 let devicesSubscriptionCleanup = null;
 let devicesPollingStarted = false;
+let fleetOverview = { total: 0, online: 0, busy: 0 };
 
 const UNIT_ADVANCED_COLLAPSED_TEXT = '配置高级属性';
 const UNIT_ADVANCED_EXPANDED_TEXT = '收起高级属性';
@@ -88,6 +90,19 @@ function createDeviceStat(label, value, extraClass = '') {
 
     block.append(labelEl, valueEl);
     return block;
+}
+
+function updateFleetOverview({ total = 0, online = 0, busy = 0 } = {}) {
+    fleetOverview = { total, online, busy };
+    const totalEl = $("overviewTotalUnits");
+    const onlineEl = $("overviewOnlineUnits");
+    const busyEl = $("overviewBusyUnits");
+    const selectedEl = $("overviewSelectedUnits");
+
+    if (totalEl) totalEl.textContent = String(total);
+    if (onlineEl) onlineEl.textContent = String(online);
+    if (busyEl) busyEl.textContent = String(busy);
+    if (selectedEl) selectedEl.textContent = String(selectedUnits.size);
 }
 
 function summarizeTaskState(unit, isOnline) {
@@ -252,15 +267,23 @@ function renderUnits(devices) {
 
     const onlineUnits = [];
     const offlineUnits = [];
+    let busyUnits = 0;
     currentUnitsById = new Map();
 
     devices.forEach(d => {
         (d.cloud_machines || []).forEach(u => {
             const unit = { ...u, parent_ip: d.ip, parent_id: d.device_id };
             currentUnitsById.set(`${d.device_id}-${u.cloud_id}`, unit);
+            if (u.current_task) busyUnits += 1;
             if (u.availability_state === "available") onlineUnits.push(unit);
             else offlineUnits.push(unit);
         });
+    });
+
+    updateFleetOverview({
+        total: onlineUnits.length + offlineUnits.length,
+        online: onlineUnits.length,
+        busy: busyUnits,
     });
 
     clearElement(list);
@@ -359,6 +382,37 @@ function renderUnitCard(container, u) {
     container.appendChild(card);
 }
 
+function openAiForUnit(unit, seed = null) {
+    if (!unit) return;
+    openUnitDetail({
+        unit,
+        clearElement,
+        buildUnitLogTarget,
+        renderUnitPluginFields,
+        loadUnitAccounts,
+        submitUnitTask,
+        setCurrentUnit: (nextUnit) => {
+            currentUnitDetail = nextUnit;
+        },
+    });
+    void openUnitAiDialog(unit, seed);
+}
+
+function openDetailForUnit(unit) {
+    if (!unit) return;
+    openUnitDetail({
+        unit,
+        clearElement,
+        buildUnitLogTarget,
+        renderUnitPluginFields,
+        loadUnitAccounts,
+        submitUnitTask,
+        setCurrentUnit: (nextUnit) => {
+            currentUnitDetail = nextUnit;
+        },
+    });
+}
+
 function toggleSelection(id, check) {
     if (check) selectedUnits.add(id); else selectedUnits.delete(id);
     updateBar();
@@ -370,6 +424,7 @@ function updateBar() {
     const bar = $("selectionBar");
     if(el) el.textContent = selectedUnits.size;
     if(bar) bar.style.display = selectedUnits.size > 0 ? "flex" : "none";
+    updateFleetOverview(fleetOverview);
 }
 
 function clearSelection() {
@@ -531,4 +586,31 @@ async function submitCurrentUnitAiTask() {
     if (!result?.ok) {
         unitLog("❌ AI 对话任务提交失败", "error");
     }
+}
+
+export async function openAiWorkspaceDetail({
+    deviceId,
+    cloudId,
+} = {}) {
+    const normalizedDeviceId = Number(deviceId || 0);
+    const normalizedCloudId = Number(cloudId || 0);
+    if (!normalizedDeviceId || !normalizedCloudId) {
+        toast.warn('请先选择目标云机');
+        return { ok: false, reason: 'missing_target' };
+    }
+
+    let unit = currentUnitsById.get(`${normalizedDeviceId}-${normalizedCloudId}`) || null;
+    if (!unit) {
+        const response = await refreshDevicesSnapshot({ force: true, silentErrors: true });
+        if (response.ok) {
+            unit = findUnitInDevices(normalizedDeviceId, normalizedCloudId, response.data);
+        }
+    }
+    if (!unit) {
+        toast.error('未找到目标云机，请先刷新设备列表');
+        return { ok: false, reason: 'unit_not_found' };
+    }
+
+    openDetailForUnit(unit);
+    return { ok: true };
 }

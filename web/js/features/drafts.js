@@ -1,6 +1,5 @@
 import { fetchJson } from '../utils/api.js';
 import { toast } from '../ui/toast.js';
-import { prefillTaskFromDraft } from './tasks.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -192,54 +191,27 @@ function renderDraftDetail(draft, detailState = {}) {
     btnDistill.disabled = !draft?.can_distill;
     btnDistill.onclick = () => void distillDraft(draft);
 
-    const btnReplay = document.createElement('button');
-    btnReplay.className = 'btn btn-secondary btn-sm';
-    btnReplay.textContent = '编辑并重放';
-    btnReplay.disabled = !draft?.can_continue;
-    btnReplay.onclick = () => void openReplayInTasksTab(draft);
-
-    const btnSaveReusable = document.createElement('button');
-    btnSaveReusable.className = 'btn btn-secondary btn-sm';
-    btnSaveReusable.textContent = '保存可复用项';
-    btnSaveReusable.disabled = !draft?.can_continue;
-    btnSaveReusable.onclick = async () => {
-        const module = await import('./ai_task_annotations.js');
-        await module.openAiDraftSaveModal(String(draft?.draft_id || '').trim());
+    const btnOpenWorkspace = document.createElement('button');
+    btnOpenWorkspace.className = 'btn btn-secondary btn-sm';
+    btnOpenWorkspace.textContent = '转到 AI 工作台';
+    btnOpenWorkspace.onclick = () => {
+        switchToAiTab();
+        toast.info('失败建议、会话复用与保存可复用项已收口到 AI 工作台');
     };
 
-    actions.append(btnContinue, btnReplay, btnDistill, btnSaveReusable);
+    actions.append(btnContinue, btnDistill, btnOpenWorkspace);
     host.appendChild(actions);
 
-    const advice = draft?.latest_failure_advice;
-    if (advice?.summary || advice?.suggested_prompt) {
-        const card = document.createElement('div');
-        card.className = 'panel mt-4';
-        card.style.padding = '12px';
-        const titleEl = document.createElement('div');
-        titleEl.className = 'text-sm font-medium mb-2';
-        titleEl.textContent = '失败建议';
-        card.appendChild(titleEl);
-
-        const lines = document.createElement('div');
-        lines.className = 'text-sm';
-        const parts = [];
-        if (advice.summary) parts.push(String(advice.summary));
-        if (Array.isArray(advice.suggestions) && advice.suggestions.length) {
-            parts.push(`建议：${advice.suggestions.join('；')}`);
-        }
-        if (advice.suggested_prompt) {
-            parts.push(`推荐提示词：${advice.suggested_prompt}`);
-        }
-        lines.textContent = parts.join(' ');
-        card.appendChild(lines);
-
-        const applyBtn = document.createElement('button');
-        applyBtn.className = 'btn btn-secondary btn-sm mt-3';
-        applyBtn.textContent = '应用建议到任务表单';
-        applyBtn.onclick = () => void applySuggestion(draft);
-        card.appendChild(applyBtn);
-        host.appendChild(card);
-    }
+    const workspaceNote = document.createElement('div');
+    workspaceNote.className = 'task-guide-card mt-4';
+    const workspaceTitle = document.createElement('div');
+    workspaceTitle.className = 'task-guide-title';
+    workspaceTitle.textContent = '职责边界';
+    const workspaceText = document.createElement('div');
+    workspaceText.className = 'task-guide-text';
+    workspaceText.textContent = '草稿详情仅保留验证、蒸馏和配置收敛信息；失败建议、会话复用和声明脚本阶段锚点统一在 AI 工作台查看。';
+    workspaceNote.append(workspaceTitle, workspaceText);
+    host.appendChild(workspaceNote);
 
     renderConfigCandidatesPanel(host, draft, detailState);
     renderBranchProfilesPanel(host, draft, detailState);
@@ -581,7 +553,7 @@ function renderBranchProfilesPanel(host, draft, detailState) {
 }
 
 
-async function loadDrafts() {
+export async function loadDrafts() {
     const btn = $('refreshDrafts');
     if (btn) btn.disabled = true;
     try {
@@ -699,89 +671,11 @@ async function distillDraft(draft) {
     await loadDraftDetail(draftId);
 }
 
-function switchToTasksTab() {
-    const btn = document.querySelector('.nav-item[data-tab="tab-tasks"]');
+function switchToAiTab() {
+    const btn = document.querySelector('.nav-item[data-tab="tab-ai"]');
     if (btn) {
         btn.click();
     }
-}
-
-async function openReplayInTasksTab(draft) {
-    const draftId = String(draft?.draft_id || '').trim();
-    if (!draftId) return;
-
-    const r = await fetchJson(`/api/tasks/drafts/${encodeURIComponent(draftId)}/snapshot`, {
-        silentErrors: true,
-    });
-    if (!r.ok) {
-        toast.error(r.data?.detail || '获取回放快照失败');
-        return;
-    }
-    const snapshot = r.data?.snapshot || {};
-    const payload = snapshot.payload && typeof snapshot.payload === 'object' ? snapshot.payload : {};
-    const targets = Array.isArray(snapshot.targets) ? snapshot.targets : [];
-    const taskName = String(draft?.task_name || payload.task || 'agent_executor').trim();
-    const appId = String(snapshot.identity?.app_id || payload.app_id || payload.app || '').trim();
-
-    switchToTasksTab();
-    await prefillTaskFromDraft({
-        taskName,
-        payload,
-        targets,
-        priority: snapshot.priority,
-        maxRetries: snapshot.max_retries,
-        appId,
-        displayName: String(draft?.display_name || '').trim(),
-        draftId,
-        successThreshold: Number(draft?.success_threshold || 3),
-    });
-    toast.info('已载入草稿快照，可修改后提交');
-}
-
-function applySuggestedPrompt(payload, suggested) {
-    const next = payload && typeof payload === 'object' ? { ...payload } : {};
-    const textKeys = ['goal', 'prompt', 'query', 'instruction', 'text', 'description'];
-    const existing = textKeys.find((k) => typeof next[k] === 'string' && String(next[k] || '').trim());
-    next[existing || 'goal'] = suggested;
-    return next;
-}
-
-async function applySuggestion(draft) {
-    const draftId = String(draft?.draft_id || '').trim();
-    if (!draftId) return;
-    const suggested = String(draft?.latest_failure_advice?.suggested_prompt || '').trim();
-    if (!suggested) {
-        toast.warn('暂无可应用的提示词');
-        return;
-    }
-
-    const r = await fetchJson(`/api/tasks/drafts/${encodeURIComponent(draftId)}/snapshot`, {
-        silentErrors: true,
-    });
-    if (!r.ok) {
-        toast.error(r.data?.detail || '获取回放快照失败');
-        return;
-    }
-
-    const snapshot = r.data?.snapshot || {};
-    const payload = snapshot.payload && typeof snapshot.payload === 'object' ? snapshot.payload : {};
-    const targets = Array.isArray(snapshot.targets) ? snapshot.targets : [];
-    const taskName = String(draft?.task_name || payload.task || 'agent_executor').trim();
-    const appId = String(snapshot.identity?.app_id || payload.app_id || payload.app || '').trim();
-
-    switchToTasksTab();
-    await prefillTaskFromDraft({
-        taskName,
-        payload: applySuggestedPrompt(payload, suggested),
-        targets,
-        priority: snapshot.priority,
-        maxRetries: snapshot.max_retries,
-        appId,
-        displayName: String(draft?.display_name || '').trim(),
-        draftId,
-        successThreshold: Number(draft?.success_threshold || 3),
-    });
-    toast.info('已应用建议到任务表单');
 }
 
 export function initDrafts() {

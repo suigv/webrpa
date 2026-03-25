@@ -109,6 +109,11 @@ class TaskAttemptFinalizer:
                     "status": "cancelled",
                     "ok": False,
                     "reason": reason,
+                    "current_declarative_stage": (
+                        dict(result.get("current_declarative_stage") or {})
+                        if isinstance(result.get("current_declarative_stage"), dict)
+                        else {}
+                    ),
                 },
             ),
             conn=conn,
@@ -142,6 +147,11 @@ class TaskAttemptFinalizer:
                     "status": "failed",
                     "ok": False,
                     "error": error,
+                    "current_declarative_stage": (
+                        dict(result.get("current_declarative_stage") or {})
+                        if isinstance(result.get("current_declarative_stage"), dict)
+                        else {}
+                    ),
                 },
             ),
             conn=conn,
@@ -173,6 +183,11 @@ class TaskAttemptFinalizer:
                 {
                     "status": "completed",
                     "ok": True,
+                    "current_declarative_stage": (
+                        dict(result.get("current_declarative_stage") or {})
+                        if isinstance(result.get("current_declarative_stage"), dict)
+                        else {}
+                    ),
                 },
             ),
             conn=conn,

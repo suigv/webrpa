@@ -449,6 +449,7 @@ class AgentExecutorTraceMixin:
         message: str,
         observed_at: str,
         planner: Mapping[str, object] | None = None,
+        current_declarative_stage: dict[str, object] | None = None,
     ) -> dict[str, object]:
         record: dict[str, object] = {
             "trace_version": 1,
@@ -471,6 +472,8 @@ class AgentExecutorTraceMixin:
         }
         if planner is not None:
             record["planner"] = self._trace_planner(planner)
+        if current_declarative_stage:
+            record["current_declarative_stage"] = current_declarative_stage
         return record
 
     @staticmethod

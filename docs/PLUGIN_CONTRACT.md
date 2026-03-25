@@ -2,7 +2,7 @@
 doc_type: current
 source_of_truth: current
 owner: repo
-last_verified_at: 2026-03-24
+last_verified_at: 2026-03-25
 stale_after_days: 14
 verification_method:
   - manifest and script audit in plugins/*
@@ -44,6 +44,29 @@ plugins/<plugin_name>/
 - `steps`
 
 步骤以声明式工作流方式组织，运行时通过 `engine/plugin_loader.py` 和解释器执行。
+
+## 声明式单脚本 schema 草案
+
+仓库当前还存在一份面向 AI 对话和后续探索/蒸馏链路的内部 schema 草案：
+
+- `engine/models/declarative_script.py` 中的 `DeclarativeScriptV0`
+
+它当前是声明层对象，不是插件运行时 `script.yaml` 的替代品。
+
+当前用途：
+
+- 约束 AI 对话产出的单脚本声明结构
+- 表达 App 归属、输入、产出、阶段、终态、人工接管策略
+- 作为 AI planner 到 `agent_executor` 的内部桥接对象，通过 `_planner_declarative_*` 字段把脚本摘要和阶段锚点带入探索执行
+- 作为 workflow draft / run asset / distill 响应里的 `declarative_binding` 来源，标记一次探索样本绑定到了哪个声明脚本、最近停在什么阶段
+
+当前边界：
+
+- 不承载运行态快照
+- 不直接承载 action 明细或 selector 细节
+- 不等同于当前插件 `v1` 运行时协议
+- 不是对外插件 payload 合约；`_planner_declarative_*` 仅属于 AI 对话内部运行时字段
+- 阶段推进证据当前以 runtime trace / task event / workflow draft binding 形式暴露，还没有升级为插件 `script.yaml` 的正式阶段状态协议
 
 ## Payload 边界
 

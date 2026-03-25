@@ -10,7 +10,13 @@ let detailUnitControlCleanup = null;
 
 export function setUnitTakeoverTraceContext(context) {
     activeUnitTraceContext = context && typeof context === 'object'
-        ? { ...context, takeoverRequested: Boolean(context.takeoverRequested) }
+        ? {
+            ...context,
+            takeoverRequested: Boolean(context.takeoverRequested),
+            currentDeclarativeStage: context.currentDeclarativeStage && typeof context.currentDeclarativeStage === 'object'
+                ? { ...context.currentDeclarativeStage }
+                : null,
+        }
         : null;
 }
 
@@ -33,6 +39,7 @@ async function ensureHumanTakeover(traceContext) {
             run_id: traceContext.runId,
             owner: 'web_console',
             reason: 'human_takeover_from_unit_controls',
+            current_declarative_stage: traceContext.currentDeclarativeStage || undefined,
         }),
         silentErrors: true,
     });
@@ -209,6 +216,7 @@ async function postUnitControl(unit, action, payload, successMessage, getTraceCo
                     run_id: traceContext.runId,
                     target_label: traceContext.targetLabel,
                     attempt_number: Number(traceContext.attemptNumber || 1),
+                    current_declarative_stage: traceContext.currentDeclarativeStage || undefined,
                 },
             }
             : payload;

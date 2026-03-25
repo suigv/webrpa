@@ -61,8 +61,186 @@ _ACTION_CONTRACT_ERROR_LIMIT = 2
 _EMPTY_ACTION_DEFER_LIMIT = 3
 _DEFAULT_EXECUTOR_ACTION_PREFIXES = ("ai.", "ui.", "app.")
 _DEFAULT_EXECUTOR_ACTION_EXCLUSIONS = {"ui.match_state", "ui.observe_transition"}
+_TERMINALISH_STATE_IDS = {
+    "home",
+    "notifications",
+    "timeline",
+    "inbox",
+    "profile_home",
+    "search_results",
+}
 
 _ = sys.modules.setdefault(f"{__name__}.time", time)
+
+
+def _planner_declarative_scripts(payload: Mapping[str, object]) -> list[dict[str, object]]:
+    raw_scripts = payload.get("_planner_declarative_scripts")
+    if not isinstance(raw_scripts, list):
+        return []
+
+    scripts: list[dict[str, object]] = []
+    for item in raw_scripts[:4]:
+        if not isinstance(item, Mapping):
+            continue
+        stages_raw = item.get("stages")
+        stages = stages_raw if isinstance(stages_raw, list) else []
+        normalized_stages: list[dict[str, object]] = []
+        for stage in stages[:6]:
+            if not isinstance(stage, Mapping):
+                continue
+            stage_title = str(stage.get("title") or stage.get("name") or "").strip()
+            if not stage_title:
+                continue
+            normalized_stages.append(
+                {
+                    "name": str(stage.get("name") or "").strip(),
+                    "title": stage_title,
+                    "kind": str(stage.get("kind") or "").strip(),
+                    "goal": str(stage.get("goal") or "").strip(),
+                    "exit_when": list(stage.get("exit_when") or []),
+                }
+            )
+        scripts.append(
+            {
+                "name": str(item.get("name") or "").strip(),
+                "title": str(item.get("title") or item.get("name") or "").strip(),
+                "description": str(item.get("description") or "").strip(),
+                "goal": str(item.get("goal") or "").strip(),
+                "role": str(item.get("role") or "").strip(),
+                "depends_on": list(item.get("depends_on") or []),
+                "stages": normalized_stages,
+            }
+        )
+    return scripts
+
+
+def _planner_declarative_summary(scripts: list[dict[str, object]]) -> str:
+    parts: list[str] = []
+    for script in scripts[:3]:
+        title = str(script.get("title") or script.get("name") or "").strip()
+        if not title:
+            continue
+        role = str(script.get("role") or "").strip()
+        goal = str(script.get("goal") or "").strip()
+        stages_raw = script.get("stages")
+        stages = stages_raw if isinstance(stages_raw, list) else []
+        stage_titles = [
+            str(item.get("title") or item.get("name") or "").strip()
+            for item in stages
+            if isinstance(item, Mapping)
+            and str(item.get("title") or item.get("name") or "").strip()
+        ]
+        summary = title
+        if role:
+            summary = f"{summary}（{role}）"
+        if goal and goal != title:
+            summary = f"{summary}：{goal}"
+        if stage_titles:
+            summary = f"{summary}；阶段：{' -> '.join(stage_titles[:4])}"
+        parts.append(summary)
+    return " | ".join(parts)
+
+
+def _planner_declarative_stage_hints(
+    scripts: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    hints: list[dict[str, object]] = []
+    for script in scripts:
+        script_name = str(script.get("name") or "").strip()
+        script_title = str(script.get("title") or "").strip()
+        stages_raw = script.get("stages")
+        stages = stages_raw if isinstance(stages_raw, list) else []
+        for stage in stages:
+            if not isinstance(stage, Mapping):
+                continue
+            stage_title = str(stage.get("title") or stage.get("name") or "").strip()
+            if not stage_title:
+                continue
+            hints.append(
+                {
+                    "script_name": script_name,
+                    "script_title": script_title,
+                    "stage_name": str(stage.get("name") or "").strip(),
+                    "stage_title": stage_title,
+                    "kind": str(stage.get("kind") or "").strip(),
+                    "goal": str(stage.get("goal") or "").strip(),
+                    "exit_when": list(stage.get("exit_when") or []),
+                }
+            )
+    return hints[:12]
+
+
+def _declarative_stage_index_by_kind(
+    stages: list[dict[str, object]],
+    kind: str,
+) -> int | None:
+    normalized_kind = str(kind or "").strip().lower()
+    for index, stage in enumerate(stages):
+        if str(stage.get("kind") or "").strip().lower() == normalized_kind:
+            return index
+    return None
+
+
+def _middle_declarative_stage_index(stages: list[dict[str, object]]) -> int:
+    for preferred in ("decision", "loop"):
+        index = _declarative_stage_index_by_kind(stages, preferred)
+        if index is not None:
+            return index
+    if len(stages) <= 1:
+        return 0
+    return min(1, len(stages) - 1)
+
+
+def _current_declarative_stage(
+    planner_artifact: Mapping[str, object],
+    *,
+    step_index: int,
+    observed_state_ids: list[str],
+    done: bool = False,
+) -> dict[str, object]:
+    raw_scripts = planner_artifact.get("declarative_scripts")
+    scripts = raw_scripts if isinstance(raw_scripts, list) else []
+    primary_script = next((item for item in scripts if isinstance(item, Mapping)), None)
+    if not isinstance(primary_script, Mapping):
+        return {}
+    stages_raw = primary_script.get("stages")
+    stages = [dict(item) for item in stages_raw] if isinstance(stages_raw, list) else []
+    if not stages:
+        return {}
+
+    observed = {
+        str(item or "").strip().lower()
+        for item in observed_state_ids
+        if str(item or "").strip()
+    }
+    if done:
+        stage_index = _declarative_stage_index_by_kind(stages, "finalize")
+        if stage_index is None:
+            stage_index = len(stages) - 1
+    elif observed.intersection(_TERMINALISH_STATE_IDS):
+        stage_index = _declarative_stage_index_by_kind(stages, "finalize")
+        if stage_index is None:
+            stage_index = _middle_declarative_stage_index(stages)
+    elif step_index <= 1:
+        stage_index = 0
+    else:
+        stage_index = _middle_declarative_stage_index(stages)
+
+    bounded_index = max(0, min(int(stage_index), len(stages) - 1))
+    stage = stages[bounded_index]
+    return {
+        "script_name": str(primary_script.get("name") or "").strip(),
+        "script_title": str(primary_script.get("title") or "").strip(),
+        "script_role": str(primary_script.get("role") or "").strip(),
+        "stage_name": str(stage.get("name") or "").strip(),
+        "stage_title": str(stage.get("title") or "").strip(),
+        "stage_kind": str(stage.get("kind") or "").strip(),
+        "stage_goal": str(stage.get("goal") or "").strip(),
+        "stage_index": bounded_index,
+        "stage_count": len(stages),
+        "step_index": max(1, int(step_index)),
+        "observed_state_ids": list(observed_state_ids),
+    }
 
 
 class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
@@ -194,6 +372,9 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
 
             previous_state_id = _observation_state_id(last_observation.get("data"))
             if should_cancel is not None and should_cancel():
+                current_declarative_stage = _json_dict(
+                    last_observation.get("current_declarative_stage")
+                )
                 self._flush_pending_trace(trace_context, pending_trace_record)
                 self._append_trace(
                     trace_context,
@@ -218,9 +399,14 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
                         code="task_cancelled",
                         message="task cancelled by user",
                         observed_at=str(last_observation.get("observed_at") or ""),
+                        current_declarative_stage=current_declarative_stage,
                     ),
                 )
-                return self._cancelled(step_index=step_index - 1, history=history)
+                return self._cancelled(
+                    step_index=step_index - 1,
+                    history=history,
+                    current_declarative_stage=current_declarative_stage,
+                )
 
             observation_result = self._observe_step(
                 config=config,
@@ -244,6 +430,9 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
             fallback_reason = str(observation_result["fallback_reason"])
             fallback_evidence = _json_dict(observation_result["fallback_evidence"])
             observation_fingerprint = str(observation_result["fingerprint"])
+            current_declarative_stage = _json_dict(
+                observation_result["current_declarative_stage"]
+            )
             last_observation = {
                 "data": observation_state if isinstance(observation_state, dict) else {},
                 "ok": observation_ok,
@@ -255,6 +444,7 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
                 "fallback_evidence": fallback_evidence,
                 "observed_at": observed_at,
                 "step_index": step_index,
+                "current_declarative_stage": current_declarative_stage,
             }
 
             if pending_trace_record is not None:
@@ -286,6 +476,12 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
                 last_action=last_action,
             )
             if business_completion_message:
+                completed_declarative_stage = _current_declarative_stage(
+                    config.planner_artifact,
+                    step_index=step_index,
+                    observed_state_ids=observed_state_ids,
+                    done=True,
+                )
                 self._append_trace(
                     trace_context,
                     self._terminal_trace_record(
@@ -301,6 +497,7 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
                         code="business_completion",
                         message=business_completion_message,
                         observed_at=observed_at,
+                        current_declarative_stage=completed_declarative_stage,
                     ),
                 )
                 learned_package = self._resolve_learning_package(target_package, observation_state)
@@ -314,6 +511,7 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
                     message=business_completion_message,
                     step_count=step_index,
                     history=history,
+                    current_declarative_stage=completed_declarative_stage,
                 )
 
             if stagnant_observation_count >= config.stagnant_limit:
@@ -340,6 +538,7 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
                     fallback_reason=fallback_reason,
                     fallback_evidence=fallback_evidence,
                     observed_at=observed_at,
+                    current_declarative_stage=current_declarative_stage,
                 )
 
             planned_step = self._plan_step(
@@ -376,9 +575,16 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
                     plan=plan,
                     code=str(plan.get("code") or "planner_error"),
                     message=str(plan.get("message") or "planner failed"),
+                    current_declarative_stage=current_declarative_stage,
                 )
 
             if bool(plan.get("done")):
+                completed_declarative_stage = _current_declarative_stage(
+                    config.planner_artifact,
+                    step_index=step_index,
+                    observed_state_ids=observed_state_ids,
+                    done=True,
+                )
                 self._append_trace(
                     trace_context,
                     self._terminal_trace_record(
@@ -397,6 +603,7 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
                         message=str(plan.get("message") or "gpt executor completed"),
                         observed_at=observed_at,
                         planner=plan,
+                        current_declarative_stage=completed_declarative_stage,
                     ),
                 )
                 learned_package = self._resolve_learning_package(target_package, observation_state)
@@ -412,6 +619,7 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
                     final_observation=observation_state,
                     extracted_data=plan.get("extracted_data"),
                     planner=plan,
+                    current_declarative_stage=completed_declarative_stage,
                 )
 
             action_name = str(planned_step["action_name"])
@@ -433,6 +641,7 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
                 observed_at=observed_at,
                 plan=plan,
                 emit_event=context.emit_event,
+                current_declarative_stage=current_declarative_stage,
             )
             empty_action_defer_count = int(str(empty_action_defer_outcome["defer_count"]))
             if bool(empty_action_defer_outcome["continue_loop"]):
@@ -468,6 +677,7 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
                         "action": action_name,
                         "params": action_params,
                         "message": str(plan.get("message") or ""),
+                        "current_declarative_stage": current_declarative_stage,
                     },
                 )
             action_result = dispatch_action(
@@ -482,6 +692,7 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
                         "label": action_name,
                         "ok": action_result.ok,
                         "message": action_result.message or "",
+                        "current_declarative_stage": current_declarative_stage,
                     },
                 )
 
@@ -528,6 +739,7 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
                 "chosen_action": action_name,
                 "action_params": action_params,
                 "action_result": action_result_payload,
+                "current_declarative_stage": current_declarative_stage,
                 "reflection": reflection if reflection else None,
                 "history_digest_length": len(history_digest),
                 "repeated_action_count": repeated_action_count,
@@ -563,6 +775,7 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
                     fallback_reason=str(plan.get("fallback_reason") or fallback_reason),
                     fallback_evidence=fallback_evidence,
                     observed_at=observed_at,
+                    current_declarative_stage=current_declarative_stage,
                 )
 
             if should_cancel is not None and should_cancel():
@@ -585,9 +798,14 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
                         message="task cancelled by user",
                         observed_at=observed_at,
                         planner=plan,
+                        current_declarative_stage=current_declarative_stage,
                     ),
                 )
-                return self._cancelled(step_index=step_index, history=history)
+                return self._cancelled(
+                    step_index=step_index,
+                    history=history,
+                    current_declarative_stage=current_declarative_stage,
+                )
 
             step_index += 1
 
@@ -623,6 +841,7 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
             ),
             fallback_evidence=_json_dict(last_observation.get("fallback_evidence")),
             observed_at=str(last_observation.get("observed_at") or ""),
+            current_declarative_stage=_json_dict(last_observation.get("current_declarative_stage")),
         )
 
     def _observe_step(
@@ -784,6 +1003,11 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
                     "ok": observation_ok,
                     "state_certainty": observation_certainty,
                     "state_source": observation_source,
+                    "current_declarative_stage": _current_declarative_stage(
+                        config.planner_artifact,
+                        step_index=step_index,
+                        observed_state_ids=observed_state_ids,
+                    ),
                 },
             )
         return {
@@ -798,6 +1022,11 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
             "fallback_reason": fallback_reason,
             "fallback_evidence": fallback_evidence,
             "fingerprint": observation_fingerprint,
+            "current_declarative_stage": _current_declarative_stage(
+                config.planner_artifact,
+                step_index=step_index,
+                observed_state_ids=observed_state_ids,
+            ),
         }
 
     def _handle_empty_action_defer(
@@ -817,6 +1046,7 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
         observed_at: str,
         plan: dict[str, Any],
         emit_event: Callable[[str, dict[str, Any]], None] | None,
+        current_declarative_stage: dict[str, object],
     ) -> dict[str, object]:
         if str(plan.get("action") or "").strip() or not observation_requires_fallback:
             return {
@@ -838,6 +1068,7 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
                     "retry_count": next_defer_count,
                     "retry_limit": _EMPTY_ACTION_DEFER_LIMIT,
                     "message": defer_message,
+                    "current_declarative_stage": current_declarative_stage,
                 },
             )
         if next_defer_count <= _EMPTY_ACTION_DEFER_LIMIT:
@@ -863,6 +1094,7 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
                     "message": defer_message,
                     "defer_count": next_defer_count,
                     "defer_limit": _EMPTY_ACTION_DEFER_LIMIT,
+                    "current_declarative_stage": current_declarative_stage,
                     "timestamps": {
                         "observed_at": observed_at,
                         "planned_at": str(plan.get("planned_at") or ""),
@@ -894,6 +1126,7 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
         observed_at: str,
         plan: dict[str, Any],
         emit_event: Callable[[str, dict[str, Any]], None] | None,
+        current_declarative_stage: dict[str, object],
     ) -> dict[str, object]:
         defer_outcome = self._handle_empty_action_defer(
             config=config,
@@ -910,6 +1143,7 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
             observed_at=observed_at,
             plan=plan,
             emit_event=emit_event,
+            current_declarative_stage=current_declarative_stage,
         )
         if not bool(defer_outcome["deferred"]):
             return {
@@ -940,6 +1174,7 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
                 plan=plan,
                 code="planner_empty_action_retry_exhausted",
                 message="planner returned empty action during fallback observation too many times",
+                current_declarative_stage=current_declarative_stage,
             ),
         }
 
@@ -1135,6 +1370,9 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
                     {"type": hint_type, "label": label, "text": text}
                 )
         control_flow_summary = str(payload.get("_planner_control_flow_summary") or "").strip()
+        declarative_scripts = _planner_declarative_scripts(payload)
+        declarative_summary = _planner_declarative_summary(declarative_scripts)
+        declarative_stage_hints = _planner_declarative_stage_hints(declarative_scripts)
         goal_text_parts = [goal]
         if app_hint:
             goal_text_parts.append(f"App hint: {app_hint}")
@@ -1142,6 +1380,8 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
             goal_text_parts.append(f"Advanced operator prompt: {advanced_prompt}")
         if control_flow_summary:
             goal_text_parts.append(f"Control-flow hints: {control_flow_summary}")
+        if declarative_summary:
+            goal_text_parts.append(f"Declarative scripts: {declarative_summary}")
         planner_artifact: dict[str, object] = {
             "goal": goal,
             "app_id": app_id,
@@ -1150,8 +1390,12 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
             "has_navigation_routes": bool(payload.get("routes")) and bool(payload.get("hops")),
             "control_flow_hints": control_flow_hints,
             "control_flow_summary": control_flow_summary,
+            "declarative_summary": declarative_summary,
+            "declarative_stage_hints": declarative_stage_hints,
             "goal_text": "\n\n".join(part for part in goal_text_parts if part),
         }
+        if declarative_scripts:
+            planner_artifact["declarative_scripts"] = declarative_scripts
 
         max_steps, allow_step_budget_extension = _default_max_steps(payload)
 
@@ -1220,7 +1464,13 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
             inferred.append(action)
         return inferred
 
-    def _cancelled(self, *, step_index: int, history: list[dict[str, object]]) -> dict[str, Any]:
+    def _cancelled(
+        self,
+        *,
+        step_index: int,
+        history: list[dict[str, object]],
+        current_declarative_stage: dict[str, object] | None = None,
+    ) -> dict[str, Any]:
         return self._result(
             ok=False,
             status="cancelled",
@@ -1229,6 +1479,7 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
             message="task cancelled by user",
             step_count=step_index,
             history=history,
+            current_declarative_stage=current_declarative_stage or {},
         )
 
     def _failed_circuit_breaker_result(
@@ -1250,6 +1501,7 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
         fallback_reason: str,
         fallback_evidence: dict[str, object],
         observed_at: str,
+        current_declarative_stage: dict[str, object] | None = None,
     ) -> dict[str, Any]:
         self._append_trace(
             trace_context,
@@ -1266,6 +1518,7 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
                 code=code,
                 message=message,
                 observed_at=observed_at,
+                current_declarative_stage=current_declarative_stage or {},
             ),
         )
         return self._result(
@@ -1277,6 +1530,7 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
             step_count=step_count,
             history=history,
             circuit_breaker=circuit_breaker,
+            current_declarative_stage=current_declarative_stage or {},
         )
 
     def _planning_failure(
@@ -1295,6 +1549,7 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
         plan: dict[str, Any],
         code: str,
         message: str,
+        current_declarative_stage: dict[str, object] | None = None,
     ) -> dict[str, Any]:
         self._append_trace(
             trace_context,
@@ -1312,6 +1567,7 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
                 message=message,
                 observed_at=observed_at,
                 planner=plan,
+                current_declarative_stage=current_declarative_stage or {},
             ),
         )
         return self._result(
@@ -1323,6 +1579,7 @@ class AgentExecutorRuntime(AgentExecutorTraceMixin, AgentExecutorPlanningMixin):
             step_count=step_index - 1,
             history=history,
             planner=plan,
+            current_declarative_stage=current_declarative_stage or {},
         )
 
     def _result(self, *, ok: bool, status: str, checkpoint: str, **extra: object) -> dict[str, Any]:

@@ -43,6 +43,8 @@ build/
 # Frontend build artifacts
 web/node_modules/
 web/dist/
+web/playwright-report/
+web/test-results/
 
 # Local agent skills (not part of repo)
 .agents/

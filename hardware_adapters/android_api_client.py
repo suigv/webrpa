@@ -542,34 +542,6 @@ class AndroidApiClient:
             "/uploadkeybox", files={"file": (f.name, f.read_bytes(), mime)}
         )
 
-    def get_webrtc_player_url(
-        self,
-        shost: str,
-        sport: str | int,
-        q: str = "1",
-        v: str = "h264",
-        rtc_i: str = "",
-        rtc_j: str = "",
-        rtc_p: str | int = "",
-    ) -> dict[str, Any]:
-        host = str(shost).strip()
-        port = str(sport).strip()
-        if not host or not port:
-            return self._invalid("shost and sport are required")
-        rtc_ip = str(rtc_i or rtc_j or host).strip()
-        rtc_port = str(rtc_p or port).strip()
-        url = (
-            "webplayer/play.html"
-            f"?shost={host}"
-            f"&sport={port}"
-            f"&q={q}"
-            f"&v={v}"
-            f"&rtc_i={rtc_ip}"
-            f"&rtc_p={rtc_port}"
-        )
-        return {"ok": True, "data": {"url": url}}
-
-
 def make_android_api_client(device_ip: str, api_port: int) -> AndroidApiClient:
     """工厂函数，创建 AndroidApiClient 实例。"""
     return AndroidApiClient(device_ip=device_ip, api_port=api_port)

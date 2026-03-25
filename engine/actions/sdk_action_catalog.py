@@ -392,10 +392,6 @@ def _args_get_call_records(params: dict[str, Any]) -> tuple[list[Any], dict[str,
     return [], kwargs
 
 
-def _args_get_webrtc_url(params: dict[str, Any]) -> tuple[list[Any], dict[str, Any]]:
-    return [int(params.get("index", 1)), str(params.get("token", ""))], {}
-
-
 ACTION_BUILDERS: dict[
     str, tuple[str, Callable[[dict[str, Any]], tuple[list[Any], dict[str, Any]]] | None]
 ] = {
@@ -565,7 +561,6 @@ ACTION_BUILDERS: dict[
     "mytos.set_fingerprint": ("set_device_fingerprint", _args_set_fingerprint),
     "mytos.update_fingerprint": ("set_device_fingerprint", _args_set_fingerprint),
     "mytos.set_shake": ("set_shake", _args_set_shake),
-    "mytos.get_webrtc_player_url": ("get_webrtc_player_url", _args_get_webrtc_url),
 }
 
 
@@ -588,7 +583,6 @@ def build_mytos_android_bindings() -> dict[
         android_get_google_id,
         android_get_root_allowed_apps,
         android_get_version,
-        android_get_webrtc_player_url,
         android_import_app_info,
         android_install_magisk,
         android_ip_geolocation,
@@ -673,5 +667,4 @@ def build_mytos_android_bindings() -> dict[
         "mytos.set_fingerprint": android_set_fingerprint,
         "mytos.update_fingerprint": android_set_fingerprint,
         "mytos.set_shake": android_set_shake,
-        "mytos.get_webrtc_player_url": android_get_webrtc_player_url,
     }

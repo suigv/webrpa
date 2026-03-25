@@ -205,7 +205,13 @@ function setOverlayConsolePending(targetText, placeholderText) {
 
 function buildOverlayTraceContext(taskId, unit, traceContext) {
     if (traceContext && typeof traceContext === 'object') {
-        return { ...traceContext, takeoverRequested: Boolean(traceContext.takeoverRequested) };
+        return {
+            ...traceContext,
+            takeoverRequested: Boolean(traceContext.takeoverRequested),
+            currentDeclarativeStage: traceContext.currentDeclarativeStage && typeof traceContext.currentDeclarativeStage === 'object'
+                ? { ...traceContext.currentDeclarativeStage }
+                : null,
+        };
     }
     if (!taskId || !unit) return null;
     return {
@@ -216,6 +222,7 @@ function buildOverlayTraceContext(taskId, unit, traceContext) {
         deviceId: unit.parent_id,
         cloudId: unit.cloud_id,
         takeoverRequested: false,
+        currentDeclarativeStage: null,
     };
 }
 
@@ -263,7 +270,13 @@ function mountOverlayControls(unit, traceContext) {
     overlayControlCleanup?.();
     overlayUnit = unit;
     overlayTraceContext = traceContext && typeof traceContext === 'object'
-        ? { ...traceContext, takeoverRequested: Boolean(traceContext.takeoverRequested) }
+        ? {
+            ...traceContext,
+            takeoverRequested: Boolean(traceContext.takeoverRequested),
+            currentDeclarativeStage: traceContext.currentDeclarativeStage && typeof traceContext.currentDeclarativeStage === 'object'
+                ? { ...traceContext.currentDeclarativeStage }
+                : null,
+        }
         : null;
     showOverlayConsole();
     setOverlayConsoleEnabled(true);
@@ -381,6 +394,9 @@ function startOverlayStream(taskId) {
             }
 
             if (type === 'task.action_result') {
+                if (overlayTraceContext && data?.current_declarative_stage && typeof data.current_declarative_stage === 'object') {
+                    overlayTraceContext.currentDeclarativeStage = { ...data.current_declarative_stage };
+                }
                 const step = Number(data?.step || 0);
                 const label = String(data?.label || '未命名步骤');
                 const ok = Boolean(data?.ok);
@@ -396,7 +412,17 @@ function startOverlayStream(taskId) {
                 return;
             }
 
+            if (type === 'task.observation') {
+                if (overlayTraceContext && data?.current_declarative_stage && typeof data.current_declarative_stage === 'object') {
+                    overlayTraceContext.currentDeclarativeStage = { ...data.current_declarative_stage };
+                }
+                return;
+            }
+
             if (type === 'task.paused') {
+                if (overlayTraceContext && data?.current_declarative_stage && typeof data.current_declarative_stage === 'object') {
+                    overlayTraceContext.currentDeclarativeStage = { ...data.current_declarative_stage };
+                }
                 const interventionRequired = Boolean(data?.intervention_required);
                 setOverlayStatus('paused');
                 setResumeVisibility(true);
@@ -419,6 +445,9 @@ function startOverlayStream(taskId) {
             }
 
             if (type === 'task.completed') {
+                if (overlayTraceContext && data?.current_declarative_stage && typeof data.current_declarative_stage === 'object') {
+                    overlayTraceContext.currentDeclarativeStage = { ...data.current_declarative_stage };
+                }
                 setOverlayStatus('completed');
                 setResumeVisibility(false);
                 setOverlayHint('任务已完成，并已写入 AI 对话快捷历史。');
@@ -428,6 +457,9 @@ function startOverlayStream(taskId) {
             }
 
             if (type === 'task.failed') {
+                if (overlayTraceContext && data?.current_declarative_stage && typeof data.current_declarative_stage === 'object') {
+                    overlayTraceContext.currentDeclarativeStage = { ...data.current_declarative_stage };
+                }
                 setOverlayStatus('failed');
                 setResumeVisibility(false);
                 setOverlayHint(buildFailureHint(data));
@@ -448,6 +480,9 @@ function startOverlayStream(taskId) {
             if (type === 'task.takeover_requested') {
                 if (overlayTraceContext) {
                     overlayTraceContext.takeoverRequested = true;
+                    if (data?.current_declarative_stage && typeof data.current_declarative_stage === 'object') {
+                        overlayTraceContext.currentDeclarativeStage = { ...data.current_declarative_stage };
+                    }
                 }
                 setOverlayHint(
                     overlayUnit
@@ -509,6 +544,7 @@ async function requestOverlayTakeover() {
             run_id: overlayTraceContext?.runId,
             owner: 'web_console_overlay',
             reason: 'operator_takeover_from_ai_overlay',
+            current_declarative_stage: overlayTraceContext?.currentDeclarativeStage || undefined,
         }),
         silentErrors: true,
     });
