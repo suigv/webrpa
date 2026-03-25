@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+import core.config_loader as config_loader
 from api.server import app
 from engine.action_registry import reset_registry
 from engine.plugin_loader import clear_shared_plugin_loader_cache
@@ -65,3 +66,15 @@ def disable_app_lifespan_by_default(
     if request.node.get_closest_marker("real_lifespan") is None:
         monkeypatch.setattr(app.router, "lifespan_context", _noop_lifespan)
     yield
+
+
+@pytest.fixture(autouse=True)
+def isolate_config_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> Generator[None, None, None]:
+    test_config_path = tmp_path / "devices.json"
+    backup_cache = config_loader.ConfigLoader._config
+    monkeypatch.setattr(config_loader, "CONFIG_FILE", test_config_path)
+    config_loader.ConfigLoader._config = None
+    yield
+    config_loader.ConfigLoader._config = backup_cache

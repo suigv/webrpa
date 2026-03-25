@@ -9,7 +9,6 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel, Field, model_validator
 
-from core.config_loader import ConfigLoader
 from core.device_control import (
     CloudNotFoundError,
     DeviceNotFoundError,
@@ -217,11 +216,7 @@ async def list_devices(availability: Literal["all", "available_only"] = "all"):
 @router.post("/discover/")
 async def discover_devices(background_tasks: BackgroundTasks):
     def run_scan() -> None:
-        ips = discovery.scan_now(force=True)
-        cast(Any, ConfigLoader).update(
-            discovered_device_ips={str(index): ip for index, ip in enumerate(ips, start=1)},
-            discovered_total_devices=len(ips),
-        )
+        discovery.refresh_and_persist(force=True)
 
     background_tasks.add_task(run_scan)
     return {"status": "started", "message": "Background scan initiated"}

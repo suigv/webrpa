@@ -2,6 +2,7 @@ import time
 
 from core.config_loader import ConfigLoader
 from core.lan_discovery import LanDeviceDiscovery
+from models.config import ConfigStore
 
 
 def test_scan_now_force_bypasses_discovery_enabled(monkeypatch):
@@ -121,3 +122,72 @@ def test_probe_ip_rejects_non_sdk_http_payload(monkeypatch):
     monkeypatch.setattr("core.lan_discovery.MytSdkClient", _FakeSdkClient)
 
     assert discovery._probe_ip("192.168.1.214", 8000) is False
+
+
+def test_refresh_and_persist_writes_discovered_mapping(monkeypatch):
+    backup = ConfigLoader._config
+    discovery = LanDeviceDiscovery()
+    updates: list[dict[str, object]] = []
+    try:
+        ConfigLoader._config = ConfigStore.model_validate(
+            {
+                "host_ip": "192.168.1.214",
+                "device_ips": {},
+                "total_devices": 1,
+                "sdk_port": 8000,
+                "discovery_enabled": True,
+                "discovered_device_ips": {},
+                "discovered_total_devices": 0,
+            }
+        )
+
+        def _fake_update(**kwargs):
+            updates.append(dict(kwargs))
+            current = (
+                ConfigLoader._config.model_dump(mode="python")
+                if isinstance(ConfigLoader._config, ConfigStore)
+                else dict(ConfigLoader._config or {})
+            )
+            ConfigLoader._config = ConfigStore.model_validate({**current, **kwargs})
+            return current
+
+        monkeypatch.setattr(discovery, "scan_now", lambda force=False: ["192.168.1.215"])
+        monkeypatch.setattr("core.lan_discovery.ConfigLoader.update", _fake_update)
+
+        assert discovery.refresh_and_persist(force=True) == ["192.168.1.215"]
+        assert updates == [
+            {
+                "discovered_device_ips": {"1": "192.168.1.215"},
+                "discovered_total_devices": 1,
+            }
+        ]
+    finally:
+        ConfigLoader._config = backup
+
+
+def test_refresh_and_persist_skips_redundant_config_write(monkeypatch):
+    backup = ConfigLoader._config
+    discovery = LanDeviceDiscovery()
+    try:
+        ConfigLoader._config = ConfigStore.model_validate(
+            {
+                "host_ip": "192.168.1.214",
+                "device_ips": {},
+                "total_devices": 1,
+                "sdk_port": 8000,
+                "discovery_enabled": True,
+                "discovered_device_ips": {"1": "192.168.1.215"},
+                "discovered_total_devices": 1,
+            }
+        )
+
+        monkeypatch.setattr(discovery, "scan_now", lambda force=False: ["192.168.1.215"])
+
+        def _unexpected_update(**kwargs):
+            raise AssertionError(f"ConfigLoader.update should not be called: {kwargs}")
+
+        monkeypatch.setattr("core.lan_discovery.ConfigLoader.update", _unexpected_update)
+
+        assert discovery.refresh_and_persist(force=True) == ["192.168.1.215"]
+    finally:
+        ConfigLoader._config = backup

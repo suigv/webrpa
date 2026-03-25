@@ -2,7 +2,7 @@
 doc_type: current
 source_of_truth: current
 owner: repo
-last_verified_at: 2026-03-24
+last_verified_at: 2026-03-25
 stale_after_days: 14
 verification_method:
   - config tree audit
@@ -80,6 +80,8 @@ verification_method:
 - 账号、任务等运行时数据继续落在 `config/data/`。
 - workflow draft 蒸馏产物当前写入 `config/data/distilled_plugins/`，不再写入 `plugins/` 源码目录。
 - app 配置审核候选当前使用独立数据存储，不直接把未审核学习结果写入 `config/apps/*.yaml`。
+- 当 `config/devices.json` 中的 `discovery_enabled=true` 时，服务启动后会立即进行一次局域网设备扫描，之后按小时扫描一次。
+- 自动扫描与手动 `POST /api/devices/discover` 都会把扫描结果回写到 `config/devices.json` 的 `discovered_device_ips` / `discovered_total_devices`。
 
 ## 当前可观察入口
 

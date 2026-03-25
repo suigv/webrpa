@@ -7,7 +7,14 @@ from typing import Any
 
 from hardware_adapters.myt_client import MytSdkClient
 
-from .config_loader import get_discovery_enabled, get_discovery_subnet, get_host_ip, get_sdk_port
+from .config_loader import (
+    ConfigLoader,
+    get_discovery_enabled,
+    get_discovery_subnet,
+    get_host_ip,
+    get_persisted_discovered_device_ips,
+    get_sdk_port,
+)
 
 
 class LanDeviceDiscovery:
@@ -28,7 +35,7 @@ class LanDeviceDiscovery:
             self._scan_lock = threading.Lock()
             self._stop_event = threading.Event()
             self._thread: threading.Thread | None = None
-            self._scan_interval_seconds = 20.0
+            self._scan_interval_seconds = 3600.0
             self._connect_timeout_seconds = 0.2
             self._max_workers = 128
             self._initialized = True
@@ -53,11 +60,33 @@ class LanDeviceDiscovery:
     def _loop(self) -> None:
         while not self._stop_event.is_set():
             started = time.monotonic()
-            self.scan_now()
+            self.refresh_and_persist()
             elapsed = time.monotonic() - started
             remaining = max(0.0, self._scan_interval_seconds - elapsed)
             if self._stop_event.wait(remaining):
                 break
+
+    @staticmethod
+    def _device_map_from_ips(ips: list[str]) -> dict[str, str]:
+        return {str(index): ip for index, ip in enumerate(ips, start=1)}
+
+    def persist_scan_results(self, ips: list[str] | None = None) -> dict[str, str]:
+        if ips is None:
+            ips = self.get_discovered_ips()
+        mapping = self._device_map_from_ips(ips)
+        persisted = get_persisted_discovered_device_ips()
+        if persisted == mapping:
+            return mapping
+        ConfigLoader.update(
+            discovered_device_ips=mapping,
+            discovered_total_devices=len(mapping),
+        )
+        return mapping
+
+    def refresh_and_persist(self, force: bool = False) -> list[str]:
+        ips = self.scan_now(force=force)
+        self.persist_scan_results(ips)
+        return ips
 
     def _scan_targets(self, subnet: str) -> list[str]:
         try:

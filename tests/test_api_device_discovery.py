@@ -133,7 +133,7 @@ def _patch_lifespan_services(
 
 
 def test_api_devices_discover_endpoint(monkeypatch: MonkeyPatch):
-    monkeypatch.setattr(devices_route.discovery, "scan_now", _scan_two_ips)
+    monkeypatch.setattr(devices_route.discovery, "refresh_and_persist", _scan_two_ips)
     background_tasks = BackgroundTasks()
     payload = asyncio.run(devices_route.discover_devices(background_tasks))
 
@@ -158,15 +158,22 @@ def test_api_devices_discover_updates_config_mapping(monkeypatch: MonkeyPatch):
             }
         )
 
-        def _scan_one_ip_and_cache(force: bool = False) -> list[str]:
+        def _refresh_and_persist(force: bool = False) -> list[str]:
             hits = _scan_one_ip(force)
             devices_route.discovery._discovered_ips = list(hits)
             devices_route.discovery._last_scan_at = time.time()
+            ConfigLoader._config = ConfigStore.model_validate(
+                {
+                    **ConfigLoader._config.model_dump(mode="python"),
+                    "discovered_device_ips": {"1": "192.168.1.214"},
+                    "discovered_total_devices": 1,
+                }
+            )
             return hits
 
         devices_route.discovery._discovered_ips = []
         devices_route.discovery._last_scan_at = None
-        monkeypatch.setattr(devices_route.discovery, "scan_now", _scan_one_ip_and_cache)
+        monkeypatch.setattr(devices_route.discovery, "refresh_and_persist", _refresh_and_persist)
 
         background_tasks = BackgroundTasks()
         payload = asyncio.run(devices_route.discover_devices(background_tasks))

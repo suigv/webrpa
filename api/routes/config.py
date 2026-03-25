@@ -160,5 +160,5 @@ def update_config(config: ConfigUpdate):
         ) and ("discovery_enabled" in update_data or "discovery_subnet" in update_data)
         ConfigLoader.update(**update_data)
         if refresh_discovery:
-            LanDeviceDiscovery().scan_now(force=True)
+            LanDeviceDiscovery().refresh_and_persist(force=True)
     return get_config()
