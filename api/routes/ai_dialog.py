@@ -59,6 +59,7 @@ async def ai_dialog_planner(request: AIDialogPlannerRequest):
                 package_name=request.package_name,
                 account_required=request.account_required,
                 selected_account=request.selected_account,
+                use_account_twofa=request.use_account_twofa,
                 advanced_prompt=request.advanced_prompt,
             )
         )

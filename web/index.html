@@ -248,6 +248,7 @@
                   <option value="">请选择一个在线云机</option>
                 </select>
                 <div id="aiWorkspaceTargetHint" class="text-muted" style="font-size:12px; margin-top:6px;">请先选择本次任务图要落地执行的目标云机</div>
+                <div class="form-example-text">示例：如果这次任务要在设备 12 的 3 号云机执行，就选择对应的在线节点 `#12-3`。</div>
               </div>
 
               <div class="form-group mt-4" data-guided-step="1">
@@ -255,10 +256,12 @@
                 <select id="aiWorkspaceAppSelect" class="select-full">
                   <option value="default">默认 (系统)</option>
                 </select>
+                <div class="form-example-text">示例：做 X 登录/浏览任务时选择 `X`；列表里没有时选“自定义应用”并补充下方信息。</div>
                 <div id="aiWorkspaceCustomAppFields" class="flex-col gap-2 mt-3" style="display:none;">
-                  <input id="aiWorkspaceCustomAppId" type="text" placeholder="新应用 ID，例如 x 或 twitter_cn">
-                  <input id="aiWorkspaceCustomDisplayName" type="text" placeholder="显示名称，例如 X / Twitter">
-                  <input id="aiWorkspaceCustomPackageName" type="text" placeholder="包名（可选），例如 com.twitter.android">
+                  <input id="aiWorkspaceCustomAppId" type="text" placeholder="新应用 ID，示例：x 或 twitter_cn">
+                  <input id="aiWorkspaceCustomDisplayName" type="text" placeholder="显示名称，示例：X / Twitter">
+                  <input id="aiWorkspaceCustomPackageName" type="text" placeholder="包名（可选），示例：com.twitter.android">
+                  <div class="form-example-text">示例：`app_id` 填 `x`，显示名称填 `X`，包名可填 `com.twitter.android`。</div>
                 </div>
               </div>
 
@@ -274,26 +277,43 @@
                 </label>
                 <div id="aiWorkspaceAccountHint" class="text-muted" style="font-size:12px; margin-top:6px;">选择后会把账号上下文一并带入本次任务图生成</div>
                 <div class="text-muted" style="font-size:12px; margin-top:4px;">仅当任务不依赖账号、密码、2FA、token 等资源时勾选</div>
+                <div class="form-example-text">示例：登录、发帖、养号任务请选择对应账号；纯浏览、截图、探测类任务可勾选“该任务无需账号数据”。</div>
+              </div>
+
+              <div class="form-group mt-4" data-guided-step="1">
+                <label>挑战处理能力</label>
+                <div id="aiWorkspaceCapabilitiesCard" class="task-guide-card">
+                  <div class="task-guide-title">当前能力判断</div>
+                  <div class="task-guide-text">绑定账号和任务目标确定后，这里会说明本次可直接调用的高级能力与待开发能力。</div>
+                  <label class="checkbox-inline mt-2">
+                    <input id="aiWorkspaceAutoTotpEnabled" type="checkbox" checked>
+                    自动使用账号 2FA 密钥生成验证码
+                  </label>
+                  <div id="aiWorkspaceAutoTotpHint" class="text-muted" style="font-size:12px; margin-top:6px;">
+                    默认开启；关闭后本次执行不会自动把账号里的 2FA 密钥带入运行链路。
+                  </div>
+                  <div id="aiWorkspaceCapabilitiesList" class="capability-list mt-3"></div>
+                </div>
               </div>
 
               <div class="form-group mt-4" data-guided-step="2">
                 <label>任务描述</label>
-                <textarea id="aiWorkspaceGoal" rows="4" placeholder="例如：先判断是否已登录 X；如果未登录就登录；看到首页推荐流算成功；如果出现验证码就暂停等待人工处理"></textarea>
+                <textarea id="aiWorkspaceGoal" rows="4" placeholder="示例：先判断是否已登录 X；如果未登录就登录；看到首页推荐流算成功；如果出现验证码就暂停等待人工处理"></textarea>
               </div>
 
               <div class="form-group mt-4" data-guided-step="2">
                 <label>成功判定</label>
-                <textarea id="aiWorkspaceSuccessCriteria" rows="3" placeholder="例如：看到首页推荐流、个人头像或首页时间线时算成功"></textarea>
+                <textarea id="aiWorkspaceSuccessCriteria" rows="3" placeholder="示例：看到首页推荐流、个人头像或首页时间线时算成功"></textarea>
               </div>
 
               <div class="form-group mt-4" data-guided-step="2">
                 <label>失败出口</label>
-                <textarea id="aiWorkspaceFailureGuard" rows="3" placeholder="例如：15 秒内没进入首页则返回失败；账号密码错误时直接终止"></textarea>
+                <textarea id="aiWorkspaceFailureGuard" rows="3" placeholder="示例：15 秒内没进入首页则返回失败；账号密码错误时直接终止"></textarea>
               </div>
 
               <div class="form-group mt-4" data-guided-step="2">
                 <label>人工接管条件</label>
-                <textarea id="aiWorkspaceTakeoverRules" rows="3" placeholder="例如：出现验证码、异常弹窗或双重验证时暂停等待人工处理"></textarea>
+                <textarea id="aiWorkspaceTakeoverRules" rows="3" placeholder="示例：出现验证码、异常弹窗或双重验证时暂停等待人工处理"></textarea>
               </div>
 
               <div class="form-group mt-4" data-guided-step="2">
@@ -861,6 +881,17 @@
           </label>
           <div id="unitAiAccountHint" class="text-muted" style="font-size:12px; margin-top:6px;">选择后账号信息将自动注入当前单任务执行</div>
           <div class="text-muted" style="font-size:12px; margin-top:4px;">仅当任务不依赖账号、密码、2FA、token 等资源时勾选</div>
+        </div>
+
+        <div class="form-group mt-4">
+          <label>2FA 调用策略</label>
+          <label class="checkbox-inline mt-2">
+            <input id="unitAiAutoTotpEnabled" type="checkbox" checked>
+            自动使用账号 2FA 密钥生成验证码
+          </label>
+          <div id="unitAiAutoTotpHint" class="text-muted" style="font-size:12px; margin-top:6px;">
+            默认开启；关闭后本次单机执行不会自动把账号里的 2FA 密钥带入运行链路。
+          </div>
         </div>
 
         <div id="unitAiPlannerCard" class="task-summary-card mt-4" style="display:none;">

@@ -1,4 +1,10 @@
 export function buildCredentialsRef(account) {
+    return buildCredentialsRefWithOptions(account, {});
+}
+
+export function buildCredentialsRefWithOptions(account, {
+    includeTwofaSecret = true,
+} = {}) {
     if (!account || typeof account !== 'object') {
         return '';
     }
@@ -12,7 +18,7 @@ export function buildCredentialsRef(account) {
         password,
     };
     const twofa = String(account.twofa || account.twofa_secret || '').trim();
-    if (twofa) payload.twofa_secret = twofa;
+    if (includeTwofaSecret && twofa) payload.twofa_secret = twofa;
     const optionalKeys = ['email', 'email_password', 'token', 'email_token'];
     optionalKeys.forEach((key) => {
         const value = account[key];
@@ -30,6 +36,7 @@ export function buildAiDialogPayload({
     packageName = '',
     accountRequired = true,
     account = null,
+    includeTwofaSecret = true,
     advancedPrompt = '',
 } = {}) {
     const normalizedGoal = String(goal || '').trim();
@@ -55,10 +62,11 @@ export function buildAiDialogPayload({
         payload.account_required = false;
     }
 
-    const credentialsRef = buildCredentialsRef(account);
+    const credentialsRef = buildCredentialsRefWithOptions(account, { includeTwofaSecret });
     if (credentialsRef) {
         payload.credentials_ref = credentialsRef;
     }
+    payload.use_account_twofa = Boolean(includeTwofaSecret);
 
     const normalizedAdvancedPrompt = String(advancedPrompt || '').trim();
     if (normalizedAdvancedPrompt) {

@@ -14,6 +14,7 @@ class AIDialogPlannerRequest(BaseModel):
     package_name: str | None = Field(default=None, max_length=255)
     account_required: bool = True
     selected_account: str | None = Field(default=None, min_length=1, max_length=200)
+    use_account_twofa: bool = True
     advanced_prompt: str | None = Field(default=None, max_length=2000)
 
 
@@ -32,6 +33,7 @@ class AIDialogPlannerResponse(BaseModel):
     branch: dict[str, Any] = Field(default_factory=dict)
     execution: dict[str, Any] = Field(default_factory=dict)
     memory: dict[str, Any] = Field(default_factory=dict)
+    challenge_policy: dict[str, Any] = Field(default_factory=dict)
     recommended_workflows: list[dict[str, Any]] = Field(default_factory=list)
     declarative_scripts: list[DeclarativeScriptV0] = Field(default_factory=list)
     draft: dict[str, Any] = Field(default_factory=dict)

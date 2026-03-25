@@ -270,6 +270,12 @@ export function renderPlannerResult(elements, plan, { submitButton = null, submi
     if (plan.account?.execution_hint) {
         lines.push(String(plan.account.execution_hint).trim());
     }
+    if (plan.challenge_policy?.auto_totp?.summary) {
+        lines.push(`2FA 策略：${String(plan.challenge_policy.auto_totp.summary).trim()}`);
+    }
+    if (plan.challenge_policy?.human_takeover?.summary) {
+        lines.push(`接管策略：${String(plan.challenge_policy.human_takeover.summary).trim()}`);
+    }
     if (plan.execution?.reuse_priority) {
         lines.push(`复用优先级：${formatReusePriority(plan.execution.reuse_priority)}`);
     }

@@ -9,6 +9,14 @@ entry_script: script.yaml
 distillable: false
 visible_in_task_catalog: true
 distill_threshold: 3
+capabilities:
+  account_binding: true
+  totp_2fa: true
+  email_code: false
+  sms_code: false
+  graphic_captcha: false
+  slider_captcha: false
+  human_takeover: true
 ai_hints:
   objective: "login"
   label: "登录"

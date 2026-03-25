@@ -186,6 +186,16 @@ function isAiDialogAccountRequired() {
     return !$('unitAiNoAccountRequired')?.checked;
 }
 
+function isAiDialogAutoTotpEnabled() {
+    return $('unitAiAutoTotpEnabled')?.checked !== false;
+}
+
+function looksLikeLoginGoal(goal) {
+    const text = String(goal || '').trim().toLowerCase();
+    if (!text) return false;
+    return ['登录', '登陆', 'login', 'log in', 'sign in', 'signin'].some((token) => text.includes(token));
+}
+
 function updateAiAccountHint(appId, readyCount) {
     const hint = $('unitAiAccountHint');
     if (!hint) return;
@@ -203,6 +213,7 @@ function updateAiAccountHint(appId, readyCount) {
 function syncAiDialogAccountRequirementUi() {
     const select = $('unitAiAccountSelect');
     const refresh = $('unitAiAccountRefresh');
+    const autoTotpToggle = $('unitAiAutoTotpEnabled');
     const disabled = !isAiDialogAccountRequired();
     if (select) {
         if (disabled) {
@@ -213,7 +224,39 @@ function syncAiDialogAccountRequirementUi() {
     if (refresh) {
         refresh.disabled = disabled;
     }
+    if (autoTotpToggle) {
+        autoTotpToggle.disabled = disabled;
+    }
     updateAiAccountHint(getSelectedAiDialogAppId() || 'default', aiDialogAccounts.length);
+    renderAiDialogAutoTotpHint();
+}
+
+function renderAiDialogAutoTotpHint() {
+    const hint = $('unitAiAutoTotpHint');
+    if (!hint) return;
+    const appId = getSelectedAiDialogAppId();
+    const account = getSelectedAiAccount();
+    const hasTwofaSecret = Boolean(String(account?.twofa || account?.twofa_secret || '').trim());
+    const loginLike = appId === 'x' && looksLikeLoginGoal(getSelectedAiDialogGoal());
+    if (!isAiDialogAccountRequired()) {
+        hint.textContent = '当前任务已声明无需账号数据，因此不会使用账号 2FA 密钥。';
+        return;
+    }
+    if (!loginLike) {
+        hint.textContent = '当前单机任务尚未明确匹配到支持自动 TOTP 的登录流程；如目标是登录，请写清任务描述并绑定账号。';
+        return;
+    }
+    if (!account?.account) {
+        hint.textContent = '当前流程看起来是登录任务；请绑定账号，若账号含 2FA 密钥，系统会自动生成 6 位验证码。';
+        return;
+    }
+    if (!hasTwofaSecret) {
+        hint.textContent = '当前账号未配置 2FA 密钥；如需自动生成验证码，请先在账号资源里补充 2FA 字段。';
+        return;
+    }
+    hint.textContent = isAiDialogAutoTotpEnabled()
+        ? '当前流程和账号都满足自动 2FA 条件；执行时会自动计算并填写 6 位验证码。'
+        : '你已手动关闭自动 2FA；本次执行将保留账号绑定，但不会自动带入 2FA 密钥。';
 }
 
 function currentPlannerSignature() {
@@ -224,6 +267,7 @@ function currentPlannerSignature() {
         package_name: getSelectedAiDialogPackageName(),
         account_required: isAiDialogAccountRequired(),
         selected_account: getSelectedAiAccountName(),
+        use_account_twofa: isAiDialogAutoTotpEnabled(),
         advanced_prompt: getSelectedAdvancedPrompt(),
         draft_id: activeDraftId,
     });
@@ -392,6 +436,7 @@ async function requestPlanner({ force = false, silent = false } = {}) {
             package_name: getSelectedAiDialogPackageName() || null,
             account_required: isAiDialogAccountRequired(),
             selected_account: getSelectedAiAccountName() || null,
+            use_account_twofa: isAiDialogAutoTotpEnabled(),
             advanced_prompt: getSelectedAdvancedPrompt() || null,
         }),
         silentErrors: true,
@@ -417,6 +462,7 @@ function buildAiTaskPayload() {
         packageName: getSelectedAiDialogPackageName(),
         accountRequired: isAiDialogAccountRequired(),
         account: getSelectedAiAccount(),
+        includeTwofaSecret: isAiDialogAutoTotpEnabled(),
         advancedPrompt: getSelectedAdvancedPrompt(),
     });
     if (!payload) {
@@ -562,6 +608,10 @@ async function applyAiDialogSeed(seed = {}) {
     if (noAccountRequired) {
         noAccountRequired.checked = !accountRequired;
     }
+    const autoTotpEnabled = $('unitAiAutoTotpEnabled');
+    if (autoTotpEnabled) {
+        autoTotpEnabled.checked = seed.autoTotpEnabled !== false;
+    }
 
     await loadAiDialogApps();
     const appSelect = $('unitAiAppSelect');
@@ -595,7 +645,10 @@ function bindPlannerInputs() {
     };
 
     const goalInput = $('unitAiGoal');
-    if (goalInput) goalInput.oninput = clearSummary;
+    if (goalInput) goalInput.oninput = () => {
+        renderAiDialogAutoTotpHint();
+        clearSummary();
+    };
 
     const advancedPrompt = $('unitAiAdvancedPrompt');
     if (advancedPrompt) advancedPrompt.oninput = clearSummary;
@@ -630,12 +683,22 @@ function bindPlannerInputs() {
 
     const accountSelect = $('unitAiAccountSelect');
     if (accountSelect) {
-        accountSelect.onchange = clearSummary;
+        accountSelect.onchange = () => {
+            renderAiDialogAutoTotpHint();
+            clearSummary();
+        };
     }
     const accountRequiredToggle = $('unitAiNoAccountRequired');
     if (accountRequiredToggle) {
         accountRequiredToggle.onchange = () => {
             syncAiDialogAccountRequirementUi();
+            clearSummary();
+        };
+    }
+    const autoTotpToggle = $('unitAiAutoTotpEnabled');
+    if (autoTotpToggle) {
+        autoTotpToggle.onchange = () => {
+            renderAiDialogAutoTotpHint();
             clearSummary();
         };
     }
@@ -683,6 +746,8 @@ export async function openUnitAiDialog(unit, seed = null) {
     if (customPackageName) customPackageName.value = '';
     const noAccountRequired = $('unitAiNoAccountRequired');
     if (noAccountRequired) noAccountRequired.checked = false;
+    const autoTotpEnabled = $('unitAiAutoTotpEnabled');
+    if (autoTotpEnabled) autoTotpEnabled.checked = true;
 
     const advanced = $('unitAiAdvanced');
     if (advanced) advanced.style.display = 'none';

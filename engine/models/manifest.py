@@ -77,6 +77,30 @@ class PluginAIHints(BaseModel):
     distill_policy: PluginDistillPolicy | None = None
 
 
+class PluginCapabilities(BaseModel):
+    account_binding: bool = False
+    totp_2fa: bool = False
+    email_code: bool = False
+    sms_code: bool = False
+    graphic_captcha: bool = False
+    slider_captcha: bool = False
+    human_takeover: bool = False
+
+
+class PluginOutputType(StrEnum):
+    pure_yaml = "pure_yaml"
+    yaml_with_ai = "yaml_with_ai"
+    yaml_with_channel = "yaml_with_channel"
+    human_assisted = "human_assisted"
+    context_only = "context_only"
+
+
+class PluginDistillMode(BaseModel):
+    output_type: PluginOutputType = PluginOutputType.pure_yaml
+    requires_ai_runtime: bool = False
+    requires_channel_runtime: bool = False
+
+
 class PluginManifest(BaseModel):
     api_version: Literal["v1"]
     kind: Literal["plugin"]
@@ -99,3 +123,5 @@ class PluginManifest(BaseModel):
         default=3, ge=1, description="Min completed runs required before distillation"
     )
     ai_hints: PluginAIHints | None = None
+    capabilities: PluginCapabilities = Field(default_factory=PluginCapabilities)
+    distill_mode: PluginDistillMode = Field(default_factory=PluginDistillMode)

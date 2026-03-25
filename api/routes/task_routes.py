@@ -46,6 +46,11 @@ def _pipeline_catalog_entry() -> dict[str, object]:
         "description": "按顺序串联多个插件任务，支持重复执行与轮次间等待。",
         "distillable": False,
         "visible_in_task_catalog": True,
+        "distill_mode": {
+            "output_type": "pure_yaml",
+            "requires_ai_runtime": False,
+            "requires_channel_runtime": False,
+        },
         "required": ["steps"],
         "defaults": {"repeat": 1, "repeat_interval_ms": 0, "branch_id": "default"},
         "example_payload": {
@@ -549,6 +554,8 @@ def task_catalog(include_hidden: bool = Query(default=False)):
                 "description": manifest.description,
                 "distillable": bool(manifest.distillable),
                 "visible_in_task_catalog": bool(manifest.visible_in_task_catalog),
+                "capabilities": manifest.capabilities.model_dump(mode="json"),
+                "distill_mode": manifest.distill_mode.model_dump(mode="json"),
                 "required": required,
                 "defaults": defaults,
                 "example_payload": example_payload,

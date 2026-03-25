@@ -20,6 +20,11 @@ def test_task_catalog_returns_input_metadata_for_new_device_plugin():
     assert plugin["description"]
     assert plugin["distillable"] is False
     assert plugin["visible_in_task_catalog"] is True
+    assert plugin["distill_mode"] == {
+        "output_type": "pure_yaml",
+        "requires_ai_runtime": False,
+        "requires_channel_runtime": False,
+    }
     inputs = plugin["inputs"]
     model_source = next(item for item in inputs if item["name"] == "model_source")
     assert model_source["widget"] == "select"
@@ -43,6 +48,11 @@ def test_task_catalog_exposes_builtin_pipeline_entry():
     assert pipeline["display_name"] == "Pipeline 编排"
     assert pipeline["distillable"] is False
     assert pipeline["visible_in_task_catalog"] is True
+    assert pipeline["distill_mode"] == {
+        "output_type": "pure_yaml",
+        "requires_ai_runtime": False,
+        "requires_channel_runtime": False,
+    }
     assert pipeline["required"] == ["steps"]
     inputs = {item["name"]: item for item in pipeline["inputs"]}
     assert inputs["steps"]["widget"] == "hidden"

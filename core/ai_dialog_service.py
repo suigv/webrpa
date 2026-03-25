@@ -1105,6 +1105,7 @@ class AIDialogService:
         package_name: str | None = None,
         account_required: bool = True,
         selected_account: str | None = None,
+        use_account_twofa: bool = True,
         advanced_prompt: str | None = None,
     ) -> dict[str, Any]:
         normalized_goal = str(goal or "").strip()
@@ -1137,6 +1138,11 @@ class AIDialogService:
         selected_account_record = _selected_account_record(all_accounts, selected_account_text)
         ready_accounts = _ready_accounts(all_accounts)
         ready_count = len(ready_accounts)
+        selected_twofa_secret = (
+            str(selected_account_record.get("twofa") or selected_account_record.get("twofa_secret") or "").strip()
+            if isinstance(selected_account_record, dict)
+            else ""
+        )
 
         intent = infer_intent(normalized_goal, app_id=resolved_app_id)
         control_flow_analysis = analyze_control_flow_prompt(
@@ -1168,6 +1174,44 @@ class AIDialogService:
             ready_count=ready_count,
             requires_account=requires_account,
         )
+        auto_totp_supported = resolved_app_id == "x" and "login" in str(intent.get("objective") or "").strip()
+        auto_totp_ready = (
+            auto_totp_supported
+            and bool(account_required)
+            and bool(selected_account_text)
+            and bool(selected_twofa_secret)
+        )
+        auto_totp_enabled = auto_totp_ready and bool(use_account_twofa)
+        challenge_policy = {
+            "auto_totp": {
+                "supported": auto_totp_supported,
+                "ready": auto_totp_ready,
+                "enabled": auto_totp_enabled,
+                "selected_by_user": bool(use_account_twofa),
+                "selected_account_has_twofa": bool(selected_twofa_secret),
+                "summary": (
+                    "本次执行会自动使用账号 2FA 密钥生成 6 位验证码。"
+                    if auto_totp_enabled
+                    else (
+                        "当前账号和流程都满足自动 2FA 条件，但本次已由用户手动关闭。"
+                        if auto_totp_ready and not use_account_twofa
+                        else (
+                            "当前流程支持自动 2FA，但所选账号未配置 2FA 密钥。"
+                            if auto_totp_supported and selected_account_text and not selected_twofa_secret
+                            else (
+                                "当前流程支持自动 2FA；绑定含 2FA 密钥的账号后可自动启用。"
+                                if auto_totp_supported and not selected_account_text
+                                else "当前流程未明确匹配自动 2FA 场景。"
+                            )
+                        )
+                    )
+                ),
+            },
+            "human_takeover": {
+                "enabled": True,
+                "summary": "图形验证码、滑块验证码、短信码、邮箱码或风险确认当前仍以人工接管为主。",
+            },
+        }
 
         resolved_payload = _apply_branch_context(
             resolved_payload=resolved_payload,
@@ -1340,6 +1384,7 @@ class AIDialogService:
                 "_planner_objective": str(intent.get("objective") or "").strip(),
                 "_planner_control_flow_hints": list(control_flow.get("items") or []),
                 "_planner_control_flow_summary": str(guidance.get("summary") or "").strip(),
+                "use_account_twofa": bool(use_account_twofa),
                 "expected_state_ids": list(config.expected_state_ids),
                 "allowed_actions": list(config.allowed_actions),
                 "max_steps": int(config.max_steps),
@@ -1405,6 +1450,7 @@ class AIDialogService:
             "branch": branch,
             "execution": execution,
             "memory": memory,
+            "challenge_policy": challenge_policy,
             "recommended_workflows": recommended_workflows,
             "declarative_scripts": declarative_scripts,
             "draft": {

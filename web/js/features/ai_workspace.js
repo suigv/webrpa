@@ -23,6 +23,7 @@ import { submitAiTaskForUnit } from './device_ai_dialog.js';
 import { openAiWorkspaceDetail } from './devices.js';
 import { loadDrafts } from './drafts.js';
 import { loadMetrics } from './metrics.js';
+import { loadTaskCatalog } from './task_service.js';
 
 const $ = (id) => document.getElementById(id);
 const CUSTOM_APP_OPTION = '__custom__';
@@ -51,6 +52,7 @@ const state = {
     activeSuccessThreshold: null,
     historyCache: [],
     selectedHistoryId: '',
+    taskCatalog: [],
 };
 
 function clearElement(element) {
@@ -153,6 +155,7 @@ function getWorkspaceInputs() {
         packageName: getSelectedWorkspacePackageName(),
         accountRequired: isWorkspaceAccountRequired(),
         account: getSelectedWorkspaceAccount(),
+        autoTotpEnabled: $('aiWorkspaceAutoTotpEnabled')?.checked !== false,
         successCriteria: String($('aiWorkspaceSuccessCriteria')?.value || '').trim(),
         failureGuard: String($('aiWorkspaceFailureGuard')?.value || '').trim(),
         takeoverRules: String($('aiWorkspaceTakeoverRules')?.value || '').trim(),
@@ -222,6 +225,7 @@ function currentPlannerSignature() {
         package_name: inputs.packageName,
         account_required: inputs.accountRequired,
         selected_account: String(inputs.account?.account || '').trim(),
+        auto_totp_enabled: inputs.autoTotpEnabled,
         success_criteria: inputs.successCriteria,
         failure_guard: inputs.failureGuard,
         takeover_rules: inputs.takeoverRules,
@@ -256,6 +260,137 @@ function buildMetaLines(values) {
         .map((item) => String(item || '').trim())
         .filter(Boolean)
         .slice(0, 4);
+}
+
+function normalizeCapabilities(capabilities) {
+    if (!capabilities || typeof capabilities !== 'object') {
+        return {};
+    }
+    return {
+        account_binding: Boolean(capabilities.account_binding),
+        totp_2fa: Boolean(capabilities.totp_2fa),
+        email_code: Boolean(capabilities.email_code),
+        sms_code: Boolean(capabilities.sms_code),
+        graphic_captcha: Boolean(capabilities.graphic_captcha),
+        slider_captcha: Boolean(capabilities.slider_captcha),
+        human_takeover: Boolean(capabilities.human_takeover),
+    };
+}
+
+function looksLikeLoginGoal(goal) {
+    const text = String(goal || '').trim().toLowerCase();
+    if (!text) return false;
+    return ['登录', '登陆', 'login', 'log in', 'sign in', 'signin'].some((token) => text.includes(token));
+}
+
+function findWorkspaceCapabilityManifest(inputs = getWorkspaceInputs()) {
+    if (!Array.isArray(state.taskCatalog) || state.taskCatalog.length === 0) {
+        return null;
+    }
+    const appId = String(inputs.appId || '').trim().toLowerCase();
+    const goal = String(inputs.goal || '').trim();
+    if (appId === 'x' && looksLikeLoginGoal(goal)) {
+        return state.taskCatalog.find((item) => String(item?.task || '').trim() === 'x_login') || null;
+    }
+    return null;
+}
+
+function workspaceCapabilityItems() {
+    const inputs = getWorkspaceInputs();
+    const manifest = findWorkspaceCapabilityManifest(inputs);
+    const capabilities = normalizeCapabilities(manifest?.capabilities);
+    const account = inputs.account;
+    const hasTwofaSecret = Boolean(String(account?.twofa || account?.twofa_secret || '').trim());
+    const accountRequired = inputs.accountRequired;
+    const accountBound = Boolean(account?.account);
+    const autoTotpAvailable = Boolean(capabilities.totp_2fa);
+    const autoTotpReady = autoTotpAvailable && accountRequired && accountBound && hasTwofaSecret;
+    const autoTotpEnabled = autoTotpReady && Boolean(inputs.autoTotpEnabled);
+
+    return [
+        {
+            title: '自动 2FA 验证码',
+            status: autoTotpAvailable ? (autoTotpEnabled ? '已启用' : autoTotpReady ? '已关闭' : '可用') : '未触发',
+            tone: autoTotpAvailable ? (autoTotpEnabled ? 'available' : 'warning') : 'planned',
+            text: autoTotpAvailable
+                ? autoTotpEnabled
+                    ? '当前已匹配支持 TOTP 的登录流程，且所选账号包含 2FA 密钥；执行时会自动计算 6 位验证码。'
+                    : autoTotpReady
+                        ? '当前账号和流程都满足自动 2FA 条件，但你已手动关闭；本次执行将不自动带入 2FA 密钥。'
+                    : accountRequired && !accountBound
+                        ? '当前流程支持自动 2FA，但还未绑定账号；绑定含 2FA 密钥的账号后会自动启用。'
+                        : accountRequired && accountBound && !hasTwofaSecret
+                            ? '当前流程支持自动 2FA，但所选账号未配置 2FA 密钥；遇到验证时可能需要人工处理。'
+                            : '当前流程支持自动 2FA；当账号与任务条件满足时会自动启用。'
+                : '当前任务尚未匹配到已声明 TOTP 能力的固定流程；后续可由 AI 继续识别或切换到支持的登录插件。',
+        },
+        {
+            title: '人工接管',
+            status: '可用',
+            tone: 'available',
+            text: '遇到图形验证码、滑块验证码、短信码、邮箱码或风险确认时，当前仍以暂停并等待人工处理为主。',
+        },
+        {
+            title: '图形验证码 / 滑块验证码',
+            status: 'AI 驱动',
+            tone: 'planned',
+            text: '规划为 AI 驱动挑战节点：由 AI 识别、求解或判断，再把结果回填到脚本流中；当前先展示能力方向，不伪装成已自动可用。',
+        },
+        {
+            title: '短信码 / 邮箱码',
+            status: '通道驱动',
+            tone: 'planned',
+            text: '规划为通道驱动挑战节点：先接入短信/邮箱资源读取，再做验证码提取与流程编排；AI 最多只参与内容理解，不应替代通道能力本身。',
+        },
+    ];
+}
+
+function renderWorkspaceCapabilities() {
+    const host = $('aiWorkspaceCapabilitiesList');
+    const toggle = $('aiWorkspaceAutoTotpEnabled');
+    const hint = $('aiWorkspaceAutoTotpHint');
+    if (!host) return;
+    const inputs = getWorkspaceInputs();
+    const manifest = findWorkspaceCapabilityManifest(inputs);
+    const capabilities = normalizeCapabilities(manifest?.capabilities);
+    const account = inputs.account;
+    const hasTwofaSecret = Boolean(String(account?.twofa || account?.twofa_secret || '').trim());
+    const autoTotpSupported = Boolean(capabilities.totp_2fa);
+    if (toggle) {
+        toggle.disabled = !autoTotpSupported || !inputs.accountRequired;
+    }
+    if (hint) {
+        hint.textContent = !autoTotpSupported
+            ? '当前任务还未匹配到支持自动 TOTP 的固定流程；如识别到 X 登录等流程，会在这里启用。'
+            : !inputs.accountRequired
+                ? '当前任务已声明无需账号数据，因此不会使用账号 2FA 密钥。'
+                : !account?.account
+                    ? '请先绑定账号；若账号含 2FA 密钥，系统可在支持的流程里自动生成 6 位验证码。'
+                    : !hasTwofaSecret
+                        ? '当前账号未配置 2FA 密钥；如需自动生成验证码，请先在账号资源中补充 2FA 字段。'
+                        : inputs.autoTotpEnabled
+                            ? '当前流程和账号都满足自动 2FA 条件；执行时会自动计算并填写 6 位验证码。'
+                            : '你已手动关闭自动 2FA；本次执行会保留账号绑定，但不会自动带入 2FA 密钥。';
+    }
+    clearElement(host);
+    workspaceCapabilityItems().forEach((item) => {
+        const card = document.createElement('div');
+        card.className = 'capability-item';
+        const header = document.createElement('div');
+        header.className = 'capability-item-header';
+        const title = document.createElement('div');
+        title.className = 'capability-item-title';
+        title.textContent = item.title;
+        const badge = document.createElement('span');
+        badge.className = `capability-item-status ${item.tone}`;
+        badge.textContent = item.status;
+        header.append(title, badge);
+        const text = document.createElement('div');
+        text.className = 'capability-item-text';
+        text.textContent = item.text;
+        card.append(header, text);
+        host.appendChild(card);
+    });
 }
 
 function createMetaBlock(title, lines) {
@@ -634,6 +769,7 @@ function renderWorkspaceGraphExecution() {
             missing.length > 0 ? `仍缺少：${missing.join('、')}` : '',
             state.plannerResult?.account?.execution_hint ? String(state.plannerResult.account.execution_hint) : '',
         ]),
+        createMetaBlock('挑战处理策略', workspaceCapabilityItems().map((item) => `${item.title}：${item.status}；${item.text}`)),
         createMetaBlock('参考上下文', [
             selectedHistory ? `当前参考会话：${String(selectedHistory.display_name || '')}` : '当前没有引用历史会话',
             historyDraft?.declarative_binding?.script_title
@@ -664,6 +800,7 @@ function renderReferenceContextVisibility() {
 function renderWorkspace() {
     renderWorkspaceMode();
     updateWorkspaceActionState();
+    renderWorkspaceCapabilities();
     renderWorkspaceGraphSummary();
     renderWorkspaceGraphExecution();
     renderReferenceContextVisibility();
@@ -1129,6 +1266,7 @@ async function requestWorkspacePlanner({ force = false, silent = false } = {}) {
             package_name: inputs.packageName || null,
             account_required: inputs.accountRequired,
             selected_account: String(inputs.account?.account || '').trim() || null,
+            use_account_twofa: inputs.autoTotpEnabled,
             advanced_prompt: buildCombinedAdvancedPrompt(inputs) || null,
         }),
         silentErrors: true,
@@ -1187,6 +1325,7 @@ function setWorkspaceFields(seed = {}) {
     $('aiWorkspaceTakeoverRules').value = String(seed.takeoverRules || '').trim();
     $('aiWorkspaceAdvancedPrompt').value = String(seed.advancedPrompt || '').trim();
     $('aiWorkspaceNoAccountRequired').checked = seed.accountRequired === false;
+    $('aiWorkspaceAutoTotpEnabled').checked = seed.autoTotpEnabled !== false;
     syncWorkspaceAccountRequirementUi();
 }
 
@@ -1258,6 +1397,7 @@ async function loadHistoryItemIntoWorkspace(item) {
         failureGuard: parsedConstraints.failureGuard,
         takeoverRules: parsedConstraints.takeoverRules,
         advancedPrompt: parsedConstraints.advancedPrompt,
+        autoTotpEnabled: payload.use_account_twofa !== false,
         draftId: String(response.data?.draft_id || draftId),
         successThreshold: Number(response.data?.success_threshold || 0) || null,
     });
@@ -1345,6 +1485,7 @@ async function submitCurrentPlan() {
         packageName: inputs.packageName,
         accountRequired: inputs.accountRequired,
         account: inputs.account,
+        includeTwofaSecret: inputs.autoTotpEnabled,
         advancedPrompt: buildCombinedAdvancedPrompt(inputs),
     });
     if (!rawPayload) {
@@ -1409,6 +1550,7 @@ async function handleGuidedStepClick(step) {
 }
 
 export async function loadAiWorkspace() {
+    state.taskCatalog = await loadTaskCatalog().catch(() => []);
     await Promise.all([
         loadWorkspaceApps(),
         refreshDevicesSnapshot({ force: true, silentErrors: true }),
@@ -1474,6 +1616,7 @@ function bindWorkspaceInputs() {
         syncWorkspaceAccountRequirementUi();
         markGoalChange();
     };
+    $('aiWorkspaceAutoTotpEnabled').onchange = markGoalChange;
 }
 
 export function initAiWorkspace() {

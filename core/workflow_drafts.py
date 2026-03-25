@@ -298,6 +298,38 @@ def _entry_actions(target_result: dict[str, Any]) -> list[str]:
     return actions
 
 
+def _classify_output_profile(*, target_result: dict[str, Any], task_record: Any) -> dict[str, Any]:
+    history = _history_entries(target_result)
+    action_names: list[str] = []
+    for entry in history:
+        action = str(entry.get("action") or entry.get("chosen_action") or "").strip()
+        if action:
+            action_names.append(action)
+
+    used_ai_actions = sorted({action for action in action_names if action.startswith("ai.")})
+    used_channel_actions = sorted(
+        {action for action in action_names if action.startswith("channel.")}
+    )
+    used_human_takeover = bool(str(getattr(task_record, "takeover_owner", "") or "").strip())
+
+    output_type = "pure_yaml"
+    if used_human_takeover:
+        output_type = "human_assisted"
+    elif used_channel_actions:
+        output_type = "yaml_with_channel"
+    elif used_ai_actions:
+        output_type = "yaml_with_ai"
+
+    return {
+        "output_type": output_type,
+        "requires_ai_runtime": bool(used_ai_actions),
+        "requires_channel_runtime": bool(used_channel_actions),
+        "used_ai_actions": used_ai_actions,
+        "used_channel_actions": used_channel_actions,
+        "used_human_takeover": used_human_takeover,
+    }
+
+
 def _terminal_data(target_result: dict[str, Any]) -> dict[str, Any]:
     data = target_result.get("data")
     return dict(data) if isinstance(data, dict) else {}
@@ -321,6 +353,7 @@ def _evaluate_run_asset(
     identity = _build_snapshot_identity(payload)
     observed_states = _observed_state_ids(target_result)
     entry_actions = _entry_actions(target_result)
+    output_profile = _classify_output_profile(target_result=target_result, task_record=task_record)
     has_evidence = bool(terminal_message or observed_states or entry_actions)
     data_count_present, data_count = policy_data_count(policy, data)
 
@@ -375,6 +408,7 @@ def _evaluate_run_asset(
         "objective": objective,
         "observed_state_ids": observed_states,
         "entry_actions": entry_actions,
+        "output_profile": output_profile,
         "terminal_code": str(target_result.get("code") or (result or {}).get("code") or "").strip() or None,
         "business_flags": business_flags,
     }

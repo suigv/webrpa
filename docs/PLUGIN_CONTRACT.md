@@ -2,7 +2,7 @@
 doc_type: current
 source_of_truth: current
 owner: repo
-last_verified_at: 2026-03-25
+last_verified_at: 2026-03-26
 stale_after_days: 14
 verification_method:
   - manifest and script audit in plugins/*
@@ -93,6 +93,37 @@ plugins/<plugin_name>/
 
 当前 manifest 里仍可看到与蒸馏相关的字段，例如 `distillable`。  
 是否应该开启蒸馏，取决于插件是否代表可复用的稳定工作流，而不是一次性设备编排或随机化流程。
+
+当前 manifest 还支持 `distill_mode`，用于声明蒸馏产物类型和运行时依赖：
+
+- `output_type`
+  - `pure_yaml`
+  - `yaml_with_ai`
+  - `yaml_with_channel`
+  - `human_assisted`
+  - `context_only`
+- `requires_ai_runtime`
+- `requires_channel_runtime`
+
+当前约束：
+
+- 图形验证码、滑块验证码等 AI 参与型挑战，应进入 `yaml_with_ai`。
+- 邮箱码、短信码等依赖收件箱/短信通道读取的挑战，应进入 `yaml_with_channel`。
+- 人工补洞成功样本不应伪装成上述自动化产物，应进入 `human_assisted`。
+- Golden run 直接蒸馏出的普通动作流，默认产物类型是 `pure_yaml`。
+
+当前仓库已注册并接入第一版受控 challenge action contract：
+
+- `ai.solve_captcha`
+- `channel.read_email_code`
+- `channel.read_sms_code`
+
+当前边界：
+
+- `ai.solve_captcha` 已支持通过 VLM/LLM 读取验证码图片并返回结构化结果；图像可来自当前截图或显式图片引用。
+- `channel.read_email_code` 已支持运行时 hook 和基于 IMAP 的邮箱验证码轮询读取。
+- `channel.read_sms_code` 已支持运行时 hook、显式短信正文或内存短信箱解析；当前没有通用设备短信收件箱适配器。
+- 这些 action 仍属于受控节点，不等于任意自由 prompt 或所有通道都已平台化接入。
 
 蒸馏产生的选择器、状态、阶段模式和 agent 提示等学习结果，不应直接改写共享 app YAML；当前路径是先进入候选池，待人工审核后再 promotion。
 

@@ -15,7 +15,7 @@ from core.trace_learner import TraceLearner
 from engine.actions.sdk_config_support import (
     app_from_package,
 )
-from engine.models.manifest import InputType, PluginInput, PluginManifest
+from engine.models.manifest import InputType, PluginInput, PluginManifest, PluginOutputType
 from engine.models.workflow import WorkflowScript
 
 _WORD_RE = re.compile(r"[^a-z0-9]+")
@@ -77,6 +77,35 @@ _TWOFA_HINT_TOKENS = (
     "verify_code",
     "verification_code",
 )
+
+
+def _distill_mode_for_records(records: list[dict[str, object]]) -> dict[str, object]:
+    has_ai = False
+    has_channel = False
+    has_human = False
+    for record in records:
+        source = str(record.get("source") or "").strip().lower()
+        human_guided = bool(record.get("human_guided"))
+        action_name = str(record.get("chosen_action") or record.get("action_name") or "").strip()
+        if source == "human" or human_guided:
+            has_human = True
+        if action_name.startswith("channel."):
+            has_channel = True
+        elif action_name.startswith("ai."):
+            has_ai = True
+
+    output_type = PluginOutputType.pure_yaml
+    if has_human:
+        output_type = PluginOutputType.human_assisted
+    elif has_channel:
+        output_type = PluginOutputType.yaml_with_channel
+    elif has_ai:
+        output_type = PluginOutputType.yaml_with_ai
+    return {
+        "output_type": output_type.value,
+        "requires_ai_runtime": has_ai,
+        "requires_channel_runtime": has_channel,
+    }
 
 
 def _slug(value: str, *, default: str) -> str:
@@ -513,6 +542,7 @@ class GoldenRunDistiller:
                 "steps": steps,
             }
         )
+        distill_mode = _distill_mode_for_records(records)
         manifest = PluginManifest.model_validate(
             {
                 "api_version": "v1",
@@ -524,6 +554,7 @@ class GoldenRunDistiller:
                 "entry_script": "script.yaml",
                 "description": "Offline draft distilled from one successful golden run trace.",
                 "inputs": [item.model_dump(mode="json") for item in payload_inputs.values()],
+                "distill_mode": distill_mode,
             }
         )
         return manifest, script

@@ -747,6 +747,92 @@ def test_workflow_draft_memory_summary_exposes_reuse_priority(tmp_path: Path):
     assert memory["distill_assessment"]["can_distill_now"] is False
 
 
+def test_workflow_draft_records_output_profile_for_ai_channel_and_human_runs(tmp_path: Path):
+    service = _build_workflow_draft_service(tmp_path)
+    _create_draft(service, draft_id="draft-output-profile")
+
+    ai_task = SimpleNamespace(
+        task_id="task-ai",
+        status="completed",
+        takeover_owner=None,
+        payload={"task": "agent_executor", "_workflow_draft_id": "draft-output-profile", "goal": "登录 X"},
+        devices=[7],
+        targets=[{"device_id": 7, "cloud_id": 2}],
+        max_retries=0,
+        retry_backoff_seconds=2,
+        priority=50,
+    )
+    service.record_terminal(
+        task_record=ai_task,
+        result={
+            "message": "AI solved challenge",
+            "history": [
+                {"action": "ai.solve_captcha", "observation": {"state": {"state_id": "captcha"}}}
+            ],
+        },
+    )
+
+    channel_task = SimpleNamespace(
+        task_id="task-channel",
+        status="completed",
+        takeover_owner=None,
+        payload={"task": "agent_executor", "_workflow_draft_id": "draft-output-profile", "goal": "登录 X"},
+        devices=[7],
+        targets=[{"device_id": 7, "cloud_id": 2}],
+        max_retries=0,
+        retry_backoff_seconds=2,
+        priority=50,
+    )
+    service.record_terminal(
+        task_record=channel_task,
+        result={
+            "message": "Email code received",
+            "history": [
+                {
+                    "action": "channel.read_email_code",
+                    "observation": {"state": {"state_id": "verification"}},
+                }
+            ],
+        },
+    )
+
+    human_task = SimpleNamespace(
+        task_id="task-human",
+        status="completed",
+        takeover_owner="operator-1",
+        payload={"task": "agent_executor", "_workflow_draft_id": "draft-output-profile", "goal": "登录 X"},
+        devices=[7],
+        targets=[{"device_id": 7, "cloud_id": 2}],
+        max_retries=0,
+        retry_backoff_seconds=2,
+        priority=50,
+    )
+    payload = service.record_terminal(
+        task_record=human_task,
+        result={
+            "message": "Need operator completion",
+            "history": [
+                {"action": "ui.input_text", "observation": {"state": {"state_id": "two_factor"}}}
+            ],
+        },
+    )
+
+    assert payload is not None
+    summary = service.summary("draft-output-profile")
+    assert summary is not None
+    latest_run_asset = cast(dict[str, object], summary["latest_run_asset"])
+    output_profile = cast(dict[str, object], latest_run_asset["learned_assets"])["output_profile"]
+    assert output_profile["output_type"] == "human_assisted"
+    assert output_profile["used_human_takeover"] is True
+
+    assets = service._store.list_run_assets(limit=10, draft_id="draft-output-profile")
+    output_types = [
+        cast(dict[str, object], asset.learned_assets["output_profile"])["output_type"]
+        for asset in assets
+    ]
+    assert output_types[:3] == ["human_assisted", "yaml_with_channel", "yaml_with_ai"]
+
+
 def test_workflow_draft_records_ambiguous_latest_success_without_trace_context(
     tmp_path: Path, monkeypatch
 ):
@@ -894,10 +980,51 @@ def test_golden_run_distillation_keeps_framework_owned_fields_out_of_manifest_in
     first_step = cast(ActionStep, script.steps[0])
 
     assert input_names == {"text"}
+    assert manifest.distill_mode.output_type == "pure_yaml"
+    assert manifest.distill_mode.requires_ai_runtime is False
+    assert manifest.distill_mode.requires_channel_runtime is False
     assert first_step.params["device_ip"] == "192.168.1.214"
     assert first_step.params["package"] == "com.twitter.android"
     assert first_step.params["app_id"] == "x"
     assert first_step.params["state_profile_id"] == "app_stage"
+
+
+def test_golden_run_distillation_marks_ai_and_channel_output_modes():
+    distiller = GoldenRunDistiller()
+
+    ai_manifest, _script = distiller._build_draft(
+        records=[
+            {
+                "chosen_action": "ai.solve_captcha",
+                "action_params": {"captcha_type": "image"},
+                "observation": {"modality": "vision", "data": {}},
+            }
+        ],
+        terminal_record={"message": "done"},
+        plugin_name="ai_distilled_test",
+        display_name="AI Distilled Test",
+        category="AI Drafts",
+    )
+    assert ai_manifest.distill_mode.output_type == "yaml_with_ai"
+    assert ai_manifest.distill_mode.requires_ai_runtime is True
+    assert ai_manifest.distill_mode.requires_channel_runtime is False
+
+    channel_manifest, _script = distiller._build_draft(
+        records=[
+            {
+                "chosen_action": "channel.read_email_code",
+                "action_params": {"account_ref": "${payload.credentials_ref}"},
+                "observation": {"modality": "native", "data": {"state": "verification"}},
+            }
+        ],
+        terminal_record={"message": "done"},
+        plugin_name="channel_distilled_test",
+        display_name="Channel Distilled Test",
+        category="AI Drafts",
+    )
+    assert channel_manifest.distill_mode.output_type == "yaml_with_channel"
+    assert channel_manifest.distill_mode.requires_ai_runtime is False
+    assert channel_manifest.distill_mode.requires_channel_runtime is True
 
 
 def test_workflow_draft_distill_preserves_account_picker_for_login_flow(

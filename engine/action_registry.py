@@ -144,6 +144,14 @@ def _register_core_actions(registry: ActionRegistry) -> None:
         locate_point,
         vlm_evaluate,
     )
+    from .actions.challenge_actions import (
+        AI_SOLVE_CAPTCHA_METADATA,
+        CHANNEL_READ_EMAIL_CODE_METADATA,
+        CHANNEL_READ_SMS_CODE_METADATA,
+        ai_solve_captcha,
+        channel_read_email_code,
+        channel_read_sms_code,
+    )
     from .actions.credential_actions import credentials_checkout, credentials_load
     from .actions.profile_actions import (
         APPLY_ENV_BUNDLE_METADATA,
@@ -305,6 +313,17 @@ def _register_core_actions(registry: ActionRegistry) -> None:
     registry.register("ai.llm_evaluate", llm_evaluate, metadata=LLM_EVALUATE_METADATA)
     registry.register("ai.vlm_evaluate", vlm_evaluate, metadata=VLM_EVALUATE_METADATA)
     registry.register("ai.locate_point", locate_point, metadata=LOCATE_POINT_METADATA)
+    registry.register("ai.solve_captcha", ai_solve_captcha, metadata=AI_SOLVE_CAPTCHA_METADATA)
+    registry.register(
+        "channel.read_email_code",
+        channel_read_email_code,
+        metadata=CHANNEL_READ_EMAIL_CODE_METADATA,
+    )
+    registry.register(
+        "channel.read_sms_code",
+        channel_read_sms_code,
+        metadata=CHANNEL_READ_SMS_CODE_METADATA,
+    )
     for action_name, handler in get_sdk_action_bindings().items():
         registry.register(action_name, handler)
 
