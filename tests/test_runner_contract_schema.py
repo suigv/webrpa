@@ -5,6 +5,7 @@ from core.task_execution import (
     ActiveTargetCircuitBreaker,
     _build_confirmed_target_trip,
     _build_target_trip,
+    _probe_target_rpa_port,
     _tolerate_target_unavailable,
 )
 from engine.models.manifest import InputType, PluginInput
@@ -598,6 +599,21 @@ def test_build_confirmed_target_trip_preserves_failure_when_direct_probe_still_f
 
     assert trip is not None
     assert trip.code == "target_unavailable"
+
+
+def test_probe_target_rpa_port_short_circuits_when_device_ip_missing(monkeypatch):
+    monkeypatch.setattr("core.task_execution.get_device_ip", lambda device_id: "")
+
+    def _unexpected_connect(*_args, **_kwargs):
+        raise AssertionError("socket probe should not run without a device_ip")
+
+    monkeypatch.setattr("core.task_execution.socket.create_connection", _unexpected_connect)
+
+    ok, latency_ms, reason = _probe_target_rpa_port(1, 1)
+
+    assert ok is False
+    assert latency_ms is None
+    assert reason == "device_ip_missing"
 
 
 def test_interpreter_stop_step_can_return_interpolated_result(monkeypatch):

@@ -145,16 +145,19 @@ def test_api_devices_discover_endpoint(monkeypatch: MonkeyPatch):
 def test_api_devices_discover_updates_config_mapping(monkeypatch: MonkeyPatch):
     backup = ConfigLoader._config
     try:
-        ConfigLoader._config = ConfigStore.model_validate({
-            "schema_version": 2,
-            "allocation_version": 1,
-            "host_ip": "192.168.1.214",
-            "device_ips": {"1": "192.168.1.214", "2": "192.168.1.215"},
-            "total_devices": 2,
-            "sdk_port": 8000,
-            "discovery_enabled": False,
-            "discovery_subnet": "192.168.1.0/24",
-        })
+        ConfigLoader._config = ConfigStore.model_validate(
+            {
+                "schema_version": 2,
+                "allocation_version": 1,
+                "host_ip": "192.168.1.214",
+                "device_ips": {"1": "192.168.1.214", "2": "192.168.1.215"},
+                "total_devices": 2,
+                "sdk_port": 8000,
+                "discovery_enabled": False,
+                "discovery_subnet": "192.168.1.0/24",
+            }
+        )
+
         def _scan_one_ip_and_cache(force: bool = False) -> list[str]:
             hits = _scan_one_ip(force)
             devices_route.discovery._discovered_ips = list(hits)
@@ -183,15 +186,17 @@ def test_api_devices_discover_updates_config_mapping(monkeypatch: MonkeyPatch):
 def test_api_devices_list_preserves_payload_shape_for_available_only(monkeypatch: MonkeyPatch):
     backup = ConfigLoader._config
     try:
-        ConfigLoader._config = ConfigStore.model_validate({
-            "schema_version": 2,
-            "allocation_version": 1,
-            "host_ip": "10.0.0.1",
-            "device_ips": {"1": "10.0.0.11"},
-            "total_devices": 1,
-            "sdk_port": 8000,
-            "cloud_machines_per_device": 1,
-        })
+        ConfigLoader._config = ConfigStore.model_validate(
+            {
+                "schema_version": 2,
+                "allocation_version": 1,
+                "host_ip": "10.0.0.1",
+                "device_ips": {"1": "10.0.0.11"},
+                "total_devices": 1,
+                "sdk_port": 8000,
+                "cloud_machines_per_device": 1,
+            }
+        )
         monkeypatch.setattr("core.device_manager.get_cloud_machines_per_device", lambda: 1)
         manager = DeviceManager()
         _reset_manager_state(manager)
@@ -210,7 +215,9 @@ def test_api_devices_list_preserves_payload_shape_for_available_only(monkeypatch
         manager._update_probe_cache(1, 1, True, 11, "ok")
 
         snapshot = manager.get_devices_snapshot("available_only")
-        payload = [devices_route._to_device_info(item).model_dump(mode="python") for item in snapshot]
+        payload = [
+            devices_route._to_device_info(item).model_dump(mode="python") for item in snapshot
+        ]
 
         assert len(payload) == 1
         device = payload[0]
@@ -476,21 +483,56 @@ def test_api_device_text_endpoint_rejects_blank_input(monkeypatch: MonkeyPatch):
     assert response.status_code == 422
 
 
+def test_api_device_screenshot_rejects_unconfigured_device_endpoint(monkeypatch: MonkeyPatch):
+    _disable_lifespan(monkeypatch)
+    backup = ConfigLoader._config
+    try:
+        ConfigLoader._config = ConfigStore.model_validate(
+            {
+                "schema_version": 2,
+                "allocation_version": 1,
+                "host_ip": "10.0.0.1",
+                "device_ips": {},
+                "total_devices": 1,
+                "sdk_port": 8000,
+                "cloud_machines_per_device": 1,
+            }
+        )
+
+        class _UnexpectedAndroidApiClient:
+            def __init__(self, *_args, **_kwargs) -> None:
+                raise AssertionError(
+                    "Android API client should not be created for an unconfigured device endpoint"
+                )
+
+        monkeypatch.setattr(devices_route, "AndroidApiClient", _UnexpectedAndroidApiClient)
+
+        with TestClient(app) as client:
+            response = client.get("/api/devices/1/1/screenshot")
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "device endpoint not configured"
+    finally:
+        ConfigLoader._config = backup
+
+
 def test_api_devices_available_only_filters_out_devices_without_available_clouds(
     monkeypatch: MonkeyPatch,
 ):
     _disable_lifespan(monkeypatch)
     backup = ConfigLoader._config
     try:
-        ConfigLoader._config = ConfigStore.model_validate({
-            "schema_version": 2,
-            "allocation_version": 1,
-            "host_ip": "10.0.0.1",
-            "device_ips": {"1": "10.0.0.11"},
-            "total_devices": 1,
-            "sdk_port": 8000,
-            "cloud_machines_per_device": 1,
-        })
+        ConfigLoader._config = ConfigStore.model_validate(
+            {
+                "schema_version": 2,
+                "allocation_version": 1,
+                "host_ip": "10.0.0.1",
+                "device_ips": {"1": "10.0.0.11"},
+                "total_devices": 1,
+                "sdk_port": 8000,
+                "cloud_machines_per_device": 1,
+            }
+        )
         manager = DeviceManager()
         _reset_manager_state(manager)
 
@@ -511,15 +553,17 @@ def test_api_devices_available_only_excludes_stale_available_clouds(monkeypatch:
     _disable_lifespan(monkeypatch)
     backup = ConfigLoader._config
     try:
-        ConfigLoader._config = ConfigStore.model_validate({
-            "schema_version": 2,
-            "allocation_version": 1,
-            "host_ip": "10.0.0.1",
-            "device_ips": {"1": "10.0.0.11"},
-            "total_devices": 1,
-            "sdk_port": 8000,
-            "cloud_machines_per_device": 2,
-        })
+        ConfigLoader._config = ConfigStore.model_validate(
+            {
+                "schema_version": 2,
+                "allocation_version": 1,
+                "host_ip": "10.0.0.1",
+                "device_ips": {"1": "10.0.0.11"},
+                "total_devices": 1,
+                "sdk_port": 8000,
+                "cloud_machines_per_device": 2,
+            }
+        )
         monkeypatch.setattr("core.device_manager.get_cloud_machines_per_device", lambda: 2)
         fake_probe = _FakeProbeService({})
         monkeypatch.setattr("core.cloud_probe_service.get_cloud_probe_service", lambda: fake_probe)

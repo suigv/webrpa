@@ -35,6 +35,8 @@ def _validate_device_cloud(device_id: int, cloud_id: int) -> tuple[str, int, int
     if cloud_id < 1 or cloud_id > cloud_machines_per_device:
         raise CloudNotFoundError("cloud not found")
     device_ip = get_device_ip(device_id)
+    if not str(device_ip).strip():
+        raise DeviceNotFoundError("device endpoint not configured")
     api_port, rpa_port = calculate_ports(device_id, cloud_id, cloud_machines_per_device)
     return device_ip, api_port, rpa_port
 

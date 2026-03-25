@@ -164,6 +164,8 @@ def _probe_target_rpa_port(
     retry_count: int = 1,
 ) -> tuple[bool, int | None, str]:
     device_ip = get_device_ip(device_id)
+    if not str(device_ip).strip():
+        return False, None, "device_ip_missing"
     _, rpa_port = calculate_ports(device_id, cloud_id, get_cloud_machines_per_device())
     started = time.monotonic()
     attempts = max(1, retry_count + 1)

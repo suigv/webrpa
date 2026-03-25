@@ -11,7 +11,7 @@ def test_startup_fails_on_port_collision():
             "schema_version": 2,
             "allocation_version": 1,
             "host_ip": "127.0.0.1",
-            "device_ips": {},
+            "device_ips": {"1": "127.0.0.1"},
             "total_devices": 1,
             "cloud_machines_per_device": 2,
             "sdk_port": 30001,
