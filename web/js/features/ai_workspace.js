@@ -141,12 +141,17 @@ function getSelectedWorkspaceAccount() {
     return state.accounts[index] || null;
 }
 
+function isWorkspaceAccountRequired() {
+    return !$('aiWorkspaceNoAccountRequired')?.checked;
+}
+
 function getWorkspaceInputs() {
     return {
         goal: String($('aiWorkspaceGoal')?.value || '').trim(),
         appId: getSelectedWorkspaceAppId(),
         appDisplayName: getSelectedWorkspaceAppDisplayName(),
         packageName: getSelectedWorkspacePackageName(),
+        accountRequired: isWorkspaceAccountRequired(),
         account: getSelectedWorkspaceAccount(),
         successCriteria: String($('aiWorkspaceSuccessCriteria')?.value || '').trim(),
         failureGuard: String($('aiWorkspaceFailureGuard')?.value || '').trim(),
@@ -215,6 +220,7 @@ function currentPlannerSignature() {
         app_id: inputs.appId,
         app_display_name: inputs.appDisplayName,
         package_name: inputs.packageName,
+        account_required: inputs.accountRequired,
         selected_account: String(inputs.account?.account || '').trim(),
         success_criteria: inputs.successCriteria,
         failure_guard: inputs.failureGuard,
@@ -293,11 +299,31 @@ function toggleCustomAppFields() {
 function updateWorkspaceAccountHint(appId, readyCount) {
     const hint = $('aiWorkspaceAccountHint');
     if (!hint) return;
+    if (!isWorkspaceAccountRequired()) {
+        hint.textContent = '当前任务已声明无需账号数据，下发时不会要求账号池或已选账号。';
+        return;
+    }
     if (!appId || appId === 'default') {
         hint.textContent = `当前显示系统账号池，共 ${readyCount} 个就绪账号`;
         return;
     }
     hint.textContent = `当前显示 ${appId} 账号池，共 ${readyCount} 个就绪账号`;
+}
+
+function syncWorkspaceAccountRequirementUi() {
+    const select = $('aiWorkspaceAccountSelect');
+    const refresh = $('aiWorkspaceAccountRefresh');
+    const disabled = !isWorkspaceAccountRequired();
+    if (select) {
+        if (disabled) {
+            select.value = '';
+        }
+        select.disabled = disabled;
+    }
+    if (refresh) {
+        refresh.disabled = disabled;
+    }
+    updateWorkspaceAccountHint(getSelectedWorkspaceAppId(), state.accounts.length);
 }
 
 function canAdvanceGuidedStep(step = state.guidedStep) {
@@ -1014,7 +1040,7 @@ async function loadWorkspaceAccounts(appId = getSelectedWorkspaceAppId()) {
     if (String($('aiWorkspaceAppSelect')?.value || '').trim() === CUSTOM_APP_OPTION && !String(appId || '').trim()) {
         state.accounts = [];
         renderEmptyAccountSelect('-- 先填写应用 ID --');
-        updateWorkspaceAccountHint('default', 0);
+        syncWorkspaceAccountRequirementUi();
         return;
     }
 
@@ -1028,6 +1054,7 @@ async function loadWorkspaceAccounts(appId = getSelectedWorkspaceAppId()) {
     if (!response.ok) {
         state.accounts = [];
         renderEmptyAccountSelect('-- 账号加载失败 --');
+        syncWorkspaceAccountRequirementUi();
         return;
     }
 
@@ -1045,7 +1072,7 @@ async function loadWorkspaceAccounts(appId = getSelectedWorkspaceAppId()) {
         option.textContent = String(account.account || '').trim();
         select.appendChild(option);
     });
-    updateWorkspaceAccountHint(appId || 'default', state.accounts.length);
+    syncWorkspaceAccountRequirementUi();
 }
 
 async function loadAiHistory() {
@@ -1100,6 +1127,7 @@ async function requestWorkspacePlanner({ force = false, silent = false } = {}) {
             app_id: inputs.appId,
             app_display_name: inputs.appDisplayName || null,
             package_name: inputs.packageName || null,
+            account_required: inputs.accountRequired,
             selected_account: String(inputs.account?.account || '').trim() || null,
             advanced_prompt: buildCombinedAdvancedPrompt(inputs) || null,
         }),
@@ -1158,6 +1186,8 @@ function setWorkspaceFields(seed = {}) {
     $('aiWorkspaceFailureGuard').value = String(seed.failureGuard || '').trim();
     $('aiWorkspaceTakeoverRules').value = String(seed.takeoverRules || '').trim();
     $('aiWorkspaceAdvancedPrompt').value = String(seed.advancedPrompt || '').trim();
+    $('aiWorkspaceNoAccountRequired').checked = seed.accountRequired === false;
+    syncWorkspaceAccountRequirementUi();
 }
 
 async function applyWorkspaceSeed(seed = {}) {
@@ -1165,6 +1195,7 @@ async function applyWorkspaceSeed(seed = {}) {
     const appDisplayName = String(seed.appDisplayName || seed.app_display_name || '').trim();
     const packageName = String(seed.packageName || seed.package_name || seed.package || '').trim();
     const accountName = String(seed.accountName || seed.account || '').trim();
+    const accountRequired = seed.accountRequired !== false;
 
     state.activeDraftId = String(seed.draftId || seed.draft_id || '').trim();
     state.activeSuccessThreshold = Number(seed.successThreshold || seed.success_threshold || 0) || null;
@@ -1182,8 +1213,10 @@ async function applyWorkspaceSeed(seed = {}) {
     toggleCustomAppFields();
 
     await loadWorkspaceAccounts(appId);
+    $('aiWorkspaceNoAccountRequired').checked = !accountRequired;
+    syncWorkspaceAccountRequirementUi();
     const accountSelect = $('aiWorkspaceAccountSelect');
-    if (accountSelect) {
+    if (accountSelect && accountRequired) {
         const preferredIndex = state.accounts.findIndex((account) => String(account?.account || '').trim() === accountName);
         accountSelect.value = preferredIndex >= 0 ? String(preferredIndex) : '';
     }
@@ -1219,6 +1252,7 @@ async function loadHistoryItemIntoWorkspace(item) {
         appId: String(payload.app_id || identity.app_id || 'default').trim() || 'default',
         appDisplayName: String(payload.app_display_name || '').trim(),
         packageName: String(payload.package_name || payload.package || '').trim(),
+        accountRequired: payload.account_required !== false,
         accountName: String(payload.account || identity.account || '').trim(),
         successCriteria: parsedConstraints.successCriteria,
         failureGuard: parsedConstraints.failureGuard,
@@ -1309,6 +1343,7 @@ async function submitCurrentPlan() {
         appId: inputs.appId,
         appDisplayName: inputs.appDisplayName,
         packageName: inputs.packageName,
+        accountRequired: inputs.accountRequired,
         account: inputs.account,
         advancedPrompt: buildCombinedAdvancedPrompt(inputs),
     });
@@ -1391,6 +1426,7 @@ export async function loadAiWorkspace() {
     }
 
     renderWorkspace();
+    syncWorkspaceAccountRequirementUi();
 
     await Promise.all([
         loadDrafts(),
@@ -1434,6 +1470,10 @@ function bindWorkspaceInputs() {
         void loadWorkspaceAccounts();
     };
     $('aiWorkspaceAccountSelect').onchange = markGoalChange;
+    $('aiWorkspaceNoAccountRequired').onchange = () => {
+        syncWorkspaceAccountRequirementUi();
+        markGoalChange();
+    };
 }
 
 export function initAiWorkspace() {

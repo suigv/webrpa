@@ -958,6 +958,7 @@ def _operator_summary(
     branch: dict[str, Any],
     strategy: str,
     ready_count: int,
+    account_required: bool,
     top_workflow: dict[str, Any],
     has_app_config: bool,
 ) -> str:
@@ -970,6 +971,8 @@ def _operator_summary(
         parts.append("将直接使用已选账号")
     elif strategy == "pool":
         parts.append(f"可从账号池领取就绪账号（当前 {ready_count} 个）")
+    elif not account_required:
+        parts.append("当前任务已声明无需账号数据")
     else:
         parts.append("当前缺少可用账号")
     if top_workflow.get("task") and top_workflow["task"] != "agent_executor":
@@ -1035,6 +1038,7 @@ def _llm_planner_prompt(
     *,
     goal: str,
     app_id: str,
+    account_required: bool,
     selected_account: str,
     ready_count: int,
     advanced_prompt: str,
@@ -1047,6 +1051,7 @@ def _llm_planner_prompt(
     payload = {
         "goal": goal,
         "app_id": app_id,
+        "account_required": account_required,
         "selected_account": selected_account or None,
         "ready_account_count": ready_count,
         "advanced_prompt": advanced_prompt or None,
@@ -1098,6 +1103,7 @@ class AIDialogService:
         app_id: str | None = None,
         app_display_name: str | None = None,
         package_name: str | None = None,
+        account_required: bool = True,
         selected_account: str | None = None,
         advanced_prompt: str | None = None,
     ) -> dict[str, Any]:
@@ -1151,7 +1157,8 @@ class AIDialogService:
             goal=normalized_goal,
             selected_account_record=selected_account_record,
         )
-        requires_account = bool(intent.get("requires_account"))
+        inferred_requires_account = bool(intent.get("requires_account"))
+        requires_account = inferred_requires_account and bool(account_required)
         strategy = _account_strategy(selected_account_text, ready_count)
         can_execute = not (requires_account and strategy == "none")
         execution_hint = _account_execution_hint(
@@ -1280,6 +1287,7 @@ class AIDialogService:
             branch=branch,
             strategy=strategy,
             ready_count=ready_count,
+            account_required=account_required,
             top_workflow=top_workflow,
             has_app_config=bool(app_config),
         )
@@ -1289,6 +1297,7 @@ class AIDialogService:
         llm_plan = self._plan_with_llm(
             goal=normalized_goal,
             app_id=resolved_app_id,
+            account_required=bool(account_required),
             selected_account=selected_account_text,
             advanced_prompt=str(advanced_prompt or "").strip(),
             expected_state_ids=list(config.expected_state_ids),
@@ -1364,6 +1373,7 @@ class AIDialogService:
                 ),
             },
             "account": {
+                "account_required": bool(account_required),
                 "selected_account": selected_account_text or None,
                 "selected_account_default_branch": (
                     normalize_branch_id(selected_account_record.get("default_branch"), default="")
@@ -1373,6 +1383,7 @@ class AIDialogService:
                 "ready_count": ready_count,
                 "strategy": strategy,
                 "execution_hint": execution_hint,
+                "intent_requires_account": inferred_requires_account,
                 "requires_account": requires_account,
                 "can_execute": can_execute,
             },
@@ -1382,6 +1393,8 @@ class AIDialogService:
                 "label": intent["label"],
                 "confidence": intent["confidence"],
                 "matched_keywords": list(intent.get("matched_keywords") or []),
+                "account_required": bool(account_required),
+                "intent_requires_account": inferred_requires_account,
                 "requires_account": requires_account,
                 "prefers_branch": bool(intent.get("prefers_branch")),
                 "needs_shared_resource": bool(intent.get("needs_shared_resource")),
@@ -1408,6 +1421,7 @@ class AIDialogService:
         *,
         goal: str,
         app_id: str,
+        account_required: bool,
         selected_account: str,
         advanced_prompt: str,
         expected_state_ids: list[str],
@@ -1422,6 +1436,7 @@ class AIDialogService:
             prompt=_llm_planner_prompt(
                 goal=goal,
                 app_id=app_id,
+                account_required=account_required,
                 selected_account=selected_account,
                 ready_count=ready_count,
                 advanced_prompt=advanced_prompt,

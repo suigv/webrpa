@@ -12,6 +12,7 @@ class AIDialogPlannerRequest(BaseModel):
     app_id: str | None = Field(default=None, min_length=1, max_length=64)
     app_display_name: str | None = Field(default=None, max_length=120)
     package_name: str | None = Field(default=None, max_length=255)
+    account_required: bool = True
     selected_account: str | None = Field(default=None, min_length=1, max_length=200)
     advanced_prompt: str | None = Field(default=None, max_length=2000)
 

@@ -145,6 +145,7 @@ verification_method:
 ### AI 对话边界
 
 - `POST /api/ai_dialog/planner` 当前支持 `app_id`、`app_display_name`、`package_name`，用于已存在 app 选择和新 app 探索式启动。
+- `POST /api/ai_dialog/planner` 当前还支持显式账号需求声明；前端可在“需要账号数据 / 该任务无需账号数据”之间选择，用于覆盖默认的账号需求判定。
 - 当前前端语义中，AI 工作台无论处于引导模式还是高级模式，都会把 `/api/ai_dialog/planner` 作为显式“生成任务图草案”动作调用，而不是输入期自动触发。
 - 设备详情中的 AI 对话当前只在真正准备执行单任务时调用 planner，用于生成执行摘要和执行阻塞提示；该弹窗不再承担完整任务图设计职责。
 - planner 返回当前已解析的 `intent`、`branch`、`execution`、`recommended_workflows`，以及新的 `guidance`、`control_flow`，用于前端展示任务意图、账号阻塞项、提示词补充建议和已识别的控制流线索。
@@ -159,6 +160,7 @@ verification_method:
 - 当前前端会把 `GET /api/ai_dialog/history` 的结果区分成两种主要动作语义：作为当前任务图的参考上下文，或载入快照后继续编辑草稿；该语义在引导模式和高级模式中保持一致。
 - `GET /api/ai_dialog/drafts/{draft_id}/save_candidates` 当前会优先读取最近 completed task 的 AI 输入标注；若没有 completed task，则回退到最近 terminal task，避免有价值但未完成的 AI run 无法沉淀数据。
 - planner 的 `execution` 当前也会同步返回 `reuse_priority`、`reuse_action`、`distill_eligible`，供前端直接展示再次下发时的复用优先级与下一步出口。
+- 当调用方显式声明“无需账号数据”时，planner 会把账号需求视为已覆盖，不再因为账号池为空而阻塞执行；响应中的 `account` 字段会反映当前账号需求模式。
 - `GET/PUT /api/ai_dialog/apps/{app_id}/branch_profiles` 用于读取和维护 app 级分支资料。
 - `GET/POST /api/ai_dialog/apps/{app_id}/config_candidates*` 用于审核蒸馏候选后再写入共享 app 配置。
 

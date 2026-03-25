@@ -57,6 +57,7 @@ async def ai_dialog_planner(request: AIDialogPlannerRequest):
                 app_id=request.app_id,
                 app_display_name=request.app_display_name,
                 package_name=request.package_name,
+                account_required=request.account_required,
                 selected_account=request.selected_account,
                 advanced_prompt=request.advanced_prompt,
             )

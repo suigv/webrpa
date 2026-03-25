@@ -182,14 +182,38 @@ function getSelectedAiAccountName() {
     return String(getSelectedAiAccount()?.account || '').trim();
 }
 
+function isAiDialogAccountRequired() {
+    return !$('unitAiNoAccountRequired')?.checked;
+}
+
 function updateAiAccountHint(appId, readyCount) {
     const hint = $('unitAiAccountHint');
     if (!hint) return;
+    if (!isAiDialogAccountRequired()) {
+        hint.textContent = '当前任务已声明无需账号数据，执行时不会要求账号池或已选账号。';
+        return;
+    }
     if (appId === 'default') {
         hint.textContent = `当前显示系统账号池，共 ${readyCount} 个就绪账号`;
         return;
     }
     hint.textContent = `当前显示 ${appId} 账号池，共 ${readyCount} 个就绪账号`;
+}
+
+function syncAiDialogAccountRequirementUi() {
+    const select = $('unitAiAccountSelect');
+    const refresh = $('unitAiAccountRefresh');
+    const disabled = !isAiDialogAccountRequired();
+    if (select) {
+        if (disabled) {
+            select.value = '';
+        }
+        select.disabled = disabled;
+    }
+    if (refresh) {
+        refresh.disabled = disabled;
+    }
+    updateAiAccountHint(getSelectedAiDialogAppId() || 'default', aiDialogAccounts.length);
 }
 
 function currentPlannerSignature() {
@@ -198,6 +222,7 @@ function currentPlannerSignature() {
         app_id: getSelectedAiDialogAppId(),
         app_display_name: getSelectedAiDialogAppDisplayName(),
         package_name: getSelectedAiDialogPackageName(),
+        account_required: isAiDialogAccountRequired(),
         selected_account: getSelectedAiAccountName(),
         advanced_prompt: getSelectedAdvancedPrompt(),
         draft_id: activeDraftId,
@@ -302,7 +327,7 @@ async function loadAiDialogAccounts(appId = getSelectedAiDialogAppId(), preferre
     if (String($('unitAiAppSelect')?.value || '').trim() === CUSTOM_APP_OPTION && !String(appId || '').trim()) {
         aiDialogAccounts = [];
         renderEmptyAccountSelect(select, '-- 先填写应用 ID --');
-        updateAiAccountHint('default', 0);
+        syncAiDialogAccountRequirementUi();
         return;
     }
     const params = new URLSearchParams();
@@ -315,6 +340,7 @@ async function loadAiDialogAccounts(appId = getSelectedAiDialogAppId(), preferre
         if (!response.ok) {
             aiDialogAccounts = [];
             renderEmptyAccountSelect(select, '-- 账号加载失败 --');
+            syncAiDialogAccountRequirementUi();
             return;
         }
         aiDialogAccounts = (response.data?.accounts || []).filter((account) => account.status === 'ready');
@@ -334,10 +360,11 @@ async function loadAiDialogAccounts(appId = getSelectedAiDialogAppId(), preferre
             select.appendChild(option);
         });
         select.value = preferredIndex >= 0 ? String(preferredIndex) : '';
-        updateAiAccountHint(appId || 'default', aiDialogAccounts.length);
+        syncAiDialogAccountRequirementUi();
     } catch (_error) {
         aiDialogAccounts = [];
         renderEmptyAccountSelect(select, '-- 账号加载失败 --');
+        syncAiDialogAccountRequirementUi();
     }
 }
 
@@ -363,6 +390,7 @@ async function requestPlanner({ force = false, silent = false } = {}) {
             app_id: getSelectedAiDialogAppId(),
             app_display_name: getSelectedAiDialogAppDisplayName() || null,
             package_name: getSelectedAiDialogPackageName() || null,
+            account_required: isAiDialogAccountRequired(),
             selected_account: getSelectedAiAccountName() || null,
             advanced_prompt: getSelectedAdvancedPrompt() || null,
         }),
@@ -387,6 +415,7 @@ function buildAiTaskPayload() {
         appId: getSelectedAiDialogAppId(),
         appDisplayName: getSelectedAiDialogAppDisplayName(),
         packageName: getSelectedAiDialogPackageName(),
+        accountRequired: isAiDialogAccountRequired(),
         account: getSelectedAiAccount(),
         advancedPrompt: getSelectedAdvancedPrompt(),
     });
@@ -516,6 +545,7 @@ async function applyAiDialogSeed(seed = {}) {
     const appDisplayName = String(seed.appDisplayName || seed.app_display_name || '').trim();
     const packageName = String(seed.packageName || seed.package_name || seed.package || '').trim();
     const accountName = String(seed.accountName || seed.account || '').trim();
+    const accountRequired = seed.accountRequired !== false;
 
     activeDraftId = String(seed.draftId || seed.draft_id || '').trim();
     activeSuccessThreshold = Number(seed.successThreshold || seed.success_threshold || 0) || null;
@@ -527,6 +557,10 @@ async function applyAiDialogSeed(seed = {}) {
     const advancedPrompt = $('unitAiAdvancedPrompt');
     if (advancedPrompt) {
         advancedPrompt.value = String(seed.advancedPrompt || seed.advanced_prompt || '').trim();
+    }
+    const noAccountRequired = $('unitAiNoAccountRequired');
+    if (noAccountRequired) {
+        noAccountRequired.checked = !accountRequired;
     }
 
     await loadAiDialogApps();
@@ -549,6 +583,7 @@ async function applyAiDialogSeed(seed = {}) {
     }
     toggleAiCustomAppFields();
     await loadAiDialogAccounts(appId, accountName);
+    syncAiDialogAccountRequirementUi();
     resetPlannerState();
     clearPlannerCard();
 }
@@ -597,6 +632,13 @@ function bindPlannerInputs() {
     if (accountSelect) {
         accountSelect.onchange = clearSummary;
     }
+    const accountRequiredToggle = $('unitAiNoAccountRequired');
+    if (accountRequiredToggle) {
+        accountRequiredToggle.onchange = () => {
+            syncAiDialogAccountRequirementUi();
+            clearSummary();
+        };
+    }
 }
 
 export async function openUnitAiDialog(unit, seed = null) {
@@ -639,6 +681,8 @@ export async function openUnitAiDialog(unit, seed = null) {
     if (customDisplayName) customDisplayName.value = '';
     const customPackageName = $('unitAiCustomPackageName');
     if (customPackageName) customPackageName.value = '';
+    const noAccountRequired = $('unitAiNoAccountRequired');
+    if (noAccountRequired) noAccountRequired.checked = false;
 
     const advanced = $('unitAiAdvanced');
     if (advanced) advanced.style.display = 'none';
@@ -655,6 +699,7 @@ export async function openUnitAiDialog(unit, seed = null) {
     clearPlannerCard();
     await loadAiDialogApps();
     await loadAiDialogAccounts();
+    syncAiDialogAccountRequirementUi();
     if (seed && typeof seed === 'object') {
         await applyAiDialogSeed(seed);
     }

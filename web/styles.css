@@ -551,6 +551,16 @@ h1, h2, h3, h4 { color: var(--text-main); font-weight: 600; letter-spacing: -0.0
 
 .form-group { display: flex; flex-direction: column; gap: 8px; }
 .form-group label { font-size: 13px; font-weight: 500; color: var(--text-muted); }
+.checkbox-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+}
+.checkbox-inline input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+}
 
 input[type="text"],
 input[type="number"],

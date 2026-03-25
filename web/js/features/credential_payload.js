@@ -28,6 +28,7 @@ export function buildAiDialogPayload({
     appId = '',
     appDisplayName = '',
     packageName = '',
+    accountRequired = true,
     account = null,
     advancedPrompt = '',
 } = {}) {
@@ -49,6 +50,9 @@ export function buildAiDialogPayload({
     if (normalizedPackageName) {
         payload.package = normalizedPackageName;
         payload.package_name = normalizedPackageName;
+    }
+    if (!accountRequired) {
+        payload.account_required = false;
     }
 
     const credentialsRef = buildCredentialsRef(account);

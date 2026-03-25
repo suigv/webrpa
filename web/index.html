@@ -268,7 +268,12 @@
                   <select id="aiWorkspaceAccountSelect" class="flex-1"></select>
                   <button type="button" id="aiWorkspaceAccountRefresh" class="btn btn-secondary btn-sm">刷新</button>
                 </div>
+                <label class="checkbox-inline mt-2">
+                  <input id="aiWorkspaceNoAccountRequired" type="checkbox">
+                  该任务无需账号数据
+                </label>
                 <div id="aiWorkspaceAccountHint" class="text-muted" style="font-size:12px; margin-top:6px;">选择后会把账号上下文一并带入本次任务图生成</div>
+                <div class="text-muted" style="font-size:12px; margin-top:4px;">仅当任务不依赖账号、密码、2FA、token 等资源时勾选</div>
               </div>
 
               <div class="form-group mt-4" data-guided-step="2">
@@ -850,7 +855,12 @@
             <select id="unitAiAccountSelect" class="flex-1"></select>
             <button type="button" id="unitAiAccountRefresh" class="btn btn-secondary btn-sm">刷新</button>
           </div>
+          <label class="checkbox-inline mt-2">
+            <input id="unitAiNoAccountRequired" type="checkbox">
+            该任务无需账号数据
+          </label>
           <div id="unitAiAccountHint" class="text-muted" style="font-size:12px; margin-top:6px;">选择后账号信息将自动注入当前单任务执行</div>
+          <div class="text-muted" style="font-size:12px; margin-top:4px;">仅当任务不依赖账号、密码、2FA、token 等资源时勾选</div>
         </div>
 
         <div id="unitAiPlannerCard" class="task-summary-card mt-4" style="display:none;">

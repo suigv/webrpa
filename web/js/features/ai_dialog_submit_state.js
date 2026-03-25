@@ -8,9 +8,10 @@ export function resolveAiDialogSubmitState(plan) {
     const reuseAction = String(plan?.execution?.reuse_action || '').trim();
 
     if (plan?.account?.can_execute === false) {
+        const requiresAccount = plan?.account?.requires_account !== false;
         return {
             disabled: true,
-            label: '缺少账号',
+            label: requiresAccount ? '缺少账号' : '暂不可执行',
             title: executionHint || '当前规划未满足执行条件',
         };
     }
