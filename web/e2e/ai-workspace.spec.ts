@@ -52,7 +52,7 @@ const historyItem = {
   },
 };
 
-test('AI 工作台展示原生设计器与历史详情主链路', async ({ page }) => {
+test('AI 工作台展示任务图设计主链路与历史参考语义', async ({ page }) => {
   await page.route('**/health', async (route) => {
     await route.fulfill({
       status: 200,
@@ -188,16 +188,20 @@ test('AI 工作台展示原生设计器与历史详情主链路', async ({ page 
   await expect(page.locator('#aiWorkspaceHistoryDetail')).toContainText('X 登录补链路');
   await expect(page.locator('#aiWorkspaceHistoryDetail')).toContainText('判断登录状态');
   await expect(page.locator('#aiWorkspaceHistoryDetail')).toContainText('先确认账号密码是否可用');
+  await expect(page.getByRole('button', { name: '作为当前设计参考' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '继续编辑草稿' })).toBeVisible();
 
   await page.locator('#aiWorkspaceGoal').fill('登录 X 并确认进入首页');
+  await page.getByRole('button', { name: '开始设计任务图' }).click();
   await expect(page.locator('#aiWorkspacePlannerTitle')).toHaveText('X 登录规划');
+  await expect(page.locator('#aiWorkspaceGraphExecution')).toContainText('运行时：agent_executor');
+  await expect(page.locator('#aiWorkspaceGraphExecution')).toContainText('当前参考会话：X 登录补链路');
 
-  await page.getByRole('button', { name: '展开完整设计器' }).click();
-  await expect(page.locator('#aiWorkspaceDesignerPanel')).toBeVisible();
-  await expect(page.locator('#aiWorkspaceDesignerExecution')).toContainText('运行时：agent_executor');
-  await expect(page.locator('#aiWorkspaceDesignerExecution')).toContainText('当前参考会话：X 登录补链路');
+  await page.getByRole('button', { name: '确认任务图' }).click();
+  await expect(page.locator('#aiWorkspaceGraphSummary')).toContainText('当前任务图已确认');
+  await expect(page.getByRole('button', { name: '任务图已确认' })).toBeDisabled();
 
-  await page.getByRole('button', { name: '载入到工作台' }).first().click();
+  await page.getByRole('button', { name: '继续编辑' }).first().click();
   await expect(page.locator('#aiWorkspaceGoal')).toHaveValue('登录 X 并确认进入首页');
   await expect(page.locator('#aiWorkspaceAdvancedPrompt')).toHaveValue('如果出现验证码先暂停并等待人工处理');
 });

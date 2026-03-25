@@ -234,7 +234,7 @@ h1, h2, h3, h4 { color: var(--text-main); font-weight: 600; letter-spacing: -0.0
 
 .ai-workspace-top {
   display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+  grid-template-columns: minmax(280px, 0.9fr) minmax(0, 1.2fr) minmax(320px, 0.8fr);
   gap: 24px;
   align-items: start;
 }
@@ -270,6 +270,10 @@ h1, h2, h3, h4 { color: var(--text-main); font-weight: 600; letter-spacing: -0.0
   border-radius: var(--radius-md);
   padding: 16px;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.015));
+}
+
+.ai-workspace-graph-empty {
+  color: var(--text-muted);
 }
 
 .ai-workspace-history-row-actions {

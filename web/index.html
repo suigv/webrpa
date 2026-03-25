@@ -217,7 +217,7 @@
         <div class="ai-workspace-top">
           <div class="panel">
             <div class="panel-header">
-              <h3>任务设计入口</h3>
+              <h3>设计输入</h3>
               <button id="aiWorkspaceRefresh" type="button" class="btn btn-secondary btn-sm">刷新工作台</button>
             </div>
             <div class="panel-body">
@@ -226,7 +226,7 @@
                 <select id="aiWorkspaceTargetSelect" class="select-full">
                   <option value="">请选择一个在线云机</option>
                 </select>
-                <div id="aiWorkspaceTargetHint" class="text-muted" style="font-size:12px; margin-top:6px;">AI 工作台会把设计上下文带到对应设备详情中的 AI 设计器</div>
+                <div id="aiWorkspaceTargetHint" class="text-muted" style="font-size:12px; margin-top:6px;">请先选择本次任务图要落地执行的目标云机</div>
               </div>
 
               <div class="form-group mt-4">
@@ -252,7 +252,7 @@
                   <select id="aiWorkspaceAccountSelect" class="flex-1"></select>
                   <button type="button" id="aiWorkspaceAccountRefresh" class="btn btn-secondary btn-sm">刷新</button>
                 </div>
-                <div id="aiWorkspaceAccountHint" class="text-muted" style="font-size:12px; margin-top:6px;">选择后会把账号上下文一并带入 AI 设计器</div>
+                <div id="aiWorkspaceAccountHint" class="text-muted" style="font-size:12px; margin-top:6px;">选择后会把账号上下文一并带入本次任务图生成</div>
               </div>
 
               <div class="form-group mt-4">
@@ -260,10 +260,44 @@
                 <textarea id="aiWorkspaceAdvancedPrompt" rows="3" placeholder="仅在需要强调限制、偏好或禁忌时填写"></textarea>
               </div>
 
+              <div class="task-guide-card">
+                <div class="task-guide-title">当前设计流程</div>
+                <div class="task-guide-text">先明确目标、应用和执行限制，再生成任务图草案；确认任务图后再下发执行。历史会话、失败建议和蒸馏线索只作为当前设计参考。</div>
+                <div class="task-guide-tags">
+                  <span class="task-guide-tag">开始设计任务图</span>
+                  <span class="task-guide-tag">确认任务图</span>
+                  <span class="task-guide-tag">单设备执行</span>
+                  <span class="task-guide-tag">结果回流</span>
+                </div>
+              </div>
+              <div class="ai-workspace-actions mt-4">
+                <button type="button" id="aiWorkspaceGeneratePlan" class="btn btn-primary">开始设计任务图</button>
+                <button type="button" id="aiWorkspaceConfirmPlan" class="btn btn-secondary">确认任务图</button>
+                <button type="button" id="aiWorkspaceSubmitTask" class="btn btn-secondary">下发执行</button>
+                <button type="button" id="aiWorkspaceOpenDetail" class="btn btn-secondary">进入设备详情</button>
+                <button type="button" class="btn btn-secondary" data-nav-target="tab-tasks">打开任务编排</button>
+                <button type="button" class="btn btn-secondary" data-nav-target="tab-accounts">查看资源仓库</button>
+              </div>
+              <div class="ai-workspace-note mt-4">
+                AI 控制台负责统一设计任务图、复用历史会话、查看失败建议与蒸馏线索；设备详情中的 `AI 对话` 仅保留单任务执行、阶段观察与人工接管。
+              </div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-header">
+              <h3>任务图主画布</h3>
+              <span id="aiWorkspaceGraphStatus" class="text-xs text-muted">等待生成任务图草案</span>
+            </div>
+            <div class="panel-body">
+              <div id="aiWorkspaceGraphSummary" class="task-summary-card">
+                <div class="task-summary-title">任务图尚未生成</div>
+                <div class="task-summary-text">填写左侧输入后，点击“开始设计任务图”。当前版本只支持生成、确认、重新生成，不提供节点级手工编辑。</div>
+              </div>
               <div id="aiWorkspacePlannerCard" class="task-summary-card mt-4" style="display:none;">
                 <div class="task-summary-target-header">
-                  <div id="aiWorkspacePlannerTitle" class="task-summary-title">AI 任务规划</div>
-                  <span id="aiWorkspacePlannerBadge" class="badge">待分析</span>
+                  <div id="aiWorkspacePlannerTitle" class="task-summary-title">任务图草案</div>
+                  <span id="aiWorkspacePlannerBadge" class="badge">待生成</span>
                 </div>
                 <div id="aiWorkspacePlannerSummary" class="task-summary-text"></div>
                 <div id="aiWorkspacePlannerGuidance" class="mt-2"></div>
@@ -271,40 +305,11 @@
                 <div id="aiWorkspacePlannerScripts" class="task-summary-list mt-2"></div>
                 <div id="aiWorkspacePlannerFollowUp" class="task-summary-list mt-2"></div>
               </div>
-
-              <div class="task-guide-card">
-                <div class="task-guide-title">当前推荐流程</div>
-                <div class="task-guide-text">先在 AI 工作台确认任务目标与声明脚本，再进入设备执行探索，遇到卡点后回到这里查看草稿、运行资产和蒸馏进度。</div>
-                <div class="task-guide-tags">
-                  <span class="task-guide-tag">任务图草案</span>
-                  <span class="task-guide-tag">声明脚本</span>
-                  <span class="task-guide-tag">人工接管</span>
-                  <span class="task-guide-tag">蒸馏复用</span>
-                </div>
-              </div>
+              <div id="aiWorkspaceGraphExecution" class="task-summary-list mt-4"></div>
               <div class="ai-workspace-actions mt-4">
-                <button type="button" id="aiWorkspaceSubmitTask" class="btn btn-primary">下发任务</button>
-                <button type="button" id="aiWorkspaceOpenDesigner" class="btn btn-primary">展开完整设计器</button>
-                <button type="button" id="aiWorkspaceOpenDetail" class="btn btn-secondary">进入设备详情</button>
-                <button type="button" class="btn btn-secondary" data-nav-target="tab-tasks">打开任务编排</button>
-                <button type="button" class="btn btn-secondary" data-nav-target="tab-accounts">查看资源仓库</button>
-              </div>
-              <div class="ai-workspace-note mt-4">
-                设备详情中的 `AI 对话` 接口继续保留；AI 工作台负责统一收口设计入口和历史洞察。你可以直接在工作台里打开完整 AI 设计器，也可以手动进入设备详情页做单设备接管。
-              </div>
-
-              <div id="aiWorkspaceDesignerPanel" class="ai-workspace-designer mt-4" style="display:none;">
-                <div class="panel-header panel-header-inline">
-                  <h3>完整设计器</h3>
-                  <span id="aiWorkspaceDesignerHint" class="text-xs text-muted">在工作台内继续推进设计，不再跳旧弹窗</span>
-                </div>
-                <div id="aiWorkspaceDesignerSummary" class="task-summary-card mt-3"></div>
-                <div id="aiWorkspaceDesignerExecution" class="task-summary-list mt-3"></div>
-                <div id="aiWorkspaceDesignerActions" class="ai-workspace-history-actions mt-3">
-                  <button type="button" id="aiWorkspaceDesignerRun" class="btn btn-primary">直接下发当前任务</button>
-                  <button type="button" id="aiWorkspaceDesignerOpenDetail" class="btn btn-secondary">转到设备详情快捷入口</button>
-                  <button type="button" id="aiWorkspaceDesignerClose" class="btn btn-secondary">收起设计器</button>
-                </div>
+                <button type="button" id="aiWorkspaceRegeneratePlan" class="btn btn-secondary">重新生成任务图</button>
+                <button type="button" id="aiWorkspaceContinueEdit" class="btn btn-secondary">继续编辑输入</button>
+                <button type="button" id="aiWorkspaceGraphOpenDetail" class="btn btn-secondary">转到设备详情执行</button>
               </div>
             </div>
           </div>
@@ -312,15 +317,15 @@
           <div class="ai-workspace-side">
             <div class="panel flex-col">
               <div class="panel-header">
-                <h3>近期 AI 会话</h3>
-                <span class="text-xs text-muted">按最近更新时间排序</span>
+                <h3>参考上下文</h3>
+                <span class="text-xs text-muted">历史会话、失败建议与沉淀线索</span>
               </div>
               <div class="panel-body p-0 flex-1">
                 <div id="aiWorkspaceHistoryList" class="list-group">
                   <div class="text-muted" style="padding:16px;">暂无 AI 会话记录</div>
                 </div>
                 <div id="aiWorkspaceHistoryDetail" class="ai-workspace-history-detail">
-                  <div class="text-muted">选择一条 AI 会话后，可在这里查看复用状态、失败建议和声明脚本绑定。</div>
+                  <div class="text-muted">选择一条历史 AI 会话后，可在这里查看参考价值、失败建议、声明脚本绑定，以及“作为参考”或“继续编辑草稿”两种动作。</div>
                 </div>
               </div>
             </div>
@@ -767,7 +772,7 @@
   <div id="unitAiModal" class="modal-overlay" style="display: none;">
     <div class="modal">
       <div class="modal-header">
-        <h3 id="unitAiModalTitle">AI 对话</h3>
+        <h3 id="unitAiModalTitle">AI 执行</h3>
         <button type="button" class="btn btn-text text-muted px-2" id="closeUnitAiModal">Esc</button>
       </div>
       <div class="modal-body">
@@ -775,8 +780,8 @@
           <label>任务描述</label>
           <textarea id="unitAiGoal" rows="3" placeholder="例如：如果已登录就结束；等待首页出现后算成功；超时 15 秒则返回失败"></textarea>
           <div class="task-guide-card mt-2">
-            <div class="task-guide-title">写法建议</div>
-            <div class="task-guide-text">想让 AI 更容易沉淀成可复用脚本，尽量写清：如果发生什么要怎么处理、等待什么、多久算超时、看到什么算成功。</div>
+            <div class="task-guide-title">轻执行写法建议</div>
+            <div class="task-guide-text">这个弹窗只负责当前云机的一次执行。尽量写清成功判定、失败条件和人工接管点；更完整的任务图设计请转到 AI 工作台。</div>
             <div class="task-guide-tags">
               <span class="task-guide-tag">如果出现验证码就停止</span>
               <span class="task-guide-tag">等待首页出现</span>
@@ -804,12 +809,12 @@
             <select id="unitAiAccountSelect" class="flex-1"></select>
             <button type="button" id="unitAiAccountRefresh" class="btn btn-secondary btn-sm">刷新</button>
           </div>
-          <div id="unitAiAccountHint" class="text-muted" style="font-size:12px; margin-top:6px;">选择后账号信息将自动注入任务</div>
+          <div id="unitAiAccountHint" class="text-muted" style="font-size:12px; margin-top:6px;">选择后账号信息将自动注入当前单任务执行</div>
         </div>
 
         <div id="unitAiPlannerCard" class="task-summary-card mt-4" style="display:none;">
           <div class="task-summary-target-header">
-            <div id="unitAiPlannerTitle" class="task-summary-title">AI 任务规划</div>
+            <div id="unitAiPlannerTitle" class="task-summary-title">执行摘要</div>
             <span id="unitAiPlannerBadge" class="badge">待分析</span>
           </div>
           <div id="unitAiPlannerSummary" class="task-summary-text"></div>
@@ -819,13 +824,8 @@
           <div id="unitAiPlannerFollowUp" class="task-summary-list mt-2"></div>
         </div>
 
-        <div class="divider mt-6 mb-4"></div>
-        <div class="panel-header panel-header-inline">
-          <h3>AI 工作台入口</h3>
-          <span class="text-xs text-muted">历史沉淀、失败建议和蒸馏复用统一在工作台查看</span>
-        </div>
         <div class="task-guide-card mt-4">
-          <div id="unitAiWorkspaceSummary" class="task-guide-text">当前弹窗仅保留单设备快速发起与执行入口；历史复用和沉淀视图已迁移到 AI 工作台。</div>
+          <div id="unitAiWorkspaceSummary" class="task-guide-text">当前弹窗仅保留单设备快速发起、执行观察和人工接管。历史复用、任务图设计和蒸馏沉淀统一在 AI 工作台查看。</div>
           <div class="ai-workspace-history-actions mt-3">
             <button type="button" id="unitAiOpenWorkspace" class="btn btn-secondary btn-sm">前往 AI 工作台</button>
           </div>
@@ -842,7 +842,7 @@
          </div>
        </div>
       <div class="p-4 border-t bg-panel flex gap-3">
-        <button type="button" id="submitUnitAiTask" class="btn btn-primary flex-1">下发任务</button>
+        <button type="button" id="submitUnitAiTask" class="btn btn-primary flex-1">分析并执行</button>
         <button type="button" class="btn btn-secondary flex-1" id="cancelUnitAiTask">取消</button>
       </div>
     </div>

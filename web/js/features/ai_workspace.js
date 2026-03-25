@@ -28,14 +28,14 @@ const $ = (id) => document.getElementById(id);
 const CUSTOM_APP_OPTION = '__custom__';
 
 let aiWorkspaceAccounts = [];
-let plannerTimer = null;
 let plannerSignature = '';
 let plannerResult = null;
+let plannerDirty = false;
+let planConfirmed = false;
 let activeDraftId = '';
 let activeSuccessThreshold = null;
 let aiHistoryCache = [];
 let selectedAiHistoryId = '';
-let designerExpanded = false;
 
 function clearElement(element) {
     if (element) {
@@ -173,6 +173,241 @@ function selectedHistoryItem() {
     return aiHistoryCache.find((item) => String(item?.draft_id || '').trim() === selectedAiHistoryId) || null;
 }
 
+function currentWorkspaceTargetSummary() {
+    const target = String($('aiWorkspaceTargetSelect')?.value || '').trim();
+    if (!target) {
+        return '尚未选择目标云机';
+    }
+    const [deviceIdText, cloudIdText] = target.split('-');
+    return `目标云机 #${Number(deviceIdText || 0)}-${Number(cloudIdText || 0)}`;
+}
+
+function plannerElements() {
+    return {
+        card: $('aiWorkspacePlannerCard'),
+        title: $('aiWorkspacePlannerTitle'),
+        summary: $('aiWorkspacePlannerSummary'),
+        badge: $('aiWorkspacePlannerBadge'),
+        guidance: $('aiWorkspacePlannerGuidance'),
+        controlFlow: $('aiWorkspacePlannerControlFlow'),
+        scriptsHost: $('aiWorkspacePlannerScripts'),
+        followUp: $('aiWorkspacePlannerFollowUp'),
+    };
+}
+
+function currentPlannerSignature() {
+    return JSON.stringify({
+        goal: String($('aiWorkspaceGoal')?.value || '').trim(),
+        app_id: getSelectedWorkspaceAppId(),
+        app_display_name: getSelectedWorkspaceAppDisplayName(),
+        package_name: getSelectedWorkspacePackageName(),
+        selected_account: String(getSelectedWorkspaceAccount()?.account || '').trim(),
+        advanced_prompt: String($('aiWorkspaceAdvancedPrompt')?.value || '').trim(),
+    });
+}
+
+function resetPlannerState({ keepPlan = false } = {}) {
+    if (!keepPlan) {
+        plannerSignature = '';
+        plannerResult = null;
+    }
+    planConfirmed = false;
+}
+
+function markWorkspaceInputsChanged({ resetDraft = false } = {}) {
+    if (plannerResult) {
+        plannerDirty = true;
+    } else {
+        plannerDirty = Boolean(String($('aiWorkspaceGoal')?.value || '').trim());
+    }
+    planConfirmed = false;
+    if (resetDraft) {
+        resetWorkspaceDraftContext();
+    }
+    renderWorkspaceGraph();
+    updateWorkspaceActionState();
+}
+
+function updateWorkspaceActionState() {
+    const hasTarget = Boolean(String($('aiWorkspaceTargetSelect')?.value || '').trim());
+    const hasGoal = Boolean(String($('aiWorkspaceGoal')?.value || '').trim());
+    const planReady = Boolean(plannerResult) && !plannerDirty;
+    const generateButton = $('aiWorkspaceGeneratePlan');
+    const regenerateButton = $('aiWorkspaceRegeneratePlan');
+    const confirmButton = $('aiWorkspaceConfirmPlan');
+    const submitButton = $('aiWorkspaceSubmitTask');
+    const detailButton = $('aiWorkspaceOpenDetail');
+    const graphDetailButton = $('aiWorkspaceGraphOpenDetail');
+    const continueEditButton = $('aiWorkspaceContinueEdit');
+
+    if (generateButton) {
+        generateButton.disabled = !hasTarget || !hasGoal;
+        generateButton.title = !hasTarget
+            ? '请先选择目标云机'
+            : !hasGoal
+                ? '请先填写任务描述'
+                : '';
+        generateButton.textContent = plannerResult ? '重新生成任务图' : '开始设计任务图';
+    }
+
+    if (regenerateButton) {
+        regenerateButton.disabled = !hasTarget || !hasGoal;
+        regenerateButton.title = !hasTarget
+            ? '请先选择目标云机'
+            : !hasGoal
+                ? '请先填写任务描述'
+                : '';
+    }
+
+    if (confirmButton) {
+        confirmButton.disabled = !planReady || planConfirmed;
+        confirmButton.title = !planReady
+            ? '请先生成最新任务图草案'
+            : planConfirmed
+                ? '当前任务图已确认'
+                : '';
+        confirmButton.textContent = planConfirmed ? '任务图已确认' : '确认任务图';
+    }
+
+    if (submitButton) {
+        submitButton.disabled = !planConfirmed || !planReady || !hasTarget;
+        submitButton.title = !hasTarget
+            ? '请先选择目标云机'
+            : !planReady
+                ? '请先生成最新任务图草案'
+                : !planConfirmed
+                    ? '请先确认任务图'
+                    : '';
+        applyPlannerSubmitState(submitButton, planConfirmed && planReady ? plannerResult : null, '下发执行');
+    }
+
+    if (detailButton) {
+        detailButton.disabled = !hasTarget;
+        detailButton.title = hasTarget ? '' : '请先选择目标云机';
+    }
+    if (graphDetailButton) {
+        graphDetailButton.disabled = !hasTarget;
+        graphDetailButton.title = hasTarget ? '' : '请先选择目标云机';
+    }
+    if (continueEditButton) {
+        continueEditButton.disabled = !plannerResult && !activeDraftId;
+        continueEditButton.title = continueEditButton.disabled ? '当前没有可继续编辑的任务图草案' : '';
+    }
+}
+
+function renderWorkspaceGraphSummary() {
+    const host = $('aiWorkspaceGraphSummary');
+    if (!host) return;
+    clearElement(host);
+
+    const title = document.createElement('div');
+    title.className = 'task-summary-title';
+
+    const text = document.createElement('div');
+    text.className = 'task-summary-text';
+
+    if (!plannerResult) {
+        title.textContent = '任务图尚未生成';
+        text.textContent = '填写左侧输入后，点击“开始设计任务图”。当前版本只支持生成、确认、重新生成，不提供节点级手工编辑。';
+        host.append(title, text);
+        return;
+    }
+
+    title.textContent = String(plannerResult.display_name || '当前任务图草案');
+    if (plannerDirty) {
+        text.textContent = '输入已变更，当前画布展示的是旧版本草案。请重新生成任务图后再确认或执行。';
+    } else if (planConfirmed) {
+        text.textContent = '当前任务图已确认，可以直接下发执行，或进入设备详情进行单设备执行与接管。';
+    } else {
+        text.textContent = '任务图草案已生成，请结合右侧参考上下文检查控制流、成功判定、失败出口和人工接管点，再确认任务图。';
+    }
+
+    const tags = document.createElement('div');
+    tags.className = 'task-guide-tags';
+    [
+        currentWorkspaceTargetSummary(),
+        getSelectedWorkspaceAppId() ? `应用 ${getSelectedWorkspaceAppId()}` : '',
+        getSelectedWorkspaceAccount()?.account ? `账号 ${String(getSelectedWorkspaceAccount().account)}` : '未绑定账号',
+        activeDraftId ? `草稿 ${activeDraftId}` : '新任务图',
+        planConfirmed ? '已确认' : plannerDirty ? '待重新生成' : '待确认',
+    ].filter(Boolean).forEach((line) => {
+        const chip = document.createElement('span');
+        chip.className = 'task-guide-tag';
+        chip.textContent = line;
+        tags.appendChild(chip);
+    });
+    host.append(title, text, tags);
+}
+
+function renderWorkspaceGraphExecution() {
+    const host = $('aiWorkspaceGraphExecution');
+    const status = $('aiWorkspaceGraphStatus');
+    if (!host) return;
+    clearElement(host);
+
+    const selectedHistory = selectedHistoryItem();
+    const historyDraft = normalizeDraftSummary(selectedHistory);
+    const execution = plannerResult?.execution || {};
+    const followUp = plannerResult?.follow_up || {};
+    const blockingReasons = Array.isArray(execution?.blocking_reasons) ? execution.blocking_reasons : [];
+    const missing = Array.isArray(followUp?.missing) ? followUp.missing : [];
+
+    if (!plannerResult) {
+        if (status) {
+            status.textContent = '等待生成任务图草案';
+        }
+        const block = createMetaBlock('当前状态', [
+            '还没有任务图草案。',
+            '左侧输入完成后点击“开始设计任务图”。',
+            '如果要继续已有草稿，请从右侧历史会话选择“继续编辑草稿”。',
+        ]);
+        if (block) host.appendChild(block);
+        return;
+    }
+
+    if (status) {
+        status.textContent = plannerDirty
+            ? '当前草案已过期，等待重新生成'
+            : planConfirmed
+                ? '任务图已确认，可进入执行'
+                : '任务图草案已生成，等待确认';
+    }
+
+    [
+        createMetaBlock('任务图状态', [
+            plannerResult?.operator_summary ? String(plannerResult.operator_summary) : '',
+            plannerDirty ? '输入已变更：请重新生成任务图' : '',
+            planConfirmed ? '确认状态：已确认，可下发执行' : '确认状态：待确认',
+        ]),
+        createMetaBlock('执行门槛', [
+            execution?.runtime ? `运行时：${String(execution.runtime)}` : '',
+            execution?.mode ? `模式：${String(execution.mode)}` : '',
+            execution?.readiness ? `就绪度：${String(execution.readiness)}` : '',
+            blockingReasons.length > 0 ? `阻塞原因：${blockingReasons.join('、')}` : '当前无明确阻塞',
+        ]),
+        createMetaBlock('补充信息', [
+            followUp?.message ? String(followUp.message) : '',
+            missing.length > 0 ? `仍缺少：${missing.join('、')}` : '',
+            plannerResult?.account?.execution_hint ? String(plannerResult.account.execution_hint) : '',
+        ]),
+        createMetaBlock('参考上下文', [
+            selectedHistory ? `当前参考会话：${String(selectedHistory.display_name || '')}` : '当前没有引用历史会话',
+            historyDraft?.declarative_binding?.script_title
+                ? `参考脚本：${String(historyDraft.declarative_binding.script_title)}`
+                : '',
+            historyDraft?.declarative_binding?.current_stage?.stage_title
+                ? `参考阶段：${String(historyDraft.declarative_binding.current_stage.stage_title)}`
+                : '',
+            historyDraft?.message ? String(historyDraft.message) : '',
+        ]),
+    ].filter(Boolean).forEach((block) => host.appendChild(block));
+}
+
+function renderWorkspaceGraph() {
+    renderWorkspaceGraphSummary();
+    renderWorkspaceGraphExecution();
+}
+
 function renderAiHistoryDetail(item) {
     const host = $('aiWorkspaceHistoryDetail');
     if (!host) return;
@@ -181,7 +416,7 @@ function renderAiHistoryDetail(item) {
     if (!item) {
         const empty = document.createElement('div');
         empty.className = 'text-muted';
-        empty.textContent = '选择一条 AI 会话后，可在这里查看复用状态、失败建议和声明脚本绑定。';
+        empty.textContent = '选择一条历史 AI 会话后，可在这里查看参考价值、失败建议、声明脚本绑定，以及“作为参考”或“继续编辑草稿”两种动作。';
         host.appendChild(empty);
         return;
     }
@@ -231,75 +466,67 @@ function renderAiHistoryDetail(item) {
         chip.textContent = text;
         badges.appendChild(chip);
     });
-    if (item?.can_edit) {
-        const chip = document.createElement('span');
-        chip.className = 'task-guide-tag';
-        chip.textContent = '可编辑';
-        badges.appendChild(chip);
-    }
-    if (item?.can_save) {
-        const chip = document.createElement('span');
-        chip.className = 'task-guide-tag';
-        chip.textContent = '可沉淀';
-        badges.appendChild(chip);
-    }
     host.appendChild(badges);
 
-    const summaryBlock = createMetaBlock('当前结论', [
-        draft?.message,
-        item?.app_id ? `应用：${String(item.app_id)}` : '',
-        item?.account ? `账号：${String(item.account)}` : '',
-        Number(draft?.success_threshold || 0) > 0
-            ? `样本进度：${Number(draft?.success_count || 0)}/${Number(draft?.success_threshold || 0)}`
-            : '',
-    ]);
-    if (summaryBlock) host.appendChild(summaryBlock);
-
-    const declarativeBlock = createMetaBlock('声明脚本绑定', [
-        declarativeBinding?.summary,
-        declarativeBinding?.script_title
-            ? `主脚本：${String(declarativeBinding.script_title)}`
-            : '',
-        declarativeBinding?.current_stage?.stage_title
-            ? `当前阶段：${String(declarativeBinding.current_stage.stage_title)}`
-            : '',
-        typeof declarativeBinding?.script_count === 'number'
-            ? `脚本数量：${Number(declarativeBinding.script_count)}`
-            : '',
-    ]);
-    if (declarativeBlock) host.appendChild(declarativeBlock);
-
-    const runAssetBlock = createMetaBlock('最近运行资产', [
-        latestRunAsset?.terminal_message || '',
-        latestRunAsset?.memory_summary?.recommended_action
-            ? `推荐动作：${formatReuseAction(latestRunAsset.memory_summary.recommended_action)}`
-            : '',
-        Array.isArray(latestRunAsset?.retained_value) && latestRunAsset.retained_value.length > 0
-            ? `保留资产：${latestRunAsset.retained_value.join('、')}`
-            : '',
-        Array.isArray(latestRunAsset?.learned_assets?.observed_state_ids)
-            && latestRunAsset.learned_assets.observed_state_ids.length > 0
-            ? `观测状态：${latestRunAsset.learned_assets.observed_state_ids.slice(0, 4).join('、')}`
-            : '',
-    ]);
-    if (runAssetBlock) host.appendChild(runAssetBlock);
-
-    const failureBlock = createMetaBlock('失败建议', [
-        failureAdvice?.summary || '',
-        Array.isArray(failureAdvice?.suggestions) && failureAdvice.suggestions.length > 0
-            ? `建议：${failureAdvice.suggestions.join('；')}`
-            : '',
-        failureAdvice?.suggested_prompt ? `推荐提示词：${String(failureAdvice.suggested_prompt)}` : '',
-    ]);
-    if (failureBlock) host.appendChild(failureBlock);
+    [
+        createMetaBlock('参考结论', [
+            draft?.message,
+            item?.app_id ? `应用：${String(item.app_id)}` : '',
+            item?.account ? `账号：${String(item.account)}` : '',
+            Number(draft?.success_threshold || 0) > 0
+                ? `样本进度：${Number(draft?.success_count || 0)}/${Number(draft?.success_threshold || 0)}`
+                : '',
+        ]),
+        createMetaBlock('声明脚本绑定', [
+            declarativeBinding?.summary,
+            declarativeBinding?.script_title ? `主脚本：${String(declarativeBinding.script_title)}` : '',
+            declarativeBinding?.current_stage?.stage_title
+                ? `当前阶段：${String(declarativeBinding.current_stage.stage_title)}`
+                : '',
+            typeof declarativeBinding?.script_count === 'number'
+                ? `脚本数量：${Number(declarativeBinding.script_count)}`
+                : '',
+        ]),
+        createMetaBlock('最近运行资产', [
+            latestRunAsset?.terminal_message || '',
+            latestRunAsset?.memory_summary?.recommended_action
+                ? `推荐动作：${formatReuseAction(latestRunAsset.memory_summary.recommended_action)}`
+                : '',
+            Array.isArray(latestRunAsset?.retained_value) && latestRunAsset.retained_value.length > 0
+                ? `保留资产：${latestRunAsset.retained_value.join('、')}`
+                : '',
+            Array.isArray(latestRunAsset?.learned_assets?.observed_state_ids)
+                && latestRunAsset.learned_assets.observed_state_ids.length > 0
+                ? `观测状态：${latestRunAsset.learned_assets.observed_state_ids.slice(0, 4).join('、')}`
+                : '',
+        ]),
+        createMetaBlock('失败建议', [
+            failureAdvice?.summary || '',
+            Array.isArray(failureAdvice?.suggestions) && failureAdvice.suggestions.length > 0
+                ? `建议：${failureAdvice.suggestions.join('；')}`
+                : '',
+            failureAdvice?.suggested_prompt ? `推荐提示词：${String(failureAdvice.suggested_prompt)}` : '',
+        ]),
+    ].filter(Boolean).forEach((block) => host.appendChild(block));
 
     const actions = document.createElement('div');
     actions.className = 'ai-workspace-history-actions';
 
+    const referenceButton = document.createElement('button');
+    referenceButton.type = 'button';
+    referenceButton.className = 'btn btn-secondary btn-sm';
+    referenceButton.textContent = '作为当前设计参考';
+    referenceButton.onclick = () => {
+        selectedAiHistoryId = String(item?.draft_id || '').trim();
+        renderAiHistory(aiHistoryCache);
+        toast.info('已将该历史会话设为当前任务图的参考上下文');
+    };
+    actions.appendChild(referenceButton);
+
     const loadButton = document.createElement('button');
     loadButton.type = 'button';
     loadButton.className = 'btn btn-secondary btn-sm';
-    loadButton.textContent = '载入到工作台';
+    loadButton.textContent = '继续编辑草稿';
     loadButton.disabled = !item?.can_edit;
     loadButton.onclick = () => {
         void loadHistoryItemIntoWorkspace(item);
@@ -334,111 +561,6 @@ function renderAiHistoryDetail(item) {
 function setSelectedAiHistory(draftId) {
     selectedAiHistoryId = String(draftId || '').trim();
     renderAiHistory(aiHistoryCache);
-    renderWorkspaceDesignerPanel();
-}
-
-function currentWorkspaceTargetSummary() {
-    const target = String($('aiWorkspaceTargetSelect')?.value || '').trim();
-    if (!target) {
-        return '尚未选择目标云机';
-    }
-    const [deviceIdText, cloudIdText] = target.split('-');
-    return `目标云机 #${Number(deviceIdText || 0)}-${Number(cloudIdText || 0)}`;
-}
-
-function renderWorkspaceDesignerPanel() {
-    const panel = $('aiWorkspaceDesignerPanel');
-    const hint = $('aiWorkspaceDesignerHint');
-    const summaryHost = $('aiWorkspaceDesignerSummary');
-    const executionHost = $('aiWorkspaceDesignerExecution');
-    const openButton = $('aiWorkspaceOpenDesigner');
-    const runButton = $('aiWorkspaceDesignerRun');
-    const detailButton = $('aiWorkspaceDesignerOpenDetail');
-    if (!panel || !summaryHost || !executionHost) return;
-
-    panel.style.display = designerExpanded ? 'block' : 'none';
-    if (openButton) {
-        openButton.textContent = designerExpanded ? '收起完整设计器' : '展开完整设计器';
-    }
-    if (!designerExpanded) {
-        return;
-    }
-
-    if (hint) {
-        hint.textContent = plannerResult
-            ? '当前设计上下文已固定在工作台内；如需单设备调试，再进入设备详情快捷入口。'
-            : '先填写目标与任务描述，工作台会在这里展开完整设计上下文。';
-    }
-
-    clearElement(summaryHost);
-    clearElement(executionHost);
-
-    const summaryTitle = document.createElement('div');
-    summaryTitle.className = 'task-summary-title';
-    summaryTitle.textContent = plannerResult
-        ? String(plannerResult.display_name || '当前 AI 任务设计')
-        : '完整设计器等待规划结果';
-
-    const summaryText = document.createElement('div');
-    summaryText.className = 'task-summary-text';
-    summaryText.textContent = plannerResult
-        ? String(plannerResult.operator_summary || '').trim()
-        : '填写任务描述后，工作台会在此展示执行模式、阻塞项、会话锚点和下一步建议。';
-
-    const summaryMeta = document.createElement('div');
-    summaryMeta.className = 'task-guide-tags';
-    [
-        currentWorkspaceTargetSummary(),
-        getSelectedWorkspaceAppId() ? `应用 ${getSelectedWorkspaceAppId()}` : '',
-        getSelectedWorkspaceAccount()?.account
-            ? `账号 ${String(getSelectedWorkspaceAccount().account)}`
-            : '未绑定账号',
-        activeDraftId ? `继续草稿 ${activeDraftId}` : '',
-    ].filter(Boolean).forEach((text) => {
-        const chip = document.createElement('span');
-        chip.className = 'task-guide-tag';
-        chip.textContent = text;
-        summaryMeta.appendChild(chip);
-    });
-    summaryHost.append(summaryTitle, summaryText, summaryMeta);
-
-    const selectedHistory = selectedHistoryItem();
-    const historyDraft = normalizeDraftSummary(selectedHistory);
-    const execution = plannerResult?.execution || {};
-    const followUp = plannerResult?.follow_up || {};
-    const blockingReasons = Array.isArray(execution?.blocking_reasons) ? execution.blocking_reasons : [];
-    const missing = Array.isArray(followUp?.missing) ? followUp.missing : [];
-
-    [
-        createMetaBlock('执行门槛', [
-            execution?.runtime ? `运行时：${String(execution.runtime)}` : '',
-            execution?.mode ? `模式：${String(execution.mode)}` : '',
-            execution?.readiness ? `就绪度：${String(execution.readiness)}` : '',
-            blockingReasons.length > 0 ? `阻塞原因：${blockingReasons.join('、')}` : '当前无明确阻塞',
-        ]),
-        createMetaBlock('补充信息', [
-            followUp?.message ? String(followUp.message) : '',
-            missing.length > 0 ? `仍缺少：${missing.join('、')}` : '',
-            plannerResult?.account?.execution_hint ? String(plannerResult.account.execution_hint) : '',
-        ]),
-        createMetaBlock('会话锚点', [
-            selectedHistory ? `当前参考会话：${String(selectedHistory.display_name || '')}` : '当前没有选中的参考会话',
-            historyDraft?.declarative_binding?.script_title
-                ? `参考脚本：${String(historyDraft.declarative_binding.script_title)}`
-                : '',
-            historyDraft?.declarative_binding?.current_stage?.stage_title
-                ? `参考阶段：${String(historyDraft.declarative_binding.current_stage.stage_title)}`
-                : '',
-            historyDraft?.message ? String(historyDraft.message) : '',
-        ]),
-    ].filter(Boolean).forEach((block) => executionHost.appendChild(block));
-
-    applyPlannerSubmitState(runButton, plannerResult, '直接下发当前任务');
-    if (detailButton) {
-        const hasTarget = Boolean(String($('aiWorkspaceTargetSelect')?.value || '').trim());
-        detailButton.disabled = !hasTarget;
-        detailButton.title = hasTarget ? '' : '请先选择目标云机';
-    }
 }
 
 function renderAiHistory(items) {
@@ -455,6 +577,7 @@ function renderAiHistory(items) {
         empty.textContent = '暂无 AI 会话记录';
         host.appendChild(empty);
         renderAiHistoryDetail(null);
+        renderWorkspaceGraph();
         return;
     }
 
@@ -494,42 +617,16 @@ function renderAiHistory(items) {
         const badges = document.createElement('div');
         badges.className = 'task-guide-tags';
 
-        const status = document.createElement('span');
-        status.className = 'badge';
-        status.textContent = String(item?.status || 'unknown');
-        badges.appendChild(status);
-
-        if (item?.can_replay) {
-            const badge = document.createElement('span');
-            badge.className = 'badge badge-ok';
-            badge.textContent = '可重放';
-            badges.appendChild(badge);
-        }
-        if (item?.can_edit) {
-            const badge = document.createElement('span');
-            badge.className = 'badge';
-            badge.textContent = '可编辑';
-            badges.appendChild(badge);
-        }
-        if (item?.can_save) {
-            const badge = document.createElement('span');
-            badge.className = 'task-guide-tag';
-            badge.textContent = '可沉淀';
-            badges.appendChild(badge);
-        }
-        const draft = normalizeDraftSummary(item);
-        const latestRunAsset = normalizeLatestRunAsset(item);
-        const quickHint = [
-            draft?.distill_assessment?.latest_qualification
-                ? formatQualification(draft.distill_assessment.latest_qualification)
+        [
+            String(item?.status || 'unknown'),
+            item?.can_edit ? '可继续编辑' : '',
+            item?.can_save ? '可沉淀' : '',
+            normalizeLatestRunAsset(item)?.memory_summary?.reuse_priority
+                ? formatReusePriority(normalizeLatestRunAsset(item).memory_summary.reuse_priority)
                 : '',
-            latestRunAsset?.memory_summary?.reuse_priority
-                ? formatReusePriority(latestRunAsset.memory_summary.reuse_priority)
-                : '',
-        ].filter(Boolean);
-        quickHint.slice(0, 2).forEach((text) => {
+        ].filter(Boolean).forEach((text, index) => {
             const badge = document.createElement('span');
-            badge.className = 'task-guide-tag';
+            badge.className = index === 0 ? 'badge' : 'task-guide-tag';
             badge.textContent = text;
             badges.appendChild(badge);
         });
@@ -539,47 +636,35 @@ function renderAiHistory(items) {
         const actions = document.createElement('div');
         actions.className = 'ai-workspace-history-row-actions';
 
-        const loadButton = document.createElement('button');
-        loadButton.type = 'button';
-        loadButton.className = 'btn btn-secondary btn-sm';
-        loadButton.textContent = '载入到工作台';
-        loadButton.disabled = !item?.can_edit;
-        loadButton.onclick = (event) => {
+        const referenceButton = document.createElement('button');
+        referenceButton.type = 'button';
+        referenceButton.className = 'btn btn-secondary btn-sm';
+        referenceButton.textContent = '作为参考';
+        referenceButton.onclick = (event) => {
+            stopEvent(event);
+            selectedAiHistoryId = draftId;
+            renderAiHistory(aiHistoryCache);
+            toast.info('已将该历史会话设为当前设计参考');
+        };
+        actions.appendChild(referenceButton);
+
+        const continueButton = document.createElement('button');
+        continueButton.type = 'button';
+        continueButton.className = 'btn btn-secondary btn-sm';
+        continueButton.textContent = '继续编辑';
+        continueButton.disabled = !item?.can_edit;
+        continueButton.onclick = (event) => {
             stopEvent(event);
             void loadHistoryItemIntoWorkspace(item);
         };
-        actions.appendChild(loadButton);
-
-        const distillButton = document.createElement('button');
-        const distillState = resolveDistillButtonState(item);
-        distillButton.type = 'button';
-        distillButton.className = 'btn btn-secondary btn-sm';
-        distillButton.textContent = distillState.label;
-        distillButton.disabled = Boolean(distillState.disabled);
-        distillButton.title = distillState.title || '';
-        distillButton.onclick = (event) => {
-            stopEvent(event);
-            void distillHistoryItem(item);
-        };
-        actions.appendChild(distillButton);
-
-        const saveButton = document.createElement('button');
-        saveButton.type = 'button';
-        saveButton.className = 'btn btn-secondary btn-sm';
-        saveButton.textContent = '保存可复用项';
-        saveButton.disabled = !item?.can_save;
-        saveButton.onclick = async (event) => {
-            stopEvent(event);
-            await openAiDraftSaveModal(String(item?.draft_id || '').trim());
-        };
-        actions.appendChild(saveButton);
+        actions.appendChild(continueButton);
 
         row.append(content, actions);
         host.appendChild(row);
     });
 
     renderAiHistoryDetail(selectedHistoryItem());
-    renderWorkspaceDesignerPanel();
+    renderWorkspaceGraph();
 }
 
 function renderActiveRuns(tasks) {
@@ -644,7 +729,7 @@ function renderTargetOptions(devices) {
     select.value = hasPrevious ? previous : '';
     if (hint) {
         hint.textContent = onlineCount > 0
-            ? `当前共有 ${onlineCount} 个在线云机可作为 AI 设计目标`
+            ? `当前共有 ${onlineCount} 个在线云机可作为任务图的执行目标`
             : '当前没有在线云机，请先在设备集群中恢复可用节点';
     }
 }
@@ -740,82 +825,30 @@ async function loadActiveRuns() {
     renderActiveRuns(active);
 }
 
-function plannerElements() {
-    return {
-        card: $('aiWorkspacePlannerCard'),
-        title: $('aiWorkspacePlannerTitle'),
-        summary: $('aiWorkspacePlannerSummary'),
-        badge: $('aiWorkspacePlannerBadge'),
-        guidance: $('aiWorkspacePlannerGuidance'),
-        controlFlow: $('aiWorkspacePlannerControlFlow'),
-        scriptsHost: $('aiWorkspacePlannerScripts'),
-        followUp: $('aiWorkspacePlannerFollowUp'),
-    };
-}
-
-function currentPlannerSignature() {
-    return JSON.stringify({
-        goal: String($('aiWorkspaceGoal')?.value || '').trim(),
-        app_id: getSelectedWorkspaceAppId(),
-        app_display_name: getSelectedWorkspaceAppDisplayName(),
-        package_name: getSelectedWorkspacePackageName(),
-        selected_account: String(getSelectedWorkspaceAccount()?.account || '').trim(),
-        advanced_prompt: String($('aiWorkspaceAdvancedPrompt')?.value || '').trim(),
-    });
-}
-
-function resetPlannerState() {
-    plannerSignature = '';
-    plannerResult = null;
-}
-
-function updateOpenDesignerButton(plan) {
-    applyPlannerSubmitState($('aiWorkspaceSubmitTask'), plan, '下发任务');
-    const detailButton = $('aiWorkspaceOpenDetail');
-    const button = $('aiWorkspaceOpenDesigner');
-    const hasTarget = Boolean(String($('aiWorkspaceTargetSelect')?.value || '').trim());
-    if (detailButton) {
-        detailButton.disabled = !hasTarget;
-        detailButton.title = hasTarget ? '' : '请先选择目标云机';
-    }
-    const submitButton = $('aiWorkspaceSubmitTask');
-    if (submitButton && !hasTarget) {
-        submitButton.disabled = true;
-        submitButton.title = '请先选择目标云机';
-    }
-    if (!button) return;
-    if (!hasTarget) {
-        button.disabled = true;
-        button.title = '请先选择目标云机';
-    } else {
-        button.disabled = false;
-        button.title = '';
-    }
-    renderWorkspaceDesignerPanel();
-}
-
 async function requestWorkspacePlanner({ force = false, silent = false } = {}) {
     const goal = String($('aiWorkspaceGoal')?.value || '').trim();
     if (!goal) {
         resetPlannerState();
+        plannerDirty = false;
         clearPlannerCard(plannerElements(), {
             submitButton: $('aiWorkspaceSubmitTask'),
-            submitLabel: '下发任务',
+            submitLabel: '下发执行',
         });
-        updateOpenDesignerButton(null);
-        renderWorkspaceDesignerPanel();
+        renderWorkspaceGraph();
+        updateWorkspaceActionState();
         return null;
     }
 
     const signature = currentPlannerSignature();
-    if (!force && plannerResult && signature === plannerSignature) {
-        updateOpenDesignerButton(plannerResult);
+    if (!force && plannerResult && signature === plannerSignature && !plannerDirty) {
+        renderWorkspaceGraph();
+        updateWorkspaceActionState();
         return plannerResult;
     }
 
     renderPlannerStateLoading(plannerElements(), {
         submitButton: $('aiWorkspaceSubmitTask'),
-        submitLabel: '下发任务',
+        submitLabel: '下发执行',
     });
     const response = await fetchJson('/api/ai_dialog/planner', {
         method: 'POST',
@@ -832,25 +865,27 @@ async function requestWorkspacePlanner({ force = false, silent = false } = {}) {
     });
     if (!response.ok) {
         if (!silent) {
-            toast.error(String(response.data?.detail || 'AI 规划失败'));
+            toast.error(String(response.data?.detail || '任务图生成失败'));
         }
         clearPlannerCard(plannerElements(), {
             submitButton: $('aiWorkspaceSubmitTask'),
-            submitLabel: '下发任务',
+            submitLabel: '下发执行',
         });
-        updateOpenDesignerButton(null);
-        renderWorkspaceDesignerPanel();
+        renderWorkspaceGraph();
+        updateWorkspaceActionState();
         return null;
     }
 
     plannerSignature = signature;
     plannerResult = response.data;
+    plannerDirty = false;
+    planConfirmed = false;
     renderPlannerResult(plannerElements(), plannerResult, {
         submitButton: $('aiWorkspaceSubmitTask'),
-        submitLabel: '下发任务',
+        submitLabel: '下发执行',
     });
-    updateOpenDesignerButton(plannerResult);
-    renderWorkspaceDesignerPanel();
+    renderWorkspaceGraph();
+    updateWorkspaceActionState();
     return plannerResult;
 }
 
@@ -910,16 +945,13 @@ async function applyWorkspaceSeed(seed = {}) {
         accountSelect.value = preferredIndex >= 0 ? String(preferredIndex) : '';
     }
     resetPlannerState();
-    if (String(seed.goal || '').trim()) {
-        await requestWorkspacePlanner({ force: true, silent: true });
-    } else {
-        clearPlannerCard(plannerElements(), {
-            submitButton: $('aiWorkspaceSubmitTask'),
-            submitLabel: '下发任务',
-        });
-        updateOpenDesignerButton(null);
-        renderWorkspaceDesignerPanel();
-    }
+    plannerDirty = Boolean(String(seed.goal || '').trim());
+    clearPlannerCard(plannerElements(), {
+        submitButton: $('aiWorkspaceSubmitTask'),
+        submitLabel: '下发执行',
+    });
+    renderWorkspaceGraph();
+    updateWorkspaceActionState();
 }
 
 async function loadHistoryItemIntoWorkspace(item) {
@@ -947,7 +979,8 @@ async function loadHistoryItemIntoWorkspace(item) {
         draftId: String(response.data?.draft_id || draftId),
         successThreshold: Number(response.data?.success_threshold || 0) || null,
     });
-    toast.info('已载入到 AI 工作台，可直接继续执行');
+    await requestWorkspacePlanner({ force: true, silent: true });
+    toast.info('已载入该草稿，当前处于继续编辑状态');
 }
 
 async function resolveSelectedWorkspaceUnit() {
@@ -971,7 +1004,7 @@ async function resolveSelectedWorkspaceUnit() {
     for (const device of response.data || []) {
         if (Number(device?.device_id || 0) !== deviceId) continue;
         const unit = Array.isArray(device?.cloud_machines)
-            ? device.cloud_machines.find((item) => Number(item?.cloud_id || 0) === cloudId)
+            ? device.cloud_machines.find((entry) => Number(entry?.cloud_id || 0) === cloudId)
             : null;
         if (!unit) break;
         return {
@@ -984,15 +1017,6 @@ async function resolveSelectedWorkspaceUnit() {
     return null;
 }
 
-function schedulePlanner() {
-    if (plannerTimer) {
-        clearTimeout(plannerTimer);
-    }
-    plannerTimer = setTimeout(() => {
-        void requestWorkspacePlanner({ silent: true });
-    }, 300);
-}
-
 export async function loadAiWorkspace() {
     await Promise.all([
         loadWorkspaceApps(),
@@ -1002,16 +1026,16 @@ export async function loadAiWorkspace() {
     const devicesResponse = await refreshDevicesSnapshot({ silentErrors: true, maxAgeMs: 5000 });
     renderTargetOptions(devicesResponse.ok ? devicesResponse.data : []);
     await loadWorkspaceAccounts();
-    if (String($('aiWorkspaceGoal')?.value || '').trim()) {
-        await requestWorkspacePlanner({ force: true, silent: true });
-    } else {
+
+    if (!plannerResult) {
         clearPlannerCard(plannerElements(), {
-            submitButton: $('aiWorkspaceOpenDesigner'),
-            submitLabel: '打开完整 AI 设计器',
+            submitButton: $('aiWorkspaceSubmitTask'),
+            submitLabel: '下发执行',
         });
-        updateOpenDesignerButton(null);
-        renderWorkspaceDesignerPanel();
     }
+
+    renderWorkspaceGraph();
+    updateWorkspaceActionState();
 
     await Promise.all([
         loadDrafts(),
@@ -1047,32 +1071,30 @@ export function initAiWorkspace() {
     if (appSelect) {
         appSelect.onchange = () => {
             toggleCustomAppFields();
-            resetPlannerState();
-            resetWorkspaceDraftContext();
-            void loadWorkspaceAccounts().then(() => requestWorkspacePlanner({ force: true, silent: true }));
+            markWorkspaceInputsChanged({ resetDraft: true });
+            void loadWorkspaceAccounts();
         };
     }
 
     const goalInput = $('aiWorkspaceGoal');
     if (goalInput) {
         goalInput.oninput = () => {
-            resetPlannerState();
-            schedulePlanner();
+            markWorkspaceInputsChanged();
         };
     }
 
     const advancedPrompt = $('aiWorkspaceAdvancedPrompt');
     if (advancedPrompt) {
         advancedPrompt.oninput = () => {
-            resetPlannerState();
-            schedulePlanner();
+            markWorkspaceInputsChanged();
         };
     }
 
     const targetSelect = $('aiWorkspaceTargetSelect');
     if (targetSelect) {
         targetSelect.onchange = () => {
-            updateOpenDesignerButton(plannerResult);
+            updateWorkspaceActionState();
+            renderWorkspaceGraph();
         };
     }
 
@@ -1080,9 +1102,7 @@ export function initAiWorkspace() {
         const input = $(id);
         if (input) {
             input.oninput = () => {
-                resetPlannerState();
-                resetWorkspaceDraftContext();
-                void loadWorkspaceAccounts().then(() => requestWorkspacePlanner({ force: true, silent: true }));
+                markWorkspaceInputsChanged({ resetDraft: true });
             };
         }
     });
@@ -1090,34 +1110,71 @@ export function initAiWorkspace() {
     const accountRefresh = $('aiWorkspaceAccountRefresh');
     if (accountRefresh) {
         accountRefresh.onclick = () => {
-            resetPlannerState();
-            void loadWorkspaceAccounts().then(() => requestWorkspacePlanner({ force: true, silent: true }));
+            void loadWorkspaceAccounts();
         };
     }
 
     const accountSelect = $('aiWorkspaceAccountSelect');
     if (accountSelect) {
         accountSelect.onchange = () => {
-            resetPlannerState();
-            schedulePlanner();
+            markWorkspaceInputsChanged();
         };
     }
 
-    const openDesignerBtn = $('aiWorkspaceOpenDesigner');
-    if (openDesignerBtn) {
-        openDesignerBtn.onclick = async () => {
-            designerExpanded = !designerExpanded;
-            if (designerExpanded && String($('aiWorkspaceGoal')?.value || '').trim()) {
-                await requestWorkspacePlanner({ force: true, silent: true });
-            } else {
-                renderWorkspaceDesignerPanel();
+    const generatePlanButton = $('aiWorkspaceGeneratePlan');
+    if (generatePlanButton) {
+        generatePlanButton.onclick = async () => {
+            const plan = await requestWorkspacePlanner({ force: true });
+            if (plan) {
+                toast.success('任务图草案已生成，请先确认后再执行');
             }
+        };
+    }
+
+    const regeneratePlanButton = $('aiWorkspaceRegeneratePlan');
+    if (regeneratePlanButton) {
+        regeneratePlanButton.onclick = async () => {
+            const plan = await requestWorkspacePlanner({ force: true });
+            if (plan) {
+                toast.info('已按当前输入重新生成任务图');
+            }
+        };
+    }
+
+    const continueEditButton = $('aiWorkspaceContinueEdit');
+    if (continueEditButton) {
+        continueEditButton.onclick = () => {
+            if (!plannerResult && !activeDraftId) return;
+            plannerDirty = true;
+            planConfirmed = false;
+            renderWorkspaceGraph();
+            updateWorkspaceActionState();
+            $('aiWorkspaceGoal')?.focus();
+            toast.info('已切回编辑态，请修改输入后重新生成任务图');
+        };
+    }
+
+    const confirmButton = $('aiWorkspaceConfirmPlan');
+    if (confirmButton) {
+        confirmButton.onclick = () => {
+            if (!plannerResult || plannerDirty) {
+                toast.warn('请先生成最新任务图草案');
+                return;
+            }
+            planConfirmed = true;
+            renderWorkspaceGraph();
+            updateWorkspaceActionState();
+            toast.success('任务图已确认，可以下发执行');
         };
     }
 
     const submitTaskBtn = $('aiWorkspaceSubmitTask');
     if (submitTaskBtn) {
         submitTaskBtn.onclick = async () => {
+            if (!planConfirmed || !plannerResult || plannerDirty) {
+                toast.warn('请先确认最新任务图');
+                return;
+            }
             const unit = await resolveSelectedWorkspaceUnit();
             if (!unit) return;
             const rawPayload = buildAiDialogPayload({
@@ -1132,56 +1189,41 @@ export function initAiWorkspace() {
                 toast.warn('请填写任务描述');
                 return;
             }
-            const plan = await requestWorkspacePlanner({ force: true });
-            if (!plan) return;
-            await submitAiTaskForUnit(unit, {
+            const result = await submitAiTaskForUnit(unit, {
                 rawPayload,
-                plan,
+                plan: plannerResult,
                 draftId: activeDraftId,
                 successThreshold: activeSuccessThreshold,
                 closeDialog: false,
             });
-            await loadAiWorkspace();
+            if (result.ok) {
+                await loadAiWorkspace();
+            }
         };
     }
+
+    const openDetail = () => {
+        const target = String($('aiWorkspaceTargetSelect')?.value || '').trim();
+        if (!target) return;
+        const [deviceIdText, cloudIdText] = target.split('-');
+        void openAiWorkspaceDetail({
+            deviceId: Number(deviceIdText || 0),
+            cloudId: Number(cloudIdText || 0),
+        });
+    };
 
     const openDetailBtn = $('aiWorkspaceOpenDetail');
     if (openDetailBtn) {
-        openDetailBtn.onclick = () => {
-            const target = String($('aiWorkspaceTargetSelect')?.value || '').trim();
-            if (!target) return;
-            const [deviceIdText, cloudIdText] = target.split('-');
-            void openAiWorkspaceDetail({
-                deviceId: Number(deviceIdText || 0),
-                cloudId: Number(cloudIdText || 0),
-            });
-        };
+        openDetailBtn.onclick = openDetail;
     }
 
-    const designerRunBtn = $('aiWorkspaceDesignerRun');
-    if (designerRunBtn) {
-        designerRunBtn.onclick = () => {
-            $('aiWorkspaceSubmitTask')?.click();
-        };
+    const graphOpenDetailBtn = $('aiWorkspaceGraphOpenDetail');
+    if (graphOpenDetailBtn) {
+        graphOpenDetailBtn.onclick = openDetail;
     }
 
-    const designerOpenDetailBtn = $('aiWorkspaceDesignerOpenDetail');
-    if (designerOpenDetailBtn) {
-        designerOpenDetailBtn.onclick = () => {
-            $('aiWorkspaceOpenDetail')?.click();
-        };
-    }
-
-    const designerCloseBtn = $('aiWorkspaceDesignerClose');
-    if (designerCloseBtn) {
-        designerCloseBtn.onclick = () => {
-            designerExpanded = false;
-            renderWorkspaceDesignerPanel();
-        };
-    }
-
-    updateOpenDesignerButton(null);
-    renderWorkspaceDesignerPanel();
+    renderWorkspaceGraph();
+    updateWorkspaceActionState();
 
     if (window.location.hash === '#ai') {
         void loadAiWorkspace();

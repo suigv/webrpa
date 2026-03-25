@@ -16,32 +16,12 @@ const $ = (id) => document.getElementById(id);
 
 let aiDialogAccounts = [];
 let currentAiDialogUnit = null;
-let plannerTimer = null;
 let plannerSignature = '';
 let plannerResult = null;
 let activeDraftId = '';
 let activeSuccessThreshold = null;
 const activeAiTaskByUnit = new Map();
 const CUSTOM_APP_OPTION = '__custom__';
-function plannerBadgeState(plan) {
-    const execution = plan?.execution || {};
-    const followUp = plan?.follow_up || {};
-    const missing = Array.isArray(followUp?.missing) ? followUp.missing.length : 0;
-    if (execution?.distill_eligible) {
-        return { className: 'badge badge-ok', text: '可蒸馏' };
-    }
-    if (missing > 0) {
-        return { className: 'badge badge-error', text: '待补充' };
-    }
-    const reusePriority = String(execution?.reuse_priority || '').trim();
-    if (reusePriority === 'continue_trace') {
-        return { className: 'badge badge-ok', text: '可复用' };
-    }
-    if (reusePriority === 'context_only') {
-        return { className: 'badge', text: '有上下文' };
-    }
-    return { className: 'badge badge-ok', text: '已就绪' };
-}
 
 function unitTaskKey(unit) {
     if (!unit) return '';
@@ -241,12 +221,12 @@ function renderPlannerStateLoading() {
         followUp: $('unitAiPlannerFollowUp'),
     }, {
         submitButton: $('submitUnitAiTask'),
-        submitLabel: '下发任务',
+        submitLabel: '分析并执行',
     });
 }
 
 function applyAiSubmitState(plan) {
-    applySharedPlannerSubmitState($('submitUnitAiTask'), plan, '下发任务');
+    applySharedPlannerSubmitState($('submitUnitAiTask'), plan, '分析并执行');
 }
 
 function renderPlannerResult(plan) {
@@ -261,7 +241,7 @@ function renderPlannerResult(plan) {
         followUp: $('unitAiPlannerFollowUp'),
     }, plan, {
         submitButton: $('submitUnitAiTask'),
-        submitLabel: '下发任务',
+        submitLabel: '分析并执行',
     });
 }
 
@@ -274,7 +254,7 @@ function clearPlannerCard() {
         followUp: $('unitAiPlannerFollowUp'),
     }, {
         submitButton: $('submitUnitAiTask'),
-        submitLabel: '下发任务',
+        submitLabel: '分析并执行',
     });
 }
 
@@ -399,15 +379,6 @@ async function requestPlanner({ force = false, silent = false } = {}) {
     plannerResult = response.data;
     renderPlannerResult(plannerResult);
     return plannerResult;
-}
-
-function schedulePlanner() {
-    if (plannerTimer) {
-        clearTimeout(plannerTimer);
-    }
-    plannerTimer = setTimeout(() => {
-        void requestPlanner({ silent: true });
-    }, 300);
 }
 
 function buildAiTaskPayload() {
@@ -579,30 +550,27 @@ async function applyAiDialogSeed(seed = {}) {
     toggleAiCustomAppFields();
     await loadAiDialogAccounts(appId, accountName);
     resetPlannerState();
-    if (seed.autoPlan !== false && String(seed.goal || '').trim()) {
-        await requestPlanner({ force: true, silent: true });
-    } else {
-        clearPlannerCard();
-    }
+    clearPlannerCard();
 }
 
 function bindPlannerInputs() {
-    const goalInput = $('unitAiGoal');
-    if (goalInput) goalInput.oninput = () => {
+    const clearSummary = () => {
         resetPlannerState();
-        schedulePlanner();
+        clearPlannerCard();
     };
 
+    const goalInput = $('unitAiGoal');
+    if (goalInput) goalInput.oninput = clearSummary;
+
     const advancedPrompt = $('unitAiAdvancedPrompt');
-    if (advancedPrompt) advancedPrompt.oninput = () => {
-        resetPlannerState();
-        schedulePlanner();
-    };
+    if (advancedPrompt) advancedPrompt.oninput = clearSummary;
 
     const refreshBtn = $('unitAiAccountRefresh');
     if (refreshBtn) {
         refreshBtn.onclick = () => {
-            void loadAiDialogAccounts(getSelectedAiDialogAppId()).then(() => requestPlanner({ force: true, silent: true }));
+            resetPlannerState();
+            clearPlannerCard();
+            void loadAiDialogAccounts(getSelectedAiDialogAppId());
         };
     }
 
@@ -613,26 +581,21 @@ function bindPlannerInputs() {
             resetPlannerState();
             activeDraftId = '';
             activeSuccessThreshold = null;
-            void loadAiDialogAccounts(getSelectedAiDialogAppId()).then(() => requestPlanner({ force: true, silent: true }));
+            clearPlannerCard();
+            void loadAiDialogAccounts(getSelectedAiDialogAppId());
         };
     }
 
     ['unitAiCustomAppId', 'unitAiCustomDisplayName', 'unitAiCustomPackageName'].forEach((id) => {
         const element = $(id);
         if (element) {
-            element.oninput = () => {
-                resetPlannerState();
-                schedulePlanner();
-            };
+            element.oninput = clearSummary;
         }
     });
 
     const accountSelect = $('unitAiAccountSelect');
     if (accountSelect) {
-        accountSelect.onchange = () => {
-            resetPlannerState();
-            schedulePlanner();
-        };
+        accountSelect.onchange = clearSummary;
     }
 }
 
@@ -660,10 +623,10 @@ export async function openUnitAiDialog(unit, seed = null) {
     if (modal) modal.style.display = 'flex';
 
     const title = $('unitAiModalTitle');
-    if (title) title.textContent = `AI 对话 - 云机 #${unit.parent_id}-${unit.cloud_id}`;
+    if (title) title.textContent = `AI 执行 - 云机 #${unit.parent_id}-${unit.cloud_id}`;
     const workspaceSummary = $('unitAiWorkspaceSummary');
     if (workspaceSummary) {
-        workspaceSummary.textContent = `当前弹窗只负责云机 #${unit.parent_id}-${unit.cloud_id} 的快速发起与执行。历史复用、失败建议和蒸馏沉淀请转到 AI 工作台查看。`;
+        workspaceSummary.textContent = `当前弹窗只负责云机 #${unit.parent_id}-${unit.cloud_id} 的单任务执行、执行观察和人工接管。任务图设计、历史复用和蒸馏沉淀请转到 AI 工作台查看。`;
     }
 
     const goalInput = $('unitAiGoal');
@@ -704,10 +667,6 @@ export function closeUnitAiDialog() {
     if (advanced) advanced.style.display = 'none';
     applyAiSubmitState(null);
     currentAiDialogUnit = null;
-    if (plannerTimer) {
-        clearTimeout(plannerTimer);
-        plannerTimer = null;
-    }
 }
 
 export async function submitUnitAiTask(unit, { onSuccess = null, onFailure = null } = {}) {
