@@ -299,7 +299,10 @@ function renderUnits(devices) {
 
 function renderHeader(container, title, isMuted = false) {
     const h = document.createElement("div");
-    h.style.cssText = `grid-column: 1 / -1; margin: 8px 0; color: ${isMuted ? 'var(--text-muted)' : 'var(--text-main)'}; font-size: 13px; font-weight: 600; border-bottom: 1px solid var(--border); padding-bottom: 8px;`;
+    h.className = 'device-grid-header';
+    if (isMuted) {
+        h.classList.add('is-muted');
+    }
     h.textContent = title;
     container.appendChild(h);
 }
@@ -308,8 +311,12 @@ function renderUnitCard(container, u) {
     const unitId = `${u.parent_id}-${u.cloud_id}`;
     const isOnline = u.availability_state === "available";
     const card = document.createElement("div");
-    card.className = `device-card ${selectedUnits.has(unitId) ? 'selected' : ''}`;
+    card.className = `device-card ${isOnline ? 'is-online' : 'is-offline'} ${selectedUnits.has(unitId) ? 'selected' : ''}`;
     card.style.opacity = isOnline ? "1" : "0.5";
+    card.tabIndex = 0;
+    card.setAttribute('role', 'button');
+    card.setAttribute('aria-pressed', selectedUnits.has(unitId) ? 'true' : 'false');
+    card.setAttribute('aria-label', `选择云机 ${unitId}`);
 
     const header = document.createElement('div');
     header.className = 'device-card-header';
@@ -319,6 +326,7 @@ function renderUnitCard(container, u) {
     title.textContent = `云机 #${unitId}`;
 
     const infoBtn = document.createElement('button');
+    infoBtn.type = 'button';
     infoBtn.className = 'btn btn-text text-primary p-0 ml-auto';
     infoBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>';
     infoBtn.onclick = (e) => {
@@ -358,6 +366,7 @@ function renderUnitCard(container, u) {
     actions.className = 'device-card-actions mt-4 pt-4 border-t flex gap-2';
     
     const controlBtn = document.createElement('button');
+    controlBtn.type = 'button';
     controlBtn.className = 'btn btn-primary btn-sm flex-1';
     controlBtn.textContent = '进入接管';
     controlBtn.disabled = !isOnline;
@@ -378,7 +387,17 @@ function renderUnitCard(container, u) {
     
     actions.appendChild(controlBtn);
     card.append(header, meta, actions);
-    card.onclick = () => { toggleSelection(unitId, !selectedUnits.has(unitId)); };
+    const toggleCardSelection = () => {
+        toggleSelection(unitId, !selectedUnits.has(unitId));
+    };
+    card.onclick = toggleCardSelection;
+    card.onkeydown = (event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') {
+            return;
+        }
+        event.preventDefault();
+        toggleCardSelection();
+    };
     container.appendChild(card);
 }
 
