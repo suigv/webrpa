@@ -23,6 +23,7 @@
           </div>
         </div>
         <div class="status-cluster" aria-label="系统状态">
+          <span class="cluster-label">Runtime</span>
           <div id="apiStatus" class="status-badge status-ok">
             <span class="dot"></span> 已连接
           </div>
@@ -41,23 +42,29 @@
           <button type="button" class="nav-item" data-tab="tab-config">系统偏好</button>
         </nav>
         <div class="navbar-actions">
-          <button type="button" id="themeToggle" class="theme-toggle" title="切换主题">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <title>主题切换图标</title>
-              <circle cx="12" cy="12" r="5"></circle>
-              <line x1="12" y1="1" x2="12" y2="3"></line>
-              <line x1="12" y1="21" x2="12" y2="23"></line>
-              <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
-              <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
-              <line x1="1" y1="12" x2="3" y2="12"></line>
-              <line x1="21" y1="12" x2="23" y2="12"></line>
-              <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
-              <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
-            </svg>
-            <span id="themeLabel">玻璃</span>
-          </button>
-          <button type="button" id="initializeAllDevices" class="btn btn-secondary btn-sm">全量初始化</button>
-          <button type="button" id="scanDevices" class="btn btn-secondary">发现设备</button>
+          <div class="toolbar-group">
+            <span class="toolbar-label">外观</span>
+            <button type="button" id="themeToggle" class="theme-toggle" title="切换主题">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <title>主题切换图标</title>
+                <circle cx="12" cy="12" r="5"></circle>
+                <line x1="12" y1="1" x2="12" y2="3"></line>
+                <line x1="12" y1="21" x2="12" y2="23"></line>
+                <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+                <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+                <line x1="1" y1="12" x2="3" y2="12"></line>
+                <line x1="21" y1="12" x2="23" y2="12"></line>
+                <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+                <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+              </svg>
+              <span id="themeLabel">玻璃</span>
+            </button>
+          </div>
+          <div class="toolbar-group toolbar-group-actions">
+            <span class="toolbar-label">设备操作</span>
+            <button type="button" id="initializeAllDevices" class="btn btn-secondary btn-sm">全量初始化</button>
+            <button type="button" id="scanDevices" class="btn btn-primary">发现设备</button>
+          </div>
         </div>
       </div>
     </header>
@@ -65,7 +72,7 @@
     <main class="main-content">
       <section class="ops-hero panel">
         <div class="ops-hero-copy">
-          <div class="section-eyebrow">Mission Control</div>
+          <div class="section-eyebrow">Console Overview</div>
           <h1 id="viewTitle" class="ops-hero-title">设备集群</h1>
           <p id="viewSubtitle" class="ops-hero-text">实时监控设备状态、执行占用与节点级控制动作。</p>
           <div class="ops-hero-notes">

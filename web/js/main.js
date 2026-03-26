@@ -48,13 +48,13 @@ function setViewMeta(tabId) {
 function renderHealthUnavailable() {
     const apiEl = $("apiStatus");
     if (apiEl) {
-        apiEl.className = "status-badge status-warn";
+        apiEl.className = "status-badge status-warning";
         apiEl.innerHTML = '<span class="dot"></span> 未连接';
     }
 
     const rpcEl = $("rpcStatus");
     if (rpcEl) {
-        rpcEl.className = "status-badge status-warn";
+        rpcEl.className = "status-badge status-warning";
         rpcEl.innerHTML = '<span class="dot"></span> 状态未知';
     }
 
@@ -150,7 +150,7 @@ async function loadHealth() {
                 rpcEl.innerHTML = '<span class="dot"></span> RPC 已启用';
                 if (runtimeEl) runtimeEl.textContent = "API + RPC 双通道";
             } else {
-                rpcEl.className = "status-badge status-warn";
+                rpcEl.className = "status-badge status-warning";
                 rpcEl.innerHTML = '<span class="dot"></span> RPC 已禁用';
                 if (runtimeEl) runtimeEl.textContent = "纯 Web 兼容路径";
             }

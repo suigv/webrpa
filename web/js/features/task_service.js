@@ -45,6 +45,10 @@ export async function getTaskCatalog() {
     return catalogPromise;
 }
 
+export async function loadTaskCatalog() {
+    return getTaskCatalog();
+}
+
 function getCatalogTask(taskName) {
     if (!taskName || !Array.isArray(catalogCache)) {
         return null;

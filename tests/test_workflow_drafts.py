@@ -1,5 +1,6 @@
 # pyright: reportMissingImports=false
 import json
+import threading
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -87,37 +88,46 @@ def _build_agent_executor_runner(*, successful_runs: int) -> Runner:
     registry.register("ui.match_state", _ui_match_state)
     registry.register("ui.click", _ui_click)
 
-    responses: list[LLMResponse] = []
-    for index in range(successful_runs):
-        responses.extend(
-            [
-                LLMResponse(
-                    ok=True,
-                    request_id=f"req-{index}-1",
-                    provider="openai",
-                    model="gpt-5.4",
-                    output_text=json.dumps(
-                        {
-                            "done": False,
-                            "action": "ui.click",
-                            "params": {"selector": "#continue"},
-                        }
-                    ),
+    def _responses_for_run(index: int) -> list[LLMResponse]:
+        return [
+            LLMResponse(
+                ok=True,
+                request_id=f"req-{index}-1",
+                provider="openai",
+                model="gpt-5.4",
+                output_text=json.dumps(
+                    {
+                        "done": False,
+                        "action": "ui.click",
+                        "params": {"selector": "#continue"},
+                    }
                 ),
-                LLMResponse(
-                    ok=True,
-                    request_id=f"req-{index}-2",
-                    provider="openai",
-                    model="gpt-5.4",
-                    output_text=json.dumps({"done": True, "message": "executor completed"}),
-                ),
-            ]
-        )
-    llm_client = _SequencedLLMClient(responses=responses)
+            ),
+            LLMResponse(
+                ok=True,
+                request_id=f"req-{index}-2",
+                provider="openai",
+                model="gpt-5.4",
+                output_text=json.dumps({"done": True, "message": "executor completed"}),
+            ),
+        ]
+
+    client_lock = threading.Lock()
+    client_count = 0
+
+    def _llm_client_factory():
+        nonlocal client_count
+        with client_lock:
+            run_index = client_count
+            client_count += 1
+        if run_index >= successful_runs:
+            return _SequencedLLMClient(responses=[])
+        return _SequencedLLMClient(responses=_responses_for_run(run_index))
+
     return Runner(
         agent_executor_runtime=AgentExecutorRuntime(
             registry=registry,
-            llm_client_factory=lambda: llm_client,
+            llm_client_factory=_llm_client_factory,
         )
     )
 
@@ -755,7 +765,11 @@ def test_workflow_draft_records_output_profile_for_ai_channel_and_human_runs(tmp
         task_id="task-ai",
         status="completed",
         takeover_owner=None,
-        payload={"task": "agent_executor", "_workflow_draft_id": "draft-output-profile", "goal": "登录 X"},
+        payload={
+            "task": "agent_executor",
+            "_workflow_draft_id": "draft-output-profile",
+            "goal": "登录 X",
+        },
         devices=[7],
         targets=[{"device_id": 7, "cloud_id": 2}],
         max_retries=0,
@@ -776,7 +790,11 @@ def test_workflow_draft_records_output_profile_for_ai_channel_and_human_runs(tmp
         task_id="task-channel",
         status="completed",
         takeover_owner=None,
-        payload={"task": "agent_executor", "_workflow_draft_id": "draft-output-profile", "goal": "登录 X"},
+        payload={
+            "task": "agent_executor",
+            "_workflow_draft_id": "draft-output-profile",
+            "goal": "登录 X",
+        },
         devices=[7],
         targets=[{"device_id": 7, "cloud_id": 2}],
         max_retries=0,
@@ -800,7 +818,11 @@ def test_workflow_draft_records_output_profile_for_ai_channel_and_human_runs(tmp
         task_id="task-human",
         status="completed",
         takeover_owner="operator-1",
-        payload={"task": "agent_executor", "_workflow_draft_id": "draft-output-profile", "goal": "登录 X"},
+        payload={
+            "task": "agent_executor",
+            "_workflow_draft_id": "draft-output-profile",
+            "goal": "登录 X",
+        },
         devices=[7],
         targets=[{"device_id": 7, "cloud_id": 2}],
         max_retries=0,
@@ -906,6 +928,97 @@ def test_workflow_draft_distill_falls_back_to_latest_unambiguous_success_when_sn
     assert resolved.task_id == "task-older"
     assert resolved.run_id == "run-2"
     assert resolved.target_label == "target-b"
+
+
+def test_workflow_draft_distill_skips_latest_bad_golden_run_trace(tmp_path: Path, monkeypatch):
+    traces_root = tmp_path / "traces"
+    distilled_root = tmp_path / "distilled_plugins"
+    distilled_root.mkdir(parents=True, exist_ok=True)
+
+    import core.model_trace_store as model_trace_store_module
+    import core.workflow_drafts as workflow_drafts_module
+
+    monkeypatch.setattr(workflow_drafts_module, "traces_dir", lambda: traces_root)
+    monkeypatch.setattr(model_trace_store_module, "traces_dir", lambda: traces_root)
+    monkeypatch.setattr(workflow_drafts_module, "distilled_plugins_dir", lambda: distilled_root)
+    monkeypatch.setattr("core.golden_run_distillation.app_from_package", lambda package: "")
+
+    service = _build_workflow_draft_service(tmp_path)
+    record = _create_draft(service)
+    record.success_count = 3
+    record.latest_completed_task_id = "task-latest"
+    record.successful_task_ids = ["task-older", "task-latest"]
+    record.last_success_snapshot = {
+        "identity": {
+            "app_id": "x",
+            "package": "com.twitter.android",
+            "credentials_ref_kind": "inline_json",
+            "account": "demo@example.com",
+            "account_source": "inline_payload",
+        },
+        "trace_context": {
+            "task_id": "task-latest",
+            "run_id": "run-bad",
+            "target_label": "Unit #1-2",
+            "attempt_number": 1,
+        },
+        "trace_context_count": 1,
+        "trace_context_ambiguous": False,
+    }
+    service._store.update_draft(record)
+
+    _write_trace_file(
+        traces_root,
+        task_id="task-latest",
+        run_id="run-bad",
+        target_label="Unit #1-2",
+    )
+
+    trace_store = ModelTraceStore(root_dir=traces_root)
+    context = ModelTraceContext(
+        task_id="task-older",
+        run_id="run-good",
+        target_label="Unit #1-1",
+        attempt_number=1,
+    )
+    trace_store.append_record(
+        context,
+        {
+            "sequence": 1,
+            "step_index": 1,
+            "record_type": "step",
+            "status": "action_executed",
+            "chosen_action": "ui.input_text",
+            "action_params": {"text": "demo@example.com"},
+            "action_result": {"ok": True, "data": {"typed": True}},
+            "observation": {
+                "ok": True,
+                "modality": "structured_state",
+                "observed_state_ids": ["account"],
+                "data": {
+                    "package": "com.twitter.android",
+                    "state": {"state_id": "account"},
+                },
+            },
+        },
+    )
+    trace_store.append_record(
+        context,
+        {
+            "sequence": 2,
+            "step_index": 1,
+            "record_type": "terminal",
+            "status": "completed",
+            "message": "executor completed",
+        },
+    )
+
+    result = service.distill_draft("draft-test", force=True)
+
+    assert result["ok"] is True
+    assert Path(str(result["manifest_path"])).exists()
+    assert Path(str(result["script_path"])).exists()
+    assert Path(str(result["report_path"])).exists()
 
 
 def test_list_trace_contexts_orders_equal_mtime_entries_deterministically(

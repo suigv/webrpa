@@ -355,7 +355,7 @@ function renderUnitCard(container, u) {
     }
 
     const actions = document.createElement('div');
-    actions.className = 'mt-4 pt-4 border-t flex gap-2';
+    actions.className = 'device-card-actions mt-4 pt-4 border-t flex gap-2';
     
     const controlBtn = document.createElement('button');
     controlBtn.className = 'btn btn-primary btn-sm flex-1';

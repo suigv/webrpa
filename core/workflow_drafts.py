@@ -10,7 +10,7 @@ from typing import Any
 
 from core.app_config import resolve_app_id
 from core.business_profile import branch_id_from_payload, normalize_branch_id
-from core.golden_run_distillation import GoldenRunDistiller
+from core.golden_run_distillation import GoldenRunDistillationError, GoldenRunDistiller
 from core.model_trace_store import ModelTraceContext, ModelTraceStore
 from core.paths import distilled_plugins_dir, traces_dir
 from core.task_semantics import (
@@ -277,7 +277,9 @@ def _observed_state_ids(target_result: dict[str, Any]) -> list[str]:
         if not state_id:
             observed = observation.get("observed_state_ids")
             if isinstance(observed, list):
-                state_id = str(next((item for item in observed if str(item or "").strip()), "") or "")
+                state_id = str(
+                    next((item for item in observed if str(item or "").strip()), "") or ""
+                )
         if state_id and state_id not in seen:
             seen.add(state_id)
             result.append(state_id)
@@ -409,7 +411,8 @@ def _evaluate_run_asset(
         "observed_state_ids": observed_states,
         "entry_actions": entry_actions,
         "output_profile": output_profile,
-        "terminal_code": str(target_result.get("code") or (result or {}).get("code") or "").strip() or None,
+        "terminal_code": str(target_result.get("code") or (result or {}).get("code") or "").strip()
+        or None,
         "business_flags": business_flags,
     }
     value_profile = build_run_value_profile(
@@ -510,7 +513,9 @@ def _build_task_snapshot(
         "priority": int(getattr(task_record, "priority", 50) or 50),
         "identity": _build_snapshot_identity(payload),
         "trace_context": (
-            _trace_context_to_dict(latest_trace_context) if latest_trace_context is not None else None
+            _trace_context_to_dict(latest_trace_context)
+            if latest_trace_context is not None
+            else None
         ),
         "trace_context_count": len(trace_contexts),
         "trace_context_ambiguous": len(trace_contexts) > 1,
@@ -663,9 +668,8 @@ class WorkflowDraftService:
         latest_assets = self._store.list_run_assets(limit=1, draft_id=record.draft_id, conn=conn)
         latest_asset = latest_assets[0] if latest_assets else None
         remaining = max(0, record.success_threshold - record.success_count)
-        can_continue = (
-            isinstance(record.last_success_snapshot, dict)
-            or isinstance(record.last_replayable_snapshot, dict)
+        can_continue = isinstance(record.last_success_snapshot, dict) or isinstance(
+            record.last_replayable_snapshot, dict
         )
         latest_asset_dict = _asset_to_dict(latest_asset) if latest_asset is not None else None
         latest_value_profile = (
@@ -782,9 +786,7 @@ class WorkflowDraftService:
                     ),
                     reason,
                 ) or _RUN_ASSET_HINTS.get(reason, "本次执行未计入蒸馏样本，但已保留可复用信息。")
-                summary["message"] = (
-                    f"“{record.display_name}”本次已完成，但未计入蒸馏样本。{hint}"
-                )
+                summary["message"] = f"“{record.display_name}”本次已完成，但未计入蒸馏样本。{hint}"
         elif remaining > 0:
             summary["message"] = (
                 f"当前稳定性样本 {record.success_count}/{record.success_threshold}。"
@@ -914,10 +916,7 @@ class WorkflowDraftService:
             asset.value_level for asset in assets if str(asset.value_level or "").strip()
         )
         retained_targets = Counter(
-            item
-            for asset in assets
-            for item in asset.retained_value
-            if str(item or "").strip()
+            item for asset in assets for item in asset.retained_value if str(item or "").strip()
         )
         observed_states = Counter(
             str(state_id).strip()
@@ -960,7 +959,9 @@ class WorkflowDraftService:
             "asset_count": len(assets),
             "accepted_count": sum(1 for asset in assets if asset.distill_decision == "accepted"),
             "replayable_count": sum(
-                1 for asset in assets if asset.completion_status == "completed" and asset.retained_value
+                1
+                for asset in assets
+                if asset.completion_status == "completed" and asset.retained_value
             ),
             "latest": latest_dict,
             "reuse_priority": reuse_plan["reuse_priority"],
@@ -1165,8 +1166,12 @@ class WorkflowDraftService:
                     "exit": exit_decision,
                 }
 
-            trace_context = self._resolve_distill_trace_context(record)
-            if trace_context is None:
+            trace_contexts = self._distill_trace_context_candidates(record)
+            if not trace_contexts:
+                fallback_context = self._resolve_distill_trace_context(record)
+                if fallback_context is not None:
+                    trace_contexts = [fallback_context]
+            if not trace_contexts:
                 raise ValueError("no successful golden run trace found for workflow draft")
 
             resolved_name = _ascii_slug(plugin_name or record.plugin_name_candidate)
@@ -1181,15 +1186,30 @@ class WorkflowDraftService:
                 else {}
             )
             identity = snapshot.get("identity") if isinstance(snapshot, dict) else None
-            distilled = GoldenRunDistiller().distill(
-                context=trace_context,
-                output_dir=output_dir,
-                plugin_name=output_name,
-                display_name=record.display_name,
-                category=record.category,
-                snapshot_identity=identity if isinstance(identity, dict) else None,
-                draft_id=record.draft_id,
-            )
+            distiller = GoldenRunDistiller()
+            distilled = None
+            last_bad_golden_run: GoldenRunDistillationError | None = None
+            for trace_context in trace_contexts:
+                try:
+                    distilled = distiller.distill(
+                        context=trace_context,
+                        output_dir=output_dir,
+                        plugin_name=output_name,
+                        display_name=record.display_name,
+                        category=record.category,
+                        snapshot_identity=identity if isinstance(identity, dict) else None,
+                        draft_id=record.draft_id,
+                    )
+                    break
+                except GoldenRunDistillationError as exc:
+                    if exc.code != "bad_golden_run":
+                        raise
+                    last_bad_golden_run = exc
+                    continue
+            if distilled is None:
+                if last_bad_golden_run is not None:
+                    raise last_bad_golden_run
+                raise ValueError("no successful golden run trace found for workflow draft")
             record.last_distilled_manifest_path = str(distilled.manifest_path)
             record.last_distilled_script_path = str(distilled.script_path)
             record.status = _resolve_status(record)
@@ -1217,9 +1237,9 @@ class WorkflowDraftService:
                     "should_distill": False,
                     "stage": "distilled",
                 },
-                "declarative_binding": (
-                    self.summary(draft_id, conn=tx_conn) or {}
-                ).get("declarative_binding"),
+                "declarative_binding": (self.summary(draft_id, conn=tx_conn) or {}).get(
+                    "declarative_binding"
+                ),
                 "exit": exit_decision,
             }
 
@@ -1292,6 +1312,15 @@ class WorkflowDraftService:
     def _resolve_distill_trace_context(
         self, record: WorkflowDraftRecord
     ) -> ModelTraceContext | None:
+        contexts = self._distill_trace_context_candidates(record)
+        if contexts:
+            return contexts[0]
+        return None
+
+    def _distill_trace_context_candidates(
+        self, record: WorkflowDraftRecord
+    ) -> list[ModelTraceContext]:
+        candidates: list[ModelTraceContext] = []
         snapshot = record.last_success_snapshot
         if isinstance(snapshot, dict):
             trace_context = _trace_context_from_dict(snapshot.get("trace_context"))
@@ -1302,17 +1331,17 @@ class WorkflowDraftService:
                         "target-specific distillation is required"
                     )
                 if _trace_context_exists(trace_context):
-                    return trace_context
+                    candidates.append(trace_context)
         for task_id in reversed(record.successful_task_ids):
-            contexts = _list_trace_contexts(task_id)
-            if len(contexts) > 1:
+            task_contexts = _list_trace_contexts(task_id)
+            if len(task_contexts) > 1:
                 raise ValueError(
                     "multiple golden run traces found for a successful task; "
                     "target-specific distillation is required"
                 )
-            if contexts:
-                return contexts[0]
-        return None
+            if task_contexts and task_contexts[0] not in candidates:
+                candidates.append(task_contexts[0])
+        return candidates
 
     def _build_failure_advice(
         self,
@@ -1404,10 +1433,10 @@ class WorkflowDraftService:
                     ),
                     reason,
                 ) or _RUN_ASSET_HINTS.get(reason, "本次执行未计入蒸馏样本，但已保留可复用信息。")
-                summary["message"] = (
-                    f"“{record.display_name}”本次已完成，但未计入蒸馏样本。{hint}"
+                summary["message"] = f"“{record.display_name}”本次已完成，但未计入蒸馏样本。{hint}"
+                summary["next_action"] = (
+                    "continue_validation" if summary.get("can_continue") else "retry"
                 )
-                summary["next_action"] = "continue_validation" if summary.get("can_continue") else "retry"
                 return summary
         remaining = max(0, record.success_threshold - record.success_count)
         if remaining > 0:
