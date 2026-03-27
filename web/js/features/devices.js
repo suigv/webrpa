@@ -98,11 +98,29 @@ function updateFleetOverview({ total = 0, online = 0, busy = 0 } = {}) {
     const onlineEl = $("overviewOnlineUnits");
     const busyEl = $("overviewBusyUnits");
     const selectedEl = $("overviewSelectedUnits");
+    const commandTotalEl = $("commandTotalUnits");
+    const commandOnlineEl = $("commandOnlineUnits");
+    const commandBusyEl = $("commandBusyUnits");
+    const commandSelectedEl = $("commandSelectedUnits");
+    const commandSelectionHintEl = $("commandSelectionHint");
 
     if (totalEl) totalEl.textContent = String(total);
     if (onlineEl) onlineEl.textContent = String(online);
     if (busyEl) busyEl.textContent = String(busy);
     if (selectedEl) selectedEl.textContent = String(selectedUnits.size);
+    if (commandTotalEl) commandTotalEl.textContent = String(total);
+    if (commandOnlineEl) commandOnlineEl.textContent = String(online);
+    if (commandBusyEl) commandBusyEl.textContent = String(busy);
+    if (commandSelectedEl) commandSelectedEl.textContent = String(selectedUnits.size);
+    if (commandSelectionHintEl) {
+        if (selectedUnits.size > 0) {
+            commandSelectionHintEl.textContent = `已锁定 ${selectedUnits.size} 台节点，可继续进入任务设计或执行队列。`;
+        } else if (online > 0) {
+            commandSelectionHintEl.textContent = '先在左侧锁定节点，再进入任务设计或执行队列。';
+        } else {
+            commandSelectionHintEl.textContent = '当前没有可用节点，先检查设备扫描与运行链路。';
+        }
+    }
 }
 
 function summarizeTaskState(unit, isOnline) {

@@ -16,16 +16,16 @@ import { initMetrics } from './features/metrics.js';
 const $ = (id) => document.getElementById(id);
 const TAB_META = {
     "tab-main": {
-        title: "设备集群",
-        subtitle: "实时监控设备状态、执行占用与节点级控制动作。",
+        title: "指挥台",
+        subtitle: "先看节点态势，再进入任务设计、执行队列与异常接管。",
     },
     "tab-ai": {
-        title: "AI 工作台",
-        subtitle: "统一查看 AI 设计、草稿沉淀、执行协作与复用洞察。",
+        title: "任务设计",
+        subtitle: "围绕目标、资源、接管与成功出口完成任务图设计。",
     },
     "tab-tasks": {
-        title: "任务队列",
-        subtitle: "围绕插件白名单构建任务，并持续观察执行流水。",
+        title: "执行队列",
+        subtitle: "绑定目标节点、设置调度策略，并持续观察运行与异常状态。",
     },
     "tab-accounts": {
         title: "资源仓库",
@@ -45,6 +45,13 @@ function setViewMeta(tabId) {
     if (subtitleEl) subtitleEl.textContent = meta.subtitle;
 }
 
+function setRuntimeMode(text) {
+    const runtimeEl = $("heroRuntimeMode");
+    const commandRuntimeEl = $("commandRuntimeMode");
+    if (runtimeEl) runtimeEl.textContent = text;
+    if (commandRuntimeEl) commandRuntimeEl.textContent = text;
+}
+
 function renderHealthUnavailable() {
     const apiEl = $("apiStatus");
     if (apiEl) {
@@ -58,8 +65,25 @@ function renderHealthUnavailable() {
         rpcEl.innerHTML = '<span class="dot"></span> 状态未知';
     }
 
-    const runtimeEl = $("heroRuntimeMode");
-    if (runtimeEl) runtimeEl.textContent = "后端不可达";
+    setRuntimeMode("后端不可达");
+}
+
+function activateTab(targetId) {
+    if (!targetId) return;
+    const navItems = document.querySelectorAll('.nav-item');
+    const panes = document.querySelectorAll('.tab-pane');
+
+    navItems.forEach((b) => {
+        b.classList.toggle('active', b.getAttribute('data-tab') === targetId);
+    });
+    panes.forEach((p) => {
+        const isActive = p.id === targetId;
+        p.classList.toggle('active', isActive);
+        p.style.display = isActive ? 'block' : 'none';
+    });
+
+    setViewMeta(targetId);
+    closeDetail(false);
 }
 
 async function init() {
@@ -98,31 +122,20 @@ async function init() {
 
 function setupNavigation() {
     const navItems = document.querySelectorAll('.nav-item');
-    const panes = document.querySelectorAll('.tab-pane');
 
     navItems.forEach(btn => {
         btn.addEventListener('click', () => {
             const targetId = btn.getAttribute('data-tab');
-            if(!targetId) return;
-
-            navItems.forEach((b) => {
-                b.classList.remove('active');
-            });
-            panes.forEach((p) => {
-                p.classList.remove('active');
-                p.style.display = 'none';
-            });
-
-            btn.classList.add('active');
-            const targetPane = document.getElementById(targetId);
-            if(targetPane) {
-                targetPane.classList.add('active');
-                targetPane.style.display = 'block';
-            }
-
-            setViewMeta(targetId);
-            closeDetail(false);
+            activateTab(targetId);
         });
+    });
+
+    document.addEventListener('click', (event) => {
+        const trigger = event.target instanceof Element ? event.target.closest('[data-nav-target]') : null;
+        if (!trigger) return;
+        const targetId = trigger.getAttribute('data-nav-target');
+        if (!targetId) return;
+        activateTab(targetId);
     });
 
     const active = document.querySelector('.nav-item.active');
@@ -143,16 +156,15 @@ async function loadHealth() {
             apiEl.innerHTML = '<span class="dot"></span> 已连接';
         }
         const rpcEl = $("rpcStatus");
-        const runtimeEl = $("heroRuntimeMode");
         if (rpcEl) {
             if (r.data.rpc_enabled) {
                 rpcEl.className = "status-badge status-ok";
                 rpcEl.innerHTML = '<span class="dot"></span> RPC 已启用';
-                if (runtimeEl) runtimeEl.textContent = "API + RPC 双通道";
+                setRuntimeMode("API + RPC 双通道");
             } else {
                 rpcEl.className = "status-badge status-warning";
                 rpcEl.innerHTML = '<span class="dot"></span> RPC 已禁用';
-                if (runtimeEl) runtimeEl.textContent = "纯 Web 兼容路径";
+                setRuntimeMode("纯 Web 兼容路径");
             }
         }
     } catch (e) {

@@ -35,9 +35,9 @@
 
       <div class="command-strip">
         <nav class="navbar-tabs" aria-label="主导航">
-          <button type="button" class="nav-item active" data-tab="tab-main">设备集群</button>
-          <button type="button" class="nav-item" data-tab="tab-ai">AI 工作台</button>
-          <button type="button" class="nav-item" data-tab="tab-tasks">任务队列</button>
+          <button type="button" class="nav-item active" data-tab="tab-main">指挥台</button>
+          <button type="button" class="nav-item" data-tab="tab-ai">任务设计</button>
+          <button type="button" class="nav-item" data-tab="tab-tasks">执行队列</button>
           <button type="button" class="nav-item" data-tab="tab-accounts">资源仓库</button>
           <button type="button" class="nav-item" data-tab="tab-config">系统偏好</button>
         </nav>
@@ -113,25 +113,160 @@
       <!-- 设备集群 -->
       <div id="tab-main" class="tab-pane active">
         <div class="section-header">
-          <h2>设备集群</h2>
-          <p class="text-muted">实时监控设备状态与下发基础指令</p>
-        </div>
-        <div id="devicesList" class="device-grid"></div>
-        
-        <div class="panel mt-8">
-          <div class="panel-header">
-            <h3>系统级输出</h3>
-            <button type="button" id="clearGlobalLogBtn" class="btn btn-text text-muted">清空缓冲区</button>
+          <div>
+            <h2>指挥台</h2>
+            <p class="text-muted">先看节点态势，再进入任务设计与异常接管，不再让操作路径埋在内容堆里。</p>
           </div>
-          <div id="globalLogBox" class="terminal"></div>
+          <div class="command-shortcuts">
+            <button type="button" class="btn btn-primary" data-nav-target="tab-ai">设计新任务</button>
+            <button type="button" class="btn btn-secondary" data-nav-target="tab-tasks">查看执行队列</button>
+          </div>
+        </div>
+        <div class="command-center-layout">
+          <section class="command-lane fleet-lane">
+            <div class="lane-shell">
+              <div class="lane-header">
+                <div>
+                  <span class="lane-kicker">Fleet</span>
+                  <h3>节点态势</h3>
+                  <p>批量选择、快速判断在线质量，再决定从哪条业务流进入。</p>
+                </div>
+              </div>
+              <div id="devicesList" class="device-grid"></div>
+            </div>
+          </section>
+
+          <section class="command-lane mission-lane">
+            <div class="panel mission-flow-panel">
+              <div class="panel-header">
+                <h3>Mission Flow</h3>
+                <span class="badge">业务闭环</span>
+              </div>
+              <div class="panel-body mission-flow-body">
+                <button type="button" class="workflow-step-card" data-nav-target="tab-ai">
+                  <span class="workflow-step-index">01</span>
+                  <span class="workflow-step-copy">
+                    <strong>设计任务</strong>
+                    <span>通过 AI 或既有草稿先确定目标、约束、人工接管点与成功出口。</span>
+                  </span>
+                </button>
+                <button type="button" class="workflow-step-card" data-nav-target="tab-tasks">
+                  <span class="workflow-step-index">02</span>
+                  <span class="workflow-step-copy">
+                    <strong>下发执行</strong>
+                    <span>进入执行队列绑定目标节点、调度策略和重试规则，再统一发车。</span>
+                  </span>
+                </button>
+                <button type="button" class="workflow-step-card" data-nav-target="tab-accounts">
+                  <span class="workflow-step-index">03</span>
+                  <span class="workflow-step-copy">
+                    <strong>补齐资源</strong>
+                    <span>当账号、2FA、库存或分发能力不足时，回到资源仓库补齐依赖。</span>
+                  </span>
+                </button>
+              </div>
+            </div>
+
+            <div class="command-summary-grid">
+              <article class="mission-mini-card">
+                <span class="mission-mini-label">已选节点</span>
+                <strong id="commandSelectedUnits" class="mission-mini-value">0</strong>
+                <p id="commandSelectionHint" class="mission-mini-text">先锁定节点，再进入设计或执行。</p>
+              </article>
+              <article class="mission-mini-card">
+                <span class="mission-mini-label">在线可用</span>
+                <strong id="commandOnlineUnits" class="mission-mini-value">0</strong>
+                <p class="mission-mini-text">可立即进入任务设计与执行的节点数量。</p>
+              </article>
+              <article class="mission-mini-card">
+                <span class="mission-mini-label">执行占用</span>
+                <strong id="commandBusyUnits" class="mission-mini-value">0</strong>
+                <p class="mission-mini-text">建议优先去执行队列观察运行态与失败态。</p>
+              </article>
+              <article class="mission-mini-card">
+                <span class="mission-mini-label">节点总量</span>
+                <strong id="commandTotalUnits" class="mission-mini-value">0</strong>
+                <p class="mission-mini-text">主视图聚焦当前作战面，不把所有说明前置。</p>
+              </article>
+            </div>
+
+            <div class="panel mission-brief-panel">
+              <div class="panel-header">
+                <h3>Mission Brief</h3>
+              </div>
+              <div class="panel-body mission-brief-body">
+                <div class="task-guide-card">
+                  <div class="task-guide-title">当前推荐操作顺序</div>
+                  <div class="task-guide-text">
+                    若还没有任务图，先进入“任务设计”；若草稿已确认，直接进入“执行队列”；若发现账号或 2FA 不全，再回到“资源仓库”补齐。
+                  </div>
+                </div>
+                <div class="task-guide-card">
+                  <div class="task-guide-title">避免信息堆叠</div>
+                  <div class="task-guide-text">
+                    指挥台只负责回答三件事：现在哪些节点能打、下一步该去哪里、异常应该从哪里接管。细节表单和历史列表留在对应工作面展开。
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <aside class="command-lane intervention-lane">
+            <div class="panel intervention-panel">
+              <div class="panel-header">
+                <h3>Intervention</h3>
+                <div class="flex gap-2">
+                  <button type="button" class="btn btn-secondary btn-sm" data-nav-target="tab-ai">继续草稿</button>
+                  <button type="button" class="btn btn-secondary btn-sm" data-nav-target="tab-tasks">看运行态</button>
+                </div>
+              </div>
+              <div class="panel-body intervention-body">
+                <div class="intervention-summary">
+                  <div class="hero-note">
+                    <span class="hero-note-label">运行形态</span>
+                    <span id="commandRuntimeMode" class="hero-note-value">等待健康检查</span>
+                  </div>
+                  <div class="hero-note">
+                    <span class="hero-note-label">接管策略</span>
+                    <span class="hero-note-value">失败、验证码与风险确认统一回流到人工接管。</span>
+                  </div>
+                </div>
+                <div class="intervention-feed-header">
+                  <span class="task-guide-title">系统级输出</span>
+                  <button type="button" id="clearGlobalLogBtn" class="btn btn-text text-muted">清空缓冲区</button>
+                </div>
+                <div id="globalLogBox" class="terminal command-feed"></div>
+              </div>
+            </div>
+
+            <div class="panel operating-rules-panel">
+              <div class="panel-header">
+                <h3>Operating Rules</h3>
+              </div>
+              <div class="panel-body operating-rules">
+                <div class="operating-rule">
+                  <strong>先定目标，再开任务</strong>
+                  <span>不要在没有节点和账号上下文时直接堆任务参数。</span>
+                </div>
+                <div class="operating-rule">
+                  <strong>运行中优先看异常</strong>
+                  <span>执行态一旦进入失败、待验证码或需人工判断，应先处理回流，再继续扩量。</span>
+                </div>
+                <div class="operating-rule">
+                  <strong>让细节留在工作面</strong>
+                  <span>设计、队列和资源各自承担深操作，指挥台只保留路径、态势和警报。</span>
+                </div>
+              </div>
+            </div>
+          </aside>
         </div>
       </div>
 
       <!-- 任务队列 -->
       <div id="tab-tasks" class="tab-pane">
         <div class="section-header">
-          <h2>任务编排</h2>
-          <p class="text-muted">构建自动化流程并管理执行队列</p>
+          <h2>执行队列</h2>
+          <p class="text-muted">把任务创建、目标绑定和运行观察放在同一工作面，避免从设计到执行来回跳页。</p>
         </div>
         <div class="two-col-layout">
           <!-- 左侧：新建 -->
@@ -217,8 +352,8 @@
 
       <div id="tab-ai" class="tab-pane">
         <div class="section-header">
-          <h2>AI 工作台</h2>
-          <p class="text-muted">统一承载 AI 任务设计、草稿沉淀、执行协作与复用洞察</p>
+          <h2>任务设计</h2>
+          <p class="text-muted">先完成目标、资源与接管约束，再把草稿交给执行队列，不让 AI 成为一个孤立的大页。</p>
         </div>
 
         <div id="aiWorkspaceRoot" class="ai-workspace-root" data-mode="guided" data-step="1">

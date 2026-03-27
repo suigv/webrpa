@@ -2309,6 +2309,217 @@ button,
   max-width: 58ch;
 }
 
+.command-shortcuts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.command-center-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(320px, 0.86fr) minmax(300px, 0.78fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.command-lane {
+  min-width: 0;
+}
+
+.lane-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.lane-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.lane-kicker {
+  display: inline-block;
+  margin-bottom: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #8190a8;
+}
+
+.lane-header h3 {
+  font-family: var(--font-display);
+  font-size: 20px;
+  letter-spacing: -0.04em;
+}
+
+.lane-header p {
+  margin-top: 4px;
+  max-width: 48ch;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.mission-lane,
+.intervention-lane {
+  position: sticky;
+  top: 114px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.mission-flow-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.workflow-step-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 14px;
+  width: 100%;
+  padding: 16px;
+  border: 1px solid var(--line-soft);
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(18, 24, 36, 0.9), rgba(10, 14, 21, 0.94));
+  color: var(--text-main);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--transition-fast), background var(--transition-fast), transform var(--transition-fast);
+}
+
+.workflow-step-card:hover {
+  border-color: rgba(56, 189, 248, 0.32);
+  background: linear-gradient(180deg, rgba(20, 30, 44, 0.94), rgba(10, 14, 21, 0.94));
+  transform: translateY(-1px);
+}
+
+.workflow-step-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  background: rgba(56, 189, 248, 0.12);
+  color: #7dd3fc;
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+
+.workflow-step-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.workflow-step-copy strong {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.workflow-step-copy span {
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.command-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.mission-mini-card {
+  padding: 16px;
+  border: 1px solid var(--line-soft);
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(17, 22, 33, 0.94), rgba(11, 15, 22, 0.94));
+}
+
+.mission-mini-label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #8190a8;
+}
+
+.mission-mini-value {
+  display: block;
+  margin-bottom: 8px;
+  font-family: var(--font-display);
+  font-size: 28px;
+  line-height: 1;
+  letter-spacing: -0.05em;
+  font-variant-numeric: tabular-nums;
+}
+
+.mission-mini-text {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.mission-brief-body,
+.intervention-body,
+.operating-rules {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.intervention-summary {
+  display: grid;
+  gap: 10px;
+}
+
+.intervention-feed-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.command-feed {
+  height: min(44vh, 460px);
+}
+
+.operating-rule {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.operating-rule:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.operating-rule strong {
+  font-size: 13px;
+  color: var(--text-main);
+}
+
+.operating-rule span {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
 .two-col-layout {
   gap: 18px;
   grid-template-columns: minmax(0, 1.02fr) minmax(360px, 0.98fr);
@@ -2648,6 +2859,7 @@ button,
     align-items: start;
   }
 
+  .command-center-layout,
   .ops-hero,
   .ai-workspace-top,
   .two-col-layout {
@@ -2656,6 +2868,11 @@ button,
 
   .ops-hero-copy {
     max-width: none;
+  }
+
+  .mission-lane,
+  .intervention-lane {
+    position: static;
   }
 }
 
@@ -2687,8 +2904,22 @@ button,
     grid-template-columns: 1fr;
   }
 
+  .command-shortcuts,
   .device-grid,
   .plugin-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .command-shortcuts {
+    display: flex;
+    justify-content: stretch;
+  }
+
+  .command-shortcuts .btn {
+    flex: 1 1 100%;
+  }
+
+  .command-summary-grid {
     grid-template-columns: 1fr;
   }
 
@@ -2719,6 +2950,10 @@ button,
 @media (max-width: 560px) {
   .command-strip .nav-item {
     flex: 1 1 100%;
+  }
+
+  .workflow-step-card {
+    grid-template-columns: 1fr;
   }
 
   .toolbar-group {
